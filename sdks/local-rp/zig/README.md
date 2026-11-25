@@ -118,6 +118,21 @@ compatible with the Go/Rust reference codecs even though their generated
 encoders emit a fixed declaration order rather than a strictly sorted one
 (both are valid CBOR encodings of the same map).
 
+Wire forms that the hand-written codec writes and reads:
+
+- A CSIL `timestamp` field is CBOR tag 0 that wraps RFC 3339 text in UTC
+  (for example `2026-01-01T00:00:00Z`). The Zig structs keep the text. The
+  decoder refuses a value without tag 0 and text that is not RFC 3339.
+- A closed vocabulary is an unsigned integer on the wire. The Zig structs
+  keep the text id. `KeyAlgorithm`: `ed25519`=1, `x25519`=2. `KeyUsage`:
+  `sign`=1, `encrypt`=2, `agree`=3. `AeadSuite`: `aes-256-gcm`=1,
+  `chacha20-poly1305`=2. The decoder refuses an unknown number.
+- The callback-box KDF context binds the suite text id, not the number.
+- A signed tuple payload (claim, key revocation, key vouch) holds each time
+  as a CBOR integer of whole Unix seconds. A signed time with a fraction of
+  a second is not rounded: verification fails
+  (`error.FractionalSignedTimestamp`).
+
 `src/rpc.zig` likewise hand-builds the CSIL-RPC request/response envelope
 (`v`/`service`/`op`/`payload:#6.24(bstr)` and `v`/`status`/`variant`/
 `error`/`payload`) and the 4-byte big-endian length-prefix stream framing,

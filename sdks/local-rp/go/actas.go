@@ -51,10 +51,10 @@ const MaxActAsRequestWindow = 900 * time.Second
 // ActAsRefreshRequestWindow is the validity window of a refresh request.
 const ActAsRefreshRequestWindow = 300 * time.Second
 
-// formatActAsTime is whole-second RFC3339 in UTC ending in Z, the same form
-// liblinkkeys::act_as::format_time produces.
-func formatActAsTime(t time.Time) string {
-	return t.UTC().Truncate(time.Second).Format(time.RFC3339)
+// actAsTime is t in UTC without its fraction of a second (rounded down), the
+// same form liblinkkeys::timestamp::whole_seconds produces.
+func actAsTime(t time.Time) time.Time {
+	return t.UTC().Truncate(time.Second)
 }
 
 // localRpGrantee is the GranteeRef that names this local RP.
@@ -90,7 +90,10 @@ func SignActAsGrantRequest(request api.ActAsGrantRequest, km *LocalRpKeyMaterial
 	if err := checkKeyMaterial(km); err != nil {
 		return api.SignedActAsGrantRequest{}, err
 	}
-	bytes := api.EncodeActAsGrantRequest(request)
+	bytes, err := api.EncodeActAsGrantRequest(request)
+	if err != nil {
+		return api.SignedActAsGrantRequest{}, encodeFailed("ActAsGrantRequest", err)
+	}
 	return api.SignedActAsGrantRequest{Request: bytes, Proof: proveActAs(km, CtxActAsGrantRequest, bytes)}, nil
 }
 
@@ -100,15 +103,19 @@ func SignActAsRefreshRequest(request api.ActAsRefreshRequest, km *LocalRpKeyMate
 	if err := checkKeyMaterial(km); err != nil {
 		return api.SignedActAsRefreshRequest{}, err
 	}
-	bytes := api.EncodeActAsRefreshRequest(request)
+	bytes, err := api.EncodeActAsRefreshRequest(request)
+	if err != nil {
+		return api.SignedActAsRefreshRequest{}, encodeFailed("ActAsRefreshRequest", err)
+	}
 	return api.SignedActAsRefreshRequest{Request: bytes, Proof: proveActAs(km, CtxActAsRefreshRequest, bytes)}, nil
 }
 
 // SignedActAsGrantRequestToURLParam encodes a signed grant request for the
 // `/auth/act-as?signed_request=<...>` query parameter (unpadded base64url
 // of its CBOR).
-func SignedActAsGrantRequestToURLParam(signed api.SignedActAsGrantRequest) string {
-	return encodeURLParam(api.EncodeSignedActAsGrantRequest(signed))
+func SignedActAsGrantRequestToURLParam(signed api.SignedActAsGrantRequest) (string, error) {
+	b, err := api.EncodeSignedActAsGrantRequest(signed)
+	return encodedToURLParam("SignedActAsGrantRequest", b, err)
 }
 
 // freshActAsNonce is 32 random bytes, unpadded base64url.
@@ -207,8 +214,8 @@ func BeginActAs(config BeginActAsConfig) (*ActAsRedirect, *PendingActAs, error) 
 		RequestedRenewalWindowSeconds: config.RequestedRenewalWindowSeconds,
 		CallbackUrl:                   config.CallbackURL,
 		Nonce:                         nonce,
-		RequestedAt:                   formatActAsTime(config.Now),
-		ExpiresAt:                     formatActAsTime(config.Now.Add(window)),
+		RequestedAt:                   actAsTime(config.Now),
+		ExpiresAt:                     actAsTime(config.Now.Add(window)),
 	}
 	signed, err := SignActAsGrantRequest(request, config.KeyMaterial)
 	if err != nil {
@@ -219,7 +226,11 @@ func BeginActAs(config BeginActAsConfig) (*ActAsRedirect, *PendingActAs, error) 
 	if dns == nil {
 		dns = DefaultDNSResolver()
 	}
-	redirectURL, err := resolveBrowserEndpoint(dns, identity.domain, BrowserRouteActAs, SignedActAsGrantRequestToURLParam(signed))
+	encoded, err := SignedActAsGrantRequestToURLParam(signed)
+	if err != nil {
+		return nil, nil, err
+	}
+	redirectURL, err := resolveBrowserEndpoint(dns, identity.domain, BrowserRouteActAs, encoded)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -304,8 +315,8 @@ func RefreshActAsGrant(config RefreshActAsGrantConfig) (*api.SignedActAsGrant, b
 	signed, err := SignActAsRefreshRequest(api.ActAsRefreshRequest{
 		GrantId:     config.GrantID,
 		Grantee:     localRpGrantee(config.KeyMaterial),
-		RequestedAt: formatActAsTime(config.Now),
-		ExpiresAt:   formatActAsTime(config.Now.Add(ActAsRefreshRequestWindow)),
+		RequestedAt: actAsTime(config.Now),
+		ExpiresAt:   actAsTime(config.Now.Add(ActAsRefreshRequestWindow)),
 		Nonce:       nonce,
 	}, config.KeyMaterial)
 	if err != nil {
@@ -324,7 +335,10 @@ func RefreshActAsGrant(config RefreshActAsGrantConfig) (*api.SignedActAsGrant, b
 	if err != nil {
 		return nil, false, err
 	}
-	payload := api.EncodeRefreshActAsGrantRequest(api.RefreshActAsGrantRequest{Request: signed})
+	payload, err := api.EncodeRefreshActAsGrantRequest(api.RefreshActAsGrantRequest{Request: signed})
+	if err != nil {
+		return nil, false, encodeFailed("RefreshActAsGrantRequest", err)
+	}
 	respBytes, err := call(tr, endpoint, "ActAs", "refresh-grant", payload)
 	if err != nil {
 		return nil, false, err
@@ -389,13 +403,16 @@ func PresentActAs(grant api.SignedActAsGrant, audience api.ApplicationRef, reque
 	if err := checkKeyMaterial(km); err != nil {
 		return nil, nil, err
 	}
-	presentation := api.EncodeActAsPresentation(api.ActAsPresentation{
+	presentation, err := api.EncodeActAsPresentation(api.ActAsPresentation{
 		GrantHash:     ActAsGrantHash(grant.Grant),
 		Audience:      audience,
 		RequestDigest: append([]byte{}, requestDigest...),
-		PresentedAt:   formatActAsTime(now),
+		PresentedAt:   actAsTime(now),
 		Nonce:         append([]byte{}, nonce...),
 	})
+	if err != nil {
+		return nil, nil, encodeFailed("ActAsPresentation", err)
+	}
 	credential := api.ActAsCredential{
 		Grant: grant,
 		Presentation: api.SignedActAsPresentation{
@@ -403,5 +420,9 @@ func PresentActAs(grant api.SignedActAsGrant, audience api.ApplicationRef, reque
 			Proof:        proveActAs(km, CtxActAsPresentation, presentation),
 		},
 	}
-	return &credential, api.EncodeActAsCredential(credential), nil
+	credentialBytes, err := api.EncodeActAsCredential(credential)
+	if err != nil {
+		return nil, nil, encodeFailed("ActAsCredential", err)
+	}
+	return &credential, credentialBytes, nil
 }

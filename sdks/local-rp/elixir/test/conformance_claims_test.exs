@@ -35,10 +35,10 @@ defmodule LinkkeysLocalRp.ConformanceClaimsTest do
       claim_type: c["claim_type"],
       claim_value: Vectors.hex(c["claim_value_hex"]),
       signatures: Enum.map(c["signatures"], &claim_signature_from_json/1),
-      attested_at: c["attested_at"],
-      created_at: c["created_at"],
-      expires_at: c["expires_at"],
-      revoked_at: c["revoked_at"]
+      attested_at: Vectors.ts(c["attested_at"]),
+      created_at: Vectors.ts(c["created_at"]),
+      expires_at: Vectors.ts(c["expires_at"]),
+      revoked_at: Vectors.ts(c["revoked_at"])
     }
   end
 
@@ -47,8 +47,8 @@ defmodule LinkkeysLocalRp.ConformanceClaimsTest do
       key_id: k["key_id"],
       public_key: Vectors.hex(k["public_key_hex"]),
       key_usage: k["key_usage"],
-      expires_at: k["expires_at"],
-      revoked_at: k["revoked_at"]
+      expires_at: Vectors.ts(k["expires_at"]),
+      revoked_at: Vectors.ts(k["revoked_at"])
     }
   end
 
@@ -70,7 +70,8 @@ defmodule LinkkeysLocalRp.ConformanceClaimsTest do
   # Recomputes the claim-signature payload directly from the README /
   # design-doc layout (CBOR([tag, claim_id, claim_type, claim_value(bstr),
   # "user_id@subject_domain", signing_domain, expires_at_or_null,
-  # attested_at]) -- an 8-element array, tag first), independent of
+  # attested_at]) -- an 8-element array, tag first, times as whole Unix
+  # seconds in CBOR integers), independent of
   # `LinkkeysLocalRp.Claims`'s own (private) payload builder. This is what
   # actually audits the SDK's wire construction against the spec rather
   # than just re-running the SDK's own logic against itself.
@@ -84,8 +85,8 @@ defmodule LinkkeysLocalRp.ConformanceClaimsTest do
       Cbor.bytes(claim.claim_value),
       subject,
       signing_domain,
-      claim.expires_at,
-      claim.attested_at
+      claim.expires_at && DateTime.to_unix(claim.expires_at),
+      DateTime.to_unix(claim.attested_at)
     ])
   end
 
@@ -157,6 +158,15 @@ defmodule LinkkeysLocalRp.ConformanceClaimsTest do
     end
   end
 
+  test "a signed claim time with a fraction of a second fails verification (never rounded)" do
+    case_ = hd(@claims["cases"])
+    claim = claim_from_json(case_["claim"])
+    fractional = %{claim | attested_at: DateTime.add(claim.attested_at, 500_000, :microsecond)}
+
+    assert {:error, :fractional_signed_time} ==
+             Claims.verify_claim_signatures(fractional, case_["subject_domain"], default_domain_keys(), @now)
+  end
+
   # -- decode-negative case: the tstr/bstr trap -----------------------------
 
   test "claim_value encoded as CBOR text (major type 3) is REJECTED at decode, not silently accepted" do
@@ -218,7 +228,7 @@ defmodule LinkkeysLocalRp.ConformanceClaimsTest do
 
     assert decoded.user_id == response["user_id"]
     assert decoded.user_domain == response["user_domain"]
-    assert decoded.ticket_expires_at == response["ticket_expires_at"]
+    assert DateTime.compare(decoded.ticket_expires_at, Vectors.ts(response["ticket_expires_at"])) == :eq
     assert length(decoded.claims) == 3
 
     expected_claims = Enum.map(@claims["cases"], fn c -> claim_from_json(c["claim"]) end)

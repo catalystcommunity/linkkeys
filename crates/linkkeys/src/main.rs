@@ -44,6 +44,7 @@ async fn main() {
             // Finish all schema and data work before any network service starts.
             linkkeys::db::run_migrations_with_locking(&db_pool);
             run_startup_transforms(&db_pool);
+            linkkeys::services::applications::spawn_usage_flusher(Arc::new(db_pool.clone()));
             let ui_configuration = linkkeys::services::ui::load().unwrap_or_else(|error| {
                 eprintln!("Runtime UI configuration failed: {}", error.message);
                 std::process::exit(1);
@@ -90,6 +91,7 @@ async fn main() {
             display_name,
             password,
             api_key,
+            application_id,
             admin,
             relation,
         }) => {
@@ -97,7 +99,8 @@ async fn main() {
                 &username,
                 &display_name,
                 password.as_deref(),
-                api_key,
+                api_key || application_id.is_some(),
+                application_id.as_deref(),
                 admin,
                 &relation,
             );
@@ -317,6 +320,8 @@ fn run_startup_transforms(pool: &linkkeys::db::DbPool) {
     // signed in an older payload format (verifiers accept only the current
     // one). Idempotent; reports what it cannot prove it signed.
     linkkeys::services::signature_upgrade::upgrade_on_startup(pool);
+    // Application users past the longest distinct-user window count for nothing.
+    linkkeys::services::applications::prune_on_startup(pool);
 }
 
 fn get_passphrase() -> String {
@@ -348,6 +353,8 @@ fn store_auth_credential(
                 uid,
                 credential_type,
                 credential_hash,
+                None,
+                None,
             )
             .expect("Failed to store auth credential");
         }
@@ -359,6 +366,8 @@ fn store_auth_credential(
                 user_id,
                 credential_type,
                 credential_hash,
+                None,
+                None,
             )
             .expect("Failed to store auth credential");
         }
@@ -562,7 +571,10 @@ fn domain_revoke_key(key_id: &str) {
     println!(
         "Revoked domain key {} (revoked_at={}).",
         revoked.id,
-        revoked.revoked_at.as_deref().unwrap_or("<none>")
+        revoked
+            .revoked_at
+            .map(|t| t.to_rfc3339())
+            .unwrap_or_else(|| "<none>".to_string())
     );
     println!(
         "Next: remove this key's fingerprint ({}) from the domain's _linkkeys DNS TXT record so peers drop it on their next recheck.",
@@ -622,7 +634,11 @@ fn domain_emit_revocation_cert(
     }
 
     let domain = linkkeys::conversions::get_domain_name();
-    let revoked_at = revoked.revoked_at.clone().unwrap_or_default();
+    let revoked_at = liblinkkeys::timestamp::whole_seconds(
+        revoked
+            .revoked_at
+            .unwrap_or_else(time::OffsetDateTime::now_utc),
+    );
     let signers: Vec<ClaimSigner> = active_signers
         .iter()
         .map(|s| ClaimSigner {
@@ -635,7 +651,7 @@ fn domain_emit_revocation_cert(
     let spec = RevocationSpec {
         target_key_id: &revoked.id,
         target_fingerprint: &revoked.fingerprint,
-        revoked_at: &revoked_at,
+        revoked_at,
     };
     match build_revocation_certificate(&spec, &signers) {
         Ok(cert) => {
@@ -647,7 +663,8 @@ fn domain_emit_revocation_cert(
             );
             // The on-wire (CSIL CBOR) certificate — the portable, verifiable proof
             // a peer can check against this domain's published key set.
-            let cbor = liblinkkeys::generated::encode_revocation_certificate(&cert);
+            let cbor = liblinkkeys::generated::encode_revocation_certificate(&cert)
+                .unwrap_or_else(|e| exit_encode_failed(e));
             let hex = cbor
                 .iter()
                 .fold(String::with_capacity(cbor.len() * 2), |mut s, b| {
@@ -659,12 +676,13 @@ fn domain_emit_revocation_cert(
             println!("Revocation certificate (CBOR hex, publish to peers):\n{hex}");
 
             // Persist it so peers can pull it via DomainKeys/get-revocations.
-            if let Ok(when) = liblinkkeys::timestamp::parse_rfc3339(&revoked_at) {
-                if let Err(e) =
-                    db_pool.insert_issued_revocation(&revoked.id, &revoked.fingerprint, when, &cbor)
-                {
-                    eprintln!("Warning: failed to store issued revocation: {e}");
-                }
+            if let Err(e) = db_pool.insert_issued_revocation(
+                &revoked.id,
+                &revoked.fingerprint,
+                revoked_at,
+                &cbor,
+            ) {
+                eprintln!("Warning: failed to store issued revocation: {e}");
             }
 
             let _ = db_pool.write_audit(
@@ -701,7 +719,10 @@ fn domain_revoke_key_remote(key_id: &str, server: Option<&str>) {
     println!(
         "Revoked domain key {} (revoked_at={}).",
         resp.revoked_key.key_id,
-        resp.revoked_key.revoked_at.as_deref().unwrap_or("<none>")
+        resp.revoked_key
+            .revoked_at
+            .map(|t| t.to_rfc3339())
+            .unwrap_or_else(|| "<none>".to_string())
     );
     if resp.certificate_issued {
         println!("Sibling-signed revocation certificate produced and stored.");
@@ -834,7 +855,7 @@ fn generate_and_store_encryption_key(db_pool: &linkkeys::db::DbPool, passphrase:
         eprintln!("Failed to decrypt signing key: {}", e);
         std::process::exit(1);
     });
-    let signer_alg = liblinkkeys::crypto::SigningAlgorithm::parse_str(&signer.algorithm)
+    let signer_alg = linkkeys::conversions::stored_signing_algorithm(&signer.algorithm)
         .unwrap_or_else(|| {
             eprintln!("Unsupported signing algorithm: {}", signer.algorithm);
             std::process::exit(1);
@@ -845,14 +866,10 @@ fn generate_and_store_encryption_key(db_pool: &linkkeys::db::DbPool, passphrase:
     let enc_priv_encrypted =
         liblinkkeys::crypto::encrypt_private_key(&enc_priv, passphrase.as_bytes())
             .expect("Failed to encrypt encryption private key");
-    // Whole-second expiry so the signed value round-trips byte-identically
-    // through pg timestamptz / sqlite text (the vouch signs this exact string).
-    let expires = (time::OffsetDateTime::now_utc() + time::Duration::days(365 * 2))
-        .replace_nanosecond(0)
-        .unwrap();
-    let expires_str = expires.to_rfc3339();
+    // Whole seconds: the vouch signs the expiry.
+    let expires = liblinkkeys::timestamp::now_whole_seconds() + time::Duration::days(365 * 2);
 
-    let vouch = liblinkkeys::dns::sign_key_vouch(&enc_fp, &expires_str, signer_alg, &signer_sk)
+    let vouch = liblinkkeys::dns::sign_key_vouch(&enc_fp, &expires, signer_alg, &signer_sk)
         .expect("Failed to sign encryption-key vouch");
 
     let result = match db_pool {
@@ -881,7 +898,7 @@ fn generate_and_store_encryption_key(db_pool: &linkkeys::db::DbPool, passphrase:
                 &enc_fp,
                 &signer.id,
                 &vouch,
-                &expires_str,
+                &linkkeys::db::db_time::store(&expires),
             )
             .map(|k| k.id)
             .map_err(|e| e.to_string())
@@ -904,9 +921,20 @@ fn user_create(
     display_name: &str,
     password: Option<&str>,
     api_key: bool,
+    application_id: Option<&str>,
     admin: bool,
     relations: &[String],
 ) {
+    if let Some(id) = application_id {
+        if !liblinkkeys::application_keys::is_valid_identifier(id) {
+            eprintln!("Invalid application id: use 1-128 of A-Z a-z 0-9 - _ .");
+            std::process::exit(1);
+        }
+        if password.is_some() {
+            eprintln!("An application account has no password");
+            std::process::exit(1);
+        }
+    }
     // Validate requested relations up front so we fail before creating a user
     // (and its keypairs) we'd then have to reason about half-provisioned.
     for r in relations {
@@ -926,12 +954,12 @@ fn user_create(
         #[cfg(feature = "postgres")]
         linkkeys::db::DbPool::Postgres(pool) => {
             let mut conn = pool.get().expect("Failed to get connection");
-            linkkeys::db::users::pg::create(&mut conn, username, display_name)
+            linkkeys::db::users::pg::create(&mut conn, username, display_name, application_id)
         }
         #[cfg(feature = "sqlite")]
         linkkeys::db::DbPool::Sqlite(pool) => {
             let mut conn = pool.get().expect("Failed to get connection");
-            linkkeys::db::users::sqlite::create(&mut conn, username, display_name)
+            linkkeys::db::users::sqlite::create(&mut conn, username, display_name, application_id)
         }
     }
     .unwrap_or_else(|e| {
@@ -943,13 +971,12 @@ fn user_create(
 
     // Store auth credential
     if api_key {
-        let (key, hash) = linkkeys::services::auth::generate_api_key(&user.id);
-        store_auth_credential(
-            &db_pool,
-            &user.id,
-            linkkeys::services::auth::CREDENTIAL_TYPE_API_KEY,
-            &hash,
-        );
+        let (_, key) =
+            linkkeys::services::applications::issue_api_key(&db_pool, &user.id, "default")
+                .unwrap_or_else(|e| {
+                    eprintln!("Failed to create the API key: {}", e.message);
+                    std::process::exit(1);
+                });
         println!("API key: {}", key);
         println!("(save this — it will not be shown again)");
     } else {
@@ -1283,6 +1310,13 @@ fn user_purge_local(user_ident: &str, force: bool, force_admin: bool, reason: &s
 
 // --- TCP-based command handlers ---
 
+/// Exit with a message when a value has no CBOR wire form (for example, a
+/// timestamp outside UTC years 0001 to 9999).
+fn exit_encode_failed(e: liblinkkeys::generated::codec::CsilCborError) -> ! {
+    eprintln!("Error: could not encode the request: {e}");
+    std::process::exit(1);
+}
+
 /// Encode `req` with the CSIL codec, send it over TCP to the given service/op,
 /// and decode the response — exiting with a message on any transport or decode
 /// error. Centralizes the uniform CLI error handling for the typed admin/account
@@ -1293,10 +1327,11 @@ fn tcp_call<Req, Resp>(
     op: &str,
     req: &Req,
     api_key: &str,
-    encode: impl Fn(&Req) -> Vec<u8>,
+    encode: impl Fn(&Req) -> Result<Vec<u8>, liblinkkeys::generated::codec::CsilCborError>,
     decode: impl Fn(&[u8]) -> Result<Resp, liblinkkeys::generated::codec::CsilCborError>,
 ) -> Resp {
-    let resp_bytes = cli::tcp_client::send_request(addr, service, op, encode(req), Some(api_key))
+    let payload = encode(req).unwrap_or_else(|e| exit_encode_failed(e));
+    let resp_bytes = cli::tcp_client::send_request(addr, service, op, payload, Some(api_key))
         .unwrap_or_else(|e| {
             eprintln!("Error: {}", e);
             std::process::exit(1);
@@ -1678,17 +1713,19 @@ fn print_local_rp(rp: &liblinkkeys::generated::types::AdminLocalRp) {
     println!(
         "  {} [{}] app=\"{}\" (unverified, app-chosen)",
         short_fingerprint(&rp.fingerprint),
-        rp.status,
+        rp.status.as_str(),
         rp.app_name
     );
     println!("    fingerprint:   {}", rp.fingerprint);
     if let Some(hint) = &rp.local_domain_hint {
         println!("    domain hint:   {}", hint);
     }
-    println!("    first seen:    {}", rp.created_at);
+    println!("    first seen:    {}", rp.created_at.to_rfc3339());
     println!(
         "    last seen:     {}",
-        rp.last_seen_at.as_deref().unwrap_or("never")
+        rp.last_seen_at
+            .map(|t| t.to_rfc3339())
+            .unwrap_or_else(|| "never".to_string())
     );
     if let Some(notes) = &rp.admin_notes {
         println!("    admin notes:   {}", notes);
@@ -1708,7 +1745,13 @@ fn handle_local_rp_command(cmd: LocalRpCommands) {
             let req = liblinkkeys::generated::types::ListLocalRpsRequest {
                 offset,
                 limit,
-                status,
+                status: status.as_deref().map(|s| {
+                    cli_label(
+                        "status",
+                        s,
+                        liblinkkeys::generated::types::LocalRpStatus::from_label,
+                    )
+                }),
             };
 
             let resp = tcp_call(
@@ -1838,12 +1881,18 @@ fn handle_local_rp_command(cmd: LocalRpCommands) {
                 liblinkkeys::generated::decode_get_local_rp_policy_response,
             );
 
-            println!("Local RP policy: {}", resp.policy);
+            println!("Local RP policy: {}", resp.policy.as_str());
         }
         LocalRpCommands::SetPolicy { policy, server } => {
             let addr = cli::tcp_client::get_server_addr(server.as_deref());
             let key = cli::tcp_client::get_api_key();
-            let req = liblinkkeys::generated::types::SetLocalRpPolicyRequest { policy };
+            let req = liblinkkeys::generated::types::SetLocalRpPolicyRequest {
+                policy: cli_label(
+                    "policy",
+                    &policy,
+                    liblinkkeys::generated::types::LocalRpPolicy::from_label,
+                ),
+            };
 
             let resp = tcp_call(
                 &addr,
@@ -1855,7 +1904,7 @@ fn handle_local_rp_command(cmd: LocalRpCommands) {
                 liblinkkeys::generated::decode_set_local_rp_policy_response,
             );
 
-            println!("Local RP policy set: {}", resp.policy);
+            println!("Local RP policy set: {}", resp.policy.as_str());
         }
         LocalRpCommands::PurgeTickets { server } => {
             let addr = cli::tcp_client::get_server_addr(server.as_deref());
@@ -1896,9 +1945,9 @@ fn print_claim_type(p: &liblinkkeys::generated::types::ClaimTypePolicy) {
         "  {} [{}] value={} set={} sign={} max_bytes={}{}",
         p.claim_type,
         p.label,
-        p.value_type,
-        p.set_rule,
-        p.signing_rule,
+        p.value_type.as_str(),
+        p.set_rule.as_str(),
+        p.signing_rule.as_str(),
         p.max_bytes,
         if flags.is_empty() {
             String::new()
@@ -1906,6 +1955,16 @@ fn print_claim_type(p: &liblinkkeys::generated::types::ClaimTypePolicy) {
             format!(" ({})", flags.join(", "))
         }
     );
+}
+
+/// A CSIL enum value from a command-line label. A hyphen is read as an
+/// underscore, so `admin-approval-required` and `admin_approval_required` are
+/// the same. Exits with an error for an unknown label.
+fn cli_label<T>(what: &str, label: &str, parse: fn(&str) -> Option<T>) -> T {
+    parse(&label.replace('-', "_")).unwrap_or_else(|| {
+        eprintln!("Unknown {what}: {label}");
+        std::process::exit(2);
+    })
 }
 
 fn handle_policy_command(cmd: PolicyCommands) {
@@ -1950,10 +2009,22 @@ fn handle_policy_command(cmd: PolicyCommands) {
                 claim_type,
                 label,
                 description,
-                value_type,
+                value_type: cli_label(
+                    "value type",
+                    &value_type,
+                    liblinkkeys::claim_policy::ValueType::from_label,
+                ),
                 max_bytes,
-                set_rule,
-                signing_rule,
+                set_rule: cli_label(
+                    "set rule",
+                    &set_rule,
+                    liblinkkeys::claim_policy::SetRule::from_label,
+                ),
+                signing_rule: cli_label(
+                    "signing rule",
+                    &signing_rule,
+                    liblinkkeys::claim_policy::SigningRule::from_label,
+                ),
                 user_settable,
                 default_auto_sign,
                 requires_approval,
@@ -2141,7 +2212,9 @@ fn handle_policy_command(cmd: PolicyCommands) {
             for rule in &resp.release_rules {
                 println!(
                     "  {} / {} = {}",
-                    rule.audience, rule.claim_type, rule.disposition
+                    rule.audience,
+                    rule.claim_type,
+                    rule.disposition.as_str()
                 );
             }
             println!("{} release rule(s)", resp.release_rules.len());
@@ -2157,7 +2230,11 @@ fn handle_policy_command(cmd: PolicyCommands) {
             let req = liblinkkeys::generated::types::SetReleaseRuleRequest {
                 audience,
                 claim_type,
-                disposition,
+                disposition: cli_label(
+                    "disposition",
+                    &disposition,
+                    liblinkkeys::generated::types::ReleaseDisposition::from_label,
+                ),
             };
 
             let resp = tcp_call(
@@ -2174,7 +2251,7 @@ fn handle_policy_command(cmd: PolicyCommands) {
                 "Release rule saved: {} / {} = {}",
                 resp.release_rule.audience,
                 resp.release_rule.claim_type,
-                resp.release_rule.disposition
+                resp.release_rule.disposition.as_str()
             );
         }
         PolicyCommands::RemoveReleaseRule {
@@ -2226,7 +2303,7 @@ fn handle_policy_command(cmd: PolicyCommands) {
                     a.user_id,
                     a.claim_type,
                     String::from_utf8_lossy(&a.claim_value),
-                    a.status
+                    a.status.as_str()
                 );
             }
             println!("{} pending approval(s)", resp.approvals.len());
@@ -2419,7 +2496,7 @@ fn handle_account_command(cmd: AccountCommands) {
                 liblinkkeys::generated::decode_set_my_claim_response,
             );
 
-            println!("Outcome: {}", resp.outcome);
+            println!("Outcome: {}", resp.outcome.as_str());
             if let Some(claim) = resp.claim {
                 println!("Claim: {} {}", claim.claim_id, claim.claim_type);
             }
@@ -2527,7 +2604,8 @@ fn handle_account_command(cmd: AccountCommands) {
                 liblinkkeys::generated::decode_request_verification_response,
             );
 
-            let cbor = liblinkkeys::generated::encode_signed_signing_request(&resp.signed_request);
+            let cbor = liblinkkeys::generated::encode_signed_signing_request(&resp.signed_request)
+                .unwrap_or_else(|e| exit_encode_failed(e));
             use base64ct::{Base64UrlUnpadded, Encoding as _};
             println!("Signing request bundle (base64url, carry this to the issuer):");
             println!("{}", Base64UrlUnpadded::encode_string(&cbor));
@@ -2565,11 +2643,7 @@ fn claim_set(user_id: &str, claim_type: &str, claim_value: &str, expires: Option
 
     let claim_value_bytes = claim_value.as_bytes();
     let claim_id = uuid::Uuid::now_v7().to_string();
-    let expires_str = expires_time.as_ref().map(|e| e.to_rfc3339());
-    let attested_time = time::OffsetDateTime::now_utc()
-        .replace_nanosecond(0)
-        .unwrap();
-    let attested_str = attested_time.to_rfc3339();
+    let attested_time = liblinkkeys::timestamp::now_whole_seconds();
     let subject_domain = linkkeys::conversions::get_domain_name();
     let claim = linkkeys::claim_signing::sign_with_active(
         &liblinkkeys::claims::ClaimSpec {
@@ -2578,8 +2652,8 @@ fn claim_set(user_id: &str, claim_type: &str, claim_value: &str, expires: Option
             claim_value: claim_value_bytes,
             user_id,
             subject_domain: &subject_domain,
-            expires_at: expires_str.as_deref(),
-            attested_at: &attested_str,
+            expires_at: expires_time,
+            attested_at: attested_time,
         },
         &signers,
     )

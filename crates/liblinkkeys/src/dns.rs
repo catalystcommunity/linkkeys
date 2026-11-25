@@ -1,6 +1,6 @@
 // LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 use crate::crypto::fingerprint;
-use crate::generated::types::DomainPublicKey;
+use crate::generated::types::{DomainPublicKey, KeyUsage};
 use std::fmt;
 
 /// Default TCP port for the LinkKeys protocol service. Advertised `tcp=` values
@@ -195,7 +195,11 @@ const KEY_VOUCH_TAG: &str = "linkkeys-key-vouch-v1alpha";
 /// Canonical bytes a signing key signs to vouch for an encryption key:
 /// `(tag, encrypt-key fingerprint, encrypt-key expires_at)` as deterministic
 /// CBOR. The fingerprint is the SHA-256 of the encryption key's public bytes.
-pub fn key_vouch_payload(enc_fingerprint: &str, enc_expires_at: &str) -> Vec<u8> {
+/// The expiry is whole Unix seconds.
+pub fn key_vouch_payload(
+    enc_fingerprint: &str,
+    enc_expires_at: crate::timestamp::SignedTime,
+) -> Vec<u8> {
     let payload = (KEY_VOUCH_TAG, enc_fingerprint, enc_expires_at);
     let mut out = Vec::new();
     ciborium::ser::into_writer(&payload, &mut out)
@@ -206,13 +210,16 @@ pub fn key_vouch_payload(enc_fingerprint: &str, enc_expires_at: &str) -> Vec<u8>
 /// Sign a vouch for an encryption key with a signing key's private key. The
 /// returned signature is stored in the encryption key's `key_signature`, and
 /// the signing key's id in `signed_by_key_id`.
+/// `enc_expires_at` must be whole seconds.
 pub fn sign_key_vouch(
     enc_fingerprint: &str,
-    enc_expires_at: &str,
+    enc_expires_at: &time::OffsetDateTime,
     algorithm: crate::crypto::SigningAlgorithm,
     signing_private_key: &[u8],
 ) -> Result<Vec<u8>, crate::crypto::CryptoError> {
-    let payload = key_vouch_payload(enc_fingerprint, enc_expires_at);
+    let expires = crate::timestamp::SignedTime::new(enc_expires_at)
+        .map_err(|e| crate::crypto::CryptoError::SigningFailed(e.to_string()))?;
+    let payload = key_vouch_payload(enc_fingerprint, expires);
     crate::crypto::sign_with_algorithm(algorithm, &payload, signing_private_key)
 }
 
@@ -224,10 +231,8 @@ pub fn verify_key_vouch(enc_key: &DomainPublicKey, signing_key: &DomainPublicKey
     if enc_key.signed_by_key_id.as_deref() != Some(signing_key.key_id.as_str()) {
         return false;
     }
-    if crate::crypto::signing_key_validity(
-        &signing_key.expires_at,
-        signing_key.revoked_at.as_deref(),
-    ) != crate::crypto::KeyValidity::Valid
+    if crate::crypto::signing_key_validity(&signing_key.expires_at, signing_key.revoked_at.as_ref())
+        != crate::crypto::KeyValidity::Valid
     {
         return false;
     }
@@ -235,8 +240,11 @@ pub fn verify_key_vouch(enc_key: &DomainPublicKey, signing_key: &DomainPublicKey
         Some(s) => s,
         None => return false,
     };
+    let Ok(expires) = crate::timestamp::SignedTime::new(&enc_key.expires_at) else {
+        return false;
+    };
     let recomputed_fp = fingerprint(&enc_key.public_key);
-    let payload = key_vouch_payload(&recomputed_fp, &enc_key.expires_at);
+    let payload = key_vouch_payload(&recomputed_fp, expires);
     crate::crypto::resolve_and_verify(
         &signing_key.algorithm,
         &payload,
@@ -249,9 +257,9 @@ pub fn verify_key_vouch(enc_key: &DomainPublicKey, signing_key: &DomainPublicKey
 /// Establish the trusted key set from a fetched key list and the DNS-pinned
 /// fingerprint set.
 ///
-/// - **Signing keys** (`key_usage == "sign"`) are pinned directly against the
+/// - **Signing keys** (`key_usage == crate::generated::types::KeyUsage::Sign`) are pinned directly against the
 ///   DNS `fp=` set (recomputed fingerprint must match).
-/// - **Encryption keys** (`key_usage == "encrypt"`) are NOT in DNS; they are
+/// - **Encryption keys** (`key_usage == crate::generated::types::KeyUsage::Encrypt`) are NOT in DNS; they are
 ///   trusted only when a DNS-pinned signing key vouches for them
 ///   (`verify_key_vouch`). This keeps DNS lean and lets encryption keys rotate
 ///   without DNS edits (re-vouch + republish in-protocol).
@@ -261,13 +269,16 @@ pub fn verify_key_vouch(enc_key: &DomainPublicKey, signing_key: &DomainPublicKey
 pub fn trust_keys(keys: Vec<DomainPublicKey>, pinned: &[String]) -> Vec<DomainPublicKey> {
     let signing: Vec<DomainPublicKey> = keys
         .iter()
-        .filter(|k| k.key_usage == "sign")
+        .filter(|k| k.key_usage == KeyUsage::Sign)
         .cloned()
         .collect();
     let pinned_signing = pin_keys_to_fingerprints(signing, pinned);
 
     let mut trusted = pinned_signing.clone();
-    for k in keys.into_iter().filter(|k| k.key_usage == "encrypt") {
+    for k in keys
+        .into_iter()
+        .filter(|k| k.key_usage == KeyUsage::Encrypt)
+    {
         if pinned_signing.iter().any(|sk| verify_key_vouch(&k, sk)) {
             trusted.push(k);
         }
@@ -307,7 +318,6 @@ pub fn txt_exceeds_single_string(txt: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::timestamp::Rfc3339 as _;
 
     #[test]
     fn test_parse_record() {
@@ -429,7 +439,7 @@ mod tests {
         ));
     }
 
-    use crate::crypto::{fingerprint, generate_keypair, SigningAlgorithm, ALGORITHM_ED25519};
+    use crate::crypto::{fingerprint, generate_keypair, SigningAlgorithm};
     use time::OffsetDateTime;
 
     fn make_key(pk_bytes: &[u8]) -> DomainPublicKey {
@@ -437,12 +447,12 @@ mod tests {
             key_id: "k".to_string(),
             public_key: pk_bytes.to_vec(),
             fingerprint: "ignored-wire-value".to_string(),
-            algorithm: ALGORITHM_ED25519.to_string(),
-            key_usage: "sign".to_string(),
+            algorithm: crate::generated::types::KeyAlgorithm::Ed25519,
+            key_usage: crate::generated::types::KeyUsage::Sign,
             signed_by_key_id: None,
             key_signature: None,
-            created_at: OffsetDateTime::now_utc().to_rfc3339(),
-            expires_at: (OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339(),
+            created_at: OffsetDateTime::now_utc(),
+            expires_at: OffsetDateTime::now_utc() + time::Duration::hours(1),
             revoked_at: None,
         }
     }
@@ -502,12 +512,12 @@ mod tests {
 
         let (enc_pk, _) = generate_keypair(SigningAlgorithm::Ed25519);
         let enc_fp = fingerprint(&enc_pk);
-        let enc_expires = (OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339();
+        let enc_expires = crate::timestamp::now_whole_seconds() + time::Duration::hours(1);
         let vouch =
             sign_key_vouch(&enc_fp, &enc_expires, SigningAlgorithm::Ed25519, &sign_sk).unwrap();
         let mut enc_key = make_key(&enc_pk);
         enc_key.key_id = "enc-1".to_string();
-        enc_key.key_usage = "encrypt".to_string();
+        enc_key.key_usage = crate::generated::types::KeyUsage::Encrypt;
         enc_key.expires_at = enc_expires;
         enc_key.signed_by_key_id = Some("sign-1".to_string());
         enc_key.key_signature = Some(vouch);

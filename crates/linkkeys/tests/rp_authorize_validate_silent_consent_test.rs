@@ -20,7 +20,6 @@ use liblinkkeys::generated::types::{
     AuthFlowContext, BrowserAuthorizationCompleteRequest, ClaimRequest, RequestedClaim,
     SessionPasswordLoginRequest,
 };
-use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::services::auth;
 use rocket::http::{ContentType, Header, Status};
 use rocket::local::asynchronous::Client;
@@ -65,7 +64,8 @@ async fn consent_once(client: &Client, signed_request: &str, authorized_claims: 
                 username: format!("{USERNAME}@{TEST_DOMAIN}"),
                 password: PASSWORD.to_string(),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_eq!(login.status, RpcStatus::Ok, "sign-in succeeds");
@@ -81,7 +81,8 @@ async fn consent_once(client: &Client, signed_request: &str, authorized_claims: 
                 claim_values_to_set: Vec::new(),
                 use_standing_grant: None,
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_eq!(
@@ -95,6 +96,19 @@ fn api_key_for(pool: &linkkeys::db::DbPool, user_id: &str) -> String {
     let (api_key, hash) = auth::generate_api_key(user_id);
     create_auth_credential(pool, user_id, auth::CREDENTIAL_TYPE_API_KEY, &hash);
     api_key
+}
+
+/// The relying party's application that every request names. It is a
+/// principal of the RP's own domain, as validation requires.
+fn rp_application() -> liblinkkeys::generated::types::RelyingPartyApplication {
+    liblinkkeys::generated::types::RelyingPartyApplication {
+        application: liblinkkeys::generated::types::ApplicationRef {
+            subject_user_id: "00000000-0000-0000-0000-0000000000ab".to_string(),
+            subject_domain: TEST_DOMAIN.to_string(),
+            application_id: "test-app".to_string(),
+        },
+        display_name: "Test App".to_string(),
+    }
 }
 
 /// Build and sign an auth request requiring `email` (and nothing else), with
@@ -125,21 +139,22 @@ fn signed_claims_request(
         Some(ClaimRequest {
             required: vec![RequestedClaim {
                 claim_type: "email".to_string(),
-                datatype: "email".to_string(),
+                datatype: liblinkkeys::claim_policy::ValueType::Email,
             }],
             optional: optional
                 .iter()
                 .map(|claim_type| RequestedClaim {
                     claim_type: claim_type.to_string(),
-                    datatype: "text".to_string(),
+                    datatype: liblinkkeys::claim_policy::ValueType::Text,
                 })
                 .collect(),
         }),
-        claims_update.then(|| AuthFlowContext {
-            flow: "claims_update".to_string(),
+        claims_update.then_some(AuthFlowContext {
+            flow: liblinkkeys::generated::types::AuthFlow::ClaimsUpdate,
             prior_session: None,
             request_reason: None,
         }),
+        rp_application(),
     );
     req.relying_party_claims = None;
     let signed = sign_auth_request(&req, signing_id, SigningAlgorithm::Ed25519, sk_bytes).unwrap();
@@ -157,7 +172,8 @@ async fn call_validate(
             signed_request: signed_request.to_string(),
             user_id: user_id.map(str::to_string),
         },
-    );
+    )
+    .unwrap();
     let resp = client
         .post("/rp/authorize/validate")
         .header(Header::new("Authorization", format!("Bearer {}", bearer)))
@@ -188,7 +204,7 @@ async fn validate_reports_silent_consent_from_a_standing_grant() {
     let sk_bytes = sk.to_bytes().to_vec();
     let enc_sk = crypto::encrypt_private_key(&sk_bytes, PASSPHRASE).unwrap();
     let fp = crypto::fingerprint(&pk);
-    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
+    let expires = liblinkkeys::timestamp::now_whole_seconds() + time::Duration::days(365);
     let signing = pool
         .create_domain_key(&pk, &enc_sk, &fp, "ed25519", expires)
         .expect("signing key");
@@ -196,13 +212,9 @@ async fn validate_reports_silent_consent_from_a_standing_grant() {
     let (epub, epriv) = crypto::generate_x25519_keypair();
     let efp = crypto::fingerprint(&epub);
     let epriv_enc = crypto::encrypt_private_key(&epriv, PASSPHRASE).unwrap();
-    let vouch = liblinkkeys::dns::sign_key_vouch(
-        &efp,
-        &expires.to_rfc3339(),
-        SigningAlgorithm::Ed25519,
-        &sk_bytes,
-    )
-    .unwrap();
+    let vouch =
+        liblinkkeys::dns::sign_key_vouch(&efp, &expires, SigningAlgorithm::Ed25519, &sk_bytes)
+            .unwrap();
     pool.create_domain_encryption_key(&epub, &epriv_enc, &efp, &signing.id, &vouch, expires)
         .expect("encryption key");
 
@@ -277,7 +289,7 @@ async fn validate_reports_silent_consent_from_a_standing_grant() {
     let sr_login = signed_email_request(&signing.id, &sk_bytes, "validate-nonce-2", false);
     consent_once(&client, &sr_login, &["email"]).await;
     let grant = pool
-        .find_active_consent_grant(&user.id, TEST_DOMAIN, None)
+        .find_active_consent_grant(&user.id, TEST_DOMAIN, Some(&rp_application().application))
         .expect("query grant")
         .expect("a grant was stored");
     assert_eq!(grant.claim_types, vec!["email".to_string()]);
@@ -343,7 +355,7 @@ async fn forced_claim_without_a_value_does_not_reopen_consent() {
     let sk_bytes = sk.to_bytes().to_vec();
     let enc_sk = crypto::encrypt_private_key(&sk_bytes, PASSPHRASE).unwrap();
     let fp = crypto::fingerprint(&pk);
-    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
+    let expires = liblinkkeys::timestamp::now_whole_seconds() + time::Duration::days(365);
     let signing = pool
         .create_domain_key(&pk, &enc_sk, &fp, "ed25519", expires)
         .expect("signing key");
@@ -351,13 +363,9 @@ async fn forced_claim_without_a_value_does_not_reopen_consent() {
     let (epub, epriv) = crypto::generate_x25519_keypair();
     let efp = crypto::fingerprint(&epub);
     let epriv_enc = crypto::encrypt_private_key(&epriv, PASSPHRASE).unwrap();
-    let vouch = liblinkkeys::dns::sign_key_vouch(
-        &efp,
-        &expires.to_rfc3339(),
-        SigningAlgorithm::Ed25519,
-        &sk_bytes,
-    )
-    .unwrap();
+    let vouch =
+        liblinkkeys::dns::sign_key_vouch(&efp, &expires, SigningAlgorithm::Ed25519, &sk_bytes)
+            .unwrap();
     pool.create_domain_encryption_key(&epub, &epriv_enc, &efp, &signing.id, &vouch, expires)
         .expect("encryption key");
 
@@ -416,7 +424,7 @@ async fn forced_claim_without_a_value_does_not_reopen_consent() {
     );
     consent_once(&client, &sr_login, &["email", "over_21"]).await;
     let grant = pool
-        .find_active_consent_grant(&user.id, TEST_DOMAIN, None)
+        .find_active_consent_grant(&user.id, TEST_DOMAIN, Some(&rp_application().application))
         .expect("query grant")
         .expect("a grant was stored");
     assert_eq!(grant.claim_types, vec!["email".to_string()]);
@@ -485,7 +493,7 @@ async fn seeded_idp() -> (
     let sk_bytes = sk.to_bytes().to_vec();
     let enc_sk = crypto::encrypt_private_key(&sk_bytes, PASSPHRASE).unwrap();
     let fp = crypto::fingerprint(&pk);
-    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
+    let expires = liblinkkeys::timestamp::now_whole_seconds() + time::Duration::days(365);
     let signing = pool
         .create_domain_key(&pk, &enc_sk, &fp, "ed25519", expires)
         .expect("signing key");
@@ -493,13 +501,9 @@ async fn seeded_idp() -> (
     let (epub, epriv) = crypto::generate_x25519_keypair();
     let efp = crypto::fingerprint(&epub);
     let epriv_enc = crypto::encrypt_private_key(&epriv, PASSPHRASE).unwrap();
-    let vouch = liblinkkeys::dns::sign_key_vouch(
-        &efp,
-        &expires.to_rfc3339(),
-        SigningAlgorithm::Ed25519,
-        &sk_bytes,
-    )
-    .unwrap();
+    let vouch =
+        liblinkkeys::dns::sign_key_vouch(&efp, &expires, SigningAlgorithm::Ed25519, &sk_bytes)
+            .unwrap();
     pool.create_domain_encryption_key(&epub, &epriv_enc, &efp, &signing.id, &vouch, expires)
         .expect("encryption key");
 
@@ -558,7 +562,8 @@ async fn inspect(
             &liblinkkeys::generated::types::BrowserAuthorizationInspectRequest {
                 signed_request: signed_request.to_string(),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_eq!(resp.status, RpcStatus::Ok, "inspect succeeds");
@@ -629,7 +634,8 @@ async fn new_optional_claim_reopens_consent_once() {
                 claim_values_to_set: Vec::new(),
                 use_standing_grant: Some(true),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_ne!(
@@ -649,7 +655,7 @@ async fn new_optional_claim_reopens_consent_once() {
     );
     consent_once(&client, &sr, &["email"]).await;
     let grant = pool
-        .find_active_consent_grant(&user.id, TEST_DOMAIN, None)
+        .find_active_consent_grant(&user.id, TEST_DOMAIN, Some(&rp_application().application))
         .expect("query grant")
         .expect("grant stored");
     assert_eq!(grant.claim_types, vec!["email".to_string()]);
@@ -698,7 +704,8 @@ async fn dropped_then_readded_claim_is_new_again() {
                 claim_values_to_set: Vec::new(),
                 use_standing_grant: Some(true),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_eq!(silent.status, RpcStatus::Ok, "silent completion succeeds");

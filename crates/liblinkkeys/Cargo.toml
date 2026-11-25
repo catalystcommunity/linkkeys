@@ -48,12 +48,13 @@ base64ct = { version = "1", features = ["alloc"] }
 
 # Date/time. `time` replaced `chrono` (RUSTSEC-2026-0543: chrono is
 # unmaintained). All RFC 3339 text goes through `timestamp.rs`, which writes
-# the bytes chrono wrote, so no `formatting`/`parsing` feature is needed.
-time = { version = "0.3.47", default-features = false, features = ["std"] }
+# the bytes chrono wrote. The generated CSIL codec needs `formatting` and
+# `parsing` for `timestamp` fields (CBOR tag 0).
+time = { version = "0.3.47", default-features = false, features = ["std", "formatting", "parsing"] }
 
 # `OffsetDateTime::now_utc` reads the clock through `js-sys` on browser WASM.
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-time = { version = "0.3.47", default-features = false, features = ["std", "wasm-bindgen"] }
+time = { version = "0.3.47", default-features = false, features = ["std", "formatting", "parsing", "wasm-bindgen"] }
 
 [features]
 # Builders for signed payload formats from before the `-v1alpha` epoch. Only the

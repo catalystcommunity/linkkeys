@@ -20,7 +20,7 @@ import hashlib
 import hmac
 import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Optional, Protocol, Tuple, Union
 from urllib.parse import parse_qs, urlsplit
 
@@ -48,6 +48,7 @@ from .generated.types import (
     SignedLocalRpDescriptor,
 )
 from .local_rp import DecodeFailed, NonceMismatch, envelope_signature_input
+from .timeutil import whole_seconds
 from .transport import StdTransport, Transport
 
 ACT_AS_GRANT_REQUEST_TAG = "linkkeys-act-as-grant-request-v1alpha"
@@ -74,11 +75,10 @@ class ActAsSigningMaterial(Protocol):
     signing_private_key: bytes
 
 
-def format_act_as_time(t: datetime) -> str:
-    """Whole-second RFC3339 in UTC, ending in `Z` (`act_as::format_time`)."""
-    if t.tzinfo is None:
-        t = t.replace(tzinfo=timezone.utc)
-    return t.astimezone(timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+def act_as_time(t: datetime) -> datetime:
+    """`t` in UTC, in whole seconds: the form every act-as request and
+    presentation time takes. A naive `t` is read as UTC."""
+    return whole_seconds(t)
 
 
 def act_as_grant_hash(grant_bytes: bytes) -> bytes:
@@ -218,8 +218,8 @@ def begin_act_as(config: BeginActAsConfig) -> Tuple[ActAsRedirect, PendingActAs]
         grantee_handle_claim=None,
         callback_url=config.callback_url,
         nonce=nonce,
-        requested_at=format_act_as_time(config.now),
-        expires_at=format_act_as_time(config.now + timedelta(seconds=window)),
+        requested_at=act_as_time(config.now),
+        expires_at=act_as_time(config.now + timedelta(seconds=window)),
     )
     signed = sign_act_as_grant_request(request, config.key_material)
     dns = config.dns if config.dns is not None else dns_mod.SystemDnsResolver()
@@ -288,8 +288,8 @@ def refresh_act_as_grant(
     request = ActAsRefreshRequest(
         grant_id=grant_id,
         grantee=local_rp_grantee(key_material),
-        requested_at=format_act_as_time(now),
-        expires_at=format_act_as_time(now + timedelta(seconds=ACT_AS_REFRESH_WINDOW_SECONDS)),
+        requested_at=act_as_time(now),
+        expires_at=act_as_time(now + timedelta(seconds=ACT_AS_REFRESH_WINDOW_SECONDS)),
         nonce=_fresh_nonce(),
     )
     signed = sign_act_as_refresh_request(request, key_material)
@@ -347,7 +347,7 @@ def present_act_as(
         grant_hash=act_as_grant_hash(grant.grant),
         audience=audience,
         request_digest=request_digest,
-        presented_at=format_act_as_time(now),
+        presented_at=act_as_time(now),
         nonce=nonce,
     )
     presentation_bytes = presentation.to_cbor()

@@ -60,12 +60,18 @@ pub mod pg {
         conn: &mut diesel::PgConnection,
         claim_id: uuid::Uuid,
         attested_at: Option<time::OffsetDateTime>,
+        expires_at: Option<time::OffsetDateTime>,
         signatures: &[ClaimSignature],
     ) -> QueryResult<()> {
         conn.transaction(|conn| {
             if let Some(at) = attested_at {
                 diesel::update(claims::table.find(claim_id))
                     .set(claims::attested_at.eq(at))
+                    .execute(conn)?;
+            }
+            if let Some(at) = expires_at {
+                diesel::update(claims::table.find(claim_id))
+                    .set(claims::expires_at.eq(Some(at)))
                     .execute(conn)?;
             }
             replace_signatures(conn, claim_id, signatures)
@@ -330,13 +336,19 @@ pub mod sqlite {
     pub fn resign(
         conn: &mut diesel::SqliteConnection,
         claim_id: &str,
-        attested_at: Option<&str>,
+        attested_at: Option<time::OffsetDateTime>,
+        expires_at: Option<time::OffsetDateTime>,
         signatures: &[ClaimSignature],
     ) -> QueryResult<()> {
         conn.transaction(|conn| {
             if let Some(at) = attested_at {
                 diesel::update(claims::table.find(claim_id))
-                    .set(claims::attested_at.eq(at))
+                    .set(claims::attested_at.eq(crate::db::db_time::store(&at)))
+                    .execute(conn)?;
+            }
+            if let Some(at) = expires_at {
+                diesel::update(claims::table.find(claim_id))
+                    .set(claims::expires_at.eq(Some(crate::db::db_time::store(&at))))
                     .execute(conn)?;
             }
             replace_signatures(conn, claim_id, signatures)

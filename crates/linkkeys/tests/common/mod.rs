@@ -92,3 +92,20 @@ fn default_test_url(backend: &str) -> String {
         _ => ":memory:".to_string(),
     }
 }
+
+/// An application of the test relying party `rp.test`.
+pub fn test_app_ref() -> liblinkkeys::generated::types::ApplicationRef {
+    liblinkkeys::generated::types::ApplicationRef {
+        subject_user_id: "app-account".to_string(),
+        subject_domain: "rp.test".to_string(),
+        application_id: "app".to_string(),
+    }
+}
+
+/// [`test_app_ref`] with its display name, as an auth request carries it.
+pub fn test_rp_app() -> liblinkkeys::generated::types::RelyingPartyApplication {
+    liblinkkeys::generated::types::RelyingPartyApplication {
+        application: test_app_ref(),
+        display_name: "Test App".to_string(),
+    }
+}

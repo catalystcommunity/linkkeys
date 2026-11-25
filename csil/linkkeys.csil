@@ -23,6 +23,229 @@ CheckResult = {
 }
 
 ;; ============================================================
+;; Closed vocabularies
+;; ============================================================
+;;
+;; Each value is sent as its number. Never reuse or renumber a value; add new
+;; values with new numbers. Servers store the label text.
+
+;; Public-key algorithm of a domain, user, or application key.
+KeyAlgorithm = &(
+    ed25519: 1,
+    x25519: 2
+)
+
+;; What a key is for. Domain and user keys are `sign` or `encrypt`.
+;; Application keys are `sign` or `agree` (X25519 key agreement).
+KeyUsage = &(
+    sign: 1,
+    encrypt: 2,
+    agree: 3
+)
+
+;; AEAD suite. `aes_256_gcm` is mandatory to implement; `chacha20_poly1305`
+;; is optional.
+AeadSuite = &(
+    aes_256_gcm: 1,
+    chacha20_poly1305: 2
+)
+
+;; The type a claim value carries. Advisory for the consent UI and for RP
+;; validation; claim values stay opaque bytes.
+ClaimValueType = &(
+    text: 1,
+    url: 2,
+    email: 3,
+    bool: 4,
+    int: 5,
+    float: 6,
+    decimal: 7,
+    date: 8,
+    timestamp: 9,
+    opaque: 10
+)
+
+;; Who may set a claim type. See `liblinkkeys::claim_policy`.
+SetRule = &(
+    user_self: 1,
+    idp_on_request: 2,
+    trusted_issuer_only: 3,
+    admin_only: 4,
+    deny: 5
+)
+
+;; How a claim type is signed. See `liblinkkeys::claim_policy`.
+SigningRule = &(
+    self_signed: 1,
+    verified: 2,
+    attested: 3,
+    unsigned: 4
+)
+
+;; The result of setting a claim. On `verification_required` and `queued`
+;; the claim is not live and must not be released to an RP assertion.
+SetClaimOutcome = &(
+    signed: 1,
+    stored_unsigned: 2,
+    verification_required: 3,
+    queued: 4
+)
+
+;; A per-audience release rule: always release, or never release (deny wins).
+ReleaseDisposition = &(
+    forced_allow: 1,
+    forced_deny: 2
+)
+
+;; Who decides one consent-screen row: the user, or a forced release rule.
+ConsentRowPolicy = &(
+    user: 1,
+    forced_allow: 2,
+    forced_deny: 3
+)
+
+ClaimApprovalStatus = &(
+    pending: 1,
+    approved: 2,
+    rejected: 3
+)
+
+;; The outcome of a TOFU pin recheck for one domain. `error` comes with a
+;; message.
+PinRecheckOutcome = &(
+    first_seen: 1,
+    unchanged: 2,
+    rotated: 3,
+    mismatch: 4,
+    error: 5
+)
+
+;; Why the server sends a message to a contact.
+NotificationPurpose = &(
+    verify_contact: 1,
+    reset_password: 2
+)
+
+NotificationChannel = &(
+    email: 1
+)
+
+;; The kind of destination a channel delivers to.
+DestinationKind = &(
+    email: 1
+)
+
+;; Per-domain setting for whether local RP logins are accepted at all.
+;; The default is `admin_approval_required`.
+LocalRpPolicy = &(
+    disabled: 1,
+    admin_approval_required: 2,
+    allow_by_default: 3
+)
+
+LocalRpStatus = &(
+    pending: 1,
+    approved: 2,
+    denied: 3,
+    revoked: 4
+)
+
+;; What the browser shows for a local RP login: the consent screen, a
+;; pending-approval notice, or a block (with access_denied).
+LocalRpAdmission = &(
+    consent: 1,
+    pending: 2,
+    blocked: 3
+)
+
+AppAccessMode = &(
+    allow: 1,
+    deny: 2
+)
+
+;; Who an app-access policy applies to. `user` needs user_id, `group` needs
+;; group_name (members through the `member` relation), `claim` needs
+;; claim_type and claim_operator.
+AppAccessTargetKind = &(
+    everyone: 1,
+    user: 2,
+    group: 3,
+    claim: 4
+)
+
+;; `equals`, `age_under`, and `age_at_least` need claim_value. The age
+;; operators read a birth date and take a whole number of years.
+ClaimOperator = &(
+    present: 1,
+    absent: 2,
+    equals: 3,
+    age_under: 4,
+    age_at_least: 5
+)
+
+ApplicationKeyChallengePurpose = &(
+    add: 1,
+    renew: 2
+)
+
+;; Why an RP sends a browser to the IDP. `login` is the default.
+;; `claims_update` asks an already-signed-in user to review changed claim
+;; requirements.
+AuthFlow = &(
+    login: 1,
+    claims_update: 2
+)
+
+;; How current RP-cached key material is. `fresh`: served within the allowed
+;; age. `refreshed`: fetched for this call. `stale`: the home domain was
+;; unreachable and these are the last verified records; never presented as
+;; current trust.
+RpCacheStatus = &(
+    fresh: 1,
+    refreshed: 2,
+    stale: 3
+)
+
+;; What an account is. A `human` account signs in as a person. An
+;; `application` account is the identity of one application on a relying
+;; party: it authenticates with API keys only, and its `application_id` is set
+;; by an administrator of this domain, never by the application.
+AccountKind = &(
+    human: 1,
+    application: 2
+)
+
+;; Why an `Rp` operation refused a request, so an application can act on it.
+;; - not_application_account: the calling account is not an application
+;;   account, so it cannot start or finish an RP login.
+;; - application_mismatch: the token or assertion was issued for another
+;;   application of this RP.
+;; - application_user_limit: a new user would take the application over its
+;;   distinct-user limit ("this application is full").
+;; - bad_request / upstream_failed / internal: other failures; see `message`.
+;; An account over its request rate gets the transport status Unavailable (6),
+;; as for any throttle.
+RpErrorCode = &(
+    not_application_account: 1,
+    application_mismatch: 2,
+    application_user_limit: 3,
+    bad_request: 4,
+    upstream_failed: 5,
+    internal: 6
+)
+
+;; `deposited`: signed and delivered. `handoff`: signed, but the subject
+;; domain was unreachable; `claim_code` carries the claim for the user to add.
+;; `skipped`: not requested, or the caller may not issue it. `failed`: signing
+;; failed; see `message`.
+IssuedClaimOutcome = &(
+    deposited: 1,
+    handoff: 2,
+    skipped: 3,
+    failed: 4
+)
+
+;; ============================================================
 ;; Hello
 ;; ============================================================
 
@@ -45,10 +268,10 @@ GuestbookEntry = {
     name: text,
 
     @receive-only
-    created_at: text,
+    created_at: timestamp,
 
     @receive-only
-    updated_at: text
+    updated_at: timestamp
 }
 
 CreateGuestbookRequest = {
@@ -86,7 +309,7 @@ EmptyRequest = {
 ;; ============================================================
 
 ;; Fingerprint is SHA-256 of the public key bytes, hex-encoded.
-;; key_usage is "sign" (Ed25519 identity/signing) or "encrypt" (X25519 sealed-box
+;; key_usage is `sign` (Ed25519 identity/signing) or `encrypt` (X25519 sealed-box
 ;; recipient). Keys are single-purpose: a sign key never receives sealed boxes and
 ;; an encrypt key never verifies signatures.
 ;;
@@ -99,11 +322,11 @@ DomainPublicKey = {
     key_id: text,
     public_key: bytes,
     fingerprint: text,
-    algorithm: text,
-    key_usage: text,
-    created_at: text,
-    expires_at: text,
-    ? revoked_at: text,
+    algorithm: KeyAlgorithm,
+    key_usage: KeyUsage,
+    created_at: timestamp,
+    expires_at: timestamp,
+    ? revoked_at: timestamp,
     ;; encrypt keys only: the signing key that vouches for this key, and its signature
     ? signed_by_key_id: text,
     ? key_signature: bytes
@@ -121,10 +344,10 @@ GetDomainKeysResponse = {
 
 ;; SEC-08 revocation exchange. get-revocations returns the sibling-signed
 ;; certificates the domain has issued, optionally bounded to those revoked at or
-;; after `since` (RFC3339 UTC; verifier default: last 6 months). A public read,
+;; after `since` (verifier default: last 6 months). A public read,
 ;; like get-domain-keys — the certs are self-authenticating.
 GetRevocationsRequest = {
-    ? since: text
+    ? since: timestamp
 }
 
 GetRevocationsResponse = {
@@ -139,7 +362,8 @@ RecheckPinsRequest = {
 
 PinRecheckResult = {
     domain: text,
-    outcome: text
+    outcome: PinRecheckOutcome,
+    ? message: text
 }
 
 RecheckPinsResponse = {
@@ -151,11 +375,11 @@ UserPublicKey = {
     user_id: text,
     public_key: bytes,
     fingerprint: text,
-    algorithm: text,
-    key_usage: text,
-    created_at: text,
-    expires_at: text,
-    ? revoked_at: text,
+    algorithm: KeyAlgorithm,
+    key_usage: KeyUsage,
+    created_at: timestamp,
+    expires_at: timestamp,
+    ? revoked_at: timestamp,
     ;; encrypt keys only: the signing key that vouches for this key, and its signature
     ? signed_by_key_id: text,
     ? key_signature: bytes
@@ -198,7 +422,7 @@ ClaimSignature = {
 RevocationCertificate = {
     target_key_id: text,
     target_fingerprint: text,
-    revoked_at: text,
+    revoked_at: timestamp,
     signatures: [* ClaimSignature]
 }
 
@@ -208,15 +432,15 @@ Claim = {
     claim_type: text,
     claim_value: bytes,
     signatures: [* ClaimSignature],
-    ;; SEC-08: the signed attestation time (RFC3339 UTC) — WHEN this claim was
+    ;; SEC-08: the signed attestation time — WHEN this claim was
     ;; signed. Bound into every signature so it is tamper-evident. This is what a
     ;; verifier compares against a signer key's revoked_at: a signature made
     ;; before the key's revocation stays trustworthy; one dated after does not.
     ;; (created_at below is DB-assigned and NOT signed.)
-    attested_at: text,
-    created_at: text,
-    ? expires_at: text,
-    ? revoked_at: text
+    attested_at: timestamp,
+    created_at: timestamp,
+    ? expires_at: timestamp,
+    ? revoked_at: timestamp
 }
 
 GetUserClaimsRequest = {
@@ -237,12 +461,11 @@ GetUserClaimsResponse = {
 
 ;; One claim a relying party asks for, with the datatype it expects the value
 ;; to carry. `datatype` is advisory metadata for the consent UI and RP-side
-;; validation — one of "text", "int", "float", "bool", "date", "email", "url"
-;; (extensible). The protocol does not enforce it; claim values remain opaque
+;; validation. The protocol does not enforce it; claim values remain opaque
 ;; bytes.
 RequestedClaim = {
     claim_type: text,
-    datatype: text
+    datatype: ClaimValueType
 }
 
 ;; What a relying party advertises it wants on first contact. `required` means
@@ -269,9 +492,7 @@ AuthenticationRequirements = {
 ;; being made. IDPs treat this as signed RP metadata for display/audit only; the
 ;; claim request itself remains the source of truth for consent decisions.
 AuthFlowContext = {
-    ;; "login" is the default when absent; "claims_update" means the RP is
-    ;; asking the already-signed-in user to review changed claim requirements.
-    flow: text,
+    flow: AuthFlow,
     ;; RP-local session/grant handle. Opaque to the IDP, signed by the RP.
     ? prior_session: text,
     ;; Human-readable reason the RP wants the changed claims.
@@ -293,9 +514,9 @@ ConsentGrant = {
     subject_domain: text,
     audience: text,
     claim_types: [* text],
-    issued_at: text,
-    expires_at: text,
-    ? revoked_at: text,
+    issued_at: timestamp,
+    expires_at: timestamp,
+    ? revoked_at: timestamp,
     ;; The application of `audience` that this grant is for. Present when the
     ;; login request named an application; the grant then covers only that
     ;; application. Absent: the grant covers requests with no application.
@@ -329,15 +550,15 @@ DomainClaim = {
     claim_type: text,
     claim_value: bytes,
     signatures: [* ClaimSignature],
-    ;; The signed attestation time (RFC3339 UTC) — WHEN this claim was signed.
+    ;; The signed attestation time — WHEN this claim was signed.
     ;; Bound into every signature so it is tamper-evident, mirroring `Claim`.
     ;; This is what lets a verifier judge a signing key as of the moment it
     ;; signed: per invariant I-7 a signature made while the key was in good
     ;; standing stays trustworthy after that key expires or is revoked. Without
     ;; it there is no tamper-evident instant to compare, and a verifier must
     ;; fail closed and reject any lapsed signer outright.
-    attested_at: text,
-    ? expires_at: text
+    attested_at: timestamp,
+    ? expires_at: timestamp
 }
 
 ;; ============================================================
@@ -364,8 +585,8 @@ SigningRequest = {
     ;; The issuer decides the values it will actually sign.
     requested_claim_types: [* text],
     nonce: text,
-    issued_at: text,
-    expires_at: text,
+    issued_at: timestamp,
+    expires_at: timestamp,
     ;; Optional hint for where to deposit the resulting signed claim. Absent =>
     ;; out-of-band return (the user collects it and deposits it themselves).
     ? callback: text
@@ -401,14 +622,19 @@ IdentityAssertion = {
     domain: text,
     audience: text,
     nonce: text,
-    issued_at: text,
-    expires_at: text,
+    issued_at: timestamp,
+    expires_at: timestamp,
     ;; The effective set of claim_types this redemption may release, as resolved
     ;; by the user's consent plus home-domain policy. Required and fail-closed:
     ;; an empty list releases no claims. get-user-info scopes its response to
     ;; exactly this set (liblinkkeys::consent::scope_claims).
     authorized_claims: [* text],
-    ? display_name: text
+    ? display_name: text,
+    ;; The application principal the login was for, copied from the signed
+    ;; `AuthRequest.application`. A relying party server refuses to decrypt,
+    ;; verify, or redeem an assertion for an application other than the
+    ;; calling account's.
+    application: ApplicationRef
 }
 
 SignedIdentityAssertion = {
@@ -433,7 +659,7 @@ GetUserInfoRequest = {
 UserInfoRequest = {
     token: bytes,        ;; the SignedIdentityAssertion (as today)
     relying_party: text, ;; the requester's domain — must equal assertion.audience
-    timestamp: text,     ;; RFC3339, freshness
+    timestamp: timestamp,     ;; freshness
     nonce: text          ;; single-use redemption key
 }
 
@@ -475,7 +701,7 @@ AuthRequest = {
     ;; host does not have to be in the RP domain.
     callback_url: text,
     nonce: text,
-    timestamp: text,
+    timestamp: timestamp,
     signing_key_id: text,
     ;; Claims the RP would like released on first contact. Drives the consent
     ;; screen. Absent => the RP requests no claims (authentication only).
@@ -491,9 +717,9 @@ AuthRequest = {
     ;; making the RP's offered terms (e.g. a named privacy policy) a
     ;; non-repudiable agreement even if no user data is released.
     ? relying_party_claims: [* DomainClaim],
-    ;; The application principal that started this login. A LinkKeys RP
-    ;; server always sets it.
-    ? application: RelyingPartyApplication
+    ;; The application principal that started this login. Required: the
+    ;; IDP copies it into the identity assertion.
+    application: RelyingPartyApplication
 }
 
 SignedAuthRequest = {
@@ -522,8 +748,8 @@ EncryptedToken = {
 ;; ============================================================
 
 AlgorithmSupport = {
-    signing: [* text],
-    ? encryption: [* text]
+    signing: [* KeyAlgorithm],
+    ? encryption: [* AeadSuite]
 }
 
 HandshakeRequest = {
@@ -547,8 +773,8 @@ Relation = {
     relation: text,
     object_type: text,
     object_id: text,
-    created_at: text,
-    ? removed_at: text
+    created_at: timestamp,
+    ? removed_at: timestamp
 }
 
 ;; ============================================================
@@ -559,11 +785,14 @@ AdminUser = {
     id: text,
     username: text,
     display_name: text,
+    kind: AccountKind,
+    ;; Present only on an application account.
+    ? application_id: text,
     is_active: bool,
-    created_at: text,
-    updated_at: text,
+    created_at: timestamp,
+    updated_at: timestamp,
     ;; Tombstone marker. Present only on a purged user.
-    ? purged_at: text,
+    ? purged_at: timestamp,
     ? purge_reason: text,
     ;; Present and true only when an admin locked the password. The user
     ;; cannot change it or use password recovery; an admin can still reset it.
@@ -595,8 +824,8 @@ GetUserResponse = {
 ;; revoked browser sessions.
 UserAuthenticationActivity = {
     user_id: text,
-    ? last_authenticated_at: text,
-    ? last_seen_at: text,
+    ? last_authenticated_at: timestamp,
+    ? last_seen_at: timestamp,
     successful_authentication_count: int,
     active_browser_session_count: int
 }
@@ -609,15 +838,135 @@ GetUserAuthenticationActivityResponse = {
     activity: UserAuthenticationActivity
 }
 
+;; With `application_id`, the account is an application account: it has no
+;; password, and the response carries its first API key, named "default".
+;; Without it, the account is a human account; a human account without a
+;; password also gets a first API key.
 CreateUserRequest = {
     username: text,
     display_name: text,
-    ? password: text
+    ? password: text,
+    ? application_id: text
 }
 
 CreateUserResponse = {
     user: AdminUser,
     ? api_key: text
+}
+
+;; Usernames are not stable identifiers; the account id is. A rename keeps
+;; every credential, claim, grant, and consent of the account.
+RenameUserRequest = {
+    user_id: text,
+    username: text
+}
+
+RenameUserResponse = {
+    user: AdminUser
+}
+
+;; Set the application id of an application account. Users see a new
+;; application: earlier consent for the old id does not carry over.
+SetApplicationIdRequest = {
+    user_id: text,
+    application_id: text
+}
+
+SetApplicationIdResponse = {
+    user: AdminUser
+}
+
+;; One API key of an account. The secret is shown once, at creation; `hint`
+;; is its last four characters.
+ApiKeyInfo = {
+    key_id: text,
+    name: text,
+    hint: text,
+    created_at: timestamp,
+    ;; Updated at most once a minute.
+    ? last_used_at: timestamp
+}
+
+CreateApiKeyRequest = {
+    user_id: text,
+    name: text
+}
+
+CreateApiKeyResponse = {
+    key: ApiKeyInfo,
+    ;; The full key. It is not stored and is never returned again.
+    api_key: text
+}
+
+ListApiKeysRequest = {
+    user_id: text
+}
+
+ListApiKeysResponse = {
+    keys: [* ApiKeyInfo]
+}
+
+RevokeApiKeyRequest = {
+    user_id: text,
+    key_id: text
+}
+
+RevokeApiKeyResponse = {
+    revoked: bool
+}
+
+;; Limits an administrator sets on one account. An absent limit means none.
+;; `distinct_user_window_days` is the rolling window of
+;; `max_distinct_users`; the server default is 30.
+AccountLimits = {
+    ? max_api_keys: int,
+    ? max_distinct_users: int,
+    distinct_user_window_days: int,
+    ? requests_per_minute: int,
+    ? request_burst: int
+}
+
+GetAccountLimitsRequest = {
+    user_id: text
+}
+
+GetAccountLimitsResponse = {
+    limits: AccountLimits
+}
+
+;; Replace the limits of one account. Absent limits are removed.
+SetAccountLimitsRequest = {
+    user_id: text,
+    limits: AccountLimits
+}
+
+SetAccountLimitsResponse = {
+    limits: AccountLimits
+}
+
+;; Usage of one `Rp` operation by an account on one UTC day.
+RpUsageDay = {
+    day: date,
+    operation: text,
+    succeeded: int,
+    failed: int
+}
+
+;; The usage of an application account. `distinct_users` counts the users
+;; seen at `decrypt-token` in the last `distinct_user_window_days` days; user
+;; identities are never stored or returned, only keyed hashes of them.
+;; `first_day` and `last_day` are inclusive UTC days.
+GetApplicationUsageRequest = {
+    user_id: text,
+    first_day: date,
+    last_day: date
+}
+
+GetApplicationUsageResponse = {
+    distinct_users: int,
+    distinct_user_window_days: int,
+    ? max_distinct_users: int,
+    days: [* RpUsageDay]
 }
 
 UpdateUserRequest = {
@@ -725,7 +1074,7 @@ SetClaimRequest = {
     user_id: text,
     claim_type: text,
     claim_value: text,
-    ? expires_at: text
+    ? expires_at: timestamp
 }
 
 SetClaimResponse = {
@@ -768,10 +1117,7 @@ SetUserClaimRequest = {
 }
 
 SetUserClaimResponse = {
-    ;; "signed" | "stored_unsigned" | "verification_required" | "queued".
-    ;; On verification_required/queued, the claim is not live yet and must not
-    ;; be released to an RP assertion.
-    outcome: text,
+    outcome: SetClaimOutcome,
     ? claim: Claim
 }
 
@@ -779,11 +1125,11 @@ SettableClaimPolicy = {
     claim_type: text,
     label: text,
     description: text,
-    datatype: text,
+    datatype: ClaimValueType,
     max_bytes: int,
-    set_rule: text,
+    set_rule: SetRule,
     requires_approval: bool,
-    signing_rule: text
+    signing_rule: SigningRule
 }
 
 ListSettablePoliciesResponse = {
@@ -812,10 +1158,10 @@ ClaimTypePolicy = {
     claim_type: text,
     label: text,
     description: text,
-    value_type: text,
+    value_type: ClaimValueType,
     max_bytes: int,
-    set_rule: text,
-    signing_rule: text,
+    set_rule: SetRule,
+    signing_rule: SigningRule,
     requires_approval: bool,
     user_settable: bool,
     default_auto_sign: bool,
@@ -835,10 +1181,10 @@ SetClaimTypeRequest = {
     claim_type: text,
     label: text,
     ? description: text,
-    value_type: text,
+    value_type: ClaimValueType,
     max_bytes: int,
-    set_rule: text,
-    signing_rule: text,
+    set_rule: SetRule,
+    signing_rule: SigningRule,
     user_settable: bool,
     default_auto_sign: bool,
     requires_approval: bool,
@@ -943,7 +1289,7 @@ RemoveTrustedIssuerResponse = {
 ReleaseRule = {
     audience: text,
     claim_type: text,
-    disposition: text
+    disposition: ReleaseDisposition
 }
 
 ListReleaseRulesResponse = {
@@ -951,12 +1297,10 @@ ListReleaseRulesResponse = {
 }
 
 ;; Create-or-update a release rule, keyed on (audience, claim_type).
-;; Server-side validates `disposition` against forced_allow|forced_deny
-;; (same validation the web handler performs) before storing.
 SetReleaseRuleRequest = {
     audience: text,
     claim_type: text,
-    disposition: text
+    disposition: ReleaseDisposition
 }
 
 SetReleaseRuleResponse = {
@@ -984,10 +1328,10 @@ ClaimApproval = {
     user_id: text,
     claim_type: text,
     claim_value: bytes,
-    status: text,
+    status: ClaimApprovalStatus,
     ? resolved_by: text,
-    ? resolved_at: text,
-    created_at: text
+    ? resolved_at: timestamp,
+    created_at: timestamp
 }
 
 ListPendingClaimApprovalsResponse = {
@@ -1108,10 +1452,7 @@ SetMyClaimRequest = {
 }
 
 SetMyClaimResponse = {
-    ;; "signed" | "stored_unsigned" | "verification_required" | "queued".
-    ;; On verification_required/queued, the claim is not live yet and must not
-    ;; be released to an RP assertion.
-    outcome: text,
+    outcome: SetClaimOutcome,
     ? claim: Claim
 }
 
@@ -1243,9 +1584,9 @@ PasswordPolicy = {
 ;; request refreshes the idle window, but it cannot exceed the absolute expiry.
 BrowserSessionInfo = {
     user: AdminUser,
-    issued_at: text,
-    authenticated_at: text,
-    expires_at: text,
+    issued_at: timestamp,
+    authenticated_at: timestamp,
+    expires_at: timestamp,
     authentication_methods: [* text]
 }
 
@@ -1277,8 +1618,8 @@ IntrospectBrowserSessionRequest = {
 IntrospectBrowserSessionResponse = {
     user_id: text,
     user_domain: text,
-    authenticated_at: text,
-    expires_at: text,
+    authenticated_at: timestamp,
+    expires_at: timestamp,
     authentication_methods: [* text]
 }
 
@@ -1286,14 +1627,11 @@ IntrospectBrowserSessionResponse = {
 ;; Outbound notification capabilities and verified contacts
 ;; ============================================================
 
-;; One enabled purpose/channel pair. Initial purpose values are
-;; `verify_contact` and `reset_password`. The initial channel is `email`, and
-;; its destination_kind is `email`. These text registries can gain new
-;; values without changing this record.
+;; One enabled purpose/channel pair.
 NotificationCapability = {
-    purpose: text,
-    channel: text,
-    destination_kind: text
+    purpose: NotificationPurpose,
+    channel: NotificationChannel,
+    destination_kind: DestinationKind
 }
 
 GetNotificationCapabilitiesResponse = {
@@ -1305,11 +1643,11 @@ GetNotificationCapabilitiesResponse = {
 ;; `email_verified` claims remain the protocol-facing result for email.
 VerifiedContactMethod = {
     id: text,
-    channel: text,
+    channel: NotificationChannel,
     destination: text,
-    verified_at: text,
-    purposes: [* text],
-    ? revoked_at: text
+    verified_at: timestamp,
+    purposes: [* NotificationPurpose],
+    ? revoked_at: timestamp
 }
 
 ListVerifiedContactMethodsResponse = {
@@ -1333,13 +1671,13 @@ RevokeVerifiedContactMethodResponse = {
 ;; contact can authorize password recovery. `expires_at` is the challenge
 ;; expiry, not a delivery promise.
 RequestContactVerificationRequest = {
-    channel: text,
+    channel: NotificationChannel,
     destination: text,
     current_password: text
 }
 
 RequestContactVerificationResponse = {
-    expires_at: text
+    expires_at: timestamp
 }
 
 ;; Acts only on the authenticated caller's account. The server rejects a token
@@ -1378,7 +1716,7 @@ ValidatePasswordRecoveryRequest = {
 }
 
 ValidatePasswordRecoveryResponse = {
-    expires_at: text,
+    expires_at: timestamp,
     password_policy: PasswordPolicy
 }
 
@@ -1402,11 +1740,11 @@ BrowserAuthorizationInspectRequest = {
 BrowserConsentClaim = {
     claim_type: text,
     label: text,
-    datatype: text,
+    datatype: ClaimValueType,
     required: bool,
     available: bool,
     default_granted: bool,
-    policy: text,
+    policy: ConsentRowPolicy,
     user_settable: bool,
     max_bytes: int,
     requires_approval: bool,
@@ -1465,8 +1803,7 @@ BrowserLocalRpInspectRequest = {
 }
 
 BrowserLocalRpInspectResponse = {
-    ;; "consent", "pending", or "blocked" (with access_denied).
-    admission: text,
+    admission: LocalRpAdmission,
     ;; The name the app chose for itself. It is not verified.
     app_name: text,
     ;; The app's key fingerprint, its only real identity.
@@ -1474,7 +1811,7 @@ BrowserLocalRpInspectResponse = {
     ;; The host the browser returns to after sign-in.
     callback_host: text,
     ;; When this server first saw the app.
-    ? first_seen_at: text,
+    ? first_seen_at: timestamp,
     claims: [* BrowserConsentClaim],
     ? request_reason: text,
     ;; True when a standing grant covers this normal sign-in.
@@ -1549,13 +1886,11 @@ GetUiConfigurationResponse = {
 ;; by API key (the envelope `auth` field).
 
 ;; Sign an auth request for the login redirect.
+;; The calling account must be an application account. The signed request
+;; names the application as the account's own `ApplicationRef`.
 RpSignRequest = {
     callback_url: text,
     nonce: text,
-    ;; The application under the calling account (1-128 of A-Z a-z 0-9 - _ .).
-    ;; Use the same value as the application's act-as `ApplicationRef`.
-    ;; Absent: the calling account's username.
-    ? application_id: text,
     ;; Optional per-request override. Absent => use RP_CLAIMS_CONFIG.
     ? requested_claims: ClaimRequest,
     ;; Optional factor-count request. The RP cannot name provider methods.
@@ -1606,6 +1941,11 @@ RpUserInfoRequest = {
 ;; user-supplied SignedSigningRequest. The caller must be API-key authenticated
 ;; to this RP helper; the server also enforces its issuer policy and allowed
 ;; claim list before signing.
+RpError = {
+    code: RpErrorCode,
+    message: text
+}
+
 RpIssueAttestationRequest = {
     signed_request: SignedSigningRequest,
     claim_type: text,
@@ -1727,17 +2067,6 @@ ApiError = {
 ;; structure-specific context string (never a bare field inside the signed
 ;; struct). Fingerprints are hex text, matching DomainPublicKey/UserPublicKey.
 
-;; Advertised/negotiated AEAD suite id. A registry, not free text: exactly
-;; "aes-256-gcm" (mandatory-to-implement) or "chacha20-poly1305" (optional).
-;; Shared with AlgorithmSupport.encryption in the Handshake service — one
-;; registry, two advertisement surfaces (descriptor here, handshake for S2S).
-AeadSuite = text
-
-;; Per-domain setting for whether local RP logins are accepted at all.
-;; "disabled" | "admin-approval-required" (default) | "allow-by-default".
-;; Storage/administration follows the existing domain policy pattern
-;; (policy_admin_ui.rs); this is the shared vocabulary for that value.
-LocalRpPolicy = text
 
 ;; Self-asserted identity metadata for a local RP, signed by its own signing
 ;; key. app_name and local_domain_hint are display/audit context only —
@@ -1752,8 +2081,8 @@ LocalRpDescriptor = {
     fingerprint: text,
     ;; AEAD suites this local RP supports, in preference order.
     supported_suites: [* AeadSuite],
-    created_at: text,
-    expires_at: text
+    created_at: timestamp,
+    expires_at: timestamp
 }
 
 SignedLocalRpDescriptor = {
@@ -1773,8 +2102,8 @@ LocalRpLoginRequest = {
     ? authentication_requirements: AuthenticationRequirements,
     ;; Optional signed context for an explicit claims-update flow.
     ? flow_context: AuthFlowContext,
-    issued_at: text,
-    expires_at: text
+    issued_at: timestamp,
+    expires_at: timestamp
 }
 
 SignedLocalRpLoginRequest = {
@@ -1794,8 +2123,8 @@ LocalRpCallbackHeader = {
     suite: AeadSuite,
     ephemeral_public_key: bytes .size 32,
     aead_nonce: bytes .size 12,
-    issued_at: text,
-    expires_at: text
+    issued_at: timestamp,
+    expires_at: timestamp
 }
 
 LocalRpEncryptedCallback = {
@@ -1816,8 +2145,8 @@ LocalRpCallbackPayload = {
     callback_url: text,
     nonce: bytes,
     state: bytes,
-    issued_at: text,
-    expires_at: text
+    issued_at: timestamp,
+    expires_at: timestamp
 }
 
 ;; Domain-signed envelope around LocalRpCallbackPayload; these are the exact
@@ -1838,7 +2167,7 @@ SignedLocalRpCallbackPayload = {
 LocalRpTicketRedemptionRequest = {
     claim_ticket: bytes,
     fingerprint: text,
-    issued_at: text
+    issued_at: timestamp
 }
 
 SignedLocalRpTicketRedemptionRequest = {
@@ -1850,7 +2179,7 @@ LocalRpTicketRedemptionResponse = {
     user_id: text,
     user_domain: text,
     claims: [* Claim],
-    ticket_expires_at: text
+    ticket_expires_at: timestamp
 }
 
 ;; Admin-facing view of a local RP identity. Approval keys on `fingerprint`
@@ -1863,12 +2192,11 @@ AdminLocalRp = {
     encryption_public_key: bytes .size 32,
     app_name: text,
     ? local_domain_hint: text,
-    ;; "pending" | "approved" | "denied" | "revoked"
-    status: text,
-    created_at: text,
-    updated_at: text,
-    ? expires_at: text,
-    ? last_seen_at: text,
+    status: LocalRpStatus,
+    created_at: timestamp,
+    updated_at: timestamp,
+    ? expires_at: timestamp,
+    ? last_seen_at: timestamp,
     ? admin_notes: text
 }
 
@@ -1876,7 +2204,7 @@ ListLocalRpsRequest = {
     ? offset: int,
     ? limit: int,
     ;; Optional filter on AdminLocalRp.status.
-    ? status: text
+    ? status: LocalRpStatus
 }
 
 ListLocalRpsResponse = {
@@ -1978,26 +2306,20 @@ SetUserPasswordLockResponse = {
 ;; patterns. A local app has no domain, so it matches no pattern. See
 ;; liblinkkeys::app_access for the full rules.
 
-;; Who a policy applies to. `kind` is "everyone", "user" (with user_id),
-;; "group" (with group_name: members through the `member` relation), or
-;; "claim" (with claim_type and claim_operator). claim_operator is "present",
-;; "absent", "equals", "age_under", or "age_at_least". The last three need
-;; claim_value; the age operators read a YYYY-MM-DD birth date and take a
-;; whole number of years.
+;; Who a policy applies to. See `AppAccessTargetKind` and `ClaimOperator`.
 AppAccessTarget = {
-    kind: text,
+    kind: AppAccessTargetKind,
     ? user_id: text,
     ? group_name: text,
     ? claim_type: text,
-    ? claim_operator: text,
+    ? claim_operator: ClaimOperator,
     ? claim_value: text
 }
 
 AppAccessPolicy = {
     id: text,
     name: text,
-    ;; "allow" or "deny".
-    mode: text,
+    mode: AppAccessMode,
     ;; Canonical patterns: lowercase, no trailing dot.
     patterns: [* text],
     ;; Optional extra text shown to a user that this policy blocks.
@@ -2014,7 +2336,7 @@ ListAppAccessPoliciesResponse = {
 SetAppAccessPolicyRequest = {
     ? id: text,
     name: text,
-    mode: text,
+    mode: AppAccessMode,
     patterns: [* text],
     ? message: text,
     targets: [* AppAccessTarget]
@@ -2144,15 +2466,15 @@ ApplicationKeyAttestation = {
     application_id: text,
     instance_id: text,
     key_id: text,
-    ;; "sign" (Ed25519) or "agree" (X25519)
-    key_usage: text,
-    algorithm: text,
+    ;; `sign` (Ed25519) or `agree` (X25519)
+    key_usage: KeyUsage,
+    algorithm: KeyAlgorithm,
     public_key: bytes,
     fingerprint: text,
-    key_created_at: text,
-    key_expires_at: text,
-    attested_at: text,
-    attestation_expires_at: text
+    key_created_at: timestamp,
+    key_expires_at: timestamp,
+    attested_at: timestamp,
+    attestation_expires_at: timestamp
 }
 
 ;; A home-domain attestation plus the domain signatures over it. `attestation`
@@ -2180,15 +2502,15 @@ ApplicationKeyAddition = {
     application_id: text,
     instance_id: text,
     key_id: text,
-    key_usage: text,
-    algorithm: text,
+    key_usage: KeyUsage,
+    algorithm: KeyAlgorithm,
     public_key: bytes,
     fingerprint: text,
     requested_key_lifetime_seconds: int,
     challenge_id: text,
     challenge: bytes,
-    requested_at: text,
-    expires_at: text
+    requested_at: timestamp,
+    expires_at: timestamp
 }
 
 ;; `addition` is the deterministic CBOR encoding of `ApplicationKeyAddition`.
@@ -2214,8 +2536,8 @@ ApplicationKeyRenewal = {
     key_id: text,
     challenge_id: text,
     challenge: bytes,
-    requested_at: text,
-    expires_at: text
+    requested_at: timestamp,
+    expires_at: timestamp
 }
 
 ;; `renewal` is the deterministic CBOR encoding of `ApplicationKeyRenewal`.
@@ -2246,12 +2568,12 @@ ApplicationKeyRevocation = {
     instance_id: text,
     target_key_id: text,
     target_fingerprint: text,
-    revoked_at: text,
+    revoked_at: timestamp,
     signatures: [* ApplicationKeySignature]
 }
 
 ;; Ask the home domain for a single-use nonce before an add or a renew.
-;; `purpose` is "add" or "renew". The operation is anonymous and answers the
+;; The operation is anonymous and answers the
 ;; same way for a known and an unknown instance: a nonce is useless without the
 ;; matching private key, and answering differently would turn this into an
 ;; instance-existence oracle.
@@ -2259,9 +2581,9 @@ StartApplicationKeyChallengeRequest = {
     subject_user_id: text,
     application_id: text,
     instance_id: text,
-    purpose: text,
-    key_usage: text,
-    algorithm: text,
+    purpose: ApplicationKeyChallengePurpose,
+    key_usage: KeyUsage,
+    algorithm: KeyAlgorithm,
     public_key: bytes
 }
 
@@ -2273,7 +2595,7 @@ StartApplicationKeyChallengeResponse = {
     challenge_id: text,
     ? challenge: bytes,
     ? sealed_challenge: bytes,
-    expires_at: text
+    expires_at: timestamp
 }
 
 AddApplicationKeyRequest = {
@@ -2303,7 +2625,7 @@ RevokeApplicationKeyRequest = {
 }
 
 RevokeApplicationKeyResponse = {
-    revoked_at: text
+    revoked_at: timestamp
 }
 
 ;; Initial enrollment is the one bootstrap exception to application-key quorum:
@@ -2361,17 +2683,13 @@ RpResolveDomainKeysRequest = {
     ? max_cache_age_seconds: int
 }
 
-;; `cache_status` is one of "fresh" (served within the allowed age),
-;; "refreshed" (fetched for this call), or "stale" (the home domain was
-;; unreachable and these are the last verified records). A "stale" result is
-;; never presented as current trust.
 RpResolveDomainKeysResponse = {
     domain: text,
     keys: [* DomainPublicKey],
     revocations: [* RevocationCertificate],
-    fetched_at: text,
-    revocations_checked_at: text,
-    cache_status: text
+    fetched_at: timestamp,
+    revocations_checked_at: timestamp,
+    cache_status: RpCacheStatus
 }
 
 RpResolveApplicationKeysRequest = {
@@ -2395,9 +2713,9 @@ RpResolveApplicationKeysResponse = {
     application_key_revocations: [* ApplicationKeyRevocation],
     home_domain_keys: [* DomainPublicKey],
     home_domain_key_revocations: [* RevocationCertificate],
-    fetched_at: text,
-    revocations_checked_at: text,
-    cache_status: text
+    fetched_at: timestamp,
+    revocations_checked_at: timestamp,
+    cache_status: RpCacheStatus
 }
 
 ;; ============================================================
@@ -2452,8 +2770,8 @@ ActAsScopeSet = {
     entries: [+ ActAsScopeEntry],
     ? language: text,
     ? audience_handle_claim: Claim,
-    issued_at: text,
-    expires_at: text
+    issued_at: timestamp,
+    expires_at: timestamp
 }
 
 ;; `scope_set` is the exact CBOR of ActAsScopeSet. The audience instance that
@@ -2485,10 +2803,10 @@ ActAsGrant = {
     audience: ApplicationRef,
     scope_set: SignedActAsScopeSet,
     approved_scope: [+ text],
-    issued_at: text,
-    expires_at: text,
-    series_issued_at: text,
-    renewable_until: text,
+    issued_at: timestamp,
+    expires_at: timestamp,
+    series_issued_at: timestamp,
+    renewable_until: timestamp,
     ? device_fingerprint: text
 }
 
@@ -2510,8 +2828,8 @@ ActAsGrantRequest = {
     ? grantee_handle_claim: Claim,
     callback_url: text,
     nonce: text,
-    requested_at: text,
-    expires_at: text
+    requested_at: timestamp,
+    expires_at: timestamp
 }
 
 SignedActAsGrantRequest = {
@@ -2525,8 +2843,8 @@ SignedActAsGrantRequest = {
 ActAsRefreshRequest = {
     grant_id: text,
     grantee: GranteeRef,
-    requested_at: text,
-    expires_at: text,
+    requested_at: timestamp,
+    expires_at: timestamp,
     nonce: text
 }
 
@@ -2553,7 +2871,7 @@ ActAsPresentation = {
     grant_hash: bytes,
     audience: ApplicationRef,
     request_digest: bytes,
-    presented_at: text,
+    presented_at: timestamp,
     nonce: bytes
 }
 
@@ -2574,7 +2892,7 @@ ActAsGrantRevocation = {
     grant_id: text,
     user_id: text,
     subject_domain: text,
-    revoked_at: text
+    revoked_at: timestamp
 }
 
 SignedActAsGrantRevocation = {
@@ -2678,10 +2996,10 @@ ActAsGrantSummary = {
     grantee: GranteeRef,
     audience: ApplicationRef,
     approved_scope: [* text],
-    issued_at: text,
-    expires_at: text,
-    renewable_until: text,
-    ? revoked_at: text
+    issued_at: timestamp,
+    expires_at: timestamp,
+    renewable_until: timestamp,
+    ? revoked_at: timestamp
 }
 
 ListActAsGrantsResponse = {
@@ -2693,7 +3011,7 @@ RevokeActAsGrantRequest = {
 }
 
 RevokeActAsGrantResponse = {
-    revoked_at: text
+    revoked_at: timestamp
 }
 
 ;; ============================================================
@@ -2811,16 +3129,16 @@ PreviewReleasePolicyRequest = {
     user_choices: [* text],
     ? temp_audience: text,
     ? temp_claim_type: text,
-    ? temp_disposition: text
+    ? temp_disposition: ReleaseDisposition
 }
 
-;; One consent-screen row. `policy` is "user", "forced_allow", or "forced_deny".
+;; One consent-screen row.
 PreviewReleaseRow = {
     claim_type: text,
     required: bool,
     available: bool,
     locked: bool,
-    policy: text,
+    policy: ConsentRowPolicy,
     default_granted: bool
 }
 
@@ -2864,7 +3182,7 @@ InspectSigningRequestResponse = {
     subject_user_id: text,
     subject_domain: text,
     requested_claim_types: [* text],
-    expires_at: text,
+    expires_at: timestamp,
     ;; The requested types the caller may issue.
     issuable_claim_types: [* text]
 }
@@ -2878,13 +3196,11 @@ IssueForSigningRequestRequest = {
     claim_values: [* text]
 }
 
-;; outcome: "deposited" (signed and delivered), "handoff" (signed, but the
-;; subject domain was unreachable; `claim_code` is base64url CBOR of the Claim
-;; for the user to add), "skipped" (not requested, or the caller may not issue
-;; it), or "failed" (signing failed; see `message`).
+;; One claim type's result. See `IssuedClaimOutcome`. `claim_code` is
+;; base64url CBOR of the Claim for a `handoff`.
 IssuedClaimResult = {
     claim_type: text,
-    outcome: text,
+    outcome: IssuedClaimOutcome,
     ? message: text,
     ? claim_code: text
 }
@@ -2967,7 +3283,15 @@ service Admin {
     list-app-access-policies: EmptyRequest -> ListAppAccessPoliciesResponse,
     set-app-access-policy: SetAppAccessPolicyRequest -> SetAppAccessPolicyResponse,
     remove-app-access-policy: RemoveAppAccessPolicyRequest -> RemoveAppAccessPolicyResponse,
-    preview-app-access: PreviewAppAccessRequest -> PreviewAppAccessResponse
+    preview-app-access: PreviewAppAccessRequest -> PreviewAppAccessResponse,
+    rename-user: RenameUserRequest -> RenameUserResponse,
+    set-application-id: SetApplicationIdRequest -> SetApplicationIdResponse,
+    create-api-key: CreateApiKeyRequest -> CreateApiKeyResponse,
+    list-api-keys: ListApiKeysRequest -> ListApiKeysResponse,
+    revoke-api-key: RevokeApiKeyRequest -> RevokeApiKeyResponse,
+    get-account-limits: GetAccountLimitsRequest -> GetAccountLimitsResponse,
+    set-account-limits: SetAccountLimitsRequest -> SetAccountLimitsResponse,
+    get-application-usage: GetApplicationUsageRequest -> GetApplicationUsageResponse
 }
 
 service Account {
@@ -3000,10 +3324,10 @@ service Attestation {
 ;; no domain key). API-key authenticated. verify-assertion and userinfo-fetch
 ;; make an onward server-to-server call to the issuing IDP.
 service Rp {
-    sign-request: RpSignRequest -> RpSignResponse,
-    decrypt-token: RpDecryptRequest -> RpDecryptResponse,
-    verify-assertion: RpVerifyRequest -> RpVerifyResponse,
-    userinfo-fetch: RpUserInfoRequest -> UserInfo,
+    sign-request: RpSignRequest -> RpSignResponse / RpError,
+    decrypt-token: RpDecryptRequest -> RpDecryptResponse / RpError,
+    verify-assertion: RpVerifyRequest -> RpVerifyResponse / RpError,
+    userinfo-fetch: RpUserInfoRequest -> UserInfo / RpError,
     issue-attestation: RpIssueAttestationRequest -> RpIssueAttestationResponse,
     resolve-domain-keys: RpResolveDomainKeysRequest -> RpResolveDomainKeysResponse,
     resolve-application-keys: RpResolveApplicationKeysRequest -> RpResolveApplicationKeysResponse,

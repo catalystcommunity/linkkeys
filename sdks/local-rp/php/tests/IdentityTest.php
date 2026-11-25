@@ -21,7 +21,7 @@ TestKit::test('identity.generate_defaults_both_suites_and_ten_year_lifetime', fu
     // 3650 DAYS (not calendar years) from 2026-01-01, matching
     // `DEFAULT_LIFETIME_DAYS`'s literal day-count semantics (mirroring the
     // Rust reference's `Duration::days(3650)`).
-    TestKit::assertEquals('2035-12-30T00:00:00+00:00', $descriptor->expiresAt);
+    TestKit::assertEquals('2035-12-30T00:00:00Z', $descriptor->expiresAt);
 });
 
 TestKit::test('identity.generate_rejects_empty_app_name', function () {

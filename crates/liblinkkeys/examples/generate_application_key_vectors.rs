@@ -47,7 +47,7 @@ use liblinkkeys::claims::ClaimSigner;
 use liblinkkeys::crypto::{self, SigningAlgorithm};
 use liblinkkeys::generated::{self, types::DomainPublicKey};
 use liblinkkeys::local_rp::DEFAULT_CLOCK_SKEW_SECONDS;
-use liblinkkeys::timestamp::Rfc3339 as _;
+use liblinkkeys::timestamp::{Rfc3339 as _, SignedTime};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use time::{Duration, OffsetDateTime};
@@ -151,12 +151,12 @@ impl Ed25519Fixture {
     fn key_ref(&self) -> ApplicationKeyRef {
         ApplicationKeyRef {
             key_id: self.key_id.to_string(),
-            key_usage: ak::KEY_USAGE_SIGN.to_string(),
-            algorithm: "ed25519".to_string(),
+            key_usage: ak::KEY_USAGE_SIGN,
+            algorithm: liblinkkeys::generated::types::KeyAlgorithm::Ed25519,
             public_key: self.public_key.to_vec(),
             fingerprint: self.fingerprint.clone(),
-            created_at: rfc3339(base_instant()),
-            expires_at: rfc3339(base_instant() + Duration::days(365)),
+            created_at: base_instant(),
+            expires_at: base_instant() + Duration::days(365),
             revoked_at: None,
         }
     }
@@ -190,12 +190,12 @@ impl X25519Fixture {
     fn key_ref(&self) -> ApplicationKeyRef {
         ApplicationKeyRef {
             key_id: self.key_id.to_string(),
-            key_usage: ak::KEY_USAGE_AGREE.to_string(),
-            algorithm: "x25519".to_string(),
+            key_usage: ak::KEY_USAGE_AGREE,
+            algorithm: liblinkkeys::generated::types::KeyAlgorithm::X25519,
             public_key: self.public_key.to_vec(),
             fingerprint: self.fingerprint.clone(),
-            created_at: rfc3339(base_instant()),
-            expires_at: rfc3339(base_instant() + Duration::days(365)),
+            created_at: base_instant(),
+            expires_at: base_instant() + Duration::days(365),
             revoked_at: None,
         }
     }
@@ -204,13 +204,13 @@ impl X25519Fixture {
 fn key_ref_json(k: &ApplicationKeyRef) -> Value {
     json!({
         "key_id": k.key_id,
-        "key_usage": k.key_usage,
-        "algorithm": k.algorithm,
+        "key_usage": k.key_usage.as_str(),
+        "algorithm": k.algorithm.as_str(),
         "public_key_hex": hex(&k.public_key),
         "fingerprint": k.fingerprint,
-        "created_at": k.created_at,
-        "expires_at": k.expires_at,
-        "revoked_at": k.revoked_at,
+        "created_at": rfc3339(k.created_at),
+        "expires_at": rfc3339(k.expires_at),
+        "revoked_at": k.revoked_at.map(rfc3339),
     })
 }
 
@@ -283,7 +283,7 @@ fn attestation_vectors() -> Value {
 
     let attested_at = base_instant();
     let mut key_ref = app_key.key_ref();
-    key_ref.expires_at = rfc3339(base_instant() + Duration::days(365));
+    key_ref.expires_at = base_instant() + Duration::days(365);
 
     let attestation = ak::build_attestation(
         &instance(),
@@ -291,7 +291,7 @@ fn attestation_vectors() -> Value {
         attested_at,
         ak::DEFAULT_ATTESTATION_LIFETIME_SECONDS,
     );
-    let attestation_bytes = generated::encode_application_key_attestation(&attestation);
+    let attestation_bytes = generated::encode_application_key_attestation(&attestation).unwrap();
     let signature_input = ak::attestation_signature_input(&attestation_bytes);
     let signed = ak::sign_attestation(&attestation, &[domain_key.claim_signer(DOMAIN)]).unwrap();
     assert_eq!(signed.attestation, attestation_bytes);
@@ -300,10 +300,10 @@ fn attestation_vectors() -> Value {
         key_id: domain_key.key_id.to_string(),
         public_key: domain_key.public_key.to_vec(),
         fingerprint: domain_key.fingerprint.clone(),
-        algorithm: "ed25519".to_string(),
-        key_usage: "sign".to_string(),
-        created_at: rfc3339(base_instant()),
-        expires_at: DOMAIN_KEY_FAR_EXPIRES.to_string(),
+        algorithm: liblinkkeys::generated::types::KeyAlgorithm::Ed25519,
+        key_usage: liblinkkeys::generated::types::KeyUsage::Sign,
+        created_at: base_instant(),
+        expires_at: liblinkkeys::timestamp::parse_rfc3339(DOMAIN_KEY_FAR_EXPIRES).unwrap(),
         revoked_at: None,
         signed_by_key_id: None,
         key_signature: None,
@@ -319,11 +319,11 @@ fn attestation_vectors() -> Value {
         "key_id": domain_public_key.key_id,
         "public_key_hex": hex(&domain_public_key.public_key),
         "fingerprint": domain_public_key.fingerprint,
-        "algorithm": domain_public_key.algorithm,
-        "key_usage": domain_public_key.key_usage,
-        "created_at": domain_public_key.created_at,
-        "expires_at": domain_public_key.expires_at,
-        "revoked_at": domain_public_key.revoked_at,
+        "algorithm": domain_public_key.algorithm.as_str(),
+        "key_usage": domain_public_key.key_usage.as_str(),
+        "created_at": rfc3339(domain_public_key.created_at),
+        "expires_at": rfc3339(domain_public_key.expires_at),
+        "revoked_at": domain_public_key.revoked_at.map(rfc3339),
     })];
 
     let signed_json = |s: &liblinkkeys::generated::types::SignedApplicationKeyAttestation| {
@@ -432,12 +432,12 @@ fn attestation_vectors() -> Value {
             "private_key_hex": hex(&app_key.private_key),
             "public_key_hex": hex(&app_key.public_key),
             "fingerprint": app_key.fingerprint,
-            "created_at": key_ref.created_at,
-            "expires_at": key_ref.expires_at,
+            "created_at": rfc3339(key_ref.created_at),
+            "expires_at": rfc3339(key_ref.expires_at),
         },
         "attestation": {
-            "attested_at": attestation.attested_at,
-            "attestation_expires_at": attestation.attestation_expires_at,
+            "attested_at": rfc3339(attestation.attested_at),
+            "attestation_expires_at": rfc3339(attestation.attestation_expires_at),
         },
         "attestation_cbor_hex": hex(&attestation_bytes),
         "signature_input_cbor_hex": hex(&signature_input),
@@ -479,17 +479,17 @@ fn addition_vectors() -> Value {
         application_id: APPLICATION_ID.to_string(),
         instance_id: INSTANCE_ID.to_string(),
         key_id: new_key.key_id.to_string(),
-        key_usage: ak::KEY_USAGE_SIGN.to_string(),
-        algorithm: "ed25519".to_string(),
+        key_usage: ak::KEY_USAGE_SIGN,
+        algorithm: liblinkkeys::generated::types::KeyAlgorithm::Ed25519,
         public_key: new_key.public_key.to_vec(),
         fingerprint: new_key.fingerprint.clone(),
         requested_key_lifetime_seconds: 31_536_000,
         challenge_id: "addition-challenge-1".to_string(),
         challenge: vec![0x77; 32],
-        requested_at: rfc3339(requested_at),
-        expires_at: rfc3339(expires_at),
+        requested_at,
+        expires_at,
     };
-    let addition_bytes = generated::encode_application_key_addition(&addition);
+    let addition_bytes = generated::encode_application_key_addition(&addition).unwrap();
     let addition_signature_input = ak::addition_signature_input(&addition_bytes);
     let possession_signature_input = ak::possession_signature_input(&addition_bytes);
 
@@ -691,8 +691,8 @@ fn renewal_vectors() -> Value {
             key_id: key_id.to_string(),
             challenge_id: challenge_id.to_string(),
             challenge: vec![0x88; 32],
-            requested_at: rfc3339(requested_at),
-            expires_at: rfc3339(expires_at),
+            requested_at,
+            expires_at,
         }
     };
 
@@ -712,7 +712,7 @@ fn renewal_vectors() -> Value {
     // Ed25519 self-renewal: the target key proves possession by signing for
     // itself; no sibling quorum is needed or used.
     let ed_renewal = renewal_for(a.key_id, "renewal-challenge-ed25519");
-    let ed_bytes = generated::encode_application_key_renewal(&ed_renewal);
+    let ed_bytes = generated::encode_application_key_renewal(&ed_renewal).unwrap();
     let ed_signature_input = ak::renewal_signature_input(&ed_bytes);
     let ed_possession_input = ak::possession_signature_input(&ed_bytes);
     let ed_signed = ak::sign_renewal(&ed_renewal, &[], Some(&a.signer())).unwrap();
@@ -742,7 +742,7 @@ fn renewal_vectors() -> Value {
     // X25519 sibling-signed renewal: the target cannot sign for itself, so a
     // sibling signing key vouches for it (RENEWAL_QUORUM = 1).
     let x_renewal = renewal_for(agree.key_id, "renewal-challenge-x25519");
-    let x_bytes = generated::encode_application_key_renewal(&x_renewal);
+    let x_bytes = generated::encode_application_key_renewal(&x_renewal).unwrap();
     let x_signature_input = ak::renewal_signature_input(&x_bytes);
     let x_possession_input = ak::possession_signature_input(&x_bytes);
     let x_signed = ak::sign_renewal(&x_renewal, &[a.signer()], None).unwrap();
@@ -772,7 +772,7 @@ fn renewal_vectors() -> Value {
 
     // Negative: no possession proof and no sibling signature at all.
     let unsigned_renewal = renewal_for(a.key_id, "renewal-challenge-none");
-    let unsigned_bytes = generated::encode_application_key_renewal(&unsigned_renewal);
+    let unsigned_bytes = generated::encode_application_key_renewal(&unsigned_renewal).unwrap();
     let unsigned_signed = ak::sign_renewal(&unsigned_renewal, &[], None).unwrap();
     assert_eq!(
         ak::verify_renewal(
@@ -838,7 +838,7 @@ fn revocation_vectors() -> Value {
     let keys = vec![a.key_ref(), b.key_ref(), target.key_ref()];
     let keys_json = vec![a.key_ref_json(), b.key_ref_json(), target.key_ref_json()];
 
-    let revoked_at = rfc3339(base_instant() + Duration::days(1));
+    let revoked_at = base_instant() + Duration::days(1);
 
     let payload = ak::revocation_payload(
         SUBJECT,
@@ -847,7 +847,7 @@ fn revocation_vectors() -> Value {
         INSTANCE_ID,
         target.key_id,
         &target.fingerprint,
-        &revoked_at,
+        SignedTime::new(&revoked_at).unwrap(),
     );
 
     let revocation_json = |rev: &liblinkkeys::generated::types::ApplicationKeyRevocation| {
@@ -858,12 +858,12 @@ fn revocation_vectors() -> Value {
             "instance_id": rev.instance_id,
             "target_key_id": rev.target_key_id,
             "target_fingerprint": rev.target_fingerprint,
-            "revoked_at": rev.revoked_at,
+            "revoked_at": rfc3339(rev.revoked_at),
             "signatures": rev.signatures.iter().map(|sig| json!({
                 "signed_by_key_id": sig.signed_by_key_id,
                 "signature_hex": hex(&sig.signature),
             })).collect::<Vec<_>>(),
-            "revocation_cbor_hex": hex(&generated::encode_application_key_revocation(rev)),
+            "revocation_cbor_hex": hex(&generated::encode_application_key_revocation(rev).unwrap()),
         })
     };
 
@@ -927,7 +927,7 @@ fn revocation_vectors() -> Value {
     // Tampered revoked_at: both signatures now cover stale payload bytes.
     {
         let mut tampered = valid.clone();
-        tampered.revoked_at = rfc3339(base_instant() + Duration::days(2));
+        tampered.revoked_at = base_instant() + Duration::days(2);
         assert!(
             ak::verify_revocation(&tampered, &keys, &instance()).is_err(),
             "a revocation whose revoked_at changed after signing must not verify"
@@ -941,14 +941,14 @@ fn revocation_vectors() -> Value {
     }
 
     json!({
-        "note": "ApplicationKeyRevocation: two DISTINCT, currently-valid sibling signing keys revoke a target key, which never signs or counts toward its own revocation. Unlike the attestation/addition/renewal envelopes, the signed payload is built from the revocation's FIELDS (revocation_payload), not stored raw bytes -- CBOR([tag, subject_user_id, subject_domain, application_id, instance_id, target_key_id, target_fingerprint, revoked_at]), a SEVEN-element array with the tag first (not counting the array wrapper). ALL KEYS IN THIS FILE ARE FIXED, PUBLICLY-KNOWN TEST-ONLY MATERIAL. Never reuse any key here for anything real.",
+        "note": "ApplicationKeyRevocation: two DISTINCT, currently-valid sibling signing keys revoke a target key, which never signs or counts toward its own revocation. Unlike the attestation/addition/renewal envelopes, the signed payload is built from the revocation's FIELDS (revocation_payload), not stored raw bytes -- CBOR([tag, subject_user_id, subject_domain, application_id, instance_id, target_key_id, target_fingerprint, revoked_at]) where revoked_at is whole Unix seconds as a CBOR integer, a SEVEN-element array with the tag first (not counting the array wrapper). ALL KEYS IN THIS FILE ARE FIXED, PUBLICLY-KNOWN TEST-ONLY MATERIAL. Never reuse any key here for anything real.",
         "tag": ak::REVOCATION_TAG,
         "quorum": ak::REVOCATION_QUORUM,
         "instance": instance_json(),
         "keys": keys_json,
         "target_key_id": target.key_id,
         "target_fingerprint": target.fingerprint,
-        "revoked_at": revoked_at,
+        "revoked_at": rfc3339(revoked_at),
         "revocation_payload_cbor_hex": hex(&payload),
         "signer_keys": {
             "app_key_a": { "key_id": a.key_id, "seed_hex": hex(&a.seed), "private_key_hex": hex(&a.private_key), "public_key_hex": hex(&a.public_key), "fingerprint": a.fingerprint },
@@ -996,8 +996,9 @@ fn sealed_challenge_vectors() -> Value {
     );
 
     json!({
-        "note": "seal_challenge: the home domain's proof-of-possession exchange for an X25519 (key-agreement) key, which cannot sign for itself. `sealed_cbor_hex` is CBOR([suite: tstr, ephemeral_public_key: bstr, aead_nonce: bstr, ciphertext: bstr]) -- a FOUR-element array. Production code draws the ephemeral X25519 key and AEAD nonce from the OS RNG (seal_challenge); this vector was produced with the deterministic seam seal_challenge_with_randomness so the ciphertext is byte-stable across regeneration. ALL KEYS IN THIS FILE ARE FIXED, PUBLICLY-KNOWN TEST-ONLY MATERIAL. Never reuse any key here for anything real.",
+        "note": "seal_challenge: the home domain's proof-of-possession exchange for an X25519 (key-agreement) key, which cannot sign for itself. `sealed_cbor_hex` is CBOR([suite: int (the AeadSuite number, `suite_number`), ephemeral_public_key: bstr, aead_nonce: bstr, ciphertext: bstr]) -- a FOUR-element array. Production code draws the ephemeral X25519 key and AEAD nonce from the OS RNG (seal_challenge); this vector was produced with the deterministic seam seal_challenge_with_randomness so the ciphertext is byte-stable across regeneration. ALL KEYS IN THIS FILE ARE FIXED, PUBLICLY-KNOWN TEST-ONLY MATERIAL. Never reuse any key here for anything real.",
         "suite": ak::CHALLENGE_SEAL_SUITE.as_str(),
+        "suite_number": ak::CHALLENGE_SEAL_SUITE.to_number(),
         "nonce_hex": hex(&CHALLENGE_NONCE),
         "ephemeral_private_key_hex": hex(&CHALLENGE_EPHEMERAL_SEED),
         "aead_nonce_hex": hex(&CHALLENGE_AEAD_NONCE),

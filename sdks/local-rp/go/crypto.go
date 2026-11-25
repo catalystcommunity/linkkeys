@@ -12,6 +12,8 @@ import (
 	"fmt"
 
 	"golang.org/x/crypto/chacha20poly1305"
+
+	api "github.com/catalystcommunity/linkkeys/sdks/local-rp/go/generated"
 )
 
 // Crypto primitives this SDK needs, per the design doc's Language Crypto
@@ -70,14 +72,23 @@ func verifyEd25519(pub []byte, message, sig []byte) bool {
 	return ed25519.Verify(ed25519.PublicKey(pub), message, sig)
 }
 
-// resolveAndVerify resolves a wire algorithm string and verifies a signature,
+// keyAlgorithmLabel is a key algorithm's label for error details; an
+// unknown number is shown as its decimal value.
+func keyAlgorithmLabel(algorithm api.KeyAlgorithm) string {
+	if text, err := algorithm.MarshalText(); err == nil {
+		return string(text)
+	}
+	return fmt.Sprintf("%d", int64(algorithm))
+}
+
+// resolveAndVerify resolves a wire algorithm and verifies a signature,
 // returning a *LocalRpError classifying the failure. Only "ed25519" is
 // supported today (liblinkkeys::crypto::SigningAlgorithm has exactly one
 // variant); a new signing algorithm would be a new protocol mode with new
 // context strings per the design doc, never a version bump of this one.
-func resolveAndVerify(algorithm string, message, sig, pubKey []byte) error {
-	if algorithm != "ed25519" {
-		return &LocalRpError{Kind: ErrKindUnsupportedAlgorithm, Detail: algorithm}
+func resolveAndVerify(algorithm api.KeyAlgorithm, message, sig, pubKey []byte) error {
+	if algorithm != api.KeyAlgorithmEd25519 {
+		return &LocalRpError{Kind: ErrKindUnsupportedAlgorithm, Detail: keyAlgorithmLabel(algorithm)}
 	}
 	if !verifyEd25519(pubKey, message, sig) {
 		return &LocalRpError{Kind: ErrKindSignatureInvalid}
@@ -130,47 +141,64 @@ func x25519PublicFromPrivate(privBytes [32]byte) ([32]byte, error) {
 }
 
 // AeadSuite is the negotiated AEAD suite registry (design doc, Wire
-// Precision "AEAD suite registry"). Exact, case-sensitive strings from a
-// closed registry — never "close enough", never case-folded. Mirrors
+// Precision "AEAD suite registry"). It is the generated api.AeadSuite
+// named-number enum: on the wire a suite is a CBOR unsigned integer
+// (aes-256-gcm=1, chacha20-poly1305=2). The callback-box KDF context still
+// binds the suite's text id (see AeadSuiteKDFLabel). Mirrors
 // `liblinkkeys::crypto::AeadSuite`.
-type AeadSuite string
+type AeadSuite = api.AeadSuite
 
 const (
 	// AeadSuiteAES256GCM is the mandatory-to-implement baseline.
-	AeadSuiteAES256GCM AeadSuite = "aes-256-gcm"
+	AeadSuiteAES256GCM = api.AeadSuiteAes256Gcm
 	// AeadSuiteChaCha20Poly1305 is the optional second suite.
-	AeadSuiteChaCha20Poly1305 AeadSuite = "chacha20-poly1305"
+	AeadSuiteChaCha20Poly1305 = api.AeadSuiteChacha20Poly1305
 )
 
-// ParseAeadSuite parses a wire-format suite id string. Returns false for an
-// id outside the registry.
-func ParseAeadSuite(s string) (AeadSuite, bool) {
-	switch s {
-	case string(AeadSuiteAES256GCM):
-		return AeadSuiteAES256GCM, true
-	case string(AeadSuiteChaCha20Poly1305):
-		return AeadSuiteChaCha20Poly1305, true
+// AeadSuiteKDFLabel returns the exact, case-sensitive text id the
+// callback-box KDF context binds for suite ("aes-256-gcm",
+// "chacha20-poly1305"). Returns false for a value outside the registry.
+func AeadSuiteKDFLabel(suite AeadSuite) (string, bool) {
+	switch suite {
+	case AeadSuiteAES256GCM:
+		return "aes-256-gcm", true
+	case AeadSuiteChaCha20Poly1305:
+		return "chacha20-poly1305", true
 	default:
 		return "", false
 	}
 }
 
-// AllSupportedSuites returns every registry suite id, in preference order
+// ParseAeadSuite parses a suite text id ("aes-256-gcm",
+// "chacha20-poly1305"). Exact match only, never case-folded. Returns false
+// for an id outside the registry.
+func ParseAeadSuite(s string) (AeadSuite, bool) {
+	switch s {
+	case "aes-256-gcm":
+		return AeadSuiteAES256GCM, true
+	case "chacha20-poly1305":
+		return AeadSuiteChaCha20Poly1305, true
+	default:
+		return 0, false
+	}
+}
+
+// AllSupportedSuites returns every registry suite, in preference order
 // (baseline first).
-func AllSupportedSuites() []string {
-	return []string{string(AeadSuiteAES256GCM), string(AeadSuiteChaCha20Poly1305)}
+func AllSupportedSuites() []AeadSuite {
+	return []AeadSuite{AeadSuiteAES256GCM, AeadSuiteChaCha20Poly1305}
 }
 
 // SelectSupportedSuite picks the first suite in advertised (preference
 // order) that this implementation supports. Never returns a suite outside
 // advertised, even if this implementation also supports it.
-func SelectSupportedSuite(advertised []string) (AeadSuite, bool) {
+func SelectSupportedSuite(advertised []AeadSuite) (AeadSuite, bool) {
 	for _, s := range advertised {
-		if suite, ok := ParseAeadSuite(s); ok {
-			return suite, true
+		if _, ok := AeadSuiteKDFLabel(s); ok {
+			return s, true
 		}
 	}
-	return "", false
+	return 0, false
 }
 
 func containsSuite(suites []AeadSuite, target AeadSuite) bool {
@@ -193,7 +221,7 @@ func newAEAD(suite AeadSuite, key [32]byte) (cipher.AEAD, error) {
 	case AeadSuiteChaCha20Poly1305:
 		return chacha20poly1305.New(key[:])
 	default:
-		return nil, fmt.Errorf("unsupported AEAD suite: %s", suite)
+		return nil, fmt.Errorf("unsupported AEAD suite: %d", suite)
 	}
 }
 
@@ -229,9 +257,13 @@ const localRpCallbackBoxTag = "linkkeys-local-rp-callback-box-v1alpha"
 // associated-data prefix. Layout (Wire Precision, "Callback sealed box"):
 // `tag || suite_id_utf8 || ephemeral_public(32) || recipient_public(32)`.
 func localRpCallbackKDF(suite AeadSuite, ephemeralPublic, recipientPublic [32]byte, sharedSecret []byte) (key [32]byte, context []byte, err error) {
-	context = make([]byte, 0, len(localRpCallbackBoxTag)+len(suite)+64)
+	suiteID, ok := AeadSuiteKDFLabel(suite)
+	if !ok {
+		return key, nil, fmt.Errorf("unsupported AEAD suite: %d", suite)
+	}
+	context = make([]byte, 0, len(localRpCallbackBoxTag)+len(suiteID)+64)
 	context = append(context, []byte(localRpCallbackBoxTag)...)
-	context = append(context, []byte(string(suite))...)
+	context = append(context, []byte(suiteID)...)
 	context = append(context, ephemeralPublic[:]...)
 	context = append(context, recipientPublic[:]...)
 

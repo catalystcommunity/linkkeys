@@ -1,5 +1,7 @@
 /* Minimal RFC3339 <-> unix-seconds conversion. The wire protocol's
- * timestamp fields are RFC3339 text (matching liblinkkeys); this SDK's
+ * timestamp fields are CSIL timestamps: CBOR tag 0 that wraps RFC3339 text
+ * in UTC (see cbor.h). Signed tuple payloads carry whole Unix seconds as a
+ * CBOR integer instead (lrp_signed_seconds). This SDK's
  * public API works in int64_t unix seconds for C ergonomics, converting at
  * the boundary. Whole-second precision only (matches claims.rs's own
  * "normalized to whole seconds" discipline) — no fractional seconds are
@@ -20,7 +22,12 @@ int64_t lrp_days_from_civil(int64_t y, unsigned m, unsigned d);
  * "...Z" or with fractional seconds) into unix seconds (UTC). */
 int lrp_parse_rfc3339(const char *s, int64_t *out_unix, lrp_error *err);
 
-/* Format unix seconds (UTC) as "YYYY-MM-DDTHH:MM:SS+00:00" into a
+/* Parse an RFC3339 timestamp for a signed tuple payload: the result is
+ * whole Unix seconds. Fails when the text has a non-zero fraction of a
+ * second (a signed timestamp is never rounded; liblinkkeys SignedTime). */
+int lrp_signed_seconds(const char *s, int64_t *out_unix, lrp_error *err);
+
+/* Format unix seconds (UTC) as "YYYY-MM-DDTHH:MM:SSZ" into a
  * caller-supplied buffer of at least 32 bytes. */
 void lrp_format_rfc3339(int64_t unix_seconds, char out[32]);
 

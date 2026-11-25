@@ -75,7 +75,7 @@ fn policy_defaults_to_admin_approval_required_when_unset() {
 #[test]
 fn policy_set_and_get_round_trip() {
     let pool = setup();
-    pool.set_local_rp_domain_policy(db::POLICY_DISABLED)
+    pool.set_local_rp_domain_policy(&db::POLICY_DISABLED)
         .unwrap();
     assert_eq!(
         pool.effective_local_rp_policy().unwrap(),
@@ -83,7 +83,7 @@ fn policy_set_and_get_round_trip() {
     );
 
     // Setting again (upsert) replaces rather than duplicating.
-    pool.set_local_rp_domain_policy(db::POLICY_ALLOW_BY_DEFAULT)
+    pool.set_local_rp_domain_policy(&db::POLICY_ALLOW_BY_DEFAULT)
         .unwrap();
     assert_eq!(
         pool.effective_local_rp_policy().unwrap(),
@@ -91,16 +91,22 @@ fn policy_set_and_get_round_trip() {
     );
 }
 
+/// The policy argument is typed, so an unknown value cannot be written. A
+/// stored row the server does not recognise (corruption, a hand edit) must
+/// fail closed to `disabled`; legacy hyphenated rows still read correctly.
 #[test]
-fn policy_rejects_unrecognised_vocabulary() {
-    let pool = setup();
-    let err = pool
-        .set_local_rp_domain_policy("sure-why-not")
-        .expect_err("invalid policy string must be rejected");
-    assert!(err.contains("invalid"));
-    // Unset remains at the default since the write was rejected.
+fn stored_policy_unknown_value_fails_closed() {
     assert_eq!(
-        pool.effective_local_rp_policy().unwrap(),
+        db::stored_policy("sure-why-not"),
+        db::POLICY_DISABLED,
+        "an unrecognised stored policy must refuse local RP logins"
+    );
+    assert_eq!(
+        db::stored_policy("allow-by-default"),
+        db::POLICY_ALLOW_BY_DEFAULT
+    );
+    assert_eq!(
+        db::stored_policy("admin_approval_required"),
         db::POLICY_ADMIN_APPROVAL_REQUIRED
     );
 }

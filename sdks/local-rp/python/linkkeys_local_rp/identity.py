@@ -24,7 +24,7 @@ from typing import List, Optional
 from . import crypto, local_rp
 from .generated import codec as _codec  # noqa: F401  (side effect: attaches to_cbor/from_cbor)
 from .generated.types import SignedLocalRpDescriptor
-from .timeutil import to_rfc3339
+from .timeutil import to_utc
 
 # Default local RP key lifetime: 10 years (design doc, "One Signing Key and
 # One Encryption Key" — "Default lifetime: 10 years. Rotation is a
@@ -47,7 +47,7 @@ class GenerateLocalRpIdentityConfig:
     local_domain_hint: Optional[str] = None
     # AEAD suites this app can decrypt callbacks with, in preference order.
     # Defaults to both registry suites when None.
-    supported_suites: Optional[List[str]] = None
+    supported_suites: Optional[List[crypto.AeadSuite]] = None
     # Key/descriptor lifetime from `now`. Defaults to DEFAULT_LIFETIME (10
     # years) when None.
     lifetime: Optional[timedelta] = None
@@ -84,13 +84,13 @@ def generate_local_rp_identity(config: GenerateLocalRpIdentityConfig) -> LocalRp
     signing_public_key, signing_private_key = crypto.generate_ed25519_keypair()
     encryption_public_key, encryption_private_key = crypto.generate_x25519_keypair()
 
-    suites = config.supported_suites if config.supported_suites is not None else crypto.AeadSuite.all_supported()
+    suites = config.supported_suites if config.supported_suites is not None else crypto.all_supported_aead_suites()
     if not suites:
         raise IdentityError("supported_suites must not be empty")
 
     lifetime = config.lifetime if config.lifetime is not None else DEFAULT_LIFETIME
-    created_at = to_rfc3339(config.now)
-    expires_at = to_rfc3339(config.now + lifetime)
+    created_at = to_utc(config.now)
+    expires_at = to_utc(config.now + lifetime)
 
     descriptor = local_rp.build_local_rp_descriptor(
         config.app_name,

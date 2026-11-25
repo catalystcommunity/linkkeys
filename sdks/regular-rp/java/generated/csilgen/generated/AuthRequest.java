@@ -2,13 +2,14 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.List;
 
 public record AuthRequest(
     String relyingParty /* wire: "relying_party" */,
     String callbackUrl /* wire: "callback_url" */,
     String nonce /* wire: "nonce" */,
-    String timestamp /* wire: "timestamp" */,
+    Instant timestamp /* wire: "timestamp" */,
     String signingKeyId /* wire: "signing_key_id" */,
     ClaimRequest requestedClaims /* wire: "requested_claims" */,
     AuthenticationRequirements authenticationRequirements /* wire: "authentication_requirements" */,

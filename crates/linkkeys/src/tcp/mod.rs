@@ -32,6 +32,7 @@ use liblinkkeys::generated::types::{
 // `payload`, `auth`) line up with what `dispatch` already reads.
 use csilgen_transport::rpc::{RpcRequest, RpcResponse};
 use csilgen_transport::Status;
+use liblinkkeys::generated::CsilCborError;
 
 #[derive(Serialize, Deserialize)]
 struct HelloRequest {
@@ -906,9 +907,9 @@ fn cache_claim_signer_keys(
                 domain: domain.clone(),
                 key_id: key.key_id,
                 public_key: key.public_key,
-                algorithm: key.algorithm,
+                algorithm: key.algorithm.as_str().to_string(),
                 fingerprint: key.fingerprint,
-                key_usage: key.key_usage,
+                key_usage: key.key_usage.as_str().to_string(),
                 expires_at: key.expires_at,
                 revoked_at: key.revoked_at,
             };
@@ -1069,6 +1070,55 @@ pub fn dispatch_for_test_authed(
     (resp.status.code() as i32, resp.payload)
 }
 
+/// A reply seen by [`dispatch_for_test_with_net`]: the transport status, the
+/// arm `variant` (for an operation with several output arms), and the payload.
+pub struct TestReply {
+    pub status: i32,
+    pub variant: Option<String>,
+    pub payload: Vec<u8>,
+}
+
+/// Like [`dispatch_for_test_authed`] with an outbound context on `net`, and
+/// the reply `variant` kept. It runs its own Tokio runtime, so call it from a
+/// plain (non-async) test.
+pub fn dispatch_for_test_with_net(
+    service: &str,
+    op: &str,
+    payload: Vec<u8>,
+    auth: Option<&str>,
+    db_pool: &DbPool,
+    net: &crate::net::Net,
+) -> TestReply {
+    let mut request = RpcRequest::new(service, op, payload);
+    if let Some(a) = auth {
+        request = request.with_auth(a);
+    }
+    let ready = Arc::new(AtomicBool::new(true));
+    let runtime = tokio::runtime::Runtime::new().expect("test runtime");
+    let outbound = OutboundCtx {
+        net,
+        rt: runtime.handle(),
+    };
+    let bytes = dispatch(
+        &request,
+        &ready,
+        db_pool,
+        DispatchContext {
+            client_domain: None,
+            recovery_source_key: "test-peer",
+            outbound: Some(&outbound),
+            browser_user: None,
+            ui_configuration: None,
+        },
+    );
+    let resp = RpcResponse::decode(&bytes).expect("response decodes");
+    TestReply {
+        status: resp.status.code() as i32,
+        variant: resp.variant,
+        payload: resp.payload,
+    }
+}
+
 /// Decode a CSIL-RPC request envelope and dispatch it, returning the response
 /// envelope bytes. This is the single entry the generic CBOR-RPC carrier (the
 /// web `POST /csil/v1/rpc`) shares with the TCP server, so the web carries the
@@ -1141,19 +1191,21 @@ fn dispatch(
         ui_configuration,
     } = context;
     match (envelope.service.as_str(), envelope.op.as_str()) {
-        ("Ops", "healthcheck") => ok_response(cbor_response(&CheckResultResponse { result: true })),
-        ("Ops", "readiness") => ok_response(cbor_response(&CheckResultResponse {
+        ("Ops", "healthcheck") => {
+            ok_response(Ok(cbor_response(&CheckResultResponse { result: true })))
+        }
+        ("Ops", "readiness") => ok_response(Ok(cbor_response(&CheckResultResponse {
             result: ready_flag.load(Ordering::SeqCst),
-        })),
+        }))),
         ("Hello", "hello") => {
             let request: HelloRequest = match ciborium::de::from_reader(&envelope.payload[..]) {
                 Ok(r) => r,
                 Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
             };
             let handler = HelloHandler;
-            ok_response(cbor_response(&HelloResponse {
+            ok_response(Ok(cbor_response(&HelloResponse {
                 greeting: handler.hello(request.name),
-            }))
+            })))
         }
         ("Handshake", "handshake") => {
             use liblinkkeys::generated::services::Handshake;
@@ -1199,12 +1251,15 @@ fn dispatch(
                                     ),
                                 ),
                             },
-                        ),
+                        )
+                        .map_err(|e| {
+                            crate::services::pubkey_cache::CacheError::Load(e.to_string())
+                        })?,
                     ))
                 },
             );
             match loaded {
-                Ok(Some(bytes)) => ok_response(bytes.as_ref().clone()),
+                Ok(Some(bytes)) => ok_response(Ok(bytes.as_ref().clone())),
                 Ok(None) => error_response(4, "internal database error"),
                 Err(e) => error_response(4, &e.to_string()),
             }
@@ -1224,7 +1279,7 @@ fn dispatch(
             // anonymous caller fill the cache with values of its own choosing.
             if request.since.is_some() {
                 let revocations =
-                    crate::services::revocations::serve(db_pool, request.since.as_deref());
+                    crate::services::revocations::serve(db_pool, request.since.as_ref());
                 return ok_response(liblinkkeys::generated::encode_get_revocations_response(
                     &liblinkkeys::generated::types::GetRevocationsResponse { revocations },
                 ));
@@ -1236,12 +1291,15 @@ fn dispatch(
                     Ok(Some(
                         liblinkkeys::generated::encode_get_revocations_response(
                             &liblinkkeys::generated::types::GetRevocationsResponse { revocations },
-                        ),
+                        )
+                        .map_err(|e| {
+                            crate::services::pubkey_cache::CacheError::Load(e.to_string())
+                        })?,
                     ))
                 },
             );
             match loaded {
-                Ok(Some(bytes)) => ok_response(bytes.as_ref().clone()),
+                Ok(Some(bytes)) => ok_response(Ok(bytes.as_ref().clone())),
                 Ok(None) => error_response(4, "internal database error"),
                 Err(e) => error_response(4, &e.to_string()),
             }
@@ -1608,7 +1666,7 @@ fn dispatch(
                     return error_response(5, "Forbidden");
                 }
             }
-            dispatch_rp(op, &envelope.payload, db_pool, outbound, &user.id)
+            dispatch_rp(op, &envelope.payload, db_pool, outbound, &user)
         }
         // Server-to-server: an issuer deposits a claim it signed about one of our
         // accounts. The issuer's signature is the authority (verified against its
@@ -1663,6 +1721,15 @@ fn admin_op_protected_target(op: &str, payload: &[u8], db_pool: &DbPool) -> Opti
         "set-user-password-lock" => codec::decode_set_user_password_lock_request(payload)
             .ok()
             .map(|r| r.user_id),
+        "rename-user" => codec::decode_rename_user_request(payload)
+            .ok()
+            .map(|r| r.user_id),
+        "create-api-key" => codec::decode_create_api_key_request(payload)
+            .ok()
+            .map(|r| r.user_id),
+        "revoke-api-key" => codec::decode_revoke_api_key_request(payload)
+            .ok()
+            .map(|r| r.user_id),
         "remove-credential" => {
             let req = codec::decode_remove_credential_request(payload).ok()?;
             db_pool
@@ -1702,15 +1769,22 @@ fn dispatch_admin_recheck_pins(
     });
     let results = results
         .into_iter()
-        .map(
-            |(domain, r)| liblinkkeys::generated::types::PinRecheckResult {
+        .map(|(domain, r)| {
+            use crate::services::pins::PinOutcome;
+            use liblinkkeys::generated::types::PinRecheckOutcome;
+            let (outcome, message) = match r {
+                Ok(PinOutcome::FirstSeen) => (PinRecheckOutcome::FirstSeen, None),
+                Ok(PinOutcome::Unchanged) => (PinRecheckOutcome::Unchanged, None),
+                Ok(PinOutcome::Rotated) => (PinRecheckOutcome::Rotated, None),
+                Ok(PinOutcome::Mismatch) => (PinRecheckOutcome::Mismatch, None),
+                Err(e) => (PinRecheckOutcome::Error, Some(e.to_string())),
+            };
+            liblinkkeys::generated::types::PinRecheckResult {
                 domain,
-                outcome: match r {
-                    Ok(o) => format!("{o:?}"),
-                    Err(e) => format!("error: {e}"),
-                },
-            },
-        )
+                outcome,
+                message,
+            }
+        })
         .collect();
     ok_response(liblinkkeys::generated::encode_recheck_pins_response(
         &liblinkkeys::generated::types::RecheckPinsResponse { results },
@@ -1753,11 +1827,11 @@ fn dispatch_admin_reject_claim(payload: &[u8], db_pool: &DbPool, caller_id: &str
 /// single-sided window around `issued_at`, checked here rather than via
 /// `liblinkkeys::local_rp::check_timestamps` (which expects an
 /// issued/expires pair).
-fn ticket_redemption_issued_at_fresh(issued_at: &str, now: time::OffsetDateTime) -> bool {
-    let Ok(issued) = liblinkkeys::timestamp::parse_rfc3339(issued_at) else {
-        return false;
-    };
-    (now - issued).whole_seconds().abs() <= liblinkkeys::local_rp::DEFAULT_CLOCK_SKEW_SECONDS
+fn ticket_redemption_issued_at_fresh(
+    issued_at: &time::OffsetDateTime,
+    now: time::OffsetDateTime,
+) -> bool {
+    (now - *issued_at).whole_seconds().abs() <= liblinkkeys::local_rp::DEFAULT_CLOCK_SKEW_SECONDS
 }
 
 /// `LocalRp/redeem-claim-ticket` (dns-less-local-rp-design.md, Phase 5).
@@ -2127,6 +2201,46 @@ fn dispatch_admin(op: &str, payload: &[u8], db_pool: &DbPool, caller_id: &str) -
             codec::decode_preview_app_access_request,
             app_access::preview_app_access,
             codec::encode_preview_app_access_response
+        ),
+        "rename-user" => admin_op!(
+            codec::decode_rename_user_request,
+            crate::services::applications::rename_user,
+            codec::encode_rename_user_response
+        ),
+        "set-application-id" => admin_op!(
+            codec::decode_set_application_id_request,
+            crate::services::applications::set_application_id,
+            codec::encode_set_application_id_response
+        ),
+        "create-api-key" => admin_op!(
+            codec::decode_create_api_key_request,
+            crate::services::applications::create_api_key,
+            codec::encode_create_api_key_response
+        ),
+        "list-api-keys" => admin_op!(
+            codec::decode_list_api_keys_request,
+            crate::services::applications::list_api_keys,
+            codec::encode_list_api_keys_response
+        ),
+        "revoke-api-key" => admin_op!(
+            codec::decode_revoke_api_key_request,
+            crate::services::applications::revoke_api_key,
+            codec::encode_revoke_api_key_response
+        ),
+        "get-account-limits" => admin_op!(
+            codec::decode_get_account_limits_request,
+            crate::services::applications::get_account_limits,
+            codec::encode_get_account_limits_response
+        ),
+        "set-account-limits" => admin_op!(
+            codec::decode_set_account_limits_request,
+            crate::services::applications::set_account_limits,
+            codec::encode_set_account_limits_response
+        ),
+        "get-application-usage" => admin_op!(
+            codec::decode_get_application_usage_request,
+            crate::services::applications::get_application_usage,
+            codec::encode_get_application_usage_response
         ),
         // Claim-type registry admin. The browser app's `/app/admin/policy`
         // page reaches these same arms through the browser carrier.
@@ -2514,72 +2628,175 @@ fn dispatch_rp(
     payload: &[u8],
     db_pool: &DbPool,
     outbound: Option<&OutboundCtx>,
-    caller_user_id: &str,
+    caller: &crate::db::models::User,
 ) -> Vec<u8> {
+    let limits = match db_pool.account_limits(&caller.id) {
+        Ok(l) => l,
+        Err(e) => {
+            log::error!("reading account limits failed: {e}");
+            return error_response(4, "could not read the account limits");
+        }
+    };
+    if !crate::services::applications::account_request_allowed(&limits, &caller.id) {
+        crate::services::applications::record_usage(&caller.id, op, false);
+        return error_response(
+            6,
+            "This account is over its request rate. Wait and try again",
+        );
+    }
+    let (response, succeeded) = dispatch_rp_op(op, payload, db_pool, outbound, caller);
+    crate::services::applications::record_usage(&caller.id, op, succeeded);
+    response
+}
+
+/// A reply of an `Rp` operation that declares an `RpError` arm: the typed
+/// success arm (`variant` = its CSIL type name) or the `RpError` arm. Both are
+/// status 0; a transport status means the server could not answer at all.
+fn rp_typed_reply<T>(
+    result: Result<T, crate::web::rp::CoreError>,
+    variant: &str,
+    encode: fn(&T) -> Result<Vec<u8>, CsilCborError>,
+) -> (Vec<u8>, bool) {
+    let (variant, payload, succeeded) = match result {
+        Ok(value) => (variant, encode(&value), true),
+        Err(e) => (
+            "RpError",
+            liblinkkeys::generated::codec::encode_rp_error(&e.rp_error()),
+            false,
+        ),
+    };
+    let payload = match payload {
+        Ok(payload) => payload,
+        Err(e) => return (encode_failure_response(&e), false),
+    };
+    let response = RpcResponse {
+        id: None,
+        status: Status::Ok,
+        variant: Some(variant.to_string()),
+        error: None,
+        payload,
+    }
+    .encode()
+    .expect("encode RPC response");
+    (response, succeeded)
+}
+
+/// The success of a reply built with `ok_response` / `error_response`.
+fn untyped(response: Vec<u8>) -> (Vec<u8>, bool) {
+    let succeeded = RpcResponse::decode(&response)
+        .map(|r| r.status == Status::Ok)
+        .unwrap_or(false);
+    (response, succeeded)
+}
+
+fn dispatch_rp_op(
+    op: &str,
+    payload: &[u8],
+    db_pool: &DbPool,
+    outbound: Option<&OutboundCtx>,
+    caller: &crate::db::models::User,
+) -> (Vec<u8>, bool) {
     use crate::web::rp;
     use liblinkkeys::generated::codec;
+
+    let invalid = |e: liblinkkeys::generated::CsilCborError| {
+        (error_response(2, &format!("Invalid payload: {}", e)), false)
+    };
+    let no_carrier = || {
+        (
+            error_response(4, "operation unavailable on this carrier"),
+            false,
+        )
+    };
 
     match op {
         "sign-request" => {
             let req = match codec::decode_rp_sign_request(payload) {
                 Ok(r) => r,
-                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+                Err(e) => return invalid(e),
             };
             let cfg = crate::rp_config::RpClaimsConfig::load_from_env();
-            match rp::sign_request_core(db_pool, &cfg, caller_user_id, req) {
-                Ok(resp) => ok_response(codec::encode_rp_sign_response(&resp)),
-                Err(s) => rp_status_to_error(s),
-            }
+            rp_typed_reply(
+                rp::sign_request_core(db_pool, &cfg, &caller.id, req),
+                "RpSignResponse",
+                codec::encode_rp_sign_response,
+            )
         }
         "decrypt-token" => {
             let req = match codec::decode_rp_decrypt_request(payload) {
                 Ok(r) => r,
-                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+                Err(e) => return invalid(e),
             };
-            match rp::decrypt_token_core(db_pool, &req.encrypted_token) {
-                Ok(resp) => ok_response(codec::encode_rp_decrypt_response(&resp)),
-                Err(s) => rp_status_to_error(s),
-            }
+            let Some(ctx) = outbound else {
+                return no_carrier();
+            };
+            rp_typed_reply(
+                ctx.rt.block_on(rp::decrypt_token_core(
+                    db_pool,
+                    ctx.net,
+                    caller,
+                    &req.encrypted_token,
+                )),
+                "RpDecryptResponse",
+                codec::encode_rp_decrypt_response,
+            )
         }
         "verify-assertion" => {
             let req = match codec::decode_rp_verify_request(payload) {
                 Ok(r) => r,
-                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+                Err(e) => return invalid(e),
             };
-            let ctx = match outbound {
-                Some(c) => c,
-                None => return error_response(4, "operation unavailable on this carrier"),
+            let Some(ctx) = outbound else {
+                return no_carrier();
             };
-            match ctx.rt.block_on(rp::verify_assertion_core(
-                db_pool,
-                ctx.net,
-                &req.signed_assertion,
-                &req.expected_domain,
-            )) {
-                Ok(resp) => ok_response(codec::encode_rp_verify_response(&resp)),
-                Err(s) => rp_status_to_error(s),
-            }
+            rp_typed_reply(
+                ctx.rt.block_on(rp::verify_assertion_core(
+                    db_pool,
+                    ctx.net,
+                    caller,
+                    &req.signed_assertion,
+                    &req.expected_domain,
+                )),
+                "RpVerifyResponse",
+                codec::encode_rp_verify_response,
+            )
         }
         "userinfo-fetch" => {
             let req = match codec::decode_rp_user_info_request(payload) {
                 Ok(r) => r,
-                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+                Err(e) => return invalid(e),
             };
-            let ctx = match outbound {
-                Some(c) => c,
-                None => return error_response(4, "operation unavailable on this carrier"),
+            let Some(ctx) = outbound else {
+                return no_carrier();
             };
-            match ctx.rt.block_on(rp::fetch_userinfo_core(
-                db_pool,
-                ctx.net,
-                req.token,
-                &req.api_base,
-                &req.domain,
-            )) {
-                Ok(resp) => ok_response(codec::encode_user_info(&resp)),
-                Err(s) => rp_status_to_error(s),
-            }
+            rp_typed_reply(
+                ctx.rt.block_on(rp::fetch_userinfo_core(
+                    db_pool,
+                    ctx.net,
+                    caller,
+                    req.token,
+                    &req.api_base,
+                    &req.domain,
+                )),
+                "UserInfo",
+                codec::encode_user_info,
+            )
         }
+        _ => untyped(dispatch_rp_untyped(op, payload, db_pool, outbound)),
+    }
+}
+
+/// The `Rp` operations with a single output type.
+fn dispatch_rp_untyped(
+    op: &str,
+    payload: &[u8],
+    db_pool: &DbPool,
+    outbound: Option<&OutboundCtx>,
+) -> Vec<u8> {
+    use crate::web::rp;
+    use liblinkkeys::generated::codec;
+
+    match op {
         "issue-attestation" => {
             let req = match codec::decode_rp_issue_attestation_request(payload) {
                 Ok(r) => r,
@@ -2667,10 +2884,17 @@ fn dispatch_rp(
     }
 }
 
-/// A successful CSIL-RPC reply carrying a typed payload. Our operations declare a
-/// single output type (no `/ ErrorType` arms yet), so `variant` is omitted; if we
-/// later add typed error arms, set it to the chosen arm's CSIL type name.
-fn ok_response(payload_bytes: Vec<u8>) -> Vec<u8> {
+/// A successful CSIL-RPC reply of an operation with a single output type, so
+/// `variant` is omitted. See `rp_typed_reply` for operations with arms.
+///
+/// A reply value with no wire form (for example, a timestamp outside UTC years
+/// 0001 to 9999) gets the internal status, not a panic or a dropped
+/// connection.
+fn ok_response(payload: Result<Vec<u8>, CsilCborError>) -> Vec<u8> {
+    let payload_bytes = match payload {
+        Ok(bytes) => bytes,
+        Err(e) => return encode_failure_response(&e),
+    };
     RpcResponse {
         id: None,
         status: Status::Ok,
@@ -2695,6 +2919,11 @@ fn cbor_response<T: Serialize>(payload: &T) -> Vec<u8> {
 /// Map our historical transport status ints onto the CSIL-RPC status registry and
 /// build a transport-error response (no typed payload). These are *transport*
 /// failures, never application errors (which would ride as a status-0 variant).
+/// The internal-status reply for a reply value that has no wire form.
+fn encode_failure_response(e: &CsilCborError) -> Vec<u8> {
+    error_response(4, &format!("reply did not encode: {e}"))
+}
+
 fn error_response(status: i32, message: &str) -> Vec<u8> {
     let status = match status {
         1 | 2 => Status::MalformedEnvelope,
@@ -2763,7 +2992,7 @@ fn dispatch_application_keys(op: &str, payload: &[u8], db_pool: &DbPool) -> Vec<
             match crate::services::application_keys::get_application_keys_encoded(
                 db_pool, request, now,
             ) {
-                Ok(bytes) => ok_response(bytes.as_ref().clone()),
+                Ok(bytes) => ok_response(Ok(bytes.as_ref().clone())),
                 Err(e) => service_error_response(e),
             }
         }

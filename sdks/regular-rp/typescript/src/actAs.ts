@@ -61,6 +61,7 @@ import { bytes as bytesElem, encodeCborTuple, text } from "./cborTuple.ts";
 import { verifyClaim } from "./claims.ts";
 import { fingerprint, signEd25519, verifyEd25519 } from "./crypto.ts";
 import { createHash } from "node:crypto";
+import { wholeSeconds } from "./signedTime.ts";
 
 // ---------------------------------------------------------------------------
 // Domain-separation tags
@@ -183,9 +184,15 @@ export function parseRfc3339(value: string): number | undefined {
   return utcMs(year, month, day, hour, minute, second, fraction) - offsetMs;
 }
 
-function parseTime(value: string): number {
-  const ms = parseRfc3339(value);
-  if (ms === undefined) throw new ActAsError("bad-timestamp", "act-as timestamp is not RFC3339");
+/** Epoch milliseconds of a decoded time, or undefined for an invalid `Date`. */
+function timeMs(value: Date): number | undefined {
+  const ms = value.getTime();
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
+function parseTime(value: Date): number {
+  const ms = timeMs(value);
+  if (ms === undefined) throw new ActAsError("bad-timestamp", "act-as timestamp is not a valid time");
   return ms;
 }
 
@@ -195,7 +202,11 @@ export function formatActAsTime(t: Date | number): string {
   return new Date(Math.floor(ms / 1000) * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-function checkWindow(startsAt: string, endsAt: string, nowMs: number, skewSeconds: number): void {
+function formatTimeForMessage(t: Date): string {
+  return Number.isFinite(t.getTime()) ? formatActAsTime(t) : "an invalid time";
+}
+
+function checkWindow(startsAt: Date, endsAt: Date, nowMs: number, skewSeconds: number): void {
   const start = parseTime(startsAt);
   const end = parseTime(endsAt);
   if (end <= start) throw new ActAsError("request-expired");
@@ -285,21 +296,21 @@ export function checkGrantee(grantee: GranteeRef): void {
 function isValidSigningKey(key: ApplicationKeyRef, nowMs: number): boolean {
   if (key.keyUsage !== KEY_USAGE_SIGN) return false;
   if (key.revokedAt !== undefined) {
-    const revoked = parseRfc3339(key.revokedAt);
+    const revoked = timeMs(key.revokedAt);
     if (revoked === undefined || revoked <= nowMs) return false;
   }
-  const expires = parseRfc3339(key.expiresAt);
+  const expires = timeMs(key.expiresAt);
   return expires !== undefined && expires > nowMs;
 }
 
 /** `ApplicationKeyRef::was_valid_at`: could this key authorize something at `at`? */
 function keyWasValidAt(key: ApplicationKeyRef, atMs: number): boolean {
-  const created = parseRfc3339(key.createdAt);
+  const created = timeMs(key.createdAt);
   if (created !== undefined && created > atMs) return false;
-  const expires = parseRfc3339(key.expiresAt);
+  const expires = timeMs(key.expiresAt);
   if (expires === undefined || expires <= atMs) return false;
   if (key.revokedAt !== undefined) {
-    const revoked = parseRfc3339(key.revokedAt);
+    const revoked = timeMs(key.revokedAt);
     if (revoked === undefined || revoked <= atMs) return false;
   }
   return true;
@@ -309,7 +320,7 @@ function keyWasValidAt(key: ApplicationKeyRef, atMs: number): boolean {
 function domainSigningKeyValid(key: DomainPublicKey, nowMs: number): boolean {
   if (key.keyUsage !== KEY_USAGE_SIGN) return false;
   if (key.revokedAt !== undefined) return false;
-  const expires = parseRfc3339(key.expiresAt);
+  const expires = timeMs(key.expiresAt);
   return expires !== undefined && nowMs <= expires;
 }
 
@@ -553,7 +564,7 @@ export const ACT_AS_KEY_CLOCK_SKEW_SECONDS = 300;
 /** The key could vouch at `signedAtMs`, allowing the skew for a key recorded as created slightly later. */
 function validAtWithSkew(key: ApplicationKeyRef, signedAtMs: number): boolean {
   if (keyWasValidAt(key, signedAtMs)) return true;
-  const created = parseRfc3339(key.createdAt);
+  const created = timeMs(key.createdAt);
   return created !== undefined
     && created > signedAtMs
     && created <= signedAtMs + ACT_AS_KEY_CLOCK_SKEW_SECONDS * 1000
@@ -564,11 +575,11 @@ function validAtWithSkew(key: ApplicationKeyRef, signedAtMs: number): boolean {
 function keyRefusal(key: ApplicationKeyRef, signedAtMs: number, policy: RevokedKeyPolicy): string | undefined {
   if (key.keyUsage !== KEY_USAGE_SIGN) return "not a signing key";
   if (policy === "refuseRevoked" && key.revokedAt !== undefined) {
-    return `revoked at ${key.revokedAt}; this verifier refuses revoked keys`;
+    return `revoked at ${formatTimeForMessage(key.revokedAt)}; this verifier refuses revoked keys`;
   }
   if (!validAtWithSkew(key, signedAtMs)) {
     return key.revokedAt !== undefined
-      ? `revoked at ${key.revokedAt}, before it signed`
+      ? `revoked at ${formatTimeForMessage(key.revokedAt)}, before it signed`
       : "not inside its validity window when it signed";
   }
   return undefined;
@@ -925,7 +936,7 @@ export function verifyGrantSignature(
 /** What a refresh returns: the stored grant, or a renewed grant with these times. */
 export type RefreshDecision =
   | { kind: "stored" }
-  | { kind: "renew"; issuedAt: string; expiresAt: string };
+  | { kind: "renew"; issuedAt: Date; expiresAt: Date };
 
 /**
  * Decide whether a refresh renews the grant (the home domain's rule). A
@@ -951,7 +962,7 @@ export function refreshDecision(
   if (nowMs < half || nowMs >= renewableUntil) return { kind: "stored" };
   const newExpires = Math.min(nowMs + lifetimeSeconds * 1000, renewableUntil);
   if (newExpires <= expires) return { kind: "stored" };
-  return { kind: "renew", issuedAt: formatActAsTime(nowMs), expiresAt: formatActAsTime(newExpires) };
+  return { kind: "renew", issuedAt: wholeSeconds(new Date(nowMs)), expiresAt: wholeSeconds(new Date(newExpires)) };
 }
 
 /**
@@ -1004,7 +1015,7 @@ export function verifyRefreshRequest(
 
 /**
  * The grantee builds the credential for one call to the audience.
- * `presentedAt` is written as whole-second RFC3339 UTC. `nonce` must be
+ * `presentedAt` is written in whole seconds (the fraction is dropped). `nonce` must be
  * unique per presentation; the audience uses it for replay protection.
  */
 export function present(
@@ -1019,7 +1030,7 @@ export function present(
     grantHash: grantHash(grant.grant),
     audience,
     requestDigest,
-    presentedAt: formatActAsTime(presentedAt),
+    presentedAt: wholeSeconds(presentedAt),
     nonce,
   });
   return {
@@ -1082,7 +1093,7 @@ export interface VerifiedActAs {
   signer: VerifiedGranteeSigner;
   /** The only scope the audience's policy may act on. */
   approvedScope: string[];
-  expiresAt: string;
+  expiresAt: Date;
   /** The presentation nonce. The audience owns replay protection. */
   nonce: Uint8Array;
 }

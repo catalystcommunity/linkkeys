@@ -6,9 +6,15 @@ const types = @import("types.gen.zig");
 
 // ===== self-contained canonical CBOR codec (RFC 8949 subset) =====
 
-const CodecError = error{ Malformed, UnexpectedEof, TrailingBytes, WrongType, MissingField } || std.mem.Allocator.Error;
+/// `DuplicateKey`: csil cbor: a map holds one key twice. `NonCanonicalMapOrder`:
+/// csil cbor: map keys are not in canonical order (RFC 8949 section 4.2.1).
+/// `NonShortestMapKey`: csil cbor: map key is not in shortest form.
+const CodecError = error{ Malformed, UnexpectedEof, TrailingBytes, WrongType, MissingField, DuplicateKey, NonCanonicalMapOrder, NonShortestMapKey } || std.mem.Allocator.Error;
 
-pub const Pair = struct { key: Value, val: Value };
+/// `raw_key` holds the key's encoded bytes as decoded, so a dynamic map can check
+/// the canonical key order without encoding its keys again. It stays empty for a
+/// pair built in memory; the encoder never reads it.
+pub const Pair = struct { key: Value, val: Value, raw_key: []const u8 = &.{} };
 pub const Tag = struct { num: u64, content: *Value };
 
 pub const Value = union(enum) {
@@ -196,7 +202,7 @@ fn half_to_f64(h: u16) f64 {
 // frame reserve a large multiple of its size at every nesting level.
 const prealloc_limit: usize = 1024;
 
-fn decode_value(alloc: std.mem.Allocator, b: []const u8, depth: usize) CodecError!Decoded {
+fn csil_decode_value(alloc: std.mem.Allocator, b: []const u8, depth: usize) CodecError!Decoded {
     if (depth > 64) return error.Malformed;
     if (b.len == 0) return error.UnexpectedEof;
     const ib = b[0];
@@ -226,7 +232,7 @@ fn decode_value(alloc: std.mem.Allocator, b: []const u8, depth: usize) CodecErro
             var off = n;
             var i: usize = 0;
             while (i < count) : (i += 1) {
-                const d = try decode_value(alloc, b[off..], depth + 1);
+                const d = try csil_decode_value(alloc, b[off..], depth + 1);
                 try items.append(alloc, d.value);
                 off += d.consumed;
             }
@@ -238,17 +244,33 @@ fn decode_value(alloc: std.mem.Allocator, b: []const u8, depth: usize) CodecErro
             var pairs = try std.ArrayListUnmanaged(Pair).initCapacity(alloc, @min(count, prealloc_limit));
             var off = n;
             var i: usize = 0;
+            // Keys in canonical order cannot repeat, so only a map out of that order
+            // pays for the hash set that finds a repeated key.
+            var ascending = true;
             while (i < count) : (i += 1) {
-                const k = try decode_value(alloc, b[off..], depth + 1);
+                const k = try csil_decode_value(alloc, b[off..], depth + 1);
+                if (!csil_shortest_head(b[off..])) return error.NonShortestMapKey;
+                const raw_key = try alloc.dupe(u8, b[off .. off + k.consumed]);
                 off += k.consumed;
-                const v = try decode_value(alloc, b[off..], depth + 1);
+                const v = try csil_decode_value(alloc, b[off..], depth + 1);
                 off += v.consumed;
-                try pairs.append(alloc, .{ .key = k.value, .val = v.value });
+                if (pairs.items.len > 0 and std.mem.order(u8, pairs.items[pairs.items.len - 1].raw_key, raw_key) != .lt) {
+                    ascending = false;
+                }
+                try pairs.append(alloc, .{ .key = k.value, .val = v.value, .raw_key = raw_key });
+            }
+            if (!ascending) {
+                var seen: std.StringHashMapUnmanaged(void) = .{};
+                defer seen.deinit(alloc);
+                try seen.ensureTotalCapacity(alloc, @intCast(pairs.items.len));
+                for (pairs.items) |p| {
+                    if ((try seen.getOrPut(alloc, p.raw_key)).found_existing) return error.DuplicateKey;
+                }
             }
             return .{ .value = .{ .map = try pairs.toOwnedSlice(alloc) }, .consumed = off };
         },
         6 => {
-            const inner = try decode_value(alloc, b[n..], depth + 1);
+            const inner = try csil_decode_value(alloc, b[n..], depth + 1);
             const content = try alloc.create(Value);
             content.* = inner.value;
             return .{ .value = .{ .tag = .{ .num = arg, .content = content } }, .consumed = n + inner.consumed };
@@ -267,9 +289,52 @@ fn decode_value(alloc: std.mem.Allocator, b: []const u8, depth: usize) CodecErro
 }
 
 fn decode(alloc: std.mem.Allocator, b: []const u8) CodecError!Value {
-    const d = try decode_value(alloc, b, 0);
+    const d = try csil_decode_value(alloc, b, 0);
     if (d.consumed != b.len) return error.TrailingBytes;
     return d.value;
+}
+
+/// Whether the head at the start of `b` (already read once, so it is complete)
+/// uses the shortest argument for its value. A key with a longer head has a
+/// second byte form, so the key order check alone could accept it. A float head
+/// (major 7) has no shorter form to compare with.
+fn csil_shortest_head(b: []const u8) bool {
+    const major = b[0] >> 5;
+    if (major == 7) return true;
+    const arg = read_arg(b, b[0] & 0x1f) catch return false;
+    return switch (b[0] & 0x1f) {
+        24 => arg.arg >= 24,
+        25 => arg.arg > 0xff,
+        26 => arg.arg > 0xffff,
+        27 => arg.arg > 0xffff_ffff,
+        else => true,
+    };
+}
+
+/// A dynamic map must arrive with its encoded keys strictly ascending in bytewise
+/// order. Each key is compared with the one before it, so the check is O(n).
+fn csil_check_canonical(pairs: []const Pair) CodecError!void {
+    var i: usize = 1;
+    while (i < pairs.len) : (i += 1) {
+        if (std.mem.order(u8, pairs[i - 1].raw_key, pairs[i].raw_key) != .lt) return error.NonCanonicalMapOrder;
+    }
+}
+
+/// One encoded entry of a dynamic map inside a scratch buffer: the key is
+/// `buf[start..key_end]`, the value runs on to `end`.
+const CsilSpan = struct { start: usize, key_end: usize, end: usize };
+
+fn csil_span_less(buf: []const u8, a: CsilSpan, b: CsilSpan) bool {
+    return std.mem.order(u8, buf[a.start..a.key_end], buf[b.start..b.key_end]) == .lt;
+}
+
+/// Writes the entries of a dynamic map in canonical order: sorted by the bytes of
+/// each encoded key (RFC 8949 section 4.2.1). A hash map iterates in no fixed
+/// order, so the entries are encoded first and sorted by their key bytes.
+fn csil_w_sorted_map(out: *std.ArrayList(u8), buf: []const u8, spans: []CsilSpan) std.mem.Allocator.Error!void {
+    std.mem.sort(CsilSpan, spans, buf, csil_span_less);
+    try w_map_head(out, spans.len);
+    for (spans) |span| try out.appendSlice(buf[span.start..span.end]);
 }
 
 fn mget(m: Value, key: []const u8) ?Value {
@@ -280,7 +345,7 @@ fn mget(m: Value, key: []const u8) ?Value {
     return null;
 }
 
-fn req(m: Value, key: []const u8) CodecError!Value {
+fn csil_required_field(m: Value, key: []const u8) CodecError!Value {
     return mget(m, key) orelse error.MissingField;
 }
 
@@ -349,6 +414,200 @@ fn as_tagged_text(v: Value, num: u64) CodecError![]const u8 {
     return v.tag.content.text;
 }
 
+/// The longest canonical timestamp: `YYYY-MM-DDThh:mm:ss.fffffffffZ`.
+const csil_timestamp_max_len = 30;
+
+const CsilTimestampParts = struct { rfc3339: []const u8, epoch_seconds: i64 };
+
+fn csil_timestamp_digits(s: []const u8, at: usize, width: usize) CodecError!i64 {
+    if (at + width > s.len) return error.WrongType;
+    var v: i64 = 0;
+    for (s[at .. at + width]) |c| {
+        if (c < '0' or c > '9') return error.WrongType;
+        v = v * 10 + (c - '0');
+    }
+    return v;
+}
+
+fn csil_days_from_civil(year: i64, month: i64, day: i64) i64 {
+    const y = if (month <= 2) year - 1 else year;
+    const era = @divFloor(y, 400);
+    const yoe = y - era * 400;
+    const doy = @divFloor(153 * @mod(month + 9, 12) + 2, 5) + day - 1;
+    const doe = yoe * 365 + @divFloor(yoe, 4) - @divFloor(yoe, 100) + doy;
+    return era * 146097 + doe - 719468;
+}
+
+fn csil_timestamp_put(buf: []u8, at: usize, value: i64, width: usize) void {
+    var v: u64 = @intCast(value);
+    var k = width;
+    while (k > 0) {
+        k -= 1;
+        buf[at + k] = '0' + @as(u8, @intCast(v % 10));
+        v /= 10;
+    }
+}
+
+/// `0001-01-01T00:00:00Z` and `9999-12-31T23:59:59Z` as epoch seconds.
+const csil_epoch_first: i64 = -62135596800;
+const csil_epoch_last: i64 = 253402300799;
+
+const CsilInstant = struct { seconds: i64, nanos: i64 };
+
+/// Reads the strict RFC 3339 form of the wire contract into UTC epoch seconds and
+/// nanoseconds. The year must be 0001 to 9999 after conversion to UTC.
+fn csil_timestamp_parse(s: []const u8) CodecError!CsilInstant {
+    if (s.len < 20 or s[4] != '-' or s[7] != '-' or (s[10] != 'T' and s[10] != 't') or
+        s[13] != ':' or s[16] != ':') return error.WrongType;
+    const year = try csil_timestamp_digits(s, 0, 4);
+    const month = try csil_timestamp_digits(s, 5, 2);
+    const day = try csil_timestamp_digits(s, 8, 2);
+    const hour = try csil_timestamp_digits(s, 11, 2);
+    const minute = try csil_timestamp_digits(s, 14, 2);
+    const second = try csil_timestamp_digits(s, 17, 2);
+    const leap = @mod(year, 4) == 0 and (@mod(year, 100) != 0 or @mod(year, 400) == 0);
+    const days = [_]i64{ 31, if (leap) 29 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    if (year < 1 or month < 1 or month > 12 or day < 1 or day > days[@intCast(month - 1)]) return error.WrongType;
+    if (hour > 23 or minute > 59 or second > 59) return error.WrongType;
+    var i: usize = 19;
+    var nanos: i64 = 0;
+    if (s[i] == '.') {
+        i += 1;
+        const start = i;
+        while (i < s.len and s[i] >= '0' and s[i] <= '9') : (i += 1) {}
+        var width = i - start;
+        if (width < 1 or width > 9) return error.WrongType;
+        nanos = try csil_timestamp_digits(s, start, width);
+        while (width < 9) : (width += 1) nanos *= 10;
+    }
+    if (i >= s.len) return error.WrongType;
+    var offset: i64 = 0;
+    if ((s[i] == '+' or s[i] == '-') and i + 6 == s.len and s[i + 3] == ':') {
+        const oh = try csil_timestamp_digits(s, i + 1, 2);
+        const om = try csil_timestamp_digits(s, i + 4, 2);
+        if (oh > 23 or om > 59) return error.WrongType;
+        offset = oh * 3600 + om * 60;
+        if (s[i] == '-') offset = -offset;
+    } else if ((s[i] != 'Z' and s[i] != 'z') or i + 1 != s.len) {
+        return error.WrongType;
+    }
+    const utc = csil_days_from_civil(year, month, day) * 86400 + hour * 3600 + minute * 60 + second - offset;
+    if (utc < csil_epoch_first or utc > csil_epoch_last) return error.WrongType;
+    return .{ .seconds = utc, .nanos = nanos };
+}
+
+/// Writes the canonical UTC text for an instant already known to lie in years
+/// 0001 to 9999, so that both wire forms produce the same text.
+fn csil_timestamp_write(utc: i64, nanos: i64, buf: *[csil_timestamp_max_len]u8) []const u8 {
+    const z = @divFloor(utc, 86400) + 719468;
+    const sod = @mod(utc, 86400);
+    const era = @divFloor(z, 146097);
+    const doe = z - era * 146097;
+    const yoe = @divFloor(doe - @divFloor(doe, 1460) + @divFloor(doe, 36524) - @divFloor(doe, 146096), 365);
+    const doy = doe - (365 * yoe + @divFloor(yoe, 4) - @divFloor(yoe, 100));
+    const mp = @divFloor(5 * doy + 2, 153);
+    const d = doy - @divFloor(153 * mp + 2, 5) + 1;
+    const m = if (mp < 10) mp + 3 else mp - 9;
+    const y = yoe + era * 400 + @as(i64, if (m <= 2) 1 else 0);
+    csil_timestamp_put(buf, 0, y, 4);
+    buf[4] = '-';
+    csil_timestamp_put(buf, 5, m, 2);
+    buf[7] = '-';
+    csil_timestamp_put(buf, 8, d, 2);
+    buf[10] = 'T';
+    csil_timestamp_put(buf, 11, @divFloor(sod, 3600), 2);
+    buf[13] = ':';
+    csil_timestamp_put(buf, 14, @mod(@divFloor(sod, 60), 60), 2);
+    buf[16] = ':';
+    csil_timestamp_put(buf, 17, @mod(sod, 60), 2);
+    var len: usize = 19;
+    if (nanos != 0) {
+        // The fewest of 3, 6, or 9 digits that hold the value exactly, so every
+        // peer writes the same bytes for the same instant.
+        const width: usize = if (@mod(nanos, 1_000_000) == 0) 3 else if (@mod(nanos, 1000) == 0) 6 else 9;
+        const scaled = if (width == 3) @divFloor(nanos, 1_000_000) else if (width == 6) @divFloor(nanos, 1000) else nanos;
+        buf[len] = '.';
+        csil_timestamp_put(buf, len + 1, scaled, width);
+        len += 1 + width;
+    }
+    buf[len] = 'Z';
+    return buf[0 .. len + 1];
+}
+
+/// Validates the strict RFC 3339 form of the wire contract and writes the canonical
+/// UTC spelling into `buf`, so equal instants compare equal as text.
+fn csil_timestamp_text(s: []const u8, buf: *[csil_timestamp_max_len]u8, epoch: *i64) CodecError![]const u8 {
+    const instant = try csil_timestamp_parse(s);
+    epoch.* = instant.seconds;
+    return csil_timestamp_write(instant.seconds, instant.nanos, buf);
+}
+
+/// Decoded text that is already canonical is borrowed as is; only a value that
+/// needs normalizing costs an allocation.
+fn csil_as_timestamp(alloc: std.mem.Allocator, v: Value) CodecError!CsilTimestampParts {
+    const raw = try as_tagged_text(v, 0);
+    var buf: [csil_timestamp_max_len]u8 = undefined;
+    var epoch: i64 = 0;
+    const canonical = try csil_timestamp_text(raw, &buf, &epoch);
+    const text = if (std.mem.eql(u8, canonical, raw)) raw else try alloc.dupe(u8, canonical);
+    return .{ .rfc3339 = text, .epoch_seconds = epoch };
+}
+
+/// A caller-built value is normalized too, so the wire never carries an offset,
+/// lowercase separators, or a non-minimal fraction.
+fn csil_w_timestamp(out: *std.ArrayList(u8), text: []const u8) CodecError!void {
+    var buf: [csil_timestamp_max_len]u8 = undefined;
+    var epoch: i64 = 0;
+    const canonical = try csil_timestamp_text(text, &buf, &epoch);
+    try w_tag(out, 0);
+    try w_text(out, canonical);
+}
+
+/// `cddl_time`: tag 1 around epoch seconds, kept as the same canonical text as a
+/// `timestamp` so both wire forms compare equal for one instant.
+fn csil_as_epoch(alloc: std.mem.Allocator, v: Value) CodecError!CsilTimestampParts {
+    if (v != .tag or v.tag.num != 1) return error.WrongType;
+    var seconds: i64 = 0;
+    var units: i64 = 0;
+    switch (v.tag.content.*) {
+        .uint => |n| {
+            if (n > @as(u64, @intCast(csil_epoch_last))) return error.WrongType;
+            seconds = @intCast(n);
+        },
+        .int => |n| seconds = n,
+        .float => |value| {
+            // The range test also refuses NaN and infinity, and it comes before
+            // the conversion to an integer, which panics out of range.
+            const low: f64 = @floatFromInt(csil_epoch_first - 1);
+            const high: f64 = @floatFromInt(csil_epoch_last + 1);
+            if (!(value >= low and value <= high)) return error.WrongType;
+            const whole = @floor(value);
+            seconds = @intFromFloat(whole);
+            // Two operations, not a fused multiply-add, which can round differently.
+            const scaled = (value - whole) * 1e9;
+            units = @intFromFloat(@floor(scaled + 0.5));
+            if (units == 1_000_000_000) {
+                seconds += 1;
+                units = 0;
+            }
+        },
+        else => return error.WrongType,
+    }
+    if (seconds < csil_epoch_first or seconds > csil_epoch_last) return error.WrongType;
+    var buf: [csil_timestamp_max_len]u8 = undefined;
+    const text = try alloc.dupe(u8, csil_timestamp_write(seconds, units, &buf));
+    return .{ .rfc3339 = text, .epoch_seconds = seconds };
+}
+
+fn csil_w_epoch(out: *std.ArrayList(u8), text: []const u8) CodecError!void {
+    const instant = try csil_timestamp_parse(text);
+    try w_tag(out, 1);
+    if (instant.nanos == 0) return w_int(out, instant.seconds);
+    const seconds: f64 = @floatFromInt(instant.seconds);
+    const fraction = @as(f64, @floatFromInt(instant.nanos)) / 1e9;
+    try w_f64(out, seconds + fraction);
+}
+
 const Decimal = struct { exp: i64, mant: i64 };
 
 fn as_decimal(v: Value) CodecError!Decimal {
@@ -407,34 +666,254 @@ fn enc_CheckResult(out: *std.ArrayList(u8), v: *const types.CheckResult) CodecEr
     try w_map_head(out, 2);
     try w_text(out, "result");
     try w_bool(out, v.result);
-    {
-        try w_text(out, "entries");
-        try w_map_head(out, v.entries.count());
-        var csil_mi = v.entries.iterator();
-        while (csil_mi.next()) |csil_e| {
-            try w_text(out, csil_e.key_ptr.*);
-            try enc_CheckValue(out, &(csil_e.value_ptr.*));
-        }
-    }
+    try w_text(out, "entries");
+    try csil_enc_map_0f9403fe75a51f0b(out, &(v.entries));
 }
 
 fn dec_CheckResult(alloc: std.mem.Allocator, m: Value, out: *types.CheckResult) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "result");
+        const csil_fv = try csil_required_field(m, "result");
         out.result = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "entries");
-        if (csil_fv != .map) return error.WrongType;
-        out.entries = .{};
-        for (csil_fv.map) |csil_kv| {
-            const csil_k = try as_text(csil_kv.key);
-            var csil_val: types.CheckValue = undefined;
-            try dec_CheckValue(alloc, csil_kv.val, &csil_val);
-            try out.entries.put(alloc, csil_k, csil_val);
-        }
+        const csil_fv = try csil_required_field(m, "entries");
+        try csil_dec_map_0f9403fe75a51f0b(alloc, csil_fv, &(out.entries));
     }
+}
+
+fn enc_KeyAlgorithm(out: *std.ArrayList(u8), v: *const types.KeyAlgorithm) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_KeyAlgorithm(alloc: std.mem.Allocator, src: Value, out: *types.KeyAlgorithm) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.KeyAlgorithm, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_KeyUsage(out: *std.ArrayList(u8), v: *const types.KeyUsage) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_KeyUsage(alloc: std.mem.Allocator, src: Value, out: *types.KeyUsage) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.KeyUsage, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_AeadSuite(out: *std.ArrayList(u8), v: *const types.AeadSuite) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_AeadSuite(alloc: std.mem.Allocator, src: Value, out: *types.AeadSuite) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.AeadSuite, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_ClaimValueType(out: *std.ArrayList(u8), v: *const types.ClaimValueType) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_ClaimValueType(alloc: std.mem.Allocator, src: Value, out: *types.ClaimValueType) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.ClaimValueType, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_SetRule(out: *std.ArrayList(u8), v: *const types.SetRule) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_SetRule(alloc: std.mem.Allocator, src: Value, out: *types.SetRule) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.SetRule, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_SigningRule(out: *std.ArrayList(u8), v: *const types.SigningRule) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_SigningRule(alloc: std.mem.Allocator, src: Value, out: *types.SigningRule) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.SigningRule, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_SetClaimOutcome(out: *std.ArrayList(u8), v: *const types.SetClaimOutcome) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_SetClaimOutcome(alloc: std.mem.Allocator, src: Value, out: *types.SetClaimOutcome) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.SetClaimOutcome, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_ReleaseDisposition(out: *std.ArrayList(u8), v: *const types.ReleaseDisposition) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_ReleaseDisposition(alloc: std.mem.Allocator, src: Value, out: *types.ReleaseDisposition) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.ReleaseDisposition, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_ConsentRowPolicy(out: *std.ArrayList(u8), v: *const types.ConsentRowPolicy) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_ConsentRowPolicy(alloc: std.mem.Allocator, src: Value, out: *types.ConsentRowPolicy) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.ConsentRowPolicy, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_ClaimApprovalStatus(out: *std.ArrayList(u8), v: *const types.ClaimApprovalStatus) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_ClaimApprovalStatus(alloc: std.mem.Allocator, src: Value, out: *types.ClaimApprovalStatus) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.ClaimApprovalStatus, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_PinRecheckOutcome(out: *std.ArrayList(u8), v: *const types.PinRecheckOutcome) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_PinRecheckOutcome(alloc: std.mem.Allocator, src: Value, out: *types.PinRecheckOutcome) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.PinRecheckOutcome, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_NotificationPurpose(out: *std.ArrayList(u8), v: *const types.NotificationPurpose) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_NotificationPurpose(alloc: std.mem.Allocator, src: Value, out: *types.NotificationPurpose) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.NotificationPurpose, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_NotificationChannel(out: *std.ArrayList(u8), v: *const types.NotificationChannel) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_NotificationChannel(alloc: std.mem.Allocator, src: Value, out: *types.NotificationChannel) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.NotificationChannel, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_DestinationKind(out: *std.ArrayList(u8), v: *const types.DestinationKind) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_DestinationKind(alloc: std.mem.Allocator, src: Value, out: *types.DestinationKind) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.DestinationKind, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_LocalRpPolicy(out: *std.ArrayList(u8), v: *const types.LocalRpPolicy) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_LocalRpPolicy(alloc: std.mem.Allocator, src: Value, out: *types.LocalRpPolicy) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.LocalRpPolicy, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_LocalRpStatus(out: *std.ArrayList(u8), v: *const types.LocalRpStatus) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_LocalRpStatus(alloc: std.mem.Allocator, src: Value, out: *types.LocalRpStatus) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.LocalRpStatus, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_LocalRpAdmission(out: *std.ArrayList(u8), v: *const types.LocalRpAdmission) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_LocalRpAdmission(alloc: std.mem.Allocator, src: Value, out: *types.LocalRpAdmission) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.LocalRpAdmission, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_AppAccessMode(out: *std.ArrayList(u8), v: *const types.AppAccessMode) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_AppAccessMode(alloc: std.mem.Allocator, src: Value, out: *types.AppAccessMode) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.AppAccessMode, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_AppAccessTargetKind(out: *std.ArrayList(u8), v: *const types.AppAccessTargetKind) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_AppAccessTargetKind(alloc: std.mem.Allocator, src: Value, out: *types.AppAccessTargetKind) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.AppAccessTargetKind, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_ClaimOperator(out: *std.ArrayList(u8), v: *const types.ClaimOperator) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_ClaimOperator(alloc: std.mem.Allocator, src: Value, out: *types.ClaimOperator) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.ClaimOperator, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_ApplicationKeyChallengePurpose(out: *std.ArrayList(u8), v: *const types.ApplicationKeyChallengePurpose) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_ApplicationKeyChallengePurpose(alloc: std.mem.Allocator, src: Value, out: *types.ApplicationKeyChallengePurpose) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.ApplicationKeyChallengePurpose, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_AuthFlow(out: *std.ArrayList(u8), v: *const types.AuthFlow) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_AuthFlow(alloc: std.mem.Allocator, src: Value, out: *types.AuthFlow) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.AuthFlow, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_RpCacheStatus(out: *std.ArrayList(u8), v: *const types.RpCacheStatus) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_RpCacheStatus(alloc: std.mem.Allocator, src: Value, out: *types.RpCacheStatus) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.RpCacheStatus, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_AccountKind(out: *std.ArrayList(u8), v: *const types.AccountKind) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_AccountKind(alloc: std.mem.Allocator, src: Value, out: *types.AccountKind) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.AccountKind, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_RpErrorCode(out: *std.ArrayList(u8), v: *const types.RpErrorCode) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_RpErrorCode(alloc: std.mem.Allocator, src: Value, out: *types.RpErrorCode) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.RpErrorCode, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_IssuedClaimOutcome(out: *std.ArrayList(u8), v: *const types.IssuedClaimOutcome) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_IssuedClaimOutcome(alloc: std.mem.Allocator, src: Value, out: *types.IssuedClaimOutcome) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.IssuedClaimOutcome, try as_i64(src)) catch return error.WrongType;
 }
 
 fn enc_HelloRequest(out: *std.ArrayList(u8), v: *const types.HelloRequest) CodecError!void {
@@ -469,7 +948,7 @@ fn dec_HelloResponse(alloc: std.mem.Allocator, m: Value, out: *types.HelloRespon
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "greeting");
+        const csil_fv = try csil_required_field(m, "greeting");
         out.greeting = try as_text(csil_fv);
     }
 }
@@ -481,29 +960,34 @@ fn enc_GuestbookEntry(out: *std.ArrayList(u8), v: *const types.GuestbookEntry) C
     try w_text(out, "name");
     try w_text(out, v.name);
     try w_text(out, "created_at");
-    try w_text(out, v.created_at);
+    try csil_w_timestamp(out, (v.created_at).rfc3339);
     try w_text(out, "updated_at");
-    try w_text(out, v.updated_at);
+    try csil_w_timestamp(out, (v.updated_at).rfc3339);
 }
 
 fn dec_GuestbookEntry(alloc: std.mem.Allocator, m: Value, out: *types.GuestbookEntry) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "id");
+        const csil_fv = try csil_required_field(m, "id");
         out.id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "name");
+        const csil_fv = try csil_required_field(m, "name");
         out.name = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "created_at");
-        out.created_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "created_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.created_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "updated_at");
-        out.updated_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "updated_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.updated_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
 }
 
@@ -517,7 +1001,7 @@ fn dec_CreateGuestbookRequest(alloc: std.mem.Allocator, m: Value, out: *types.Cr
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "name");
+        const csil_fv = try csil_required_field(m, "name");
         out.name = try as_text(csil_fv);
     }
 }
@@ -534,11 +1018,11 @@ fn dec_UpdateGuestbookRequest(alloc: std.mem.Allocator, m: Value, out: *types.Up
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "id");
+        const csil_fv = try csil_required_field(m, "id");
         out.id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "name");
+        const csil_fv = try csil_required_field(m, "name");
         out.name = try as_text(csil_fv);
     }
 }
@@ -553,7 +1037,7 @@ fn dec_DeleteGuestbookRequest(alloc: std.mem.Allocator, m: Value, out: *types.De
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "id");
+        const csil_fv = try csil_required_field(m, "id");
         out.id = try as_text(csil_fv);
     }
 }
@@ -568,7 +1052,7 @@ fn dec_DeleteGuestbookResponse(alloc: std.mem.Allocator, m: Value, out: *types.D
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "success");
+        const csil_fv = try csil_required_field(m, "success");
         out.success = try as_bool(csil_fv);
     }
 }
@@ -619,7 +1103,7 @@ fn enc_GuestbookListResponse(out: *std.ArrayList(u8), v: *const types.GuestbookL
 fn dec_GuestbookListResponse(alloc: std.mem.Allocator, m: Value, out: *types.GuestbookListResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "entries");
+        const csil_fv = try csil_required_field(m, "entries");
         if (csil_fv != .array) return error.WrongType;
         out.entries = try alloc.alloc(types.GuestbookEntry, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -648,18 +1132,18 @@ fn enc_DomainPublicKey(out: *std.ArrayList(u8), v: *const types.DomainPublicKey)
     try w_text(out, "key_id");
     try w_text(out, v.key_id);
     try w_text(out, "algorithm");
-    try w_text(out, v.algorithm);
+    try enc_KeyAlgorithm(out, &(v.algorithm));
     try w_text(out, "key_usage");
-    try w_text(out, v.key_usage);
+    try enc_KeyUsage(out, &(v.key_usage));
     try w_text(out, "created_at");
-    try w_text(out, v.created_at);
+    try csil_w_timestamp(out, (v.created_at).rfc3339);
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     try w_text(out, "public_key");
     try w_bytes(out, v.public_key);
     if (v.revoked_at) |csil_x| {
         try w_text(out, "revoked_at");
-        try w_text(out, csil_x);
+        try csil_w_timestamp(out, (csil_x).rfc3339);
     }
     try w_text(out, "fingerprint");
     try w_text(out, v.fingerprint);
@@ -674,41 +1158,49 @@ fn enc_DomainPublicKey(out: *std.ArrayList(u8), v: *const types.DomainPublicKey)
 }
 
 fn dec_DomainPublicKey(alloc: std.mem.Allocator, m: Value, out: *types.DomainPublicKey) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "key_id");
+        const csil_fv = try csil_required_field(m, "key_id");
         out.key_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "algorithm");
-        out.algorithm = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "algorithm");
+        try dec_KeyAlgorithm(alloc, csil_fv, &(out.algorithm));
     }
     {
-        const csil_fv = try req(m, "key_usage");
-        out.key_usage = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "key_usage");
+        try dec_KeyUsage(alloc, csil_fv, &(out.key_usage));
     }
     {
-        const csil_fv = try req(m, "created_at");
-        out.created_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "created_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.created_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "public_key");
+        const csil_fv = try csil_required_field(m, "public_key");
         out.public_key = try as_bytes(csil_fv);
     }
     {
         if (mget(m, "revoked_at")) |csil_fv| {
-            out.revoked_at = try as_text(csil_fv);
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.revoked_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
         } else {
             out.revoked_at = null;
         }
     }
     {
-        const csil_fv = try req(m, "fingerprint");
+        const csil_fv = try csil_required_field(m, "fingerprint");
         out.fingerprint = try as_text(csil_fv);
     }
     {
@@ -747,7 +1239,7 @@ fn enc_GetDomainKeysResponse(out: *std.ArrayList(u8), v: *const types.GetDomainK
 fn dec_GetDomainKeysResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetDomainKeysResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "keys");
+        const csil_fv = try csil_required_field(m, "keys");
         if (csil_fv != .array) return error.WrongType;
         out.keys = try alloc.alloc(types.DomainPublicKey, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -755,7 +1247,7 @@ fn dec_GetDomainKeysResponse(alloc: std.mem.Allocator, m: Value, out: *types.Get
         }
     }
     {
-        const csil_fv = try req(m, "domain");
+        const csil_fv = try csil_required_field(m, "domain");
         out.domain = try as_text(csil_fv);
     }
     {
@@ -773,16 +1265,18 @@ fn enc_GetRevocationsRequest(out: *std.ArrayList(u8), v: *const types.GetRevocat
     try w_map_head(out, csil_n);
     if (v.since) |csil_x| {
         try w_text(out, "since");
-        try w_text(out, csil_x);
+        try csil_w_timestamp(out, (csil_x).rfc3339);
     }
 }
 
 fn dec_GetRevocationsRequest(alloc: std.mem.Allocator, m: Value, out: *types.GetRevocationsRequest) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
         if (mget(m, "since")) |csil_fv| {
-            out.since = try as_text(csil_fv);
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.since = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
         } else {
             out.since = null;
         }
@@ -801,7 +1295,7 @@ fn enc_GetRevocationsResponse(out: *std.ArrayList(u8), v: *const types.GetRevoca
 fn dec_GetRevocationsResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetRevocationsResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "revocations");
+        const csil_fv = try csil_required_field(m, "revocations");
         if (csil_fv != .array) return error.WrongType;
         out.revocations = try alloc.alloc(types.RevocationCertificate, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -833,23 +1327,35 @@ fn dec_RecheckPinsRequest(alloc: std.mem.Allocator, m: Value, out: *types.Rechec
 }
 
 fn enc_PinRecheckResult(out: *std.ArrayList(u8), v: *const types.PinRecheckResult) CodecError!void {
-    try w_map_head(out, 2);
+    var csil_n: usize = 2;
+    if (v.message != null) csil_n += 1;
+    try w_map_head(out, csil_n);
     try w_text(out, "domain");
     try w_text(out, v.domain);
+    if (v.message) |csil_x| {
+        try w_text(out, "message");
+        try w_text(out, csil_x);
+    }
     try w_text(out, "outcome");
-    try w_text(out, v.outcome);
+    try enc_PinRecheckOutcome(out, &(v.outcome));
 }
 
 fn dec_PinRecheckResult(alloc: std.mem.Allocator, m: Value, out: *types.PinRecheckResult) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "domain");
+        const csil_fv = try csil_required_field(m, "domain");
         out.domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "outcome");
-        out.outcome = try as_text(csil_fv);
+        if (mget(m, "message")) |csil_fv| {
+            out.message = try as_text(csil_fv);
+        } else {
+            out.message = null;
+        }
+    }
+    {
+        const csil_fv = try csil_required_field(m, "outcome");
+        try dec_PinRecheckOutcome(alloc, csil_fv, &(out.outcome));
     }
 }
 
@@ -865,7 +1371,7 @@ fn enc_RecheckPinsResponse(out: *std.ArrayList(u8), v: *const types.RecheckPinsR
 fn dec_RecheckPinsResponse(alloc: std.mem.Allocator, m: Value, out: *types.RecheckPinsResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "results");
+        const csil_fv = try csil_required_field(m, "results");
         if (csil_fv != .array) return error.WrongType;
         out.results = try alloc.alloc(types.PinRecheckResult, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -885,18 +1391,18 @@ fn enc_UserPublicKey(out: *std.ArrayList(u8), v: *const types.UserPublicKey) Cod
     try w_text(out, "user_id");
     try w_text(out, v.user_id);
     try w_text(out, "algorithm");
-    try w_text(out, v.algorithm);
+    try enc_KeyAlgorithm(out, &(v.algorithm));
     try w_text(out, "key_usage");
-    try w_text(out, v.key_usage);
+    try enc_KeyUsage(out, &(v.key_usage));
     try w_text(out, "created_at");
-    try w_text(out, v.created_at);
+    try csil_w_timestamp(out, (v.created_at).rfc3339);
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     try w_text(out, "public_key");
     try w_bytes(out, v.public_key);
     if (v.revoked_at) |csil_x| {
         try w_text(out, "revoked_at");
-        try w_text(out, csil_x);
+        try csil_w_timestamp(out, (csil_x).rfc3339);
     }
     try w_text(out, "fingerprint");
     try w_text(out, v.fingerprint);
@@ -911,45 +1417,53 @@ fn enc_UserPublicKey(out: *std.ArrayList(u8), v: *const types.UserPublicKey) Cod
 }
 
 fn dec_UserPublicKey(alloc: std.mem.Allocator, m: Value, out: *types.UserPublicKey) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "key_id");
+        const csil_fv = try csil_required_field(m, "key_id");
         out.key_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "algorithm");
-        out.algorithm = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "algorithm");
+        try dec_KeyAlgorithm(alloc, csil_fv, &(out.algorithm));
     }
     {
-        const csil_fv = try req(m, "key_usage");
-        out.key_usage = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "key_usage");
+        try dec_KeyUsage(alloc, csil_fv, &(out.key_usage));
     }
     {
-        const csil_fv = try req(m, "created_at");
-        out.created_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "created_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.created_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "public_key");
+        const csil_fv = try csil_required_field(m, "public_key");
         out.public_key = try as_bytes(csil_fv);
     }
     {
         if (mget(m, "revoked_at")) |csil_fv| {
-            out.revoked_at = try as_text(csil_fv);
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.revoked_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
         } else {
             out.revoked_at = null;
         }
     }
     {
-        const csil_fv = try req(m, "fingerprint");
+        const csil_fv = try csil_required_field(m, "fingerprint");
         out.fingerprint = try as_text(csil_fv);
     }
     {
@@ -978,7 +1492,7 @@ fn dec_GetUserKeysRequest(alloc: std.mem.Allocator, m: Value, out: *types.GetUse
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
 }
@@ -999,7 +1513,7 @@ fn enc_GetUserKeysResponse(out: *std.ArrayList(u8), v: *const types.GetUserKeysR
 fn dec_GetUserKeysResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetUserKeysResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "keys");
+        const csil_fv = try csil_required_field(m, "keys");
         if (csil_fv != .array) return error.WrongType;
         out.keys = try alloc.alloc(types.UserPublicKey, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -1007,11 +1521,11 @@ fn dec_GetUserKeysResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetUs
         }
     }
     {
-        const csil_fv = try req(m, "domain");
+        const csil_fv = try csil_required_field(m, "domain");
         out.domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
 }
@@ -1030,15 +1544,15 @@ fn dec_ClaimSignature(alloc: std.mem.Allocator, m: Value, out: *types.ClaimSigna
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "domain");
+        const csil_fv = try csil_required_field(m, "domain");
         out.domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signature");
+        const csil_fv = try csil_required_field(m, "signature");
         out.signature = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signed_by_key_id");
+        const csil_fv = try csil_required_field(m, "signed_by_key_id");
         out.signed_by_key_id = try as_text(csil_fv);
     }
 }
@@ -1046,7 +1560,7 @@ fn dec_ClaimSignature(alloc: std.mem.Allocator, m: Value, out: *types.ClaimSigna
 fn enc_RevocationCertificate(out: *std.ArrayList(u8), v: *const types.RevocationCertificate) CodecError!void {
     try w_map_head(out, 4);
     try w_text(out, "revoked_at");
-    try w_text(out, v.revoked_at);
+    try csil_w_timestamp(out, (v.revoked_at).rfc3339);
     try w_text(out, "signatures");
     try w_array_head(out, v.signatures.len);
     for (v.signatures) |csil_it| {
@@ -1061,11 +1575,14 @@ fn enc_RevocationCertificate(out: *std.ArrayList(u8), v: *const types.Revocation
 fn dec_RevocationCertificate(alloc: std.mem.Allocator, m: Value, out: *types.RevocationCertificate) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "revoked_at");
-        out.revoked_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "revoked_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.revoked_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "signatures");
+        const csil_fv = try csil_required_field(m, "signatures");
         if (csil_fv != .array) return error.WrongType;
         out.signatures = try alloc.alloc(types.ClaimSignature, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -1073,11 +1590,11 @@ fn dec_RevocationCertificate(alloc: std.mem.Allocator, m: Value, out: *types.Rev
         }
     }
     {
-        const csil_fv = try req(m, "target_key_id");
+        const csil_fv = try csil_required_field(m, "target_key_id");
         out.target_key_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "target_fingerprint");
+        const csil_fv = try csil_required_field(m, "target_fingerprint");
         out.target_fingerprint = try as_text(csil_fv);
     }
 }
@@ -1094,14 +1611,14 @@ fn enc_Claim(out: *std.ArrayList(u8), v: *const types.Claim) CodecError!void {
     try w_text(out, "claim_type");
     try w_text(out, v.claim_type);
     try w_text(out, "created_at");
-    try w_text(out, v.created_at);
+    try csil_w_timestamp(out, (v.created_at).rfc3339);
     if (v.expires_at) |csil_x| {
         try w_text(out, "expires_at");
-        try w_text(out, csil_x);
+        try csil_w_timestamp(out, (csil_x).rfc3339);
     }
     if (v.revoked_at) |csil_x| {
         try w_text(out, "revoked_at");
-        try w_text(out, csil_x);
+        try csil_w_timestamp(out, (csil_x).rfc3339);
     }
     try w_text(out, "signatures");
     try w_array_head(out, v.signatures.len);
@@ -1109,7 +1626,7 @@ fn enc_Claim(out: *std.ArrayList(u8), v: *const types.Claim) CodecError!void {
         try enc_ClaimSignature(out, &(csil_it));
     }
     try w_text(out, "attested_at");
-    try w_text(out, v.attested_at);
+    try csil_w_timestamp(out, (v.attested_at).rfc3339);
     try w_text(out, "claim_value");
     try w_bytes(out, v.claim_value);
 }
@@ -1117,37 +1634,46 @@ fn enc_Claim(out: *std.ArrayList(u8), v: *const types.Claim) CodecError!void {
 fn dec_Claim(alloc: std.mem.Allocator, m: Value, out: *types.Claim) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_id");
+        const csil_fv = try csil_required_field(m, "claim_id");
         out.claim_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "created_at");
-        out.created_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "created_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.created_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
         if (mget(m, "expires_at")) |csil_fv| {
-            out.expires_at = try as_text(csil_fv);
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
         } else {
             out.expires_at = null;
         }
     }
     {
         if (mget(m, "revoked_at")) |csil_fv| {
-            out.revoked_at = try as_text(csil_fv);
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.revoked_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
         } else {
             out.revoked_at = null;
         }
     }
     {
-        const csil_fv = try req(m, "signatures");
+        const csil_fv = try csil_required_field(m, "signatures");
         if (csil_fv != .array) return error.WrongType;
         out.signatures = try alloc.alloc(types.ClaimSignature, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -1155,11 +1681,14 @@ fn dec_Claim(alloc: std.mem.Allocator, m: Value, out: *types.Claim) CodecError!v
         }
     }
     {
-        const csil_fv = try req(m, "attested_at");
-        out.attested_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "attested_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.attested_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "claim_value");
+        const csil_fv = try csil_required_field(m, "claim_value");
         out.claim_value = try as_bytes(csil_fv);
     }
 }
@@ -1176,11 +1705,11 @@ fn dec_GetUserClaimsRequest(alloc: std.mem.Allocator, m: Value, out: *types.GetU
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "token");
+        const csil_fv = try csil_required_field(m, "token");
         out.token = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
 }
@@ -1201,7 +1730,7 @@ fn enc_GetUserClaimsResponse(out: *std.ArrayList(u8), v: *const types.GetUserCla
 fn dec_GetUserClaimsResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetUserClaimsResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claims");
+        const csil_fv = try csil_required_field(m, "claims");
         if (csil_fv != .array) return error.WrongType;
         out.claims = try alloc.alloc(types.Claim, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -1209,11 +1738,11 @@ fn dec_GetUserClaimsResponse(alloc: std.mem.Allocator, m: Value, out: *types.Get
         }
     }
     {
-        const csil_fv = try req(m, "domain");
+        const csil_fv = try csil_required_field(m, "domain");
         out.domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
 }
@@ -1221,20 +1750,19 @@ fn dec_GetUserClaimsResponse(alloc: std.mem.Allocator, m: Value, out: *types.Get
 fn enc_RequestedClaim(out: *std.ArrayList(u8), v: *const types.RequestedClaim) CodecError!void {
     try w_map_head(out, 2);
     try w_text(out, "datatype");
-    try w_text(out, v.datatype);
+    try enc_ClaimValueType(out, &(v.datatype));
     try w_text(out, "claim_type");
     try w_text(out, v.claim_type);
 }
 
 fn dec_RequestedClaim(alloc: std.mem.Allocator, m: Value, out: *types.RequestedClaim) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "datatype");
-        out.datatype = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "datatype");
+        try dec_ClaimValueType(alloc, csil_fv, &(out.datatype));
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
 }
@@ -1256,7 +1784,7 @@ fn enc_ClaimRequest(out: *std.ArrayList(u8), v: *const types.ClaimRequest) Codec
 fn dec_ClaimRequest(alloc: std.mem.Allocator, m: Value, out: *types.ClaimRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "optional");
+        const csil_fv = try csil_required_field(m, "optional");
         if (csil_fv != .array) return error.WrongType;
         out.optional = try alloc.alloc(types.RequestedClaim, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -1264,7 +1792,7 @@ fn dec_ClaimRequest(alloc: std.mem.Allocator, m: Value, out: *types.ClaimRequest
         }
     }
     {
-        const csil_fv = try req(m, "required");
+        const csil_fv = try csil_required_field(m, "required");
         if (csil_fv != .array) return error.WrongType;
         out.required = try alloc.alloc(types.RequestedClaim, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -1283,7 +1811,7 @@ fn dec_AuthenticationRequirements(alloc: std.mem.Allocator, m: Value, out: *type
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "minimum_factor_count");
+        const csil_fv = try csil_required_field(m, "minimum_factor_count");
         out.minimum_factor_count = try as_i64(csil_fv);
     }
 }
@@ -1294,7 +1822,7 @@ fn enc_AuthFlowContext(out: *std.ArrayList(u8), v: *const types.AuthFlowContext)
     if (v.request_reason != null) csil_n += 1;
     try w_map_head(out, csil_n);
     try w_text(out, "flow");
-    try w_text(out, v.flow);
+    try enc_AuthFlow(out, &(v.flow));
     if (v.prior_session) |csil_x| {
         try w_text(out, "prior_session");
         try w_text(out, csil_x);
@@ -1306,11 +1834,10 @@ fn enc_AuthFlowContext(out: *std.ArrayList(u8), v: *const types.AuthFlowContext)
 }
 
 fn dec_AuthFlowContext(alloc: std.mem.Allocator, m: Value, out: *types.AuthFlowContext) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "flow");
-        out.flow = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "flow");
+        try dec_AuthFlow(alloc, csil_fv, &(out.flow));
     }
     {
         if (mget(m, "prior_session")) |csil_fv| {
@@ -1340,12 +1867,12 @@ fn enc_ConsentGrant(out: *std.ArrayList(u8), v: *const types.ConsentGrant) Codec
     try w_text(out, "grant_id");
     try w_text(out, v.grant_id);
     try w_text(out, "issued_at");
-    try w_text(out, v.issued_at);
+    try csil_w_timestamp(out, (v.issued_at).rfc3339);
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     if (v.revoked_at) |csil_x| {
         try w_text(out, "revoked_at");
-        try w_text(out, csil_x);
+        try csil_w_timestamp(out, (csil_x).rfc3339);
     }
     if (v.application) |csil_x| {
         try w_text(out, "application");
@@ -1363,28 +1890,37 @@ fn enc_ConsentGrant(out: *std.ArrayList(u8), v: *const types.ConsentGrant) Codec
 fn dec_ConsentGrant(alloc: std.mem.Allocator, m: Value, out: *types.ConsentGrant) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "audience");
+        const csil_fv = try csil_required_field(m, "audience");
         out.audience = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "grant_id");
+        const csil_fv = try csil_required_field(m, "grant_id");
         out.grant_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "issued_at");
-        out.issued_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "issued_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.issued_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
         if (mget(m, "revoked_at")) |csil_fv| {
-            out.revoked_at = try as_text(csil_fv);
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.revoked_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
         } else {
             out.revoked_at = null;
         }
@@ -1392,14 +1928,14 @@ fn dec_ConsentGrant(alloc: std.mem.Allocator, m: Value, out: *types.ConsentGrant
     {
         if (mget(m, "application")) |csil_fv| {
             var csil_tmp: types.ApplicationRef = undefined;
-            try dec_ApplicationRef(alloc, csil_fv, &csil_tmp);
+            try dec_ApplicationRef(alloc, csil_fv, &(csil_tmp));
             out.application = csil_tmp;
         } else {
             out.application = null;
         }
     }
     {
-        const csil_fv = try req(m, "claim_types");
+        const csil_fv = try csil_required_field(m, "claim_types");
         if (csil_fv != .array) return error.WrongType;
         out.claim_types = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -1407,7 +1943,7 @@ fn dec_ConsentGrant(alloc: std.mem.Allocator, m: Value, out: *types.ConsentGrant
         }
     }
     {
-        const csil_fv = try req(m, "subject_domain");
+        const csil_fv = try csil_required_field(m, "subject_domain");
         out.subject_domain = try as_text(csil_fv);
     }
 }
@@ -1426,11 +1962,11 @@ fn enc_SignedConsentGrant(out: *std.ArrayList(u8), v: *const types.SignedConsent
 fn dec_SignedConsentGrant(alloc: std.mem.Allocator, m: Value, out: *types.SignedConsentGrant) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "grant");
+        const csil_fv = try csil_required_field(m, "grant");
         out.grant = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signatures");
+        const csil_fv = try csil_required_field(m, "signatures");
         if (csil_fv != .array) return error.WrongType;
         out.signatures = try alloc.alloc(types.ClaimSignature, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -1447,7 +1983,7 @@ fn enc_DomainClaim(out: *std.ArrayList(u8), v: *const types.DomainClaim) CodecEr
     try w_text(out, v.claim_type);
     if (v.expires_at) |csil_x| {
         try w_text(out, "expires_at");
-        try w_text(out, csil_x);
+        try csil_w_timestamp(out, (csil_x).rfc3339);
     }
     try w_text(out, "signatures");
     try w_array_head(out, v.signatures.len);
@@ -1455,7 +1991,7 @@ fn enc_DomainClaim(out: *std.ArrayList(u8), v: *const types.DomainClaim) CodecEr
         try enc_ClaimSignature(out, &(csil_it));
     }
     try w_text(out, "attested_at");
-    try w_text(out, v.attested_at);
+    try csil_w_timestamp(out, (v.attested_at).rfc3339);
     try w_text(out, "claim_value");
     try w_bytes(out, v.claim_value);
 }
@@ -1463,18 +1999,21 @@ fn enc_DomainClaim(out: *std.ArrayList(u8), v: *const types.DomainClaim) CodecEr
 fn dec_DomainClaim(alloc: std.mem.Allocator, m: Value, out: *types.DomainClaim) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
         if (mget(m, "expires_at")) |csil_fv| {
-            out.expires_at = try as_text(csil_fv);
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
         } else {
             out.expires_at = null;
         }
     }
     {
-        const csil_fv = try req(m, "signatures");
+        const csil_fv = try csil_required_field(m, "signatures");
         if (csil_fv != .array) return error.WrongType;
         out.signatures = try alloc.alloc(types.ClaimSignature, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -1482,11 +2021,14 @@ fn dec_DomainClaim(alloc: std.mem.Allocator, m: Value, out: *types.DomainClaim) 
         }
     }
     {
-        const csil_fv = try req(m, "attested_at");
-        out.attested_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "attested_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.attested_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "claim_value");
+        const csil_fv = try csil_required_field(m, "claim_value");
         out.claim_value = try as_bytes(csil_fv);
     }
 }
@@ -1502,9 +2044,9 @@ fn enc_SigningRequest(out: *std.ArrayList(u8), v: *const types.SigningRequest) C
         try w_text(out, csil_x);
     }
     try w_text(out, "issued_at");
-    try w_text(out, v.issued_at);
+    try csil_w_timestamp(out, (v.issued_at).rfc3339);
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     try w_text(out, "request_id");
     try w_text(out, v.request_id);
     try w_text(out, "issuer_domain");
@@ -1523,7 +2065,7 @@ fn enc_SigningRequest(out: *std.ArrayList(u8), v: *const types.SigningRequest) C
 fn dec_SigningRequest(alloc: std.mem.Allocator, m: Value, out: *types.SigningRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "nonce");
+        const csil_fv = try csil_required_field(m, "nonce");
         out.nonce = try as_text(csil_fv);
     }
     {
@@ -1534,31 +2076,37 @@ fn dec_SigningRequest(alloc: std.mem.Allocator, m: Value, out: *types.SigningReq
         }
     }
     {
-        const csil_fv = try req(m, "issued_at");
-        out.issued_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "issued_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.issued_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "request_id");
+        const csil_fv = try csil_required_field(m, "request_id");
         out.request_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "issuer_domain");
+        const csil_fv = try csil_required_field(m, "issuer_domain");
         out.issuer_domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_domain");
+        const csil_fv = try csil_required_field(m, "subject_domain");
         out.subject_domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_user_id");
+        const csil_fv = try csil_required_field(m, "subject_user_id");
         out.subject_user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "requested_claim_types");
+        const csil_fv = try csil_required_field(m, "requested_claim_types");
         if (csil_fv != .array) return error.WrongType;
         out.requested_claim_types = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -1581,11 +2129,11 @@ fn enc_SignedSigningRequest(out: *std.ArrayList(u8), v: *const types.SignedSigni
 fn dec_SignedSigningRequest(alloc: std.mem.Allocator, m: Value, out: *types.SignedSigningRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "request");
+        const csil_fv = try csil_required_field(m, "request");
         out.request = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signatures");
+        const csil_fv = try csil_required_field(m, "signatures");
         if (csil_fv != .array) return error.WrongType;
         out.signatures = try alloc.alloc(types.ClaimSignature, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -1603,7 +2151,7 @@ fn enc_DepositClaimRequest(out: *std.ArrayList(u8), v: *const types.DepositClaim
 fn dec_DepositClaimRequest(alloc: std.mem.Allocator, m: Value, out: *types.DepositClaimRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim");
+        const csil_fv = try csil_required_field(m, "claim");
         try dec_Claim(alloc, csil_fv, &(out.claim));
     }
 }
@@ -1618,13 +2166,13 @@ fn dec_DepositClaimResponse(alloc: std.mem.Allocator, m: Value, out: *types.Depo
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "stored");
+        const csil_fv = try csil_required_field(m, "stored");
         out.stored = try as_bool(csil_fv);
     }
 }
 
 fn enc_IdentityAssertion(out: *std.ArrayList(u8), v: *const types.IdentityAssertion) CodecError!void {
-    var csil_n: usize = 7;
+    var csil_n: usize = 8;
     if (v.display_name != null) csil_n += 1;
     try w_map_head(out, csil_n);
     try w_text(out, "nonce");
@@ -1636,9 +2184,11 @@ fn enc_IdentityAssertion(out: *std.ArrayList(u8), v: *const types.IdentityAssert
     try w_text(out, "audience");
     try w_text(out, v.audience);
     try w_text(out, "issued_at");
-    try w_text(out, v.issued_at);
+    try csil_w_timestamp(out, (v.issued_at).rfc3339);
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
+    try w_text(out, "application");
+    try enc_ApplicationRef(out, &(v.application));
     if (v.display_name) |csil_x| {
         try w_text(out, "display_name");
         try w_text(out, csil_x);
@@ -1653,28 +2203,38 @@ fn enc_IdentityAssertion(out: *std.ArrayList(u8), v: *const types.IdentityAssert
 fn dec_IdentityAssertion(alloc: std.mem.Allocator, m: Value, out: *types.IdentityAssertion) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "nonce");
+        const csil_fv = try csil_required_field(m, "nonce");
         out.nonce = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "domain");
+        const csil_fv = try csil_required_field(m, "domain");
         out.domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "audience");
+        const csil_fv = try csil_required_field(m, "audience");
         out.audience = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "issued_at");
-        out.issued_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "issued_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.issued_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
+    }
+    {
+        const csil_fv = try csil_required_field(m, "application");
+        try dec_ApplicationRef(alloc, csil_fv, &(out.application));
     }
     {
         if (mget(m, "display_name")) |csil_fv| {
@@ -1684,7 +2244,7 @@ fn dec_IdentityAssertion(alloc: std.mem.Allocator, m: Value, out: *types.Identit
         }
     }
     {
-        const csil_fv = try req(m, "authorized_claims");
+        const csil_fv = try csil_required_field(m, "authorized_claims");
         if (csil_fv != .array) return error.WrongType;
         out.authorized_claims = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -1707,15 +2267,15 @@ fn dec_SignedIdentityAssertion(alloc: std.mem.Allocator, m: Value, out: *types.S
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "assertion");
+        const csil_fv = try csil_required_field(m, "assertion");
         out.assertion = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signature");
+        const csil_fv = try csil_required_field(m, "signature");
         out.signature = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signing_key_id");
+        const csil_fv = try csil_required_field(m, "signing_key_id");
         out.signing_key_id = try as_text(csil_fv);
     }
 }
@@ -1730,7 +2290,7 @@ fn dec_GetUserInfoRequest(alloc: std.mem.Allocator, m: Value, out: *types.GetUse
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "token");
+        const csil_fv = try csil_required_field(m, "token");
         out.token = try as_bytes(csil_fv);
     }
 }
@@ -1742,28 +2302,30 @@ fn enc_UserInfoRequest(out: *std.ArrayList(u8), v: *const types.UserInfoRequest)
     try w_text(out, "token");
     try w_bytes(out, v.token);
     try w_text(out, "timestamp");
-    try w_text(out, v.timestamp);
+    try csil_w_timestamp(out, (v.timestamp).rfc3339);
     try w_text(out, "relying_party");
     try w_text(out, v.relying_party);
 }
 
 fn dec_UserInfoRequest(alloc: std.mem.Allocator, m: Value, out: *types.UserInfoRequest) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "nonce");
+        const csil_fv = try csil_required_field(m, "nonce");
         out.nonce = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "token");
+        const csil_fv = try csil_required_field(m, "token");
         out.token = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "timestamp");
-        out.timestamp = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "timestamp");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.timestamp = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "relying_party");
+        const csil_fv = try csil_required_field(m, "relying_party");
         out.relying_party = try as_text(csil_fv);
     }
 }
@@ -1790,11 +2352,11 @@ fn enc_SignedUserInfoRequest(out: *std.ArrayList(u8), v: *const types.SignedUser
 fn dec_SignedUserInfoRequest(alloc: std.mem.Allocator, m: Value, out: *types.SignedUserInfoRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "request");
+        const csil_fv = try csil_required_field(m, "request");
         out.request = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signature");
+        const csil_fv = try csil_required_field(m, "signature");
         out.signature = try as_bytes(csil_fv);
     }
     {
@@ -1810,7 +2372,7 @@ fn dec_SignedUserInfoRequest(alloc: std.mem.Allocator, m: Value, out: *types.Sig
         }
     }
     {
-        const csil_fv = try req(m, "signing_key_id");
+        const csil_fv = try csil_required_field(m, "signing_key_id");
         out.signing_key_id = try as_text(csil_fv);
     }
 }
@@ -1833,7 +2395,7 @@ fn enc_UserInfo(out: *std.ArrayList(u8), v: *const types.UserInfo) CodecError!vo
 fn dec_UserInfo(alloc: std.mem.Allocator, m: Value, out: *types.UserInfo) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claims");
+        const csil_fv = try csil_required_field(m, "claims");
         if (csil_fv != .array) return error.WrongType;
         out.claims = try alloc.alloc(types.Claim, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -1841,15 +2403,15 @@ fn dec_UserInfo(alloc: std.mem.Allocator, m: Value, out: *types.UserInfo) CodecE
         }
     }
     {
-        const csil_fv = try req(m, "domain");
+        const csil_fv = try csil_required_field(m, "domain");
         out.domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "display_name");
+        const csil_fv = try csil_required_field(m, "display_name");
         out.display_name = try as_text(csil_fv);
     }
 }
@@ -1865,18 +2427,17 @@ fn enc_RelyingPartyApplication(out: *std.ArrayList(u8), v: *const types.RelyingP
 fn dec_RelyingPartyApplication(alloc: std.mem.Allocator, m: Value, out: *types.RelyingPartyApplication) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "application");
+        const csil_fv = try csil_required_field(m, "application");
         try dec_ApplicationRef(alloc, csil_fv, &(out.application));
     }
     {
-        const csil_fv = try req(m, "display_name");
+        const csil_fv = try csil_required_field(m, "display_name");
         out.display_name = try as_text(csil_fv);
     }
 }
 
 fn enc_AuthRequest(out: *std.ArrayList(u8), v: *const types.AuthRequest) CodecError!void {
-    var csil_n: usize = 5;
-    if (v.application != null) csil_n += 1;
+    var csil_n: usize = 6;
     if (v.flow_context != null) csil_n += 1;
     if (v.requested_claims != null) csil_n += 1;
     if (v.relying_party_claims != null) csil_n += 1;
@@ -1885,11 +2446,9 @@ fn enc_AuthRequest(out: *std.ArrayList(u8), v: *const types.AuthRequest) CodecEr
     try w_text(out, "nonce");
     try w_text(out, v.nonce);
     try w_text(out, "timestamp");
-    try w_text(out, v.timestamp);
-    if (v.application) |csil_x| {
-        try w_text(out, "application");
-        try enc_RelyingPartyApplication(out, &(csil_x));
-    }
+    try csil_w_timestamp(out, (v.timestamp).rfc3339);
+    try w_text(out, "application");
+    try enc_RelyingPartyApplication(out, &(v.application));
     try w_text(out, "callback_url");
     try w_text(out, v.callback_url);
     if (v.flow_context) |csil_x| {
@@ -1920,47 +2479,45 @@ fn enc_AuthRequest(out: *std.ArrayList(u8), v: *const types.AuthRequest) CodecEr
 fn dec_AuthRequest(alloc: std.mem.Allocator, m: Value, out: *types.AuthRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "nonce");
+        const csil_fv = try csil_required_field(m, "nonce");
         out.nonce = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "timestamp");
-        out.timestamp = try as_text(csil_fv);
-    }
-    {
-        if (mget(m, "application")) |csil_fv| {
-            var csil_tmp: types.RelyingPartyApplication = undefined;
-            try dec_RelyingPartyApplication(alloc, csil_fv, &csil_tmp);
-            out.application = csil_tmp;
-        } else {
-            out.application = null;
+        const csil_fv = try csil_required_field(m, "timestamp");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.timestamp = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
         }
     }
     {
-        const csil_fv = try req(m, "callback_url");
+        const csil_fv = try csil_required_field(m, "application");
+        try dec_RelyingPartyApplication(alloc, csil_fv, &(out.application));
+    }
+    {
+        const csil_fv = try csil_required_field(m, "callback_url");
         out.callback_url = try as_text(csil_fv);
     }
     {
         if (mget(m, "flow_context")) |csil_fv| {
             var csil_tmp: types.AuthFlowContext = undefined;
-            try dec_AuthFlowContext(alloc, csil_fv, &csil_tmp);
+            try dec_AuthFlowContext(alloc, csil_fv, &(csil_tmp));
             out.flow_context = csil_tmp;
         } else {
             out.flow_context = null;
         }
     }
     {
-        const csil_fv = try req(m, "relying_party");
+        const csil_fv = try csil_required_field(m, "relying_party");
         out.relying_party = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signing_key_id");
+        const csil_fv = try csil_required_field(m, "signing_key_id");
         out.signing_key_id = try as_text(csil_fv);
     }
     {
         if (mget(m, "requested_claims")) |csil_fv| {
             var csil_tmp: types.ClaimRequest = undefined;
-            try dec_ClaimRequest(alloc, csil_fv, &csil_tmp);
+            try dec_ClaimRequest(alloc, csil_fv, &(csil_tmp));
             out.requested_claims = csil_tmp;
         } else {
             out.requested_claims = null;
@@ -1981,7 +2538,7 @@ fn dec_AuthRequest(alloc: std.mem.Allocator, m: Value, out: *types.AuthRequest) 
     {
         if (mget(m, "authentication_requirements")) |csil_fv| {
             var csil_tmp: types.AuthenticationRequirements = undefined;
-            try dec_AuthenticationRequirements(alloc, csil_fv, &csil_tmp);
+            try dec_AuthenticationRequirements(alloc, csil_fv, &(csil_tmp));
             out.authentication_requirements = csil_tmp;
         } else {
             out.authentication_requirements = null;
@@ -2003,15 +2560,15 @@ fn dec_SignedAuthRequest(alloc: std.mem.Allocator, m: Value, out: *types.SignedA
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "request");
+        const csil_fv = try csil_required_field(m, "request");
         out.request = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signature");
+        const csil_fv = try csil_required_field(m, "signature");
         out.signature = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signing_key_id");
+        const csil_fv = try csil_required_field(m, "signing_key_id");
         out.signing_key_id = try as_text(csil_fv);
     }
 }
@@ -2024,7 +2581,7 @@ fn enc_EncryptedToken(out: *std.ArrayList(u8), v: *const types.EncryptedToken) C
     try w_bytes(out, v.nonce);
     if (v.suite) |csil_x| {
         try w_text(out, "suite");
-        try w_text(out, csil_x);
+        try enc_AeadSuite(out, &(csil_x));
     }
     try w_text(out, "ciphertext");
     try w_bytes(out, v.ciphertext);
@@ -2033,25 +2590,26 @@ fn enc_EncryptedToken(out: *std.ArrayList(u8), v: *const types.EncryptedToken) C
 }
 
 fn dec_EncryptedToken(alloc: std.mem.Allocator, m: Value, out: *types.EncryptedToken) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "nonce");
+        const csil_fv = try csil_required_field(m, "nonce");
         out.nonce = try as_bytes(csil_fv);
     }
     {
         if (mget(m, "suite")) |csil_fv| {
-            out.suite = try as_text(csil_fv);
+            var csil_tmp: types.AeadSuite = undefined;
+            try dec_AeadSuite(alloc, csil_fv, &(csil_tmp));
+            out.suite = csil_tmp;
         } else {
             out.suite = null;
         }
     }
     {
-        const csil_fv = try req(m, "ciphertext");
+        const csil_fv = try csil_required_field(m, "ciphertext");
         out.ciphertext = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "ephemeral_public_key");
+        const csil_fv = try csil_required_field(m, "ephemeral_public_key");
         out.ephemeral_public_key = try as_bytes(csil_fv);
     }
 }
@@ -2063,13 +2621,13 @@ fn enc_AlgorithmSupport(out: *std.ArrayList(u8), v: *const types.AlgorithmSuppor
     try w_text(out, "signing");
     try w_array_head(out, v.signing.len);
     for (v.signing) |csil_it| {
-        try w_text(out, csil_it);
+        try enc_KeyAlgorithm(out, &(csil_it));
     }
     if (v.encryption) |csil_arr| {
         try w_text(out, "encryption");
         try w_array_head(out, csil_arr.len);
         for (csil_arr) |csil_it| {
-            try w_text(out, csil_it);
+            try enc_AeadSuite(out, &(csil_it));
         }
     }
 }
@@ -2077,19 +2635,19 @@ fn enc_AlgorithmSupport(out: *std.ArrayList(u8), v: *const types.AlgorithmSuppor
 fn dec_AlgorithmSupport(alloc: std.mem.Allocator, m: Value, out: *types.AlgorithmSupport) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "signing");
+        const csil_fv = try csil_required_field(m, "signing");
         if (csil_fv != .array) return error.WrongType;
-        out.signing = try alloc.alloc([]const u8, csil_fv.array.len);
+        out.signing = try alloc.alloc(types.KeyAlgorithm, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
-            out.signing[csil_i] = try as_text(csil_it);
+            try dec_KeyAlgorithm(alloc, csil_it, &(out.signing[csil_i]));
         }
     }
     {
         if (mget(m, "encryption")) |csil_fv| {
             if (csil_fv != .array) return error.WrongType;
-            const csil_tmp = try alloc.alloc([]const u8, csil_fv.array.len);
+            const csil_tmp = try alloc.alloc(types.AeadSuite, csil_fv.array.len);
             for (csil_fv.array, 0..) |csil_it, csil_i| {
-                csil_tmp[csil_i] = try as_text(csil_it);
+                try dec_AeadSuite(alloc, csil_it, &(csil_tmp[csil_i]));
             }
             out.encryption = csil_tmp;
         } else {
@@ -2109,11 +2667,11 @@ fn enc_HandshakeRequest(out: *std.ArrayList(u8), v: *const types.HandshakeReques
 fn dec_HandshakeRequest(alloc: std.mem.Allocator, m: Value, out: *types.HandshakeRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "version");
+        const csil_fv = try csil_required_field(m, "version");
         out.version = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "algorithms");
+        const csil_fv = try csil_required_field(m, "algorithms");
         try dec_AlgorithmSupport(alloc, csil_fv, &(out.algorithms));
     }
 }
@@ -2129,11 +2687,11 @@ fn enc_HandshakeResponse(out: *std.ArrayList(u8), v: *const types.HandshakeRespo
 fn dec_HandshakeResponse(alloc: std.mem.Allocator, m: Value, out: *types.HandshakeResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "version");
+        const csil_fv = try csil_required_field(m, "version");
         out.version = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "algorithms");
+        const csil_fv = try csil_required_field(m, "algorithms");
         try dec_AlgorithmSupport(alloc, csil_fv, &(out.algorithms));
     }
 }
@@ -2149,10 +2707,10 @@ fn enc_Relation(out: *std.ArrayList(u8), v: *const types.Relation) CodecError!vo
     try w_text(out, "object_id");
     try w_text(out, v.object_id);
     try w_text(out, "created_at");
-    try w_text(out, v.created_at);
+    try csil_w_timestamp(out, (v.created_at).rfc3339);
     if (v.removed_at) |csil_x| {
         try w_text(out, "removed_at");
-        try w_text(out, csil_x);
+        try csil_w_timestamp(out, (csil_x).rfc3339);
     }
     try w_text(out, "subject_id");
     try w_text(out, v.subject_id);
@@ -2163,69 +2721,81 @@ fn enc_Relation(out: *std.ArrayList(u8), v: *const types.Relation) CodecError!vo
 }
 
 fn dec_Relation(alloc: std.mem.Allocator, m: Value, out: *types.Relation) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "id");
+        const csil_fv = try csil_required_field(m, "id");
         out.id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "relation");
+        const csil_fv = try csil_required_field(m, "relation");
         out.relation = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "object_id");
+        const csil_fv = try csil_required_field(m, "object_id");
         out.object_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "created_at");
-        out.created_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "created_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.created_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
         if (mget(m, "removed_at")) |csil_fv| {
-            out.removed_at = try as_text(csil_fv);
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.removed_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
         } else {
             out.removed_at = null;
         }
     }
     {
-        const csil_fv = try req(m, "subject_id");
+        const csil_fv = try csil_required_field(m, "subject_id");
         out.subject_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "object_type");
+        const csil_fv = try csil_required_field(m, "object_type");
         out.object_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_type");
+        const csil_fv = try csil_required_field(m, "subject_type");
         out.subject_type = try as_text(csil_fv);
     }
 }
 
 fn enc_AdminUser(out: *std.ArrayList(u8), v: *const types.AdminUser) CodecError!void {
-    var csil_n: usize = 6;
+    var csil_n: usize = 7;
     if (v.purged_at != null) csil_n += 1;
     if (v.purge_reason != null) csil_n += 1;
+    if (v.application_id != null) csil_n += 1;
     if (v.password_locked != null) csil_n += 1;
     try w_map_head(out, csil_n);
     try w_text(out, "id");
     try w_text(out, v.id);
+    try w_text(out, "kind");
+    try enc_AccountKind(out, &(v.kind));
     try w_text(out, "username");
     try w_text(out, v.username);
     try w_text(out, "is_active");
     try w_bool(out, v.is_active);
     if (v.purged_at) |csil_x| {
         try w_text(out, "purged_at");
-        try w_text(out, csil_x);
+        try csil_w_timestamp(out, (csil_x).rfc3339);
     }
     try w_text(out, "created_at");
-    try w_text(out, v.created_at);
+    try csil_w_timestamp(out, (v.created_at).rfc3339);
     try w_text(out, "updated_at");
-    try w_text(out, v.updated_at);
+    try csil_w_timestamp(out, (v.updated_at).rfc3339);
     try w_text(out, "display_name");
     try w_text(out, v.display_name);
     if (v.purge_reason) |csil_x| {
         try w_text(out, "purge_reason");
+        try w_text(out, csil_x);
+    }
+    if (v.application_id) |csil_x| {
+        try w_text(out, "application_id");
         try w_text(out, csil_x);
     }
     if (v.password_locked) |csil_x| {
@@ -2235,37 +2805,49 @@ fn enc_AdminUser(out: *std.ArrayList(u8), v: *const types.AdminUser) CodecError!
 }
 
 fn dec_AdminUser(alloc: std.mem.Allocator, m: Value, out: *types.AdminUser) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "id");
+        const csil_fv = try csil_required_field(m, "id");
         out.id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "username");
+        const csil_fv = try csil_required_field(m, "kind");
+        try dec_AccountKind(alloc, csil_fv, &(out.kind));
+    }
+    {
+        const csil_fv = try csil_required_field(m, "username");
         out.username = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "is_active");
+        const csil_fv = try csil_required_field(m, "is_active");
         out.is_active = try as_bool(csil_fv);
     }
     {
         if (mget(m, "purged_at")) |csil_fv| {
-            out.purged_at = try as_text(csil_fv);
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.purged_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
         } else {
             out.purged_at = null;
         }
     }
     {
-        const csil_fv = try req(m, "created_at");
-        out.created_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "created_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.created_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "updated_at");
-        out.updated_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "updated_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.updated_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "display_name");
+        const csil_fv = try csil_required_field(m, "display_name");
         out.display_name = try as_text(csil_fv);
     }
     {
@@ -2273,6 +2855,13 @@ fn dec_AdminUser(alloc: std.mem.Allocator, m: Value, out: *types.AdminUser) Code
             out.purge_reason = try as_text(csil_fv);
         } else {
             out.purge_reason = null;
+        }
+    }
+    {
+        if (mget(m, "application_id")) |csil_fv| {
+            out.application_id = try as_text(csil_fv);
+        } else {
+            out.application_id = null;
         }
     }
     {
@@ -2342,7 +2931,7 @@ fn enc_ListUsersResponse(out: *std.ArrayList(u8), v: *const types.ListUsersRespo
 fn dec_ListUsersResponse(alloc: std.mem.Allocator, m: Value, out: *types.ListUsersResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "users");
+        const csil_fv = try csil_required_field(m, "users");
         if (csil_fv != .array) return error.WrongType;
         out.users = try alloc.alloc(types.AdminUser, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -2361,7 +2950,7 @@ fn dec_GetUserRequest(alloc: std.mem.Allocator, m: Value, out: *types.GetUserReq
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
 }
@@ -2375,7 +2964,7 @@ fn enc_GetUserResponse(out: *std.ArrayList(u8), v: *const types.GetUserResponse)
 fn dec_GetUserResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetUserResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user");
+        const csil_fv = try csil_required_field(m, "user");
         try dec_AdminUser(alloc, csil_fv, &(out.user));
     }
 }
@@ -2389,11 +2978,11 @@ fn enc_UserAuthenticationActivity(out: *std.ArrayList(u8), v: *const types.UserA
     try w_text(out, v.user_id);
     if (v.last_seen_at) |csil_x| {
         try w_text(out, "last_seen_at");
-        try w_text(out, csil_x);
+        try csil_w_timestamp(out, (csil_x).rfc3339);
     }
     if (v.last_authenticated_at) |csil_x| {
         try w_text(out, "last_authenticated_at");
-        try w_text(out, csil_x);
+        try csil_w_timestamp(out, (csil_x).rfc3339);
     }
     try w_text(out, "active_browser_session_count");
     try w_int(out, v.active_browser_session_count);
@@ -2402,32 +2991,37 @@ fn enc_UserAuthenticationActivity(out: *std.ArrayList(u8), v: *const types.UserA
 }
 
 fn dec_UserAuthenticationActivity(alloc: std.mem.Allocator, m: Value, out: *types.UserAuthenticationActivity) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
         if (mget(m, "last_seen_at")) |csil_fv| {
-            out.last_seen_at = try as_text(csil_fv);
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.last_seen_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
         } else {
             out.last_seen_at = null;
         }
     }
     {
         if (mget(m, "last_authenticated_at")) |csil_fv| {
-            out.last_authenticated_at = try as_text(csil_fv);
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.last_authenticated_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
         } else {
             out.last_authenticated_at = null;
         }
     }
     {
-        const csil_fv = try req(m, "active_browser_session_count");
+        const csil_fv = try csil_required_field(m, "active_browser_session_count");
         out.active_browser_session_count = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "successful_authentication_count");
+        const csil_fv = try csil_required_field(m, "successful_authentication_count");
         out.successful_authentication_count = try as_i64(csil_fv);
     }
 }
@@ -2442,7 +3036,7 @@ fn dec_GetUserAuthenticationActivityRequest(alloc: std.mem.Allocator, m: Value, 
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
 }
@@ -2456,7 +3050,7 @@ fn enc_GetUserAuthenticationActivityResponse(out: *std.ArrayList(u8), v: *const 
 fn dec_GetUserAuthenticationActivityResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetUserAuthenticationActivityResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "activity");
+        const csil_fv = try csil_required_field(m, "activity");
         try dec_UserAuthenticationActivity(alloc, csil_fv, &(out.activity));
     }
 }
@@ -2464,6 +3058,7 @@ fn dec_GetUserAuthenticationActivityResponse(alloc: std.mem.Allocator, m: Value,
 fn enc_CreateUserRequest(out: *std.ArrayList(u8), v: *const types.CreateUserRequest) CodecError!void {
     var csil_n: usize = 2;
     if (v.password != null) csil_n += 1;
+    if (v.application_id != null) csil_n += 1;
     try w_map_head(out, csil_n);
     if (v.password) |csil_x| {
         try w_text(out, "password");
@@ -2473,6 +3068,10 @@ fn enc_CreateUserRequest(out: *std.ArrayList(u8), v: *const types.CreateUserRequ
     try w_text(out, v.username);
     try w_text(out, "display_name");
     try w_text(out, v.display_name);
+    if (v.application_id) |csil_x| {
+        try w_text(out, "application_id");
+        try w_text(out, csil_x);
+    }
 }
 
 fn dec_CreateUserRequest(alloc: std.mem.Allocator, m: Value, out: *types.CreateUserRequest) CodecError!void {
@@ -2486,12 +3085,19 @@ fn dec_CreateUserRequest(alloc: std.mem.Allocator, m: Value, out: *types.CreateU
         }
     }
     {
-        const csil_fv = try req(m, "username");
+        const csil_fv = try csil_required_field(m, "username");
         out.username = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "display_name");
+        const csil_fv = try csil_required_field(m, "display_name");
         out.display_name = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "application_id")) |csil_fv| {
+            out.application_id = try as_text(csil_fv);
+        } else {
+            out.application_id = null;
+        }
     }
 }
 
@@ -2510,7 +3116,7 @@ fn enc_CreateUserResponse(out: *std.ArrayList(u8), v: *const types.CreateUserRes
 fn dec_CreateUserResponse(alloc: std.mem.Allocator, m: Value, out: *types.CreateUserResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user");
+        const csil_fv = try csil_required_field(m, "user");
         try dec_AdminUser(alloc, csil_fv, &(out.user));
     }
     {
@@ -2519,6 +3125,476 @@ fn dec_CreateUserResponse(alloc: std.mem.Allocator, m: Value, out: *types.Create
         } else {
             out.api_key = null;
         }
+    }
+}
+
+fn enc_RenameUserRequest(out: *std.ArrayList(u8), v: *const types.RenameUserRequest) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "user_id");
+    try w_text(out, v.user_id);
+    try w_text(out, "username");
+    try w_text(out, v.username);
+}
+
+fn dec_RenameUserRequest(alloc: std.mem.Allocator, m: Value, out: *types.RenameUserRequest) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "user_id");
+        out.user_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try csil_required_field(m, "username");
+        out.username = try as_text(csil_fv);
+    }
+}
+
+fn enc_RenameUserResponse(out: *std.ArrayList(u8), v: *const types.RenameUserResponse) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "user");
+    try enc_AdminUser(out, &(v.user));
+}
+
+fn dec_RenameUserResponse(alloc: std.mem.Allocator, m: Value, out: *types.RenameUserResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "user");
+        try dec_AdminUser(alloc, csil_fv, &(out.user));
+    }
+}
+
+fn enc_SetApplicationIdRequest(out: *std.ArrayList(u8), v: *const types.SetApplicationIdRequest) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "user_id");
+    try w_text(out, v.user_id);
+    try w_text(out, "application_id");
+    try w_text(out, v.application_id);
+}
+
+fn dec_SetApplicationIdRequest(alloc: std.mem.Allocator, m: Value, out: *types.SetApplicationIdRequest) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "user_id");
+        out.user_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try csil_required_field(m, "application_id");
+        out.application_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_SetApplicationIdResponse(out: *std.ArrayList(u8), v: *const types.SetApplicationIdResponse) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "user");
+    try enc_AdminUser(out, &(v.user));
+}
+
+fn dec_SetApplicationIdResponse(alloc: std.mem.Allocator, m: Value, out: *types.SetApplicationIdResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "user");
+        try dec_AdminUser(alloc, csil_fv, &(out.user));
+    }
+}
+
+fn enc_ApiKeyInfo(out: *std.ArrayList(u8), v: *const types.ApiKeyInfo) CodecError!void {
+    var csil_n: usize = 4;
+    if (v.last_used_at != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    try w_text(out, "hint");
+    try w_text(out, v.hint);
+    try w_text(out, "name");
+    try w_text(out, v.name);
+    try w_text(out, "key_id");
+    try w_text(out, v.key_id);
+    try w_text(out, "created_at");
+    try csil_w_timestamp(out, (v.created_at).rfc3339);
+    if (v.last_used_at) |csil_x| {
+        try w_text(out, "last_used_at");
+        try csil_w_timestamp(out, (csil_x).rfc3339);
+    }
+}
+
+fn dec_ApiKeyInfo(alloc: std.mem.Allocator, m: Value, out: *types.ApiKeyInfo) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "hint");
+        out.hint = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try csil_required_field(m, "name");
+        out.name = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try csil_required_field(m, "key_id");
+        out.key_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try csil_required_field(m, "created_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.created_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
+    }
+    {
+        if (mget(m, "last_used_at")) |csil_fv| {
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.last_used_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
+        } else {
+            out.last_used_at = null;
+        }
+    }
+}
+
+fn enc_CreateApiKeyRequest(out: *std.ArrayList(u8), v: *const types.CreateApiKeyRequest) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "name");
+    try w_text(out, v.name);
+    try w_text(out, "user_id");
+    try w_text(out, v.user_id);
+}
+
+fn dec_CreateApiKeyRequest(alloc: std.mem.Allocator, m: Value, out: *types.CreateApiKeyRequest) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "name");
+        out.name = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try csil_required_field(m, "user_id");
+        out.user_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_CreateApiKeyResponse(out: *std.ArrayList(u8), v: *const types.CreateApiKeyResponse) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "key");
+    try enc_ApiKeyInfo(out, &(v.key));
+    try w_text(out, "api_key");
+    try w_text(out, v.api_key);
+}
+
+fn dec_CreateApiKeyResponse(alloc: std.mem.Allocator, m: Value, out: *types.CreateApiKeyResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "key");
+        try dec_ApiKeyInfo(alloc, csil_fv, &(out.key));
+    }
+    {
+        const csil_fv = try csil_required_field(m, "api_key");
+        out.api_key = try as_text(csil_fv);
+    }
+}
+
+fn enc_ListApiKeysRequest(out: *std.ArrayList(u8), v: *const types.ListApiKeysRequest) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "user_id");
+    try w_text(out, v.user_id);
+}
+
+fn dec_ListApiKeysRequest(alloc: std.mem.Allocator, m: Value, out: *types.ListApiKeysRequest) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "user_id");
+        out.user_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_ListApiKeysResponse(out: *std.ArrayList(u8), v: *const types.ListApiKeysResponse) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "keys");
+    try w_array_head(out, v.keys.len);
+    for (v.keys) |csil_it| {
+        try enc_ApiKeyInfo(out, &(csil_it));
+    }
+}
+
+fn dec_ListApiKeysResponse(alloc: std.mem.Allocator, m: Value, out: *types.ListApiKeysResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "keys");
+        if (csil_fv != .array) return error.WrongType;
+        out.keys = try alloc.alloc(types.ApiKeyInfo, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_ApiKeyInfo(alloc, csil_it, &(out.keys[csil_i]));
+        }
+    }
+}
+
+fn enc_RevokeApiKeyRequest(out: *std.ArrayList(u8), v: *const types.RevokeApiKeyRequest) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "key_id");
+    try w_text(out, v.key_id);
+    try w_text(out, "user_id");
+    try w_text(out, v.user_id);
+}
+
+fn dec_RevokeApiKeyRequest(alloc: std.mem.Allocator, m: Value, out: *types.RevokeApiKeyRequest) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "key_id");
+        out.key_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try csil_required_field(m, "user_id");
+        out.user_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_RevokeApiKeyResponse(out: *std.ArrayList(u8), v: *const types.RevokeApiKeyResponse) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "revoked");
+    try w_bool(out, v.revoked);
+}
+
+fn dec_RevokeApiKeyResponse(alloc: std.mem.Allocator, m: Value, out: *types.RevokeApiKeyResponse) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "revoked");
+        out.revoked = try as_bool(csil_fv);
+    }
+}
+
+fn enc_AccountLimits(out: *std.ArrayList(u8), v: *const types.AccountLimits) CodecError!void {
+    var csil_n: usize = 1;
+    if (v.max_api_keys != null) csil_n += 1;
+    if (v.request_burst != null) csil_n += 1;
+    if (v.max_distinct_users != null) csil_n += 1;
+    if (v.requests_per_minute != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    if (v.max_api_keys) |csil_x| {
+        try w_text(out, "max_api_keys");
+        try w_int(out, csil_x);
+    }
+    if (v.request_burst) |csil_x| {
+        try w_text(out, "request_burst");
+        try w_int(out, csil_x);
+    }
+    if (v.max_distinct_users) |csil_x| {
+        try w_text(out, "max_distinct_users");
+        try w_int(out, csil_x);
+    }
+    if (v.requests_per_minute) |csil_x| {
+        try w_text(out, "requests_per_minute");
+        try w_int(out, csil_x);
+    }
+    try w_text(out, "distinct_user_window_days");
+    try w_int(out, v.distinct_user_window_days);
+}
+
+fn dec_AccountLimits(alloc: std.mem.Allocator, m: Value, out: *types.AccountLimits) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        if (mget(m, "max_api_keys")) |csil_fv| {
+            out.max_api_keys = try as_i64(csil_fv);
+        } else {
+            out.max_api_keys = null;
+        }
+    }
+    {
+        if (mget(m, "request_burst")) |csil_fv| {
+            out.request_burst = try as_i64(csil_fv);
+        } else {
+            out.request_burst = null;
+        }
+    }
+    {
+        if (mget(m, "max_distinct_users")) |csil_fv| {
+            out.max_distinct_users = try as_i64(csil_fv);
+        } else {
+            out.max_distinct_users = null;
+        }
+    }
+    {
+        if (mget(m, "requests_per_minute")) |csil_fv| {
+            out.requests_per_minute = try as_i64(csil_fv);
+        } else {
+            out.requests_per_minute = null;
+        }
+    }
+    {
+        const csil_fv = try csil_required_field(m, "distinct_user_window_days");
+        out.distinct_user_window_days = try as_i64(csil_fv);
+    }
+}
+
+fn enc_GetAccountLimitsRequest(out: *std.ArrayList(u8), v: *const types.GetAccountLimitsRequest) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "user_id");
+    try w_text(out, v.user_id);
+}
+
+fn dec_GetAccountLimitsRequest(alloc: std.mem.Allocator, m: Value, out: *types.GetAccountLimitsRequest) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "user_id");
+        out.user_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_GetAccountLimitsResponse(out: *std.ArrayList(u8), v: *const types.GetAccountLimitsResponse) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "limits");
+    try enc_AccountLimits(out, &(v.limits));
+}
+
+fn dec_GetAccountLimitsResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetAccountLimitsResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "limits");
+        try dec_AccountLimits(alloc, csil_fv, &(out.limits));
+    }
+}
+
+fn enc_SetAccountLimitsRequest(out: *std.ArrayList(u8), v: *const types.SetAccountLimitsRequest) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "limits");
+    try enc_AccountLimits(out, &(v.limits));
+    try w_text(out, "user_id");
+    try w_text(out, v.user_id);
+}
+
+fn dec_SetAccountLimitsRequest(alloc: std.mem.Allocator, m: Value, out: *types.SetAccountLimitsRequest) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "limits");
+        try dec_AccountLimits(alloc, csil_fv, &(out.limits));
+    }
+    {
+        const csil_fv = try csil_required_field(m, "user_id");
+        out.user_id = try as_text(csil_fv);
+    }
+}
+
+fn enc_SetAccountLimitsResponse(out: *std.ArrayList(u8), v: *const types.SetAccountLimitsResponse) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "limits");
+    try enc_AccountLimits(out, &(v.limits));
+}
+
+fn dec_SetAccountLimitsResponse(alloc: std.mem.Allocator, m: Value, out: *types.SetAccountLimitsResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "limits");
+        try dec_AccountLimits(alloc, csil_fv, &(out.limits));
+    }
+}
+
+fn enc_RpUsageDay(out: *std.ArrayList(u8), v: *const types.RpUsageDay) CodecError!void {
+    try w_map_head(out, 4);
+    try w_text(out, "day");
+    try w_tag(out, 1004);
+    try w_text(out, try calendar_date(v.day));
+    try w_text(out, "failed");
+    try w_int(out, v.failed);
+    try w_text(out, "operation");
+    try w_text(out, v.operation);
+    try w_text(out, "succeeded");
+    try w_int(out, v.succeeded);
+}
+
+fn dec_RpUsageDay(alloc: std.mem.Allocator, m: Value, out: *types.RpUsageDay) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "day");
+        out.day = try calendar_date(try as_tagged_text(csil_fv, 1004));
+    }
+    {
+        const csil_fv = try csil_required_field(m, "failed");
+        out.failed = try as_i64(csil_fv);
+    }
+    {
+        const csil_fv = try csil_required_field(m, "operation");
+        out.operation = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try csil_required_field(m, "succeeded");
+        out.succeeded = try as_i64(csil_fv);
+    }
+}
+
+fn enc_GetApplicationUsageRequest(out: *std.ArrayList(u8), v: *const types.GetApplicationUsageRequest) CodecError!void {
+    try w_map_head(out, 3);
+    try w_text(out, "user_id");
+    try w_text(out, v.user_id);
+    try w_text(out, "last_day");
+    try w_tag(out, 1004);
+    try w_text(out, try calendar_date(v.last_day));
+    try w_text(out, "first_day");
+    try w_tag(out, 1004);
+    try w_text(out, try calendar_date(v.first_day));
+}
+
+fn dec_GetApplicationUsageRequest(alloc: std.mem.Allocator, m: Value, out: *types.GetApplicationUsageRequest) CodecError!void {
+    _ = alloc;
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "user_id");
+        out.user_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try csil_required_field(m, "last_day");
+        out.last_day = try calendar_date(try as_tagged_text(csil_fv, 1004));
+    }
+    {
+        const csil_fv = try csil_required_field(m, "first_day");
+        out.first_day = try calendar_date(try as_tagged_text(csil_fv, 1004));
+    }
+}
+
+fn enc_GetApplicationUsageResponse(out: *std.ArrayList(u8), v: *const types.GetApplicationUsageResponse) CodecError!void {
+    var csil_n: usize = 3;
+    if (v.max_distinct_users != null) csil_n += 1;
+    try w_map_head(out, csil_n);
+    try w_text(out, "days");
+    try w_array_head(out, v.days.len);
+    for (v.days) |csil_it| {
+        try enc_RpUsageDay(out, &(csil_it));
+    }
+    try w_text(out, "distinct_users");
+    try w_int(out, v.distinct_users);
+    if (v.max_distinct_users) |csil_x| {
+        try w_text(out, "max_distinct_users");
+        try w_int(out, csil_x);
+    }
+    try w_text(out, "distinct_user_window_days");
+    try w_int(out, v.distinct_user_window_days);
+}
+
+fn dec_GetApplicationUsageResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetApplicationUsageResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "days");
+        if (csil_fv != .array) return error.WrongType;
+        out.days = try alloc.alloc(types.RpUsageDay, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_RpUsageDay(alloc, csil_it, &(out.days[csil_i]));
+        }
+    }
+    {
+        const csil_fv = try csil_required_field(m, "distinct_users");
+        out.distinct_users = try as_i64(csil_fv);
+    }
+    {
+        if (mget(m, "max_distinct_users")) |csil_fv| {
+            out.max_distinct_users = try as_i64(csil_fv);
+        } else {
+            out.max_distinct_users = null;
+        }
+    }
+    {
+        const csil_fv = try csil_required_field(m, "distinct_user_window_days");
+        out.distinct_user_window_days = try as_i64(csil_fv);
     }
 }
 
@@ -2538,7 +3614,7 @@ fn dec_UpdateUserRequest(alloc: std.mem.Allocator, m: Value, out: *types.UpdateU
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
@@ -2559,7 +3635,7 @@ fn enc_UpdateUserResponse(out: *std.ArrayList(u8), v: *const types.UpdateUserRes
 fn dec_UpdateUserResponse(alloc: std.mem.Allocator, m: Value, out: *types.UpdateUserResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user");
+        const csil_fv = try csil_required_field(m, "user");
         try dec_AdminUser(alloc, csil_fv, &(out.user));
     }
 }
@@ -2574,7 +3650,7 @@ fn dec_DeactivateUserRequest(alloc: std.mem.Allocator, m: Value, out: *types.Dea
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
 }
@@ -2588,7 +3664,7 @@ fn enc_DeactivateUserResponse(out: *std.ArrayList(u8), v: *const types.Deactivat
 fn dec_DeactivateUserResponse(alloc: std.mem.Allocator, m: Value, out: *types.DeactivateUserResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user");
+        const csil_fv = try csil_required_field(m, "user");
         try dec_AdminUser(alloc, csil_fv, &(out.user));
     }
 }
@@ -2603,7 +3679,7 @@ fn dec_ActivateUserRequest(alloc: std.mem.Allocator, m: Value, out: *types.Activ
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
 }
@@ -2617,7 +3693,7 @@ fn enc_ActivateUserResponse(out: *std.ArrayList(u8), v: *const types.ActivateUse
 fn dec_ActivateUserResponse(alloc: std.mem.Allocator, m: Value, out: *types.ActivateUserResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user");
+        const csil_fv = try csil_required_field(m, "user");
         try dec_AdminUser(alloc, csil_fv, &(out.user));
     }
 }
@@ -2645,7 +3721,7 @@ fn dec_PurgeUserRequest(alloc: std.mem.Allocator, m: Value, out: *types.PurgeUse
         }
     }
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
 }
@@ -2679,47 +3755,47 @@ fn enc_PurgeUserResponse(out: *std.ArrayList(u8), v: *const types.PurgeUserRespo
 fn dec_PurgeUserResponse(alloc: std.mem.Allocator, m: Value, out: *types.PurgeUserResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user");
+        const csil_fv = try csil_required_field(m, "user");
         try dec_AdminUser(alloc, csil_fv, &(out.user));
     }
     {
-        const csil_fv = try req(m, "keys_revoked");
+        const csil_fv = try csil_required_field(m, "keys_revoked");
         out.keys_revoked = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claims_revoked");
+        const csil_fv = try csil_required_field(m, "claims_revoked");
         out.claims_revoked = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "profiles_deleted");
+        const csil_fv = try csil_required_field(m, "profiles_deleted");
         out.profiles_deleted = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "reviews_resolved");
+        const csil_fv = try csil_required_field(m, "reviews_resolved");
         out.reviews_resolved = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "relations_removed");
+        const csil_fv = try csil_required_field(m, "relations_removed");
         out.relations_removed = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "credentials_revoked");
+        const csil_fv = try csil_required_field(m, "credentials_revoked");
         out.credentials_revoked = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "release_prefs_deleted");
+        const csil_fv = try csil_required_field(m, "release_prefs_deleted");
         out.release_prefs_deleted = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "consent_grants_deleted");
+        const csil_fv = try csil_required_field(m, "consent_grants_deleted");
         out.consent_grants_deleted = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "email_verifications_deleted");
+        const csil_fv = try csil_required_field(m, "email_verifications_deleted");
         out.email_verifications_deleted = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "local_rp_claim_tickets_deleted");
+        const csil_fv = try csil_required_field(m, "local_rp_claim_tickets_deleted");
         out.local_rp_claim_tickets_deleted = try as_i64(csil_fv);
     }
 }
@@ -2734,7 +3810,7 @@ fn dec_RevokeDomainKeyRequest(alloc: std.mem.Allocator, m: Value, out: *types.Re
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "key_id");
+        const csil_fv = try csil_required_field(m, "key_id");
         out.key_id = try as_text(csil_fv);
     }
 }
@@ -2752,15 +3828,15 @@ fn enc_RevokeDomainKeyResponse(out: *std.ArrayList(u8), v: *const types.RevokeDo
 fn dec_RevokeDomainKeyResponse(alloc: std.mem.Allocator, m: Value, out: *types.RevokeDomainKeyResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "revoked_key");
+        const csil_fv = try csil_required_field(m, "revoked_key");
         try dec_DomainPublicKey(alloc, csil_fv, &(out.revoked_key));
     }
     {
-        const csil_fv = try req(m, "certificate_issued");
+        const csil_fv = try csil_required_field(m, "certificate_issued");
         out.certificate_issued = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "dns_removal_reminder");
+        const csil_fv = try csil_required_field(m, "dns_removal_reminder");
         out.dns_removal_reminder = try as_text(csil_fv);
     }
 }
@@ -2777,11 +3853,11 @@ fn dec_ResetPasswordRequest(alloc: std.mem.Allocator, m: Value, out: *types.Rese
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "new_password");
+        const csil_fv = try csil_required_field(m, "new_password");
         out.new_password = try as_text(csil_fv);
     }
 }
@@ -2796,7 +3872,7 @@ fn dec_ResetPasswordResponse(alloc: std.mem.Allocator, m: Value, out: *types.Res
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "success");
+        const csil_fv = try csil_required_field(m, "success");
         out.success = try as_bool(csil_fv);
     }
 }
@@ -2813,11 +3889,11 @@ fn dec_AuthenticateRequest(alloc: std.mem.Allocator, m: Value, out: *types.Authe
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "password");
+        const csil_fv = try csil_required_field(m, "password");
         out.password = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "username");
+        const csil_fv = try csil_required_field(m, "username");
         out.username = try as_text(csil_fv);
     }
 }
@@ -2831,7 +3907,7 @@ fn enc_AuthenticateResponse(out: *std.ArrayList(u8), v: *const types.Authenticat
 fn dec_AuthenticateResponse(alloc: std.mem.Allocator, m: Value, out: *types.AuthenticateResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user");
+        const csil_fv = try csil_required_field(m, "user");
         try dec_AdminUser(alloc, csil_fv, &(out.user));
     }
 }
@@ -2846,7 +3922,7 @@ fn dec_RemoveCredentialRequest(alloc: std.mem.Allocator, m: Value, out: *types.R
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "credential_id");
+        const csil_fv = try csil_required_field(m, "credential_id");
         out.credential_id = try as_text(csil_fv);
     }
 }
@@ -2861,7 +3937,7 @@ fn dec_RemoveCredentialResponse(alloc: std.mem.Allocator, m: Value, out: *types.
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "success");
+        const csil_fv = try csil_required_field(m, "success");
         out.success = try as_bool(csil_fv);
     }
 }
@@ -2876,32 +3952,34 @@ fn enc_SetClaimRequest(out: *std.ArrayList(u8), v: *const types.SetClaimRequest)
     try w_text(out, v.claim_type);
     if (v.expires_at) |csil_x| {
         try w_text(out, "expires_at");
-        try w_text(out, csil_x);
+        try csil_w_timestamp(out, (csil_x).rfc3339);
     }
     try w_text(out, "claim_value");
     try w_text(out, v.claim_value);
 }
 
 fn dec_SetClaimRequest(alloc: std.mem.Allocator, m: Value, out: *types.SetClaimRequest) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
         if (mget(m, "expires_at")) |csil_fv| {
-            out.expires_at = try as_text(csil_fv);
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
         } else {
             out.expires_at = null;
         }
     }
     {
-        const csil_fv = try req(m, "claim_value");
+        const csil_fv = try csil_required_field(m, "claim_value");
         out.claim_value = try as_text(csil_fv);
     }
 }
@@ -2915,7 +3993,7 @@ fn enc_SetClaimResponse(out: *std.ArrayList(u8), v: *const types.SetClaimRespons
 fn dec_SetClaimResponse(alloc: std.mem.Allocator, m: Value, out: *types.SetClaimResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim");
+        const csil_fv = try csil_required_field(m, "claim");
         try dec_Claim(alloc, csil_fv, &(out.claim));
     }
 }
@@ -2930,7 +4008,7 @@ fn dec_RemoveClaimRequest(alloc: std.mem.Allocator, m: Value, out: *types.Remove
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim_id");
+        const csil_fv = try csil_required_field(m, "claim_id");
         out.claim_id = try as_text(csil_fv);
     }
 }
@@ -2945,7 +4023,7 @@ fn dec_RemoveClaimResponse(alloc: std.mem.Allocator, m: Value, out: *types.Remov
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "success");
+        const csil_fv = try csil_required_field(m, "success");
         out.success = try as_bool(csil_fv);
     }
 }
@@ -2960,7 +4038,7 @@ fn dec_ListUserClaimsRequest(alloc: std.mem.Allocator, m: Value, out: *types.Lis
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
 }
@@ -2977,7 +4055,7 @@ fn enc_ListUserClaimsResponse(out: *std.ArrayList(u8), v: *const types.ListUserC
 fn dec_ListUserClaimsResponse(alloc: std.mem.Allocator, m: Value, out: *types.ListUserClaimsResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim_types");
+        const csil_fv = try csil_required_field(m, "claim_types");
         if (csil_fv != .array) return error.WrongType;
         out.claim_types = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -2996,7 +4074,7 @@ fn dec_AdminUserClaimsRequest(alloc: std.mem.Allocator, m: Value, out: *types.Ad
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
 }
@@ -3013,7 +4091,7 @@ fn enc_AdminUserClaimsResponse(out: *std.ArrayList(u8), v: *const types.AdminUse
 fn dec_AdminUserClaimsResponse(alloc: std.mem.Allocator, m: Value, out: *types.AdminUserClaimsResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claims");
+        const csil_fv = try csil_required_field(m, "claims");
         if (csil_fv != .array) return error.WrongType;
         out.claims = try alloc.alloc(types.Claim, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -3036,15 +4114,15 @@ fn dec_SetUserClaimRequest(alloc: std.mem.Allocator, m: Value, out: *types.SetUs
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_value");
+        const csil_fv = try csil_required_field(m, "claim_value");
         out.claim_value = try as_text(csil_fv);
     }
 }
@@ -3058,7 +4136,7 @@ fn enc_SetUserClaimResponse(out: *std.ArrayList(u8), v: *const types.SetUserClai
         try enc_Claim(out, &(csil_x));
     }
     try w_text(out, "outcome");
-    try w_text(out, v.outcome);
+    try enc_SetClaimOutcome(out, &(v.outcome));
 }
 
 fn dec_SetUserClaimResponse(alloc: std.mem.Allocator, m: Value, out: *types.SetUserClaimResponse) CodecError!void {
@@ -3066,15 +4144,15 @@ fn dec_SetUserClaimResponse(alloc: std.mem.Allocator, m: Value, out: *types.SetU
     {
         if (mget(m, "claim")) |csil_fv| {
             var csil_tmp: types.Claim = undefined;
-            try dec_Claim(alloc, csil_fv, &csil_tmp);
+            try dec_Claim(alloc, csil_fv, &(csil_tmp));
             out.claim = csil_tmp;
         } else {
             out.claim = null;
         }
     }
     {
-        const csil_fv = try req(m, "outcome");
-        out.outcome = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "outcome");
+        try dec_SetClaimOutcome(alloc, csil_fv, &(out.outcome));
     }
 }
 
@@ -3083,9 +4161,9 @@ fn enc_SettableClaimPolicy(out: *std.ArrayList(u8), v: *const types.SettableClai
     try w_text(out, "label");
     try w_text(out, v.label);
     try w_text(out, "datatype");
-    try w_text(out, v.datatype);
+    try enc_ClaimValueType(out, &(v.datatype));
     try w_text(out, "set_rule");
-    try w_text(out, v.set_rule);
+    try enc_SetRule(out, &(v.set_rule));
     try w_text(out, "max_bytes");
     try w_int(out, v.max_bytes);
     try w_text(out, "claim_type");
@@ -3093,44 +4171,43 @@ fn enc_SettableClaimPolicy(out: *std.ArrayList(u8), v: *const types.SettableClai
     try w_text(out, "description");
     try w_text(out, v.description);
     try w_text(out, "signing_rule");
-    try w_text(out, v.signing_rule);
+    try enc_SigningRule(out, &(v.signing_rule));
     try w_text(out, "requires_approval");
     try w_bool(out, v.requires_approval);
 }
 
 fn dec_SettableClaimPolicy(alloc: std.mem.Allocator, m: Value, out: *types.SettableClaimPolicy) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "label");
+        const csil_fv = try csil_required_field(m, "label");
         out.label = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "datatype");
-        out.datatype = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "datatype");
+        try dec_ClaimValueType(alloc, csil_fv, &(out.datatype));
     }
     {
-        const csil_fv = try req(m, "set_rule");
-        out.set_rule = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "set_rule");
+        try dec_SetRule(alloc, csil_fv, &(out.set_rule));
     }
     {
-        const csil_fv = try req(m, "max_bytes");
+        const csil_fv = try csil_required_field(m, "max_bytes");
         out.max_bytes = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "description");
+        const csil_fv = try csil_required_field(m, "description");
         out.description = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signing_rule");
-        out.signing_rule = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "signing_rule");
+        try dec_SigningRule(alloc, csil_fv, &(out.signing_rule));
     }
     {
-        const csil_fv = try req(m, "requires_approval");
+        const csil_fv = try csil_required_field(m, "requires_approval");
         out.requires_approval = try as_bool(csil_fv);
     }
 }
@@ -3147,7 +4224,7 @@ fn enc_ListSettablePoliciesResponse(out: *std.ArrayList(u8), v: *const types.Lis
 fn dec_ListSettablePoliciesResponse(alloc: std.mem.Allocator, m: Value, out: *types.ListSettablePoliciesResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "policies");
+        const csil_fv = try csil_required_field(m, "policies");
         if (csil_fv != .array) return error.WrongType;
         out.policies = try alloc.alloc(types.SettableClaimPolicy, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -3161,7 +4238,7 @@ fn enc_ClaimTypePolicy(out: *std.ArrayList(u8), v: *const types.ClaimTypePolicy)
     try w_text(out, "label");
     try w_text(out, v.label);
     try w_text(out, "set_rule");
-    try w_text(out, v.set_rule);
+    try enc_SetRule(out, &(v.set_rule));
     try w_text(out, "max_bytes");
     try w_int(out, v.max_bytes);
     try w_text(out, "suggested");
@@ -3169,11 +4246,11 @@ fn enc_ClaimTypePolicy(out: *std.ArrayList(u8), v: *const types.ClaimTypePolicy)
     try w_text(out, "claim_type");
     try w_text(out, v.claim_type);
     try w_text(out, "value_type");
-    try w_text(out, v.value_type);
+    try enc_ClaimValueType(out, &(v.value_type));
     try w_text(out, "description");
     try w_text(out, v.description);
     try w_text(out, "signing_rule");
-    try w_text(out, v.signing_rule);
+    try enc_SigningRule(out, &(v.signing_rule));
     try w_text(out, "user_settable");
     try w_bool(out, v.user_settable);
     try w_text(out, "default_auto_sign");
@@ -3183,50 +4260,49 @@ fn enc_ClaimTypePolicy(out: *std.ArrayList(u8), v: *const types.ClaimTypePolicy)
 }
 
 fn dec_ClaimTypePolicy(alloc: std.mem.Allocator, m: Value, out: *types.ClaimTypePolicy) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "label");
+        const csil_fv = try csil_required_field(m, "label");
         out.label = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "set_rule");
-        out.set_rule = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "set_rule");
+        try dec_SetRule(alloc, csil_fv, &(out.set_rule));
     }
     {
-        const csil_fv = try req(m, "max_bytes");
+        const csil_fv = try csil_required_field(m, "max_bytes");
         out.max_bytes = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "suggested");
+        const csil_fv = try csil_required_field(m, "suggested");
         out.suggested = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "value_type");
-        out.value_type = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "value_type");
+        try dec_ClaimValueType(alloc, csil_fv, &(out.value_type));
     }
     {
-        const csil_fv = try req(m, "description");
+        const csil_fv = try csil_required_field(m, "description");
         out.description = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signing_rule");
-        out.signing_rule = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "signing_rule");
+        try dec_SigningRule(alloc, csil_fv, &(out.signing_rule));
     }
     {
-        const csil_fv = try req(m, "user_settable");
+        const csil_fv = try csil_required_field(m, "user_settable");
         out.user_settable = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "default_auto_sign");
+        const csil_fv = try csil_required_field(m, "default_auto_sign");
         out.default_auto_sign = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "requires_approval");
+        const csil_fv = try csil_required_field(m, "requires_approval");
         out.requires_approval = try as_bool(csil_fv);
     }
 }
@@ -3243,7 +4319,7 @@ fn enc_ListClaimTypesResponse(out: *std.ArrayList(u8), v: *const types.ListClaim
 fn dec_ListClaimTypesResponse(alloc: std.mem.Allocator, m: Value, out: *types.ListClaimTypesResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim_types");
+        const csil_fv = try csil_required_field(m, "claim_types");
         if (csil_fv != .array) return error.WrongType;
         out.claim_types = try alloc.alloc(types.ClaimTypePolicy, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -3259,7 +4335,7 @@ fn enc_SetClaimTypeRequest(out: *std.ArrayList(u8), v: *const types.SetClaimType
     try w_text(out, "label");
     try w_text(out, v.label);
     try w_text(out, "set_rule");
-    try w_text(out, v.set_rule);
+    try enc_SetRule(out, &(v.set_rule));
     try w_text(out, "max_bytes");
     try w_int(out, v.max_bytes);
     try w_text(out, "suggested");
@@ -3267,13 +4343,13 @@ fn enc_SetClaimTypeRequest(out: *std.ArrayList(u8), v: *const types.SetClaimType
     try w_text(out, "claim_type");
     try w_text(out, v.claim_type);
     try w_text(out, "value_type");
-    try w_text(out, v.value_type);
+    try enc_ClaimValueType(out, &(v.value_type));
     if (v.description) |csil_x| {
         try w_text(out, "description");
         try w_text(out, csil_x);
     }
     try w_text(out, "signing_rule");
-    try w_text(out, v.signing_rule);
+    try enc_SigningRule(out, &(v.signing_rule));
     try w_text(out, "user_settable");
     try w_bool(out, v.user_settable);
     try w_text(out, "default_auto_sign");
@@ -3283,31 +4359,30 @@ fn enc_SetClaimTypeRequest(out: *std.ArrayList(u8), v: *const types.SetClaimType
 }
 
 fn dec_SetClaimTypeRequest(alloc: std.mem.Allocator, m: Value, out: *types.SetClaimTypeRequest) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "label");
+        const csil_fv = try csil_required_field(m, "label");
         out.label = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "set_rule");
-        out.set_rule = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "set_rule");
+        try dec_SetRule(alloc, csil_fv, &(out.set_rule));
     }
     {
-        const csil_fv = try req(m, "max_bytes");
+        const csil_fv = try csil_required_field(m, "max_bytes");
         out.max_bytes = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "suggested");
+        const csil_fv = try csil_required_field(m, "suggested");
         out.suggested = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "value_type");
-        out.value_type = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "value_type");
+        try dec_ClaimValueType(alloc, csil_fv, &(out.value_type));
     }
     {
         if (mget(m, "description")) |csil_fv| {
@@ -3317,19 +4392,19 @@ fn dec_SetClaimTypeRequest(alloc: std.mem.Allocator, m: Value, out: *types.SetCl
         }
     }
     {
-        const csil_fv = try req(m, "signing_rule");
-        out.signing_rule = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "signing_rule");
+        try dec_SigningRule(alloc, csil_fv, &(out.signing_rule));
     }
     {
-        const csil_fv = try req(m, "user_settable");
+        const csil_fv = try csil_required_field(m, "user_settable");
         out.user_settable = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "default_auto_sign");
+        const csil_fv = try csil_required_field(m, "default_auto_sign");
         out.default_auto_sign = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "requires_approval");
+        const csil_fv = try csil_required_field(m, "requires_approval");
         out.requires_approval = try as_bool(csil_fv);
     }
 }
@@ -3343,7 +4418,7 @@ fn enc_SetClaimTypeResponse(out: *std.ArrayList(u8), v: *const types.SetClaimTyp
 fn dec_SetClaimTypeResponse(alloc: std.mem.Allocator, m: Value, out: *types.SetClaimTypeResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         try dec_ClaimTypePolicy(alloc, csil_fv, &(out.claim_type));
     }
 }
@@ -3358,7 +4433,7 @@ fn dec_RemoveClaimTypeRequest(alloc: std.mem.Allocator, m: Value, out: *types.Re
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
 }
@@ -3373,7 +4448,7 @@ fn dec_RemoveClaimTypeResponse(alloc: std.mem.Allocator, m: Value, out: *types.R
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "success");
+        const csil_fv = try csil_required_field(m, "success");
         out.success = try as_bool(csil_fv);
     }
 }
@@ -3398,15 +4473,15 @@ fn dec_ClaimTypeLabel(alloc: std.mem.Allocator, m: Value, out: *types.ClaimTypeL
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "label");
+        const csil_fv = try csil_required_field(m, "label");
         out.label = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "locale");
+        const csil_fv = try csil_required_field(m, "locale");
         out.locale = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
@@ -3438,15 +4513,15 @@ fn dec_SetClaimTypeLabelRequest(alloc: std.mem.Allocator, m: Value, out: *types.
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "label");
+        const csil_fv = try csil_required_field(m, "label");
         out.label = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "locale");
+        const csil_fv = try csil_required_field(m, "locale");
         out.locale = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
@@ -3467,7 +4542,7 @@ fn enc_SetClaimTypeLabelResponse(out: *std.ArrayList(u8), v: *const types.SetCla
 fn dec_SetClaimTypeLabelResponse(alloc: std.mem.Allocator, m: Value, out: *types.SetClaimTypeLabelResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "label");
+        const csil_fv = try csil_required_field(m, "label");
         try dec_ClaimTypeLabel(alloc, csil_fv, &(out.label));
     }
 }
@@ -3484,7 +4559,7 @@ fn enc_ListClaimTypeLabelsResponse(out: *std.ArrayList(u8), v: *const types.List
 fn dec_ListClaimTypeLabelsResponse(alloc: std.mem.Allocator, m: Value, out: *types.ListClaimTypeLabelsResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "labels");
+        const csil_fv = try csil_required_field(m, "labels");
         if (csil_fv != .array) return error.WrongType;
         out.labels = try alloc.alloc(types.ClaimTypeLabel, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -3505,11 +4580,11 @@ fn dec_RemoveClaimTypeLabelRequest(alloc: std.mem.Allocator, m: Value, out: *typ
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "locale");
+        const csil_fv = try csil_required_field(m, "locale");
         out.locale = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
 }
@@ -3524,7 +4599,7 @@ fn dec_RemoveClaimTypeLabelResponse(alloc: std.mem.Allocator, m: Value, out: *ty
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "success");
+        const csil_fv = try csil_required_field(m, "success");
         out.success = try as_bool(csil_fv);
     }
 }
@@ -3541,11 +4616,11 @@ fn dec_TrustedIssuer(alloc: std.mem.Allocator, m: Value, out: *types.TrustedIssu
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "issuer_domain");
+        const csil_fv = try csil_required_field(m, "issuer_domain");
         out.issuer_domain = try as_text(csil_fv);
     }
 }
@@ -3562,7 +4637,7 @@ fn enc_ListTrustedIssuersResponse(out: *std.ArrayList(u8), v: *const types.ListT
 fn dec_ListTrustedIssuersResponse(alloc: std.mem.Allocator, m: Value, out: *types.ListTrustedIssuersResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "trusted_issuers");
+        const csil_fv = try csil_required_field(m, "trusted_issuers");
         if (csil_fv != .array) return error.WrongType;
         out.trusted_issuers = try alloc.alloc(types.TrustedIssuer, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -3583,11 +4658,11 @@ fn dec_AddTrustedIssuerRequest(alloc: std.mem.Allocator, m: Value, out: *types.A
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "issuer_domain");
+        const csil_fv = try csil_required_field(m, "issuer_domain");
         out.issuer_domain = try as_text(csil_fv);
     }
 }
@@ -3601,7 +4676,7 @@ fn enc_AddTrustedIssuerResponse(out: *std.ArrayList(u8), v: *const types.AddTrus
 fn dec_AddTrustedIssuerResponse(alloc: std.mem.Allocator, m: Value, out: *types.AddTrustedIssuerResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "trusted_issuer");
+        const csil_fv = try csil_required_field(m, "trusted_issuer");
         try dec_TrustedIssuer(alloc, csil_fv, &(out.trusted_issuer));
     }
 }
@@ -3618,11 +4693,11 @@ fn dec_RemoveTrustedIssuerRequest(alloc: std.mem.Allocator, m: Value, out: *type
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "issuer_domain");
+        const csil_fv = try csil_required_field(m, "issuer_domain");
         out.issuer_domain = try as_text(csil_fv);
     }
 }
@@ -3637,7 +4712,7 @@ fn dec_RemoveTrustedIssuerResponse(alloc: std.mem.Allocator, m: Value, out: *typ
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "success");
+        const csil_fv = try csil_required_field(m, "success");
         out.success = try as_bool(csil_fv);
     }
 }
@@ -3649,23 +4724,22 @@ fn enc_ReleaseRule(out: *std.ArrayList(u8), v: *const types.ReleaseRule) CodecEr
     try w_text(out, "claim_type");
     try w_text(out, v.claim_type);
     try w_text(out, "disposition");
-    try w_text(out, v.disposition);
+    try enc_ReleaseDisposition(out, &(v.disposition));
 }
 
 fn dec_ReleaseRule(alloc: std.mem.Allocator, m: Value, out: *types.ReleaseRule) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "audience");
+        const csil_fv = try csil_required_field(m, "audience");
         out.audience = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "disposition");
-        out.disposition = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "disposition");
+        try dec_ReleaseDisposition(alloc, csil_fv, &(out.disposition));
     }
 }
 
@@ -3681,7 +4755,7 @@ fn enc_ListReleaseRulesResponse(out: *std.ArrayList(u8), v: *const types.ListRel
 fn dec_ListReleaseRulesResponse(alloc: std.mem.Allocator, m: Value, out: *types.ListReleaseRulesResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "release_rules");
+        const csil_fv = try csil_required_field(m, "release_rules");
         if (csil_fv != .array) return error.WrongType;
         out.release_rules = try alloc.alloc(types.ReleaseRule, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -3697,23 +4771,22 @@ fn enc_SetReleaseRuleRequest(out: *std.ArrayList(u8), v: *const types.SetRelease
     try w_text(out, "claim_type");
     try w_text(out, v.claim_type);
     try w_text(out, "disposition");
-    try w_text(out, v.disposition);
+    try enc_ReleaseDisposition(out, &(v.disposition));
 }
 
 fn dec_SetReleaseRuleRequest(alloc: std.mem.Allocator, m: Value, out: *types.SetReleaseRuleRequest) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "audience");
+        const csil_fv = try csil_required_field(m, "audience");
         out.audience = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "disposition");
-        out.disposition = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "disposition");
+        try dec_ReleaseDisposition(alloc, csil_fv, &(out.disposition));
     }
 }
 
@@ -3726,7 +4799,7 @@ fn enc_SetReleaseRuleResponse(out: *std.ArrayList(u8), v: *const types.SetReleas
 fn dec_SetReleaseRuleResponse(alloc: std.mem.Allocator, m: Value, out: *types.SetReleaseRuleResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "release_rule");
+        const csil_fv = try csil_required_field(m, "release_rule");
         try dec_ReleaseRule(alloc, csil_fv, &(out.release_rule));
     }
 }
@@ -3743,11 +4816,11 @@ fn dec_RemoveReleaseRuleRequest(alloc: std.mem.Allocator, m: Value, out: *types.
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "audience");
+        const csil_fv = try csil_required_field(m, "audience");
         out.audience = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
 }
@@ -3762,7 +4835,7 @@ fn dec_RemoveReleaseRuleResponse(alloc: std.mem.Allocator, m: Value, out: *types
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "success");
+        const csil_fv = try csil_required_field(m, "success");
         out.success = try as_bool(csil_fv);
     }
 }
@@ -3775,18 +4848,18 @@ fn enc_ClaimApproval(out: *std.ArrayList(u8), v: *const types.ClaimApproval) Cod
     try w_text(out, "id");
     try w_text(out, v.id);
     try w_text(out, "status");
-    try w_text(out, v.status);
+    try enc_ClaimApprovalStatus(out, &(v.status));
     try w_text(out, "user_id");
     try w_text(out, v.user_id);
     try w_text(out, "claim_type");
     try w_text(out, v.claim_type);
     try w_text(out, "created_at");
-    try w_text(out, v.created_at);
+    try csil_w_timestamp(out, (v.created_at).rfc3339);
     try w_text(out, "claim_value");
     try w_bytes(out, v.claim_value);
     if (v.resolved_at) |csil_x| {
         try w_text(out, "resolved_at");
-        try w_text(out, csil_x);
+        try csil_w_timestamp(out, (csil_x).rfc3339);
     }
     if (v.resolved_by) |csil_x| {
         try w_text(out, "resolved_by");
@@ -3795,35 +4868,40 @@ fn enc_ClaimApproval(out: *std.ArrayList(u8), v: *const types.ClaimApproval) Cod
 }
 
 fn dec_ClaimApproval(alloc: std.mem.Allocator, m: Value, out: *types.ClaimApproval) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "id");
+        const csil_fv = try csil_required_field(m, "id");
         out.id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "status");
-        out.status = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "status");
+        try dec_ClaimApprovalStatus(alloc, csil_fv, &(out.status));
     }
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "created_at");
-        out.created_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "created_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.created_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "claim_value");
+        const csil_fv = try csil_required_field(m, "claim_value");
         out.claim_value = try as_bytes(csil_fv);
     }
     {
         if (mget(m, "resolved_at")) |csil_fv| {
-            out.resolved_at = try as_text(csil_fv);
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.resolved_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
         } else {
             out.resolved_at = null;
         }
@@ -3849,7 +4927,7 @@ fn enc_ListPendingClaimApprovalsResponse(out: *std.ArrayList(u8), v: *const type
 fn dec_ListPendingClaimApprovalsResponse(alloc: std.mem.Allocator, m: Value, out: *types.ListPendingClaimApprovalsResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "approvals");
+        const csil_fv = try csil_required_field(m, "approvals");
         if (csil_fv != .array) return error.WrongType;
         out.approvals = try alloc.alloc(types.ClaimApproval, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -3868,7 +4946,7 @@ fn dec_ApproveClaimRequest(alloc: std.mem.Allocator, m: Value, out: *types.Appro
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "approval_id");
+        const csil_fv = try csil_required_field(m, "approval_id");
         out.approval_id = try as_text(csil_fv);
     }
 }
@@ -3883,7 +4961,7 @@ fn dec_ApproveClaimResponse(alloc: std.mem.Allocator, m: Value, out: *types.Appr
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "success");
+        const csil_fv = try csil_required_field(m, "success");
         out.success = try as_bool(csil_fv);
     }
 }
@@ -3898,7 +4976,7 @@ fn dec_RejectClaimRequest(alloc: std.mem.Allocator, m: Value, out: *types.Reject
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "approval_id");
+        const csil_fv = try csil_required_field(m, "approval_id");
         out.approval_id = try as_text(csil_fv);
     }
 }
@@ -3913,7 +4991,7 @@ fn dec_RejectClaimResponse(alloc: std.mem.Allocator, m: Value, out: *types.Rejec
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "success");
+        const csil_fv = try csil_required_field(m, "success");
         out.success = try as_bool(csil_fv);
     }
 }
@@ -3932,15 +5010,15 @@ fn dec_AdminIssueAttestationRequest(alloc: std.mem.Allocator, m: Value, out: *ty
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_value");
+        const csil_fv = try csil_required_field(m, "claim_value");
         out.claim_value = try as_bytes(csil_fv);
     }
 }
@@ -3954,7 +5032,7 @@ fn enc_AdminIssueAttestationResponse(out: *std.ArrayList(u8), v: *const types.Ad
 fn dec_AdminIssueAttestationResponse(alloc: std.mem.Allocator, m: Value, out: *types.AdminIssueAttestationResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim");
+        const csil_fv = try csil_required_field(m, "claim");
         try dec_Claim(alloc, csil_fv, &(out.claim));
     }
 }
@@ -3977,23 +5055,23 @@ fn dec_GrantRelationRequest(alloc: std.mem.Allocator, m: Value, out: *types.Gran
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "relation");
+        const csil_fv = try csil_required_field(m, "relation");
         out.relation = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "object_id");
+        const csil_fv = try csil_required_field(m, "object_id");
         out.object_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_id");
+        const csil_fv = try csil_required_field(m, "subject_id");
         out.subject_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "object_type");
+        const csil_fv = try csil_required_field(m, "object_type");
         out.object_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_type");
+        const csil_fv = try csil_required_field(m, "subject_type");
         out.subject_type = try as_text(csil_fv);
     }
 }
@@ -4007,7 +5085,7 @@ fn enc_GrantRelationResponse(out: *std.ArrayList(u8), v: *const types.GrantRelat
 fn dec_GrantRelationResponse(alloc: std.mem.Allocator, m: Value, out: *types.GrantRelationResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "relation");
+        const csil_fv = try csil_required_field(m, "relation");
         try dec_Relation(alloc, csil_fv, &(out.relation));
     }
 }
@@ -4022,7 +5100,7 @@ fn dec_RemoveRelationRequest(alloc: std.mem.Allocator, m: Value, out: *types.Rem
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "relation_id");
+        const csil_fv = try csil_required_field(m, "relation_id");
         out.relation_id = try as_text(csil_fv);
     }
 }
@@ -4037,7 +5115,7 @@ fn dec_RemoveRelationResponse(alloc: std.mem.Allocator, m: Value, out: *types.Re
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "success");
+        const csil_fv = try csil_required_field(m, "success");
         out.success = try as_bool(csil_fv);
     }
 }
@@ -4112,7 +5190,7 @@ fn enc_ListRelationsResponse(out: *std.ArrayList(u8), v: *const types.ListRelati
 fn dec_ListRelationsResponse(alloc: std.mem.Allocator, m: Value, out: *types.ListRelationsResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "relations");
+        const csil_fv = try csil_required_field(m, "relations");
         if (csil_fv != .array) return error.WrongType;
         out.relations = try alloc.alloc(types.Relation, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -4137,19 +5215,19 @@ fn dec_CheckPermissionRequest(alloc: std.mem.Allocator, m: Value, out: *types.Ch
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "relation");
+        const csil_fv = try csil_required_field(m, "relation");
         out.relation = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "object_id");
+        const csil_fv = try csil_required_field(m, "object_id");
         out.object_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "object_type");
+        const csil_fv = try csil_required_field(m, "object_type");
         out.object_type = try as_text(csil_fv);
     }
 }
@@ -4164,7 +5242,7 @@ fn dec_CheckPermissionResponse(alloc: std.mem.Allocator, m: Value, out: *types.C
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "allowed");
+        const csil_fv = try csil_required_field(m, "allowed");
         out.allowed = try as_bool(csil_fv);
     }
 }
@@ -4181,11 +5259,11 @@ fn dec_ChangePasswordRequest(alloc: std.mem.Allocator, m: Value, out: *types.Cha
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "new_password");
+        const csil_fv = try csil_required_field(m, "new_password");
         out.new_password = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "current_password");
+        const csil_fv = try csil_required_field(m, "current_password");
         out.current_password = try as_text(csil_fv);
     }
 }
@@ -4200,7 +5278,7 @@ fn dec_ChangePasswordResponse(alloc: std.mem.Allocator, m: Value, out: *types.Ch
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "success");
+        const csil_fv = try csil_required_field(m, "success");
         out.success = try as_bool(csil_fv);
     }
 }
@@ -4224,11 +5302,11 @@ fn enc_GetMyInfoResponse(out: *std.ArrayList(u8), v: *const types.GetMyInfoRespo
 fn dec_GetMyInfoResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetMyInfoResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user");
+        const csil_fv = try csil_required_field(m, "user");
         try dec_AdminUser(alloc, csil_fv, &(out.user));
     }
     {
-        const csil_fv = try req(m, "claims");
+        const csil_fv = try csil_required_field(m, "claims");
         if (csil_fv != .array) return error.WrongType;
         out.claims = try alloc.alloc(types.Claim, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -4236,7 +5314,7 @@ fn dec_GetMyInfoResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetMyIn
         }
     }
     {
-        const csil_fv = try req(m, "relations");
+        const csil_fv = try csil_required_field(m, "relations");
         if (csil_fv != .array) return error.WrongType;
         out.relations = try alloc.alloc(types.Relation, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -4257,11 +5335,11 @@ fn dec_SetMyClaimRequest(alloc: std.mem.Allocator, m: Value, out: *types.SetMyCl
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_value");
+        const csil_fv = try csil_required_field(m, "claim_value");
         out.claim_value = try as_text(csil_fv);
     }
 }
@@ -4275,7 +5353,7 @@ fn enc_SetMyClaimResponse(out: *std.ArrayList(u8), v: *const types.SetMyClaimRes
         try enc_Claim(out, &(csil_x));
     }
     try w_text(out, "outcome");
-    try w_text(out, v.outcome);
+    try enc_SetClaimOutcome(out, &(v.outcome));
 }
 
 fn dec_SetMyClaimResponse(alloc: std.mem.Allocator, m: Value, out: *types.SetMyClaimResponse) CodecError!void {
@@ -4283,15 +5361,15 @@ fn dec_SetMyClaimResponse(alloc: std.mem.Allocator, m: Value, out: *types.SetMyC
     {
         if (mget(m, "claim")) |csil_fv| {
             var csil_tmp: types.Claim = undefined;
-            try dec_Claim(alloc, csil_fv, &csil_tmp);
+            try dec_Claim(alloc, csil_fv, &(csil_tmp));
             out.claim = csil_tmp;
         } else {
             out.claim = null;
         }
     }
     {
-        const csil_fv = try req(m, "outcome");
-        out.outcome = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "outcome");
+        try dec_SetClaimOutcome(alloc, csil_fv, &(out.outcome));
     }
 }
 
@@ -4305,7 +5383,7 @@ fn dec_RemoveMyClaimRequest(alloc: std.mem.Allocator, m: Value, out: *types.Remo
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim_id");
+        const csil_fv = try csil_required_field(m, "claim_id");
         out.claim_id = try as_text(csil_fv);
     }
 }
@@ -4320,7 +5398,7 @@ fn dec_RemoveMyClaimResponse(alloc: std.mem.Allocator, m: Value, out: *types.Rem
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "success");
+        const csil_fv = try csil_required_field(m, "success");
         out.success = try as_bool(csil_fv);
     }
 }
@@ -4337,11 +5415,11 @@ fn dec_SetMyClaimSharingRequest(alloc: std.mem.Allocator, m: Value, out: *types.
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "share");
+        const csil_fv = try csil_required_field(m, "share");
         out.share = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
 }
@@ -4371,15 +5449,15 @@ fn dec_MyClaimSetting(alloc: std.mem.Allocator, m: Value, out: *types.MyClaimSet
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "keep_verified");
+        const csil_fv = try csil_required_field(m, "keep_verified");
         out.keep_verified = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "shared_with_every_app");
+        const csil_fv = try csil_required_field(m, "shared_with_every_app");
         out.shared_with_every_app = try as_bool(csil_fv);
     }
 }
@@ -4403,7 +5481,7 @@ fn enc_MyClaimSettingsResponse(out: *std.ArrayList(u8), v: *const types.MyClaimS
 fn dec_MyClaimSettingsResponse(alloc: std.mem.Allocator, m: Value, out: *types.MyClaimSettingsResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "profiles");
+        const csil_fv = try csil_required_field(m, "profiles");
         if (csil_fv != .array) return error.WrongType;
         out.profiles = try alloc.alloc(types.Profile, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -4411,7 +5489,7 @@ fn dec_MyClaimSettingsResponse(alloc: std.mem.Allocator, m: Value, out: *types.M
         }
     }
     {
-        const csil_fv = try req(m, "settings");
+        const csil_fv = try csil_required_field(m, "settings");
         if (csil_fv != .array) return error.WrongType;
         out.settings = try alloc.alloc(types.MyClaimSetting, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -4419,7 +5497,7 @@ fn dec_MyClaimSettingsResponse(alloc: std.mem.Allocator, m: Value, out: *types.M
         }
     }
     {
-        const csil_fv = try req(m, "max_profiles");
+        const csil_fv = try csil_required_field(m, "max_profiles");
         out.max_profiles = try as_i64(csil_fv);
     }
 }
@@ -4436,11 +5514,11 @@ fn dec_SetMyClaimKeepVerifiedRequest(alloc: std.mem.Allocator, m: Value, out: *t
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "keep_verified");
+        const csil_fv = try csil_required_field(m, "keep_verified");
         out.keep_verified = try as_bool(csil_fv);
     }
 }
@@ -4478,7 +5556,7 @@ fn dec_Profile(alloc: std.mem.Allocator, m: Value, out: *types.Profile) CodecErr
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "id");
+        const csil_fv = try csil_required_field(m, "id");
         out.id = try as_text(csil_fv);
     }
     {
@@ -4489,15 +5567,15 @@ fn dec_Profile(alloc: std.mem.Allocator, m: Value, out: *types.Profile) CodecErr
         }
     }
     {
-        const csil_fv = try req(m, "domain");
+        const csil_fv = try csil_required_field(m, "domain");
         out.domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "is_root");
+        const csil_fv = try csil_required_field(m, "is_root");
         out.is_root = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "account_id");
+        const csil_fv = try csil_required_field(m, "account_id");
         out.account_id = try as_text(csil_fv);
     }
 }
@@ -4533,7 +5611,7 @@ fn enc_CreateProfileResponse(out: *std.ArrayList(u8), v: *const types.CreateProf
 fn dec_CreateProfileResponse(alloc: std.mem.Allocator, m: Value, out: *types.CreateProfileResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "profile");
+        const csil_fv = try csil_required_field(m, "profile");
         try dec_Profile(alloc, csil_fv, &(out.profile));
     }
 }
@@ -4552,11 +5630,11 @@ fn enc_RequestVerificationRequest(out: *std.ArrayList(u8), v: *const types.Reque
 fn dec_RequestVerificationRequest(alloc: std.mem.Allocator, m: Value, out: *types.RequestVerificationRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "issuer_domain");
+        const csil_fv = try csil_required_field(m, "issuer_domain");
         out.issuer_domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "requested_claim_types");
+        const csil_fv = try csil_required_field(m, "requested_claim_types");
         if (csil_fv != .array) return error.WrongType;
         out.requested_claim_types = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -4574,7 +5652,7 @@ fn enc_RequestVerificationResponse(out: *std.ArrayList(u8), v: *const types.Requ
 fn dec_RequestVerificationResponse(alloc: std.mem.Allocator, m: Value, out: *types.RequestVerificationResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "signed_request");
+        const csil_fv = try csil_required_field(m, "signed_request");
         try dec_SignedSigningRequest(alloc, csil_fv, &(out.signed_request));
     }
 }
@@ -4591,11 +5669,11 @@ fn dec_PasswordPolicy(alloc: std.mem.Allocator, m: Value, out: *types.PasswordPo
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "max_length");
+        const csil_fv = try csil_required_field(m, "max_length");
         out.max_length = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "min_length");
+        const csil_fv = try csil_required_field(m, "min_length");
         out.min_length = try as_i64(csil_fv);
     }
 }
@@ -4605,11 +5683,11 @@ fn enc_BrowserSessionInfo(out: *std.ArrayList(u8), v: *const types.BrowserSessio
     try w_text(out, "user");
     try enc_AdminUser(out, &(v.user));
     try w_text(out, "issued_at");
-    try w_text(out, v.issued_at);
+    try csil_w_timestamp(out, (v.issued_at).rfc3339);
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     try w_text(out, "authenticated_at");
-    try w_text(out, v.authenticated_at);
+    try csil_w_timestamp(out, (v.authenticated_at).rfc3339);
     try w_text(out, "authentication_methods");
     try w_array_head(out, v.authentication_methods.len);
     for (v.authentication_methods) |csil_it| {
@@ -4620,23 +5698,32 @@ fn enc_BrowserSessionInfo(out: *std.ArrayList(u8), v: *const types.BrowserSessio
 fn dec_BrowserSessionInfo(alloc: std.mem.Allocator, m: Value, out: *types.BrowserSessionInfo) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user");
+        const csil_fv = try csil_required_field(m, "user");
         try dec_AdminUser(alloc, csil_fv, &(out.user));
     }
     {
-        const csil_fv = try req(m, "issued_at");
-        out.issued_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "issued_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.issued_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "authenticated_at");
-        out.authenticated_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "authenticated_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.authenticated_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "authentication_methods");
+        const csil_fv = try csil_required_field(m, "authentication_methods");
         if (csil_fv != .array) return error.WrongType;
         out.authentication_methods = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -4657,11 +5744,11 @@ fn dec_SessionPasswordLoginRequest(alloc: std.mem.Allocator, m: Value, out: *typ
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "password");
+        const csil_fv = try csil_required_field(m, "password");
         out.password = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "username");
+        const csil_fv = try csil_required_field(m, "username");
         out.username = try as_text(csil_fv);
     }
 }
@@ -4675,7 +5762,7 @@ fn enc_SessionPasswordLoginResponse(out: *std.ArrayList(u8), v: *const types.Ses
 fn dec_SessionPasswordLoginResponse(alloc: std.mem.Allocator, m: Value, out: *types.SessionPasswordLoginResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "session");
+        const csil_fv = try csil_required_field(m, "session");
         try dec_BrowserSessionInfo(alloc, csil_fv, &(out.session));
     }
 }
@@ -4689,7 +5776,7 @@ fn enc_SessionCurrentResponse(out: *std.ArrayList(u8), v: *const types.SessionCu
 fn dec_SessionCurrentResponse(alloc: std.mem.Allocator, m: Value, out: *types.SessionCurrentResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "session");
+        const csil_fv = try csil_required_field(m, "session");
         try dec_BrowserSessionInfo(alloc, csil_fv, &(out.session));
     }
 }
@@ -4704,7 +5791,7 @@ fn dec_SessionLogoutResponse(alloc: std.mem.Allocator, m: Value, out: *types.Ses
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "success");
+        const csil_fv = try csil_required_field(m, "success");
         out.success = try as_bool(csil_fv);
     }
 }
@@ -4719,7 +5806,7 @@ fn dec_IntrospectBrowserSessionRequest(alloc: std.mem.Allocator, m: Value, out: 
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "session_cookie");
+        const csil_fv = try csil_required_field(m, "session_cookie");
         out.session_cookie = try as_text(csil_fv);
     }
 }
@@ -4729,11 +5816,11 @@ fn enc_IntrospectBrowserSessionResponse(out: *std.ArrayList(u8), v: *const types
     try w_text(out, "user_id");
     try w_text(out, v.user_id);
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     try w_text(out, "user_domain");
     try w_text(out, v.user_domain);
     try w_text(out, "authenticated_at");
-    try w_text(out, v.authenticated_at);
+    try csil_w_timestamp(out, (v.authenticated_at).rfc3339);
     try w_text(out, "authentication_methods");
     try w_array_head(out, v.authentication_methods.len);
     for (v.authentication_methods) |csil_it| {
@@ -4744,23 +5831,29 @@ fn enc_IntrospectBrowserSessionResponse(out: *std.ArrayList(u8), v: *const types
 fn dec_IntrospectBrowserSessionResponse(alloc: std.mem.Allocator, m: Value, out: *types.IntrospectBrowserSessionResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "user_domain");
+        const csil_fv = try csil_required_field(m, "user_domain");
         out.user_domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "authenticated_at");
-        out.authenticated_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "authenticated_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.authenticated_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "authentication_methods");
+        const csil_fv = try csil_required_field(m, "authentication_methods");
         if (csil_fv != .array) return error.WrongType;
         out.authentication_methods = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -4772,27 +5865,26 @@ fn dec_IntrospectBrowserSessionResponse(alloc: std.mem.Allocator, m: Value, out:
 fn enc_NotificationCapability(out: *std.ArrayList(u8), v: *const types.NotificationCapability) CodecError!void {
     try w_map_head(out, 3);
     try w_text(out, "channel");
-    try w_text(out, v.channel);
+    try enc_NotificationChannel(out, &(v.channel));
     try w_text(out, "purpose");
-    try w_text(out, v.purpose);
+    try enc_NotificationPurpose(out, &(v.purpose));
     try w_text(out, "destination_kind");
-    try w_text(out, v.destination_kind);
+    try enc_DestinationKind(out, &(v.destination_kind));
 }
 
 fn dec_NotificationCapability(alloc: std.mem.Allocator, m: Value, out: *types.NotificationCapability) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "channel");
-        out.channel = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "channel");
+        try dec_NotificationChannel(alloc, csil_fv, &(out.channel));
     }
     {
-        const csil_fv = try req(m, "purpose");
-        out.purpose = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "purpose");
+        try dec_NotificationPurpose(alloc, csil_fv, &(out.purpose));
     }
     {
-        const csil_fv = try req(m, "destination_kind");
-        out.destination_kind = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "destination_kind");
+        try dec_DestinationKind(alloc, csil_fv, &(out.destination_kind));
     }
 }
 
@@ -4808,7 +5900,7 @@ fn enc_GetNotificationCapabilitiesResponse(out: *std.ArrayList(u8), v: *const ty
 fn dec_GetNotificationCapabilitiesResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetNotificationCapabilitiesResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "capabilities");
+        const csil_fv = try csil_required_field(m, "capabilities");
         if (csil_fv != .array) return error.WrongType;
         out.capabilities = try alloc.alloc(types.NotificationCapability, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -4824,54 +5916,60 @@ fn enc_VerifiedContactMethod(out: *std.ArrayList(u8), v: *const types.VerifiedCo
     try w_text(out, "id");
     try w_text(out, v.id);
     try w_text(out, "channel");
-    try w_text(out, v.channel);
+    try enc_NotificationChannel(out, &(v.channel));
     try w_text(out, "purposes");
     try w_array_head(out, v.purposes.len);
     for (v.purposes) |csil_it| {
-        try w_text(out, csil_it);
+        try enc_NotificationPurpose(out, &(csil_it));
     }
     if (v.revoked_at) |csil_x| {
         try w_text(out, "revoked_at");
-        try w_text(out, csil_x);
+        try csil_w_timestamp(out, (csil_x).rfc3339);
     }
     try w_text(out, "destination");
     try w_text(out, v.destination);
     try w_text(out, "verified_at");
-    try w_text(out, v.verified_at);
+    try csil_w_timestamp(out, (v.verified_at).rfc3339);
 }
 
 fn dec_VerifiedContactMethod(alloc: std.mem.Allocator, m: Value, out: *types.VerifiedContactMethod) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "id");
+        const csil_fv = try csil_required_field(m, "id");
         out.id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "channel");
-        out.channel = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "channel");
+        try dec_NotificationChannel(alloc, csil_fv, &(out.channel));
     }
     {
-        const csil_fv = try req(m, "purposes");
+        const csil_fv = try csil_required_field(m, "purposes");
         if (csil_fv != .array) return error.WrongType;
-        out.purposes = try alloc.alloc([]const u8, csil_fv.array.len);
+        out.purposes = try alloc.alloc(types.NotificationPurpose, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
-            out.purposes[csil_i] = try as_text(csil_it);
+            try dec_NotificationPurpose(alloc, csil_it, &(out.purposes[csil_i]));
         }
     }
     {
         if (mget(m, "revoked_at")) |csil_fv| {
-            out.revoked_at = try as_text(csil_fv);
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.revoked_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
         } else {
             out.revoked_at = null;
         }
     }
     {
-        const csil_fv = try req(m, "destination");
+        const csil_fv = try csil_required_field(m, "destination");
         out.destination = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "verified_at");
-        out.verified_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "verified_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.verified_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
 }
 
@@ -4887,7 +5985,7 @@ fn enc_ListVerifiedContactMethodsResponse(out: *std.ArrayList(u8), v: *const typ
 fn dec_ListVerifiedContactMethodsResponse(alloc: std.mem.Allocator, m: Value, out: *types.ListVerifiedContactMethodsResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "contact_methods");
+        const csil_fv = try csil_required_field(m, "contact_methods");
         if (csil_fv != .array) return error.WrongType;
         out.contact_methods = try alloc.alloc(types.VerifiedContactMethod, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -4908,11 +6006,11 @@ fn dec_RevokeVerifiedContactMethodRequest(alloc: std.mem.Allocator, m: Value, ou
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "current_password");
+        const csil_fv = try csil_required_field(m, "current_password");
         out.current_password = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "contact_method_id");
+        const csil_fv = try csil_required_field(m, "contact_method_id");
         out.contact_method_id = try as_text(csil_fv);
     }
 }
@@ -4927,7 +6025,7 @@ fn dec_RevokeVerifiedContactMethodResponse(alloc: std.mem.Allocator, m: Value, o
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "success");
+        const csil_fv = try csil_required_field(m, "success");
         out.success = try as_bool(csil_fv);
     }
 }
@@ -4935,7 +6033,7 @@ fn dec_RevokeVerifiedContactMethodResponse(alloc: std.mem.Allocator, m: Value, o
 fn enc_RequestContactVerificationRequest(out: *std.ArrayList(u8), v: *const types.RequestContactVerificationRequest) CodecError!void {
     try w_map_head(out, 3);
     try w_text(out, "channel");
-    try w_text(out, v.channel);
+    try enc_NotificationChannel(out, &(v.channel));
     try w_text(out, "destination");
     try w_text(out, v.destination);
     try w_text(out, "current_password");
@@ -4943,18 +6041,17 @@ fn enc_RequestContactVerificationRequest(out: *std.ArrayList(u8), v: *const type
 }
 
 fn dec_RequestContactVerificationRequest(alloc: std.mem.Allocator, m: Value, out: *types.RequestContactVerificationRequest) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "channel");
-        out.channel = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "channel");
+        try dec_NotificationChannel(alloc, csil_fv, &(out.channel));
     }
     {
-        const csil_fv = try req(m, "destination");
+        const csil_fv = try csil_required_field(m, "destination");
         out.destination = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "current_password");
+        const csil_fv = try csil_required_field(m, "current_password");
         out.current_password = try as_text(csil_fv);
     }
 }
@@ -4962,15 +6059,17 @@ fn dec_RequestContactVerificationRequest(alloc: std.mem.Allocator, m: Value, out
 fn enc_RequestContactVerificationResponse(out: *std.ArrayList(u8), v: *const types.RequestContactVerificationResponse) CodecError!void {
     try w_map_head(out, 1);
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
 }
 
 fn dec_RequestContactVerificationResponse(alloc: std.mem.Allocator, m: Value, out: *types.RequestContactVerificationResponse) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
 }
 
@@ -4984,7 +6083,7 @@ fn dec_ConfirmContactVerificationRequest(alloc: std.mem.Allocator, m: Value, out
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "token");
+        const csil_fv = try csil_required_field(m, "token");
         out.token = try as_text(csil_fv);
     }
 }
@@ -5003,7 +6102,7 @@ fn enc_ConfirmContactVerificationResponse(out: *std.ArrayList(u8), v: *const typ
 fn dec_ConfirmContactVerificationResponse(alloc: std.mem.Allocator, m: Value, out: *types.ConfirmContactVerificationResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claims");
+        const csil_fv = try csil_required_field(m, "claims");
         if (csil_fv != .array) return error.WrongType;
         out.claims = try alloc.alloc(types.Claim, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -5011,7 +6110,7 @@ fn dec_ConfirmContactVerificationResponse(alloc: std.mem.Allocator, m: Value, ou
         }
     }
     {
-        const csil_fv = try req(m, "contact_method");
+        const csil_fv = try csil_required_field(m, "contact_method");
         try dec_VerifiedContactMethod(alloc, csil_fv, &(out.contact_method));
     }
 }
@@ -5026,7 +6125,7 @@ fn dec_RequestPasswordRecoveryRequest(alloc: std.mem.Allocator, m: Value, out: *
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "identifier");
+        const csil_fv = try csil_required_field(m, "identifier");
         out.identifier = try as_text(csil_fv);
     }
 }
@@ -5052,7 +6151,7 @@ fn dec_ValidatePasswordRecoveryRequest(alloc: std.mem.Allocator, m: Value, out: 
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "token");
+        const csil_fv = try csil_required_field(m, "token");
         out.token = try as_text(csil_fv);
     }
 }
@@ -5060,7 +6159,7 @@ fn dec_ValidatePasswordRecoveryRequest(alloc: std.mem.Allocator, m: Value, out: 
 fn enc_ValidatePasswordRecoveryResponse(out: *std.ArrayList(u8), v: *const types.ValidatePasswordRecoveryResponse) CodecError!void {
     try w_map_head(out, 2);
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     try w_text(out, "password_policy");
     try enc_PasswordPolicy(out, &(v.password_policy));
 }
@@ -5068,11 +6167,14 @@ fn enc_ValidatePasswordRecoveryResponse(out: *std.ArrayList(u8), v: *const types
 fn dec_ValidatePasswordRecoveryResponse(alloc: std.mem.Allocator, m: Value, out: *types.ValidatePasswordRecoveryResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "password_policy");
+        const csil_fv = try csil_required_field(m, "password_policy");
         try dec_PasswordPolicy(alloc, csil_fv, &(out.password_policy));
     }
 }
@@ -5089,11 +6191,11 @@ fn dec_CompletePasswordRecoveryRequest(alloc: std.mem.Allocator, m: Value, out: 
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "token");
+        const csil_fv = try csil_required_field(m, "token");
         out.token = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "new_password");
+        const csil_fv = try csil_required_field(m, "new_password");
         out.new_password = try as_text(csil_fv);
     }
 }
@@ -5108,7 +6210,7 @@ fn dec_CompletePasswordRecoveryResponse(alloc: std.mem.Allocator, m: Value, out:
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "success");
+        const csil_fv = try csil_required_field(m, "success");
         out.success = try as_bool(csil_fv);
     }
 }
@@ -5123,7 +6225,7 @@ fn dec_BrowserAuthorizationInspectRequest(alloc: std.mem.Allocator, m: Value, ou
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "signed_request");
+        const csil_fv = try csil_required_field(m, "signed_request");
         out.signed_request = try as_text(csil_fv);
     }
 }
@@ -5135,9 +6237,9 @@ fn enc_BrowserConsentClaim(out: *std.ArrayList(u8), v: *const types.BrowserConse
     try w_text(out, "label");
     try w_text(out, v.label);
     try w_text(out, "policy");
-    try w_text(out, v.policy);
+    try enc_ConsentRowPolicy(out, &(v.policy));
     try w_text(out, "datatype");
-    try w_text(out, v.datatype);
+    try enc_ClaimValueType(out, &(v.datatype));
     try w_text(out, "required");
     try w_bool(out, v.required);
     try w_text(out, "available");
@@ -5159,42 +6261,41 @@ fn enc_BrowserConsentClaim(out: *std.ArrayList(u8), v: *const types.BrowserConse
 }
 
 fn dec_BrowserConsentClaim(alloc: std.mem.Allocator, m: Value, out: *types.BrowserConsentClaim) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "label");
+        const csil_fv = try csil_required_field(m, "label");
         out.label = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "policy");
-        out.policy = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "policy");
+        try dec_ConsentRowPolicy(alloc, csil_fv, &(out.policy));
     }
     {
-        const csil_fv = try req(m, "datatype");
-        out.datatype = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "datatype");
+        try dec_ClaimValueType(alloc, csil_fv, &(out.datatype));
     }
     {
-        const csil_fv = try req(m, "required");
+        const csil_fv = try csil_required_field(m, "required");
         out.required = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "available");
+        const csil_fv = try csil_required_field(m, "available");
         out.available = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "max_bytes");
+        const csil_fv = try csil_required_field(m, "max_bytes");
         out.max_bytes = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "user_settable");
+        const csil_fv = try csil_required_field(m, "user_settable");
         out.user_settable = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "default_granted");
+        const csil_fv = try csil_required_field(m, "default_granted");
         out.default_granted = try as_bool(csil_fv);
     }
     {
@@ -5205,7 +6306,7 @@ fn dec_BrowserConsentClaim(alloc: std.mem.Allocator, m: Value, out: *types.Brows
         }
     }
     {
-        const csil_fv = try req(m, "requires_approval");
+        const csil_fv = try csil_required_field(m, "requires_approval");
         out.requires_approval = try as_bool(csil_fv);
     }
 }
@@ -5263,7 +6364,7 @@ fn enc_BrowserAuthorizationInspectResponse(out: *std.ArrayList(u8), v: *const ty
 fn dec_BrowserAuthorizationInspectResponse(alloc: std.mem.Allocator, m: Value, out: *types.BrowserAuthorizationInspectResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claims");
+        const csil_fv = try csil_required_field(m, "claims");
         if (csil_fv != .array) return error.WrongType;
         out.claims = try alloc.alloc(types.BrowserConsentClaim, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -5273,7 +6374,7 @@ fn dec_BrowserAuthorizationInspectResponse(alloc: std.mem.Allocator, m: Value, o
     {
         if (mget(m, "application")) |csil_fv| {
             var csil_tmp: types.RelyingPartyApplication = undefined;
-            try dec_RelyingPartyApplication(alloc, csil_fv, &csil_tmp);
+            try dec_RelyingPartyApplication(alloc, csil_fv, &(csil_tmp));
             out.application = csil_tmp;
         } else {
             out.application = null;
@@ -5289,7 +6390,7 @@ fn dec_BrowserAuthorizationInspectResponse(alloc: std.mem.Allocator, m: Value, o
     {
         if (mget(m, "access_denied")) |csil_fv| {
             var csil_tmp: types.AppAccessDenial = undefined;
-            try dec_AppAccessDenial(alloc, csil_fv, &csil_tmp);
+            try dec_AppAccessDenial(alloc, csil_fv, &(csil_tmp));
             out.access_denied = csil_tmp;
         } else {
             out.access_denied = null;
@@ -5303,7 +6404,7 @@ fn dec_BrowserAuthorizationInspectResponse(alloc: std.mem.Allocator, m: Value, o
         }
     }
     {
-        const csil_fv = try req(m, "relying_party");
+        const csil_fv = try csil_required_field(m, "relying_party");
         out.relying_party = try as_text(csil_fv);
     }
     {
@@ -5364,11 +6465,11 @@ fn enc_BrowserAuthorizationCompleteRequest(out: *std.ArrayList(u8), v: *const ty
 fn dec_BrowserAuthorizationCompleteRequest(alloc: std.mem.Allocator, m: Value, out: *types.BrowserAuthorizationCompleteRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "signed_request");
+        const csil_fv = try csil_required_field(m, "signed_request");
         out.signed_request = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "authorized_claims");
+        const csil_fv = try csil_required_field(m, "authorized_claims");
         if (csil_fv != .array) return error.WrongType;
         out.authorized_claims = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -5376,7 +6477,7 @@ fn dec_BrowserAuthorizationCompleteRequest(alloc: std.mem.Allocator, m: Value, o
         }
     }
     {
-        const csil_fv = try req(m, "claim_types_to_set");
+        const csil_fv = try csil_required_field(m, "claim_types_to_set");
         if (csil_fv != .array) return error.WrongType;
         out.claim_types_to_set = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -5391,7 +6492,7 @@ fn dec_BrowserAuthorizationCompleteRequest(alloc: std.mem.Allocator, m: Value, o
         }
     }
     {
-        const csil_fv = try req(m, "claim_values_to_set");
+        const csil_fv = try csil_required_field(m, "claim_values_to_set");
         if (csil_fv != .array) return error.WrongType;
         out.claim_values_to_set = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -5410,7 +6511,7 @@ fn dec_BrowserAuthorizationCompleteResponse(alloc: std.mem.Allocator, m: Value, 
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "redirect_url");
+        const csil_fv = try csil_required_field(m, "redirect_url");
         out.redirect_url = try as_text(csil_fv);
     }
 }
@@ -5425,7 +6526,7 @@ fn dec_BrowserLocalRpInspectRequest(alloc: std.mem.Allocator, m: Value, out: *ty
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "signed_request");
+        const csil_fv = try csil_required_field(m, "signed_request");
         out.signed_request = try as_text(csil_fv);
     }
 }
@@ -5446,7 +6547,7 @@ fn enc_BrowserLocalRpInspectResponse(out: *std.ArrayList(u8), v: *const types.Br
     try w_text(out, "app_name");
     try w_text(out, v.app_name);
     try w_text(out, "admission");
-    try w_text(out, v.admission);
+    try enc_LocalRpAdmission(out, &(v.admission));
     try w_text(out, "fingerprint");
     try w_text(out, v.fingerprint);
     if (v.access_denied) |csil_x| {
@@ -5457,7 +6558,7 @@ fn enc_BrowserLocalRpInspectResponse(out: *std.ArrayList(u8), v: *const types.Br
     try w_text(out, v.callback_host);
     if (v.first_seen_at) |csil_x| {
         try w_text(out, "first_seen_at");
-        try w_text(out, csil_x);
+        try csil_w_timestamp(out, (csil_x).rfc3339);
     }
     if (v.request_reason) |csil_x| {
         try w_text(out, "request_reason");
@@ -5479,7 +6580,7 @@ fn enc_BrowserLocalRpInspectResponse(out: *std.ArrayList(u8), v: *const types.Br
 fn dec_BrowserLocalRpInspectResponse(alloc: std.mem.Allocator, m: Value, out: *types.BrowserLocalRpInspectResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claims");
+        const csil_fv = try csil_required_field(m, "claims");
         if (csil_fv != .array) return error.WrongType;
         out.claims = try alloc.alloc(types.BrowserConsentClaim, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -5487,33 +6588,36 @@ fn dec_BrowserLocalRpInspectResponse(alloc: std.mem.Allocator, m: Value, out: *t
         }
     }
     {
-        const csil_fv = try req(m, "app_name");
+        const csil_fv = try csil_required_field(m, "app_name");
         out.app_name = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "admission");
-        out.admission = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "admission");
+        try dec_LocalRpAdmission(alloc, csil_fv, &(out.admission));
     }
     {
-        const csil_fv = try req(m, "fingerprint");
+        const csil_fv = try csil_required_field(m, "fingerprint");
         out.fingerprint = try as_text(csil_fv);
     }
     {
         if (mget(m, "access_denied")) |csil_fv| {
             var csil_tmp: types.AppAccessDenial = undefined;
-            try dec_AppAccessDenial(alloc, csil_fv, &csil_tmp);
+            try dec_AppAccessDenial(alloc, csil_fv, &(csil_tmp));
             out.access_denied = csil_tmp;
         } else {
             out.access_denied = null;
         }
     }
     {
-        const csil_fv = try req(m, "callback_host");
+        const csil_fv = try csil_required_field(m, "callback_host");
         out.callback_host = try as_text(csil_fv);
     }
     {
         if (mget(m, "first_seen_at")) |csil_fv| {
-            out.first_seen_at = try as_text(csil_fv);
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.first_seen_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
         } else {
             out.first_seen_at = null;
         }
@@ -5576,11 +6680,11 @@ fn enc_BrowserLocalRpCompleteRequest(out: *std.ArrayList(u8), v: *const types.Br
 fn dec_BrowserLocalRpCompleteRequest(alloc: std.mem.Allocator, m: Value, out: *types.BrowserLocalRpCompleteRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "signed_request");
+        const csil_fv = try csil_required_field(m, "signed_request");
         out.signed_request = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "authorized_claims");
+        const csil_fv = try csil_required_field(m, "authorized_claims");
         if (csil_fv != .array) return error.WrongType;
         out.authorized_claims = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -5588,7 +6692,7 @@ fn dec_BrowserLocalRpCompleteRequest(alloc: std.mem.Allocator, m: Value, out: *t
         }
     }
     {
-        const csil_fv = try req(m, "claim_types_to_set");
+        const csil_fv = try csil_required_field(m, "claim_types_to_set");
         if (csil_fv != .array) return error.WrongType;
         out.claim_types_to_set = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -5603,7 +6707,7 @@ fn dec_BrowserLocalRpCompleteRequest(alloc: std.mem.Allocator, m: Value, out: *t
         }
     }
     {
-        const csil_fv = try req(m, "claim_values_to_set");
+        const csil_fv = try csil_required_field(m, "claim_values_to_set");
         if (csil_fv != .array) return error.WrongType;
         out.claim_values_to_set = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -5622,7 +6726,7 @@ fn dec_BrowserLocalRpCompleteResponse(alloc: std.mem.Allocator, m: Value, out: *
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "redirect_url");
+        const csil_fv = try csil_required_field(m, "redirect_url");
         out.redirect_url = try as_text(csil_fv);
     }
 }
@@ -5693,15 +6797,15 @@ fn dec_UiExtension(alloc: std.mem.Allocator, m: Value, out: *types.UiExtension) 
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "id");
+        const csil_fv = try csil_required_field(m, "id");
         out.id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "module_url");
+        const csil_fv = try csil_required_field(m, "module_url");
         out.module_url = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "api_version");
+        const csil_fv = try csil_required_field(m, "api_version");
         out.api_version = try as_i64(csil_fv);
     }
     {
@@ -5729,7 +6833,7 @@ fn dec_UiDisplaySettings(alloc: std.mem.Allocator, m: Value, out: *types.UiDispl
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "site_name");
+        const csil_fv = try csil_required_field(m, "site_name");
         out.site_name = try as_text(csil_fv);
     }
     {
@@ -5782,22 +6886,22 @@ fn dec_GetUiConfigurationResponse(alloc: std.mem.Allocator, m: Value, out: *type
     {
         if (mget(m, "theme")) |csil_fv| {
             var csil_tmp: types.UiTheme = undefined;
-            try dec_UiTheme(alloc, csil_fv, &csil_tmp);
+            try dec_UiTheme(alloc, csil_fv, &(csil_tmp));
             out.theme = csil_tmp;
         } else {
             out.theme = null;
         }
     }
     {
-        const csil_fv = try req(m, "domain");
+        const csil_fv = try csil_required_field(m, "domain");
         out.domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "display");
+        const csil_fv = try csil_required_field(m, "display");
         try dec_UiDisplaySettings(alloc, csil_fv, &(out.display));
     }
     {
-        const csil_fv = try req(m, "extensions");
+        const csil_fv = try csil_required_field(m, "extensions");
         if (csil_fv != .array) return error.WrongType;
         out.extensions = try alloc.alloc(types.UiExtension, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -5805,7 +6909,7 @@ fn dec_GetUiConfigurationResponse(alloc: std.mem.Allocator, m: Value, out: *type
         }
     }
     {
-        const csil_fv = try req(m, "capabilities");
+        const csil_fv = try csil_required_field(m, "capabilities");
         if (csil_fv != .array) return error.WrongType;
         out.capabilities = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -5822,14 +6926,14 @@ fn dec_GetUiConfigurationResponse(alloc: std.mem.Allocator, m: Value, out: *type
     {
         if (mget(m, "password_policy")) |csil_fv| {
             var csil_tmp: types.PasswordPolicy = undefined;
-            try dec_PasswordPolicy(alloc, csil_fv, &csil_tmp);
+            try dec_PasswordPolicy(alloc, csil_fv, &(csil_tmp));
             out.password_policy = csil_tmp;
         } else {
             out.password_policy = null;
         }
     }
     {
-        const csil_fv = try req(m, "host_api_version");
+        const csil_fv = try csil_required_field(m, "host_api_version");
         out.host_api_version = try as_i64(csil_fv);
     }
 }
@@ -5837,7 +6941,6 @@ fn dec_GetUiConfigurationResponse(alloc: std.mem.Allocator, m: Value, out: *type
 fn enc_RpSignRequest(out: *std.ArrayList(u8), v: *const types.RpSignRequest) CodecError!void {
     var csil_n: usize = 2;
     if (v.flow_context != null) csil_n += 1;
-    if (v.application_id != null) csil_n += 1;
     if (v.requested_claims != null) csil_n += 1;
     if (v.authentication_requirements != null) csil_n += 1;
     try w_map_head(out, csil_n);
@@ -5848,10 +6951,6 @@ fn enc_RpSignRequest(out: *std.ArrayList(u8), v: *const types.RpSignRequest) Cod
     if (v.flow_context) |csil_x| {
         try w_text(out, "flow_context");
         try enc_AuthFlowContext(out, &(csil_x));
-    }
-    if (v.application_id) |csil_x| {
-        try w_text(out, "application_id");
-        try w_text(out, csil_x);
     }
     if (v.requested_claims) |csil_x| {
         try w_text(out, "requested_claims");
@@ -5866,33 +6965,26 @@ fn enc_RpSignRequest(out: *std.ArrayList(u8), v: *const types.RpSignRequest) Cod
 fn dec_RpSignRequest(alloc: std.mem.Allocator, m: Value, out: *types.RpSignRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "nonce");
+        const csil_fv = try csil_required_field(m, "nonce");
         out.nonce = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "callback_url");
+        const csil_fv = try csil_required_field(m, "callback_url");
         out.callback_url = try as_text(csil_fv);
     }
     {
         if (mget(m, "flow_context")) |csil_fv| {
             var csil_tmp: types.AuthFlowContext = undefined;
-            try dec_AuthFlowContext(alloc, csil_fv, &csil_tmp);
+            try dec_AuthFlowContext(alloc, csil_fv, &(csil_tmp));
             out.flow_context = csil_tmp;
         } else {
             out.flow_context = null;
         }
     }
     {
-        if (mget(m, "application_id")) |csil_fv| {
-            out.application_id = try as_text(csil_fv);
-        } else {
-            out.application_id = null;
-        }
-    }
-    {
         if (mget(m, "requested_claims")) |csil_fv| {
             var csil_tmp: types.ClaimRequest = undefined;
-            try dec_ClaimRequest(alloc, csil_fv, &csil_tmp);
+            try dec_ClaimRequest(alloc, csil_fv, &(csil_tmp));
             out.requested_claims = csil_tmp;
         } else {
             out.requested_claims = null;
@@ -5901,7 +6993,7 @@ fn dec_RpSignRequest(alloc: std.mem.Allocator, m: Value, out: *types.RpSignReque
     {
         if (mget(m, "authentication_requirements")) |csil_fv| {
             var csil_tmp: types.AuthenticationRequirements = undefined;
-            try dec_AuthenticationRequirements(alloc, csil_fv, &csil_tmp);
+            try dec_AuthenticationRequirements(alloc, csil_fv, &(csil_tmp));
             out.authentication_requirements = csil_tmp;
         } else {
             out.authentication_requirements = null;
@@ -5919,7 +7011,7 @@ fn dec_RpSignResponse(alloc: std.mem.Allocator, m: Value, out: *types.RpSignResp
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "signed_request");
+        const csil_fv = try csil_required_field(m, "signed_request");
         out.signed_request = try as_text(csil_fv);
     }
 }
@@ -5934,7 +7026,7 @@ fn dec_RpDecryptRequest(alloc: std.mem.Allocator, m: Value, out: *types.RpDecryp
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "encrypted_token");
+        const csil_fv = try csil_required_field(m, "encrypted_token");
         out.encrypted_token = try as_text(csil_fv);
     }
 }
@@ -5949,7 +7041,7 @@ fn dec_RpDecryptResponse(alloc: std.mem.Allocator, m: Value, out: *types.RpDecry
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "signed_assertion");
+        const csil_fv = try csil_required_field(m, "signed_assertion");
         out.signed_assertion = try as_text(csil_fv);
     }
 }
@@ -5966,11 +7058,11 @@ fn dec_RpVerifyRequest(alloc: std.mem.Allocator, m: Value, out: *types.RpVerifyR
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "expected_domain");
+        const csil_fv = try csil_required_field(m, "expected_domain");
         out.expected_domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signed_assertion");
+        const csil_fv = try csil_required_field(m, "signed_assertion");
         out.signed_assertion = try as_text(csil_fv);
     }
 }
@@ -5986,11 +7078,11 @@ fn enc_RpVerifyResponse(out: *std.ArrayList(u8), v: *const types.RpVerifyRespons
 fn dec_RpVerifyResponse(alloc: std.mem.Allocator, m: Value, out: *types.RpVerifyResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "verified");
+        const csil_fv = try csil_required_field(m, "verified");
         out.verified = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "assertion");
+        const csil_fv = try csil_required_field(m, "assertion");
         try dec_IdentityAssertion(alloc, csil_fv, &(out.assertion));
     }
 }
@@ -6009,16 +7101,36 @@ fn dec_RpUserInfoRequest(alloc: std.mem.Allocator, m: Value, out: *types.RpUserI
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "token");
+        const csil_fv = try csil_required_field(m, "token");
         out.token = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "domain");
+        const csil_fv = try csil_required_field(m, "domain");
         out.domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "api_base");
+        const csil_fv = try csil_required_field(m, "api_base");
         out.api_base = try as_text(csil_fv);
+    }
+}
+
+fn enc_RpError(out: *std.ArrayList(u8), v: *const types.RpError) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "code");
+    try enc_RpErrorCode(out, &(v.code));
+    try w_text(out, "message");
+    try w_text(out, v.message);
+}
+
+fn dec_RpError(alloc: std.mem.Allocator, m: Value, out: *types.RpError) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "code");
+        try dec_RpErrorCode(alloc, csil_fv, &(out.code));
+    }
+    {
+        const csil_fv = try csil_required_field(m, "message");
+        out.message = try as_text(csil_fv);
     }
 }
 
@@ -6035,15 +7147,15 @@ fn enc_RpIssueAttestationRequest(out: *std.ArrayList(u8), v: *const types.RpIssu
 fn dec_RpIssueAttestationRequest(alloc: std.mem.Allocator, m: Value, out: *types.RpIssueAttestationRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_value");
+        const csil_fv = try csil_required_field(m, "claim_value");
         out.claim_value = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signed_request");
+        const csil_fv = try csil_required_field(m, "signed_request");
         try dec_SignedSigningRequest(alloc, csil_fv, &(out.signed_request));
     }
 }
@@ -6059,11 +7171,11 @@ fn enc_RpIssueAttestationResponse(out: *std.ArrayList(u8), v: *const types.RpIss
 fn dec_RpIssueAttestationResponse(alloc: std.mem.Allocator, m: Value, out: *types.RpIssueAttestationResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim");
+        const csil_fv = try csil_required_field(m, "claim");
         try dec_Claim(alloc, csil_fv, &(out.claim));
     }
     {
-        const csil_fv = try req(m, "deposited");
+        const csil_fv = try csil_required_field(m, "deposited");
         out.deposited = try as_bool(csil_fv);
     }
 }
@@ -6091,7 +7203,7 @@ fn dec_AuthorizeValidateRequest(alloc: std.mem.Allocator, m: Value, out: *types.
         }
     }
     {
-        const csil_fv = try req(m, "signed_request");
+        const csil_fv = try csil_required_field(m, "signed_request");
         out.signed_request = try as_text(csil_fv);
     }
 }
@@ -6146,31 +7258,31 @@ fn dec_AuthorizeValidateResponse(alloc: std.mem.Allocator, m: Value, out: *types
     {
         if (mget(m, "application")) |csil_fv| {
             var csil_tmp: types.RelyingPartyApplication = undefined;
-            try dec_RelyingPartyApplication(alloc, csil_fv, &csil_tmp);
+            try dec_RelyingPartyApplication(alloc, csil_fv, &(csil_tmp));
             out.application = csil_tmp;
         } else {
             out.application = null;
         }
     }
     {
-        const csil_fv = try req(m, "callback_url");
+        const csil_fv = try csil_required_field(m, "callback_url");
         out.callback_url = try as_text(csil_fv);
     }
     {
         if (mget(m, "access_denied")) |csil_fv| {
             var csil_tmp: types.AppAccessDenial = undefined;
-            try dec_AppAccessDenial(alloc, csil_fv, &csil_tmp);
+            try dec_AppAccessDenial(alloc, csil_fv, &(csil_tmp));
             out.access_denied = csil_tmp;
         } else {
             out.access_denied = null;
         }
     }
     {
-        const csil_fv = try req(m, "relying_party");
+        const csil_fv = try csil_required_field(m, "relying_party");
         out.relying_party = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "requested_claims");
+        const csil_fv = try csil_required_field(m, "requested_claims");
         if (csil_fv != .array) return error.WrongType;
         out.requested_claims = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -6226,15 +7338,15 @@ fn enc_AuthorizeFinalizeRequest(out: *std.ArrayList(u8), v: *const types.Authori
 fn dec_AuthorizeFinalizeRequest(alloc: std.mem.Allocator, m: Value, out: *types.AuthorizeFinalizeRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signed_request");
+        const csil_fv = try csil_required_field(m, "signed_request");
         out.signed_request = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "authorized_claims");
+        const csil_fv = try csil_required_field(m, "authorized_claims");
         if (csil_fv != .array) return error.WrongType;
         out.authorized_claims = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -6253,7 +7365,7 @@ fn dec_AuthorizeFinalizeResponse(alloc: std.mem.Allocator, m: Value, out: *types
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "redirect_url");
+        const csil_fv = try csil_required_field(m, "redirect_url");
         out.redirect_url = try as_text(csil_fv);
     }
 }
@@ -6278,11 +7390,11 @@ fn enc_ApiError(out: *std.ArrayList(u8), v: *const types.ApiError) CodecError!vo
 fn dec_ApiError(alloc: std.mem.Allocator, m: Value, out: *types.ApiError) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "code");
+        const csil_fv = try csil_required_field(m, "code");
         try dec_ApiErrorCode(alloc, csil_fv, &(out.code));
     }
     {
-        const csil_fv = try req(m, "message");
+        const csil_fv = try csil_required_field(m, "message");
         out.message = try as_text(csil_fv);
     }
 }
@@ -6294,15 +7406,15 @@ fn enc_LocalRpDescriptor(out: *std.ArrayList(u8), v: *const types.LocalRpDescrip
     try w_text(out, "app_name");
     try w_text(out, v.app_name);
     try w_text(out, "created_at");
-    try w_text(out, v.created_at);
+    try csil_w_timestamp(out, (v.created_at).rfc3339);
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     try w_text(out, "fingerprint");
     try w_text(out, v.fingerprint);
     try w_text(out, "supported_suites");
     try w_array_head(out, v.supported_suites.len);
     for (v.supported_suites) |csil_it| {
-        try w_text(out, csil_it);
+        try enc_AeadSuite(out, &(csil_it));
     }
     if (v.local_domain_hint) |csil_x| {
         try w_text(out, "local_domain_hint");
@@ -6317,27 +7429,33 @@ fn enc_LocalRpDescriptor(out: *std.ArrayList(u8), v: *const types.LocalRpDescrip
 fn dec_LocalRpDescriptor(alloc: std.mem.Allocator, m: Value, out: *types.LocalRpDescriptor) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "app_name");
+        const csil_fv = try csil_required_field(m, "app_name");
         out.app_name = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "created_at");
-        out.created_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "created_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.created_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "fingerprint");
+        const csil_fv = try csil_required_field(m, "fingerprint");
         out.fingerprint = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "supported_suites");
+        const csil_fv = try csil_required_field(m, "supported_suites");
         if (csil_fv != .array) return error.WrongType;
         out.supported_suites = try alloc.alloc(types.AeadSuite, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
-            out.supported_suites[csil_i] = try as_text(csil_it);
+            try dec_AeadSuite(alloc, csil_it, &(out.supported_suites[csil_i]));
         }
     }
     {
@@ -6348,11 +7466,11 @@ fn dec_LocalRpDescriptor(alloc: std.mem.Allocator, m: Value, out: *types.LocalRp
         }
     }
     {
-        const csil_fv = try req(m, "signing_public_key");
+        const csil_fv = try csil_required_field(m, "signing_public_key");
         out.signing_public_key = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "encryption_public_key");
+        const csil_fv = try csil_required_field(m, "encryption_public_key");
         out.encryption_public_key = try as_bytes(csil_fv);
     }
 }
@@ -6369,11 +7487,11 @@ fn dec_SignedLocalRpDescriptor(alloc: std.mem.Allocator, m: Value, out: *types.S
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "signature");
+        const csil_fv = try csil_required_field(m, "signature");
         out.signature = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "descriptor");
+        const csil_fv = try csil_required_field(m, "descriptor");
         out.descriptor = try as_bytes(csil_fv);
     }
 }
@@ -6388,11 +7506,11 @@ fn enc_LocalRpLoginRequest(out: *std.ArrayList(u8), v: *const types.LocalRpLogin
     try w_text(out, "state");
     try w_bytes(out, v.state);
     try w_text(out, "issued_at");
-    try w_text(out, v.issued_at);
+    try csil_w_timestamp(out, (v.issued_at).rfc3339);
     try w_text(out, "descriptor");
     try enc_SignedLocalRpDescriptor(out, &(v.descriptor));
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     try w_text(out, "callback_url");
     try w_text(out, v.callback_url);
     if (v.flow_context) |csil_x| {
@@ -6418,40 +7536,46 @@ fn enc_LocalRpLoginRequest(out: *std.ArrayList(u8), v: *const types.LocalRpLogin
 fn dec_LocalRpLoginRequest(alloc: std.mem.Allocator, m: Value, out: *types.LocalRpLoginRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "nonce");
+        const csil_fv = try csil_required_field(m, "nonce");
         out.nonce = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "state");
+        const csil_fv = try csil_required_field(m, "state");
         out.state = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "issued_at");
-        out.issued_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "issued_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.issued_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "descriptor");
+        const csil_fv = try csil_required_field(m, "descriptor");
         try dec_SignedLocalRpDescriptor(alloc, csil_fv, &(out.descriptor));
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "callback_url");
+        const csil_fv = try csil_required_field(m, "callback_url");
         out.callback_url = try as_text(csil_fv);
     }
     {
         if (mget(m, "flow_context")) |csil_fv| {
             var csil_tmp: types.AuthFlowContext = undefined;
-            try dec_AuthFlowContext(alloc, csil_fv, &csil_tmp);
+            try dec_AuthFlowContext(alloc, csil_fv, &(csil_tmp));
             out.flow_context = csil_tmp;
         } else {
             out.flow_context = null;
         }
     }
     {
-        const csil_fv = try req(m, "required_claims");
+        const csil_fv = try csil_required_field(m, "required_claims");
         if (csil_fv != .array) return error.WrongType;
         out.required_claims = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -6459,7 +7583,7 @@ fn dec_LocalRpLoginRequest(alloc: std.mem.Allocator, m: Value, out: *types.Local
         }
     }
     {
-        const csil_fv = try req(m, "requested_claims");
+        const csil_fv = try csil_required_field(m, "requested_claims");
         if (csil_fv != .array) return error.WrongType;
         out.requested_claims = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -6469,7 +7593,7 @@ fn dec_LocalRpLoginRequest(alloc: std.mem.Allocator, m: Value, out: *types.Local
     {
         if (mget(m, "authentication_requirements")) |csil_fv| {
             var csil_tmp: types.AuthenticationRequirements = undefined;
-            try dec_AuthenticationRequirements(alloc, csil_fv, &csil_tmp);
+            try dec_AuthenticationRequirements(alloc, csil_fv, &(csil_tmp));
             out.authentication_requirements = csil_tmp;
         } else {
             out.authentication_requirements = null;
@@ -6489,11 +7613,11 @@ fn dec_SignedLocalRpLoginRequest(alloc: std.mem.Allocator, m: Value, out: *types
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "request");
+        const csil_fv = try csil_required_field(m, "request");
         out.request = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signature");
+        const csil_fv = try csil_required_field(m, "signature");
         out.signature = try as_bytes(csil_fv);
     }
 }
@@ -6505,13 +7629,13 @@ fn enc_LocalRpCallbackHeader(out: *std.ArrayList(u8), v: *const types.LocalRpCal
     try w_text(out, "state");
     try w_bytes(out, v.state);
     try w_text(out, "suite");
-    try w_text(out, v.suite);
+    try enc_AeadSuite(out, &(v.suite));
     try w_text(out, "issued_at");
-    try w_text(out, v.issued_at);
+    try csil_w_timestamp(out, (v.issued_at).rfc3339);
     try w_text(out, "aead_nonce");
     try w_bytes(out, v.aead_nonce);
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     try w_text(out, "fingerprint");
     try w_text(out, v.fingerprint);
     try w_text(out, "ephemeral_public_key");
@@ -6519,38 +7643,43 @@ fn enc_LocalRpCallbackHeader(out: *std.ArrayList(u8), v: *const types.LocalRpCal
 }
 
 fn dec_LocalRpCallbackHeader(alloc: std.mem.Allocator, m: Value, out: *types.LocalRpCallbackHeader) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "nonce");
+        const csil_fv = try csil_required_field(m, "nonce");
         out.nonce = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "state");
+        const csil_fv = try csil_required_field(m, "state");
         out.state = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "suite");
-        out.suite = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "suite");
+        try dec_AeadSuite(alloc, csil_fv, &(out.suite));
     }
     {
-        const csil_fv = try req(m, "issued_at");
-        out.issued_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "issued_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.issued_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "aead_nonce");
+        const csil_fv = try csil_required_field(m, "aead_nonce");
         out.aead_nonce = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "fingerprint");
+        const csil_fv = try csil_required_field(m, "fingerprint");
         out.fingerprint = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "ephemeral_public_key");
+        const csil_fv = try csil_required_field(m, "ephemeral_public_key");
         out.ephemeral_public_key = try as_bytes(csil_fv);
     }
 }
@@ -6567,11 +7696,11 @@ fn dec_LocalRpEncryptedCallback(alloc: std.mem.Allocator, m: Value, out: *types.
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "header");
+        const csil_fv = try csil_required_field(m, "header");
         out.header = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "ciphertext");
+        const csil_fv = try csil_required_field(m, "ciphertext");
         out.ciphertext = try as_bytes(csil_fv);
     }
 }
@@ -6585,9 +7714,9 @@ fn enc_LocalRpCallbackPayload(out: *std.ArrayList(u8), v: *const types.LocalRpCa
     try w_text(out, "user_id");
     try w_text(out, v.user_id);
     try w_text(out, "issued_at");
-    try w_text(out, v.issued_at);
+    try csil_w_timestamp(out, (v.issued_at).rfc3339);
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     try w_text(out, "user_domain");
     try w_text(out, v.user_domain);
     try w_text(out, "callback_url");
@@ -6599,42 +7728,47 @@ fn enc_LocalRpCallbackPayload(out: *std.ArrayList(u8), v: *const types.LocalRpCa
 }
 
 fn dec_LocalRpCallbackPayload(alloc: std.mem.Allocator, m: Value, out: *types.LocalRpCallbackPayload) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "nonce");
+        const csil_fv = try csil_required_field(m, "nonce");
         out.nonce = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "state");
+        const csil_fv = try csil_required_field(m, "state");
         out.state = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "issued_at");
-        out.issued_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "issued_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.issued_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "user_domain");
+        const csil_fv = try csil_required_field(m, "user_domain");
         out.user_domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "callback_url");
+        const csil_fv = try csil_required_field(m, "callback_url");
         out.callback_url = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_ticket");
+        const csil_fv = try csil_required_field(m, "claim_ticket");
         out.claim_ticket = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "audience_fingerprint");
+        const csil_fv = try csil_required_field(m, "audience_fingerprint");
         out.audience_fingerprint = try as_text(csil_fv);
     }
 }
@@ -6653,15 +7787,15 @@ fn dec_SignedLocalRpCallbackPayload(alloc: std.mem.Allocator, m: Value, out: *ty
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "payload");
+        const csil_fv = try csil_required_field(m, "payload");
         out.payload = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signature");
+        const csil_fv = try csil_required_field(m, "signature");
         out.signature = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signing_key_id");
+        const csil_fv = try csil_required_field(m, "signing_key_id");
         out.signing_key_id = try as_text(csil_fv);
     }
 }
@@ -6669,7 +7803,7 @@ fn dec_SignedLocalRpCallbackPayload(alloc: std.mem.Allocator, m: Value, out: *ty
 fn enc_LocalRpTicketRedemptionRequest(out: *std.ArrayList(u8), v: *const types.LocalRpTicketRedemptionRequest) CodecError!void {
     try w_map_head(out, 3);
     try w_text(out, "issued_at");
-    try w_text(out, v.issued_at);
+    try csil_w_timestamp(out, (v.issued_at).rfc3339);
     try w_text(out, "fingerprint");
     try w_text(out, v.fingerprint);
     try w_text(out, "claim_ticket");
@@ -6677,18 +7811,20 @@ fn enc_LocalRpTicketRedemptionRequest(out: *std.ArrayList(u8), v: *const types.L
 }
 
 fn dec_LocalRpTicketRedemptionRequest(alloc: std.mem.Allocator, m: Value, out: *types.LocalRpTicketRedemptionRequest) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "issued_at");
-        out.issued_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "issued_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.issued_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "fingerprint");
+        const csil_fv = try csil_required_field(m, "fingerprint");
         out.fingerprint = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_ticket");
+        const csil_fv = try csil_required_field(m, "claim_ticket");
         out.claim_ticket = try as_bytes(csil_fv);
     }
 }
@@ -6705,11 +7841,11 @@ fn dec_SignedLocalRpTicketRedemptionRequest(alloc: std.mem.Allocator, m: Value, 
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "request");
+        const csil_fv = try csil_required_field(m, "request");
         out.request = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signature");
+        const csil_fv = try csil_required_field(m, "signature");
         out.signature = try as_bytes(csil_fv);
     }
 }
@@ -6726,13 +7862,13 @@ fn enc_LocalRpTicketRedemptionResponse(out: *std.ArrayList(u8), v: *const types.
     try w_text(out, "user_domain");
     try w_text(out, v.user_domain);
     try w_text(out, "ticket_expires_at");
-    try w_text(out, v.ticket_expires_at);
+    try csil_w_timestamp(out, (v.ticket_expires_at).rfc3339);
 }
 
 fn dec_LocalRpTicketRedemptionResponse(alloc: std.mem.Allocator, m: Value, out: *types.LocalRpTicketRedemptionResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claims");
+        const csil_fv = try csil_required_field(m, "claims");
         if (csil_fv != .array) return error.WrongType;
         out.claims = try alloc.alloc(types.Claim, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -6740,16 +7876,19 @@ fn dec_LocalRpTicketRedemptionResponse(alloc: std.mem.Allocator, m: Value, out: 
         }
     }
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "user_domain");
+        const csil_fv = try csil_required_field(m, "user_domain");
         out.user_domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "ticket_expires_at");
-        out.ticket_expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "ticket_expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.ticket_expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
 }
 
@@ -6761,17 +7900,17 @@ fn enc_AdminLocalRp(out: *std.ArrayList(u8), v: *const types.AdminLocalRp) Codec
     if (v.local_domain_hint != null) csil_n += 1;
     try w_map_head(out, csil_n);
     try w_text(out, "status");
-    try w_text(out, v.status);
+    try enc_LocalRpStatus(out, &(v.status));
     try w_text(out, "app_name");
     try w_text(out, v.app_name);
     try w_text(out, "created_at");
-    try w_text(out, v.created_at);
+    try csil_w_timestamp(out, (v.created_at).rfc3339);
     if (v.expires_at) |csil_x| {
         try w_text(out, "expires_at");
-        try w_text(out, csil_x);
+        try csil_w_timestamp(out, (csil_x).rfc3339);
     }
     try w_text(out, "updated_at");
-    try w_text(out, v.updated_at);
+    try csil_w_timestamp(out, (v.updated_at).rfc3339);
     if (v.admin_notes) |csil_x| {
         try w_text(out, "admin_notes");
         try w_text(out, csil_x);
@@ -6780,7 +7919,7 @@ fn enc_AdminLocalRp(out: *std.ArrayList(u8), v: *const types.AdminLocalRp) Codec
     try w_text(out, v.fingerprint);
     if (v.last_seen_at) |csil_x| {
         try w_text(out, "last_seen_at");
-        try w_text(out, csil_x);
+        try csil_w_timestamp(out, (csil_x).rfc3339);
     }
     if (v.local_domain_hint) |csil_x| {
         try w_text(out, "local_domain_hint");
@@ -6793,30 +7932,38 @@ fn enc_AdminLocalRp(out: *std.ArrayList(u8), v: *const types.AdminLocalRp) Codec
 }
 
 fn dec_AdminLocalRp(alloc: std.mem.Allocator, m: Value, out: *types.AdminLocalRp) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "status");
-        out.status = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "status");
+        try dec_LocalRpStatus(alloc, csil_fv, &(out.status));
     }
     {
-        const csil_fv = try req(m, "app_name");
+        const csil_fv = try csil_required_field(m, "app_name");
         out.app_name = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "created_at");
-        out.created_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "created_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.created_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
         if (mget(m, "expires_at")) |csil_fv| {
-            out.expires_at = try as_text(csil_fv);
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
         } else {
             out.expires_at = null;
         }
     }
     {
-        const csil_fv = try req(m, "updated_at");
-        out.updated_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "updated_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.updated_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
         if (mget(m, "admin_notes")) |csil_fv| {
@@ -6826,12 +7973,15 @@ fn dec_AdminLocalRp(alloc: std.mem.Allocator, m: Value, out: *types.AdminLocalRp
         }
     }
     {
-        const csil_fv = try req(m, "fingerprint");
+        const csil_fv = try csil_required_field(m, "fingerprint");
         out.fingerprint = try as_text(csil_fv);
     }
     {
         if (mget(m, "last_seen_at")) |csil_fv| {
-            out.last_seen_at = try as_text(csil_fv);
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.last_seen_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
         } else {
             out.last_seen_at = null;
         }
@@ -6844,11 +7994,11 @@ fn dec_AdminLocalRp(alloc: std.mem.Allocator, m: Value, out: *types.AdminLocalRp
         }
     }
     {
-        const csil_fv = try req(m, "signing_public_key");
+        const csil_fv = try csil_required_field(m, "signing_public_key");
         out.signing_public_key = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "encryption_public_key");
+        const csil_fv = try csil_required_field(m, "encryption_public_key");
         out.encryption_public_key = try as_bytes(csil_fv);
     }
 }
@@ -6869,12 +8019,11 @@ fn enc_ListLocalRpsRequest(out: *std.ArrayList(u8), v: *const types.ListLocalRps
     }
     if (v.status) |csil_x| {
         try w_text(out, "status");
-        try w_text(out, csil_x);
+        try enc_LocalRpStatus(out, &(csil_x));
     }
 }
 
 fn dec_ListLocalRpsRequest(alloc: std.mem.Allocator, m: Value, out: *types.ListLocalRpsRequest) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
         if (mget(m, "limit")) |csil_fv| {
@@ -6892,7 +8041,9 @@ fn dec_ListLocalRpsRequest(alloc: std.mem.Allocator, m: Value, out: *types.ListL
     }
     {
         if (mget(m, "status")) |csil_fv| {
-            out.status = try as_text(csil_fv);
+            var csil_tmp: types.LocalRpStatus = undefined;
+            try dec_LocalRpStatus(alloc, csil_fv, &(csil_tmp));
+            out.status = csil_tmp;
         } else {
             out.status = null;
         }
@@ -6911,7 +8062,7 @@ fn enc_ListLocalRpsResponse(out: *std.ArrayList(u8), v: *const types.ListLocalRp
 fn dec_ListLocalRpsResponse(alloc: std.mem.Allocator, m: Value, out: *types.ListLocalRpsResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "local_rps");
+        const csil_fv = try csil_required_field(m, "local_rps");
         if (csil_fv != .array) return error.WrongType;
         out.local_rps = try alloc.alloc(types.AdminLocalRp, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -6930,7 +8081,7 @@ fn dec_GetLocalRpRequest(alloc: std.mem.Allocator, m: Value, out: *types.GetLoca
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "fingerprint");
+        const csil_fv = try csil_required_field(m, "fingerprint");
         out.fingerprint = try as_text(csil_fv);
     }
 }
@@ -6944,7 +8095,7 @@ fn enc_GetLocalRpResponse(out: *std.ArrayList(u8), v: *const types.GetLocalRpRes
 fn dec_GetLocalRpResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetLocalRpResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "local_rp");
+        const csil_fv = try csil_required_field(m, "local_rp");
         try dec_AdminLocalRp(alloc, csil_fv, &(out.local_rp));
     }
 }
@@ -6972,7 +8123,7 @@ fn dec_ApproveLocalRpRequest(alloc: std.mem.Allocator, m: Value, out: *types.App
         }
     }
     {
-        const csil_fv = try req(m, "fingerprint");
+        const csil_fv = try csil_required_field(m, "fingerprint");
         out.fingerprint = try as_text(csil_fv);
     }
 }
@@ -6986,7 +8137,7 @@ fn enc_ApproveLocalRpResponse(out: *std.ArrayList(u8), v: *const types.ApproveLo
 fn dec_ApproveLocalRpResponse(alloc: std.mem.Allocator, m: Value, out: *types.ApproveLocalRpResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "local_rp");
+        const csil_fv = try csil_required_field(m, "local_rp");
         try dec_AdminLocalRp(alloc, csil_fv, &(out.local_rp));
     }
 }
@@ -7014,7 +8165,7 @@ fn dec_DenyLocalRpRequest(alloc: std.mem.Allocator, m: Value, out: *types.DenyLo
         }
     }
     {
-        const csil_fv = try req(m, "fingerprint");
+        const csil_fv = try csil_required_field(m, "fingerprint");
         out.fingerprint = try as_text(csil_fv);
     }
 }
@@ -7028,7 +8179,7 @@ fn enc_DenyLocalRpResponse(out: *std.ArrayList(u8), v: *const types.DenyLocalRpR
 fn dec_DenyLocalRpResponse(alloc: std.mem.Allocator, m: Value, out: *types.DenyLocalRpResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "local_rp");
+        const csil_fv = try csil_required_field(m, "local_rp");
         try dec_AdminLocalRp(alloc, csil_fv, &(out.local_rp));
     }
 }
@@ -7056,7 +8207,7 @@ fn dec_RevokeLocalRpRequest(alloc: std.mem.Allocator, m: Value, out: *types.Revo
         }
     }
     {
-        const csil_fv = try req(m, "fingerprint");
+        const csil_fv = try csil_required_field(m, "fingerprint");
         out.fingerprint = try as_text(csil_fv);
     }
 }
@@ -7070,7 +8221,7 @@ fn enc_RevokeLocalRpResponse(out: *std.ArrayList(u8), v: *const types.RevokeLoca
 fn dec_RevokeLocalRpResponse(alloc: std.mem.Allocator, m: Value, out: *types.RevokeLocalRpResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "local_rp");
+        const csil_fv = try csil_required_field(m, "local_rp");
         try dec_AdminLocalRp(alloc, csil_fv, &(out.local_rp));
     }
 }
@@ -7089,45 +8240,42 @@ fn dec_GetLocalRpPolicyRequest(alloc: std.mem.Allocator, m: Value, out: *types.G
 fn enc_GetLocalRpPolicyResponse(out: *std.ArrayList(u8), v: *const types.GetLocalRpPolicyResponse) CodecError!void {
     try w_map_head(out, 1);
     try w_text(out, "policy");
-    try w_text(out, v.policy);
+    try enc_LocalRpPolicy(out, &(v.policy));
 }
 
 fn dec_GetLocalRpPolicyResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetLocalRpPolicyResponse) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "policy");
-        out.policy = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "policy");
+        try dec_LocalRpPolicy(alloc, csil_fv, &(out.policy));
     }
 }
 
 fn enc_SetLocalRpPolicyRequest(out: *std.ArrayList(u8), v: *const types.SetLocalRpPolicyRequest) CodecError!void {
     try w_map_head(out, 1);
     try w_text(out, "policy");
-    try w_text(out, v.policy);
+    try enc_LocalRpPolicy(out, &(v.policy));
 }
 
 fn dec_SetLocalRpPolicyRequest(alloc: std.mem.Allocator, m: Value, out: *types.SetLocalRpPolicyRequest) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "policy");
-        out.policy = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "policy");
+        try dec_LocalRpPolicy(alloc, csil_fv, &(out.policy));
     }
 }
 
 fn enc_SetLocalRpPolicyResponse(out: *std.ArrayList(u8), v: *const types.SetLocalRpPolicyResponse) CodecError!void {
     try w_map_head(out, 1);
     try w_text(out, "policy");
-    try w_text(out, v.policy);
+    try enc_LocalRpPolicy(out, &(v.policy));
 }
 
 fn dec_SetLocalRpPolicyResponse(alloc: std.mem.Allocator, m: Value, out: *types.SetLocalRpPolicyResponse) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "policy");
-        out.policy = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "policy");
+        try dec_LocalRpPolicy(alloc, csil_fv, &(out.policy));
     }
 }
 
@@ -7147,19 +8295,19 @@ fn dec_SignInPolicy(alloc: std.mem.Allocator, m: Value, out: *types.SignInPolicy
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "sign_in_hours");
+        const csil_fv = try csil_required_field(m, "sign_in_hours");
         out.sign_in_hours = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "max_sign_in_hours");
+        const csil_fv = try csil_required_field(m, "max_sign_in_hours");
         out.max_sign_in_hours = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "min_sign_in_hours");
+        const csil_fv = try csil_required_field(m, "min_sign_in_hours");
         out.min_sign_in_hours = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "default_sign_in_hours");
+        const csil_fv = try csil_required_field(m, "default_sign_in_hours");
         out.default_sign_in_hours = try as_i64(csil_fv);
     }
 }
@@ -7174,7 +8322,7 @@ fn dec_SetSignInPolicyRequest(alloc: std.mem.Allocator, m: Value, out: *types.Se
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "sign_in_hours");
+        const csil_fv = try csil_required_field(m, "sign_in_hours");
         out.sign_in_hours = try as_i64(csil_fv);
     }
 }
@@ -7191,11 +8339,11 @@ fn dec_SetUserPasswordLockRequest(alloc: std.mem.Allocator, m: Value, out: *type
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "locked");
+        const csil_fv = try csil_required_field(m, "locked");
         out.locked = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
 }
@@ -7209,7 +8357,7 @@ fn enc_SetUserPasswordLockResponse(out: *std.ArrayList(u8), v: *const types.SetU
 fn dec_SetUserPasswordLockResponse(alloc: std.mem.Allocator, m: Value, out: *types.SetUserPasswordLockResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user");
+        const csil_fv = try csil_required_field(m, "user");
         try dec_AdminUser(alloc, csil_fv, &(out.user));
     }
 }
@@ -7223,7 +8371,7 @@ fn enc_AppAccessTarget(out: *std.ArrayList(u8), v: *const types.AppAccessTarget)
     if (v.claim_operator != null) csil_n += 1;
     try w_map_head(out, csil_n);
     try w_text(out, "kind");
-    try w_text(out, v.kind);
+    try enc_AppAccessTargetKind(out, &(v.kind));
     if (v.user_id) |csil_x| {
         try w_text(out, "user_id");
         try w_text(out, csil_x);
@@ -7242,16 +8390,15 @@ fn enc_AppAccessTarget(out: *std.ArrayList(u8), v: *const types.AppAccessTarget)
     }
     if (v.claim_operator) |csil_x| {
         try w_text(out, "claim_operator");
-        try w_text(out, csil_x);
+        try enc_ClaimOperator(out, &(csil_x));
     }
 }
 
 fn dec_AppAccessTarget(alloc: std.mem.Allocator, m: Value, out: *types.AppAccessTarget) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "kind");
-        out.kind = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "kind");
+        try dec_AppAccessTargetKind(alloc, csil_fv, &(out.kind));
     }
     {
         if (mget(m, "user_id")) |csil_fv| {
@@ -7283,7 +8430,9 @@ fn dec_AppAccessTarget(alloc: std.mem.Allocator, m: Value, out: *types.AppAccess
     }
     {
         if (mget(m, "claim_operator")) |csil_fv| {
-            out.claim_operator = try as_text(csil_fv);
+            var csil_tmp: types.ClaimOperator = undefined;
+            try dec_ClaimOperator(alloc, csil_fv, &(csil_tmp));
+            out.claim_operator = csil_tmp;
         } else {
             out.claim_operator = null;
         }
@@ -7297,7 +8446,7 @@ fn enc_AppAccessPolicy(out: *std.ArrayList(u8), v: *const types.AppAccessPolicy)
     try w_text(out, "id");
     try w_text(out, v.id);
     try w_text(out, "mode");
-    try w_text(out, v.mode);
+    try enc_AppAccessMode(out, &(v.mode));
     try w_text(out, "name");
     try w_text(out, v.name);
     if (v.message) |csil_x| {
@@ -7319,15 +8468,15 @@ fn enc_AppAccessPolicy(out: *std.ArrayList(u8), v: *const types.AppAccessPolicy)
 fn dec_AppAccessPolicy(alloc: std.mem.Allocator, m: Value, out: *types.AppAccessPolicy) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "id");
+        const csil_fv = try csil_required_field(m, "id");
         out.id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "mode");
-        out.mode = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "mode");
+        try dec_AppAccessMode(alloc, csil_fv, &(out.mode));
     }
     {
-        const csil_fv = try req(m, "name");
+        const csil_fv = try csil_required_field(m, "name");
         out.name = try as_text(csil_fv);
     }
     {
@@ -7338,7 +8487,7 @@ fn dec_AppAccessPolicy(alloc: std.mem.Allocator, m: Value, out: *types.AppAccess
         }
     }
     {
-        const csil_fv = try req(m, "targets");
+        const csil_fv = try csil_required_field(m, "targets");
         if (csil_fv != .array) return error.WrongType;
         out.targets = try alloc.alloc(types.AppAccessTarget, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -7346,7 +8495,7 @@ fn dec_AppAccessPolicy(alloc: std.mem.Allocator, m: Value, out: *types.AppAccess
         }
     }
     {
-        const csil_fv = try req(m, "patterns");
+        const csil_fv = try csil_required_field(m, "patterns");
         if (csil_fv != .array) return error.WrongType;
         out.patterns = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -7367,7 +8516,7 @@ fn enc_ListAppAccessPoliciesResponse(out: *std.ArrayList(u8), v: *const types.Li
 fn dec_ListAppAccessPoliciesResponse(alloc: std.mem.Allocator, m: Value, out: *types.ListAppAccessPoliciesResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "policies");
+        const csil_fv = try csil_required_field(m, "policies");
         if (csil_fv != .array) return error.WrongType;
         out.policies = try alloc.alloc(types.AppAccessPolicy, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -7386,7 +8535,7 @@ fn enc_SetAppAccessPolicyRequest(out: *std.ArrayList(u8), v: *const types.SetApp
         try w_text(out, csil_x);
     }
     try w_text(out, "mode");
-    try w_text(out, v.mode);
+    try enc_AppAccessMode(out, &(v.mode));
     try w_text(out, "name");
     try w_text(out, v.name);
     if (v.message) |csil_x| {
@@ -7415,11 +8564,11 @@ fn dec_SetAppAccessPolicyRequest(alloc: std.mem.Allocator, m: Value, out: *types
         }
     }
     {
-        const csil_fv = try req(m, "mode");
-        out.mode = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "mode");
+        try dec_AppAccessMode(alloc, csil_fv, &(out.mode));
     }
     {
-        const csil_fv = try req(m, "name");
+        const csil_fv = try csil_required_field(m, "name");
         out.name = try as_text(csil_fv);
     }
     {
@@ -7430,7 +8579,7 @@ fn dec_SetAppAccessPolicyRequest(alloc: std.mem.Allocator, m: Value, out: *types
         }
     }
     {
-        const csil_fv = try req(m, "targets");
+        const csil_fv = try csil_required_field(m, "targets");
         if (csil_fv != .array) return error.WrongType;
         out.targets = try alloc.alloc(types.AppAccessTarget, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -7438,7 +8587,7 @@ fn dec_SetAppAccessPolicyRequest(alloc: std.mem.Allocator, m: Value, out: *types
         }
     }
     {
-        const csil_fv = try req(m, "patterns");
+        const csil_fv = try csil_required_field(m, "patterns");
         if (csil_fv != .array) return error.WrongType;
         out.patterns = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -7456,7 +8605,7 @@ fn enc_SetAppAccessPolicyResponse(out: *std.ArrayList(u8), v: *const types.SetAp
 fn dec_SetAppAccessPolicyResponse(alloc: std.mem.Allocator, m: Value, out: *types.SetAppAccessPolicyResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "policy");
+        const csil_fv = try csil_required_field(m, "policy");
         try dec_AppAccessPolicy(alloc, csil_fv, &(out.policy));
     }
 }
@@ -7471,7 +8620,7 @@ fn dec_RemoveAppAccessPolicyRequest(alloc: std.mem.Allocator, m: Value, out: *ty
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "id");
+        const csil_fv = try csil_required_field(m, "id");
         out.id = try as_text(csil_fv);
     }
 }
@@ -7486,7 +8635,7 @@ fn dec_RemoveAppAccessPolicyResponse(alloc: std.mem.Allocator, m: Value, out: *t
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "success");
+        const csil_fv = try csil_required_field(m, "success");
         out.success = try as_bool(csil_fv);
     }
 }
@@ -7514,7 +8663,7 @@ fn dec_PreviewAppAccessRequest(alloc: std.mem.Allocator, m: Value, out: *types.P
         }
     }
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
 }
@@ -7543,11 +8692,11 @@ fn enc_PreviewAppAccessResponse(out: *std.ArrayList(u8), v: *const types.Preview
 fn dec_PreviewAppAccessResponse(alloc: std.mem.Allocator, m: Value, out: *types.PreviewAppAccessResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "allowed");
+        const csil_fv = try csil_required_field(m, "allowed");
         out.allowed = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "messages");
+        const csil_fv = try csil_required_field(m, "messages");
         if (csil_fv != .array) return error.WrongType;
         out.messages = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -7555,7 +8704,7 @@ fn dec_PreviewAppAccessResponse(alloc: std.mem.Allocator, m: Value, out: *types.
         }
     }
     {
-        const csil_fv = try req(m, "applied_policies");
+        const csil_fv = try csil_required_field(m, "applied_policies");
         if (csil_fv != .array) return error.WrongType;
         out.applied_policies = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -7563,7 +8712,7 @@ fn dec_PreviewAppAccessResponse(alloc: std.mem.Allocator, m: Value, out: *types.
         }
     }
     {
-        const csil_fv = try req(m, "blocking_policies");
+        const csil_fv = try csil_required_field(m, "blocking_policies");
         if (csil_fv != .array) return error.WrongType;
         out.blocking_policies = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -7597,7 +8746,7 @@ fn dec_AppAccessDenial(alloc: std.mem.Allocator, m: Value, out: *types.AppAccess
         }
     }
     {
-        const csil_fv = try req(m, "messages");
+        const csil_fv = try csil_required_field(m, "messages");
         if (csil_fv != .array) return error.WrongType;
         out.messages = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -7627,7 +8776,7 @@ fn dec_PurgeLocalRpTicketsResponse(alloc: std.mem.Allocator, m: Value, out: *typ
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "purged_count");
+        const csil_fv = try csil_required_field(m, "purged_count");
         out.purged_count = try as_i64(csil_fv);
     }
 }
@@ -7670,15 +8819,8 @@ fn enc_TranslationsResponse(out: *std.ArrayList(u8), v: *const types.Translation
     try w_map_head(out, 3);
     try w_text(out, "locale");
     try w_text(out, v.locale);
-    {
-        try w_text(out, "messages");
-        try w_map_head(out, v.messages.count());
-        var csil_mi = v.messages.iterator();
-        while (csil_mi.next()) |csil_e| {
-            try w_text(out, csil_e.key_ptr.*);
-            try w_text(out, csil_e.value_ptr.*);
-        }
-    }
+    try w_text(out, "messages");
+    try csil_enc_map_36c5142d213547ff(out, &(v.messages));
     try w_text(out, "available_locales");
     try w_array_head(out, v.available_locales.len);
     for (v.available_locales) |csil_it| {
@@ -7689,22 +8831,15 @@ fn enc_TranslationsResponse(out: *std.ArrayList(u8), v: *const types.Translation
 fn dec_TranslationsResponse(alloc: std.mem.Allocator, m: Value, out: *types.TranslationsResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "locale");
+        const csil_fv = try csil_required_field(m, "locale");
         out.locale = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "messages");
-        if (csil_fv != .map) return error.WrongType;
-        out.messages = .{};
-        for (csil_fv.map) |csil_kv| {
-            const csil_k = try as_text(csil_kv.key);
-            var csil_val: []const u8 = undefined;
-            csil_val = try as_text(csil_kv.val);
-            try out.messages.put(alloc, csil_k, csil_val);
-        }
+        const csil_fv = try csil_required_field(m, "messages");
+        try csil_dec_map_36c5142d213547ff(alloc, csil_fv, &(out.messages));
     }
     {
-        const csil_fv = try req(m, "available_locales");
+        const csil_fv = try csil_required_field(m, "available_locales");
         if (csil_fv != .array) return error.WrongType;
         out.available_locales = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -7725,7 +8860,7 @@ fn enc_ListLocalesResponse(out: *std.ArrayList(u8), v: *const types.ListLocalesR
 fn dec_ListLocalesResponse(alloc: std.mem.Allocator, m: Value, out: *types.ListLocalesResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "available_locales");
+        const csil_fv = try csil_required_field(m, "available_locales");
         if (csil_fv != .array) return error.WrongType;
         out.available_locales = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -7746,11 +8881,11 @@ fn dec_ApplicationKeySignature(alloc: std.mem.Allocator, m: Value, out: *types.A
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "signature");
+        const csil_fv = try csil_required_field(m, "signature");
         out.signature = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signed_by_key_id");
+        const csil_fv = try csil_required_field(m, "signed_by_key_id");
         out.signed_by_key_id = try as_text(csil_fv);
     }
 }
@@ -7760,13 +8895,13 @@ fn enc_ApplicationKeyAttestation(out: *std.ArrayList(u8), v: *const types.Applic
     try w_text(out, "key_id");
     try w_text(out, v.key_id);
     try w_text(out, "algorithm");
-    try w_text(out, v.algorithm);
+    try enc_KeyAlgorithm(out, &(v.algorithm));
     try w_text(out, "key_usage");
-    try w_text(out, v.key_usage);
+    try enc_KeyUsage(out, &(v.key_usage));
     try w_text(out, "public_key");
     try w_bytes(out, v.public_key);
     try w_text(out, "attested_at");
-    try w_text(out, v.attested_at);
+    try csil_w_timestamp(out, (v.attested_at).rfc3339);
     try w_text(out, "fingerprint");
     try w_text(out, v.fingerprint);
     try w_text(out, "instance_id");
@@ -7774,71 +8909,82 @@ fn enc_ApplicationKeyAttestation(out: *std.ArrayList(u8), v: *const types.Applic
     try w_text(out, "application_id");
     try w_text(out, v.application_id);
     try w_text(out, "key_created_at");
-    try w_text(out, v.key_created_at);
+    try csil_w_timestamp(out, (v.key_created_at).rfc3339);
     try w_text(out, "key_expires_at");
-    try w_text(out, v.key_expires_at);
+    try csil_w_timestamp(out, (v.key_expires_at).rfc3339);
     try w_text(out, "subject_domain");
     try w_text(out, v.subject_domain);
     try w_text(out, "subject_user_id");
     try w_text(out, v.subject_user_id);
     try w_text(out, "attestation_expires_at");
-    try w_text(out, v.attestation_expires_at);
+    try csil_w_timestamp(out, (v.attestation_expires_at).rfc3339);
 }
 
 fn dec_ApplicationKeyAttestation(alloc: std.mem.Allocator, m: Value, out: *types.ApplicationKeyAttestation) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "key_id");
+        const csil_fv = try csil_required_field(m, "key_id");
         out.key_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "algorithm");
-        out.algorithm = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "algorithm");
+        try dec_KeyAlgorithm(alloc, csil_fv, &(out.algorithm));
     }
     {
-        const csil_fv = try req(m, "key_usage");
-        out.key_usage = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "key_usage");
+        try dec_KeyUsage(alloc, csil_fv, &(out.key_usage));
     }
     {
-        const csil_fv = try req(m, "public_key");
+        const csil_fv = try csil_required_field(m, "public_key");
         out.public_key = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "attested_at");
-        out.attested_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "attested_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.attested_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "fingerprint");
+        const csil_fv = try csil_required_field(m, "fingerprint");
         out.fingerprint = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "instance_id");
+        const csil_fv = try csil_required_field(m, "instance_id");
         out.instance_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "application_id");
+        const csil_fv = try csil_required_field(m, "application_id");
         out.application_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "key_created_at");
-        out.key_created_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "key_created_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.key_created_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "key_expires_at");
-        out.key_expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "key_expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.key_expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "subject_domain");
+        const csil_fv = try csil_required_field(m, "subject_domain");
         out.subject_domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_user_id");
+        const csil_fv = try csil_required_field(m, "subject_user_id");
         out.subject_user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "attestation_expires_at");
-        out.attestation_expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "attestation_expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.attestation_expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
 }
 
@@ -7856,7 +9002,7 @@ fn enc_SignedApplicationKeyAttestation(out: *std.ArrayList(u8), v: *const types.
 fn dec_SignedApplicationKeyAttestation(alloc: std.mem.Allocator, m: Value, out: *types.SignedApplicationKeyAttestation) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "signatures");
+        const csil_fv = try csil_required_field(m, "signatures");
         if (csil_fv != .array) return error.WrongType;
         out.signatures = try alloc.alloc(types.ClaimSignature, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -7864,7 +9010,7 @@ fn dec_SignedApplicationKeyAttestation(alloc: std.mem.Allocator, m: Value, out: 
         }
     }
     {
-        const csil_fv = try req(m, "attestation");
+        const csil_fv = try csil_required_field(m, "attestation");
         out.attestation = try as_bytes(csil_fv);
     }
 }
@@ -7874,13 +9020,13 @@ fn enc_ApplicationKeyAddition(out: *std.ArrayList(u8), v: *const types.Applicati
     try w_text(out, "key_id");
     try w_text(out, v.key_id);
     try w_text(out, "algorithm");
-    try w_text(out, v.algorithm);
+    try enc_KeyAlgorithm(out, &(v.algorithm));
     try w_text(out, "challenge");
     try w_bytes(out, v.challenge);
     try w_text(out, "key_usage");
-    try w_text(out, v.key_usage);
+    try enc_KeyUsage(out, &(v.key_usage));
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     try w_text(out, "public_key");
     try w_bytes(out, v.public_key);
     try w_text(out, "fingerprint");
@@ -7890,7 +9036,7 @@ fn enc_ApplicationKeyAddition(out: *std.ArrayList(u8), v: *const types.Applicati
     try w_text(out, "challenge_id");
     try w_text(out, v.challenge_id);
     try w_text(out, "requested_at");
-    try w_text(out, v.requested_at);
+    try csil_w_timestamp(out, (v.requested_at).rfc3339);
     try w_text(out, "application_id");
     try w_text(out, v.application_id);
     try w_text(out, "subject_domain");
@@ -7902,62 +9048,67 @@ fn enc_ApplicationKeyAddition(out: *std.ArrayList(u8), v: *const types.Applicati
 }
 
 fn dec_ApplicationKeyAddition(alloc: std.mem.Allocator, m: Value, out: *types.ApplicationKeyAddition) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "key_id");
+        const csil_fv = try csil_required_field(m, "key_id");
         out.key_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "algorithm");
-        out.algorithm = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "algorithm");
+        try dec_KeyAlgorithm(alloc, csil_fv, &(out.algorithm));
     }
     {
-        const csil_fv = try req(m, "challenge");
+        const csil_fv = try csil_required_field(m, "challenge");
         out.challenge = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "key_usage");
-        out.key_usage = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "key_usage");
+        try dec_KeyUsage(alloc, csil_fv, &(out.key_usage));
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "public_key");
+        const csil_fv = try csil_required_field(m, "public_key");
         out.public_key = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "fingerprint");
+        const csil_fv = try csil_required_field(m, "fingerprint");
         out.fingerprint = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "instance_id");
+        const csil_fv = try csil_required_field(m, "instance_id");
         out.instance_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "challenge_id");
+        const csil_fv = try csil_required_field(m, "challenge_id");
         out.challenge_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "requested_at");
-        out.requested_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "requested_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.requested_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "application_id");
+        const csil_fv = try csil_required_field(m, "application_id");
         out.application_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_domain");
+        const csil_fv = try csil_required_field(m, "subject_domain");
         out.subject_domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_user_id");
+        const csil_fv = try csil_required_field(m, "subject_user_id");
         out.subject_user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "requested_key_lifetime_seconds");
+        const csil_fv = try csil_required_field(m, "requested_key_lifetime_seconds");
         out.requested_key_lifetime_seconds = try as_i64(csil_fv);
     }
 }
@@ -7982,11 +9133,11 @@ fn enc_SignedApplicationKeyAddition(out: *std.ArrayList(u8), v: *const types.Sig
 fn dec_SignedApplicationKeyAddition(alloc: std.mem.Allocator, m: Value, out: *types.SignedApplicationKeyAddition) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "addition");
+        const csil_fv = try csil_required_field(m, "addition");
         out.addition = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signatures");
+        const csil_fv = try csil_required_field(m, "signatures");
         if (csil_fv != .array) return error.WrongType;
         out.signatures = try alloc.alloc(types.ApplicationKeySignature, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -8009,13 +9160,13 @@ fn enc_ApplicationKeyRenewal(out: *std.ArrayList(u8), v: *const types.Applicatio
     try w_text(out, "challenge");
     try w_bytes(out, v.challenge);
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     try w_text(out, "instance_id");
     try w_text(out, v.instance_id);
     try w_text(out, "challenge_id");
     try w_text(out, v.challenge_id);
     try w_text(out, "requested_at");
-    try w_text(out, v.requested_at);
+    try csil_w_timestamp(out, (v.requested_at).rfc3339);
     try w_text(out, "application_id");
     try w_text(out, v.application_id);
     try w_text(out, "subject_domain");
@@ -8025,42 +9176,47 @@ fn enc_ApplicationKeyRenewal(out: *std.ArrayList(u8), v: *const types.Applicatio
 }
 
 fn dec_ApplicationKeyRenewal(alloc: std.mem.Allocator, m: Value, out: *types.ApplicationKeyRenewal) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "key_id");
+        const csil_fv = try csil_required_field(m, "key_id");
         out.key_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "challenge");
+        const csil_fv = try csil_required_field(m, "challenge");
         out.challenge = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "instance_id");
+        const csil_fv = try csil_required_field(m, "instance_id");
         out.instance_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "challenge_id");
+        const csil_fv = try csil_required_field(m, "challenge_id");
         out.challenge_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "requested_at");
-        out.requested_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "requested_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.requested_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "application_id");
+        const csil_fv = try csil_required_field(m, "application_id");
         out.application_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_domain");
+        const csil_fv = try csil_required_field(m, "subject_domain");
         out.subject_domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_user_id");
+        const csil_fv = try csil_required_field(m, "subject_user_id");
         out.subject_user_id = try as_text(csil_fv);
     }
 }
@@ -8085,11 +9241,11 @@ fn enc_SignedApplicationKeyRenewal(out: *std.ArrayList(u8), v: *const types.Sign
 fn dec_SignedApplicationKeyRenewal(alloc: std.mem.Allocator, m: Value, out: *types.SignedApplicationKeyRenewal) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "renewal");
+        const csil_fv = try csil_required_field(m, "renewal");
         out.renewal = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signatures");
+        const csil_fv = try csil_required_field(m, "signatures");
         if (csil_fv != .array) return error.WrongType;
         out.signatures = try alloc.alloc(types.ApplicationKeySignature, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -8108,7 +9264,7 @@ fn dec_SignedApplicationKeyRenewal(alloc: std.mem.Allocator, m: Value, out: *typ
 fn enc_ApplicationKeyRevocation(out: *std.ArrayList(u8), v: *const types.ApplicationKeyRevocation) CodecError!void {
     try w_map_head(out, 8);
     try w_text(out, "revoked_at");
-    try w_text(out, v.revoked_at);
+    try csil_w_timestamp(out, (v.revoked_at).rfc3339);
     try w_text(out, "signatures");
     try w_array_head(out, v.signatures.len);
     for (v.signatures) |csil_it| {
@@ -8131,11 +9287,14 @@ fn enc_ApplicationKeyRevocation(out: *std.ArrayList(u8), v: *const types.Applica
 fn dec_ApplicationKeyRevocation(alloc: std.mem.Allocator, m: Value, out: *types.ApplicationKeyRevocation) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "revoked_at");
-        out.revoked_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "revoked_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.revoked_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "signatures");
+        const csil_fv = try csil_required_field(m, "signatures");
         if (csil_fv != .array) return error.WrongType;
         out.signatures = try alloc.alloc(types.ApplicationKeySignature, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -8143,27 +9302,27 @@ fn dec_ApplicationKeyRevocation(alloc: std.mem.Allocator, m: Value, out: *types.
         }
     }
     {
-        const csil_fv = try req(m, "instance_id");
+        const csil_fv = try csil_required_field(m, "instance_id");
         out.instance_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "target_key_id");
+        const csil_fv = try csil_required_field(m, "target_key_id");
         out.target_key_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "application_id");
+        const csil_fv = try csil_required_field(m, "application_id");
         out.application_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_domain");
+        const csil_fv = try csil_required_field(m, "subject_domain");
         out.subject_domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_user_id");
+        const csil_fv = try csil_required_field(m, "subject_user_id");
         out.subject_user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "target_fingerprint");
+        const csil_fv = try csil_required_field(m, "target_fingerprint");
         out.target_fingerprint = try as_text(csil_fv);
     }
 }
@@ -8171,11 +9330,11 @@ fn dec_ApplicationKeyRevocation(alloc: std.mem.Allocator, m: Value, out: *types.
 fn enc_StartApplicationKeyChallengeRequest(out: *std.ArrayList(u8), v: *const types.StartApplicationKeyChallengeRequest) CodecError!void {
     try w_map_head(out, 7);
     try w_text(out, "purpose");
-    try w_text(out, v.purpose);
+    try enc_ApplicationKeyChallengePurpose(out, &(v.purpose));
     try w_text(out, "algorithm");
-    try w_text(out, v.algorithm);
+    try enc_KeyAlgorithm(out, &(v.algorithm));
     try w_text(out, "key_usage");
-    try w_text(out, v.key_usage);
+    try enc_KeyUsage(out, &(v.key_usage));
     try w_text(out, "public_key");
     try w_bytes(out, v.public_key);
     try w_text(out, "instance_id");
@@ -8187,34 +9346,33 @@ fn enc_StartApplicationKeyChallengeRequest(out: *std.ArrayList(u8), v: *const ty
 }
 
 fn dec_StartApplicationKeyChallengeRequest(alloc: std.mem.Allocator, m: Value, out: *types.StartApplicationKeyChallengeRequest) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "purpose");
-        out.purpose = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "purpose");
+        try dec_ApplicationKeyChallengePurpose(alloc, csil_fv, &(out.purpose));
     }
     {
-        const csil_fv = try req(m, "algorithm");
-        out.algorithm = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "algorithm");
+        try dec_KeyAlgorithm(alloc, csil_fv, &(out.algorithm));
     }
     {
-        const csil_fv = try req(m, "key_usage");
-        out.key_usage = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "key_usage");
+        try dec_KeyUsage(alloc, csil_fv, &(out.key_usage));
     }
     {
-        const csil_fv = try req(m, "public_key");
+        const csil_fv = try csil_required_field(m, "public_key");
         out.public_key = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "instance_id");
+        const csil_fv = try csil_required_field(m, "instance_id");
         out.instance_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "application_id");
+        const csil_fv = try csil_required_field(m, "application_id");
         out.application_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_user_id");
+        const csil_fv = try csil_required_field(m, "subject_user_id");
         out.subject_user_id = try as_text(csil_fv);
     }
 }
@@ -8229,7 +9387,7 @@ fn enc_StartApplicationKeyChallengeResponse(out: *std.ArrayList(u8), v: *const t
         try w_bytes(out, csil_x);
     }
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     try w_text(out, "challenge_id");
     try w_text(out, v.challenge_id);
     if (v.sealed_challenge) |csil_x| {
@@ -8239,7 +9397,6 @@ fn enc_StartApplicationKeyChallengeResponse(out: *std.ArrayList(u8), v: *const t
 }
 
 fn dec_StartApplicationKeyChallengeResponse(alloc: std.mem.Allocator, m: Value, out: *types.StartApplicationKeyChallengeResponse) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
         if (mget(m, "challenge")) |csil_fv| {
@@ -8249,11 +9406,14 @@ fn dec_StartApplicationKeyChallengeResponse(alloc: std.mem.Allocator, m: Value, 
         }
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "challenge_id");
+        const csil_fv = try csil_required_field(m, "challenge_id");
         out.challenge_id = try as_text(csil_fv);
     }
     {
@@ -8274,7 +9434,7 @@ fn enc_AddApplicationKeyRequest(out: *std.ArrayList(u8), v: *const types.AddAppl
 fn dec_AddApplicationKeyRequest(alloc: std.mem.Allocator, m: Value, out: *types.AddApplicationKeyRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "request");
+        const csil_fv = try csil_required_field(m, "request");
         try dec_SignedApplicationKeyAddition(alloc, csil_fv, &(out.request));
     }
 }
@@ -8288,7 +9448,7 @@ fn enc_AddApplicationKeyResponse(out: *std.ArrayList(u8), v: *const types.AddApp
 fn dec_AddApplicationKeyResponse(alloc: std.mem.Allocator, m: Value, out: *types.AddApplicationKeyResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "attestation");
+        const csil_fv = try csil_required_field(m, "attestation");
         try dec_SignedApplicationKeyAttestation(alloc, csil_fv, &(out.attestation));
     }
 }
@@ -8302,7 +9462,7 @@ fn enc_RenewApplicationKeyAttestationRequest(out: *std.ArrayList(u8), v: *const 
 fn dec_RenewApplicationKeyAttestationRequest(alloc: std.mem.Allocator, m: Value, out: *types.RenewApplicationKeyAttestationRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "request");
+        const csil_fv = try csil_required_field(m, "request");
         try dec_SignedApplicationKeyRenewal(alloc, csil_fv, &(out.request));
     }
 }
@@ -8318,11 +9478,11 @@ fn enc_RenewApplicationKeyAttestationResponse(out: *std.ArrayList(u8), v: *const
 fn dec_RenewApplicationKeyAttestationResponse(alloc: std.mem.Allocator, m: Value, out: *types.RenewApplicationKeyAttestationResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "signed");
+        const csil_fv = try csil_required_field(m, "signed");
         out.signed = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "attestation");
+        const csil_fv = try csil_required_field(m, "attestation");
         try dec_SignedApplicationKeyAttestation(alloc, csil_fv, &(out.attestation));
     }
 }
@@ -8336,7 +9496,7 @@ fn enc_RevokeApplicationKeyRequest(out: *std.ArrayList(u8), v: *const types.Revo
 fn dec_RevokeApplicationKeyRequest(alloc: std.mem.Allocator, m: Value, out: *types.RevokeApplicationKeyRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "revocation");
+        const csil_fv = try csil_required_field(m, "revocation");
         try dec_ApplicationKeyRevocation(alloc, csil_fv, &(out.revocation));
     }
 }
@@ -8344,15 +9504,17 @@ fn dec_RevokeApplicationKeyRequest(alloc: std.mem.Allocator, m: Value, out: *typ
 fn enc_RevokeApplicationKeyResponse(out: *std.ArrayList(u8), v: *const types.RevokeApplicationKeyResponse) CodecError!void {
     try w_map_head(out, 1);
     try w_text(out, "revoked_at");
-    try w_text(out, v.revoked_at);
+    try csil_w_timestamp(out, (v.revoked_at).rfc3339);
 }
 
 fn dec_RevokeApplicationKeyResponse(alloc: std.mem.Allocator, m: Value, out: *types.RevokeApplicationKeyResponse) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "revoked_at");
-        out.revoked_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "revoked_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.revoked_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
 }
 
@@ -8372,7 +9534,7 @@ fn enc_EnrollApplicationInstanceRequest(out: *std.ArrayList(u8), v: *const types
 fn dec_EnrollApplicationInstanceRequest(alloc: std.mem.Allocator, m: Value, out: *types.EnrollApplicationInstanceRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "keys");
+        const csil_fv = try csil_required_field(m, "keys");
         if (csil_fv != .array) return error.WrongType;
         out.keys = try alloc.alloc(types.SignedApplicationKeyAddition, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -8380,11 +9542,11 @@ fn dec_EnrollApplicationInstanceRequest(alloc: std.mem.Allocator, m: Value, out:
         }
     }
     {
-        const csil_fv = try req(m, "instance_id");
+        const csil_fv = try csil_required_field(m, "instance_id");
         out.instance_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "application_id");
+        const csil_fv = try csil_required_field(m, "application_id");
         out.application_id = try as_text(csil_fv);
     }
 }
@@ -8409,11 +9571,11 @@ fn enc_EnrollApplicationInstanceResponse(out: *std.ArrayList(u8), v: *const type
 fn dec_EnrollApplicationInstanceResponse(alloc: std.mem.Allocator, m: Value, out: *types.EnrollApplicationInstanceResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "instance_id");
+        const csil_fv = try csil_required_field(m, "instance_id");
         out.instance_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "attestations");
+        const csil_fv = try csil_required_field(m, "attestations");
         if (csil_fv != .array) return error.WrongType;
         out.attestations = try alloc.alloc(types.SignedApplicationKeyAttestation, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -8421,15 +9583,15 @@ fn dec_EnrollApplicationInstanceResponse(alloc: std.mem.Allocator, m: Value, out
         }
     }
     {
-        const csil_fv = try req(m, "application_id");
+        const csil_fv = try csil_required_field(m, "application_id");
         out.application_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_domain");
+        const csil_fv = try csil_required_field(m, "subject_domain");
         out.subject_domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_user_id");
+        const csil_fv = try csil_required_field(m, "subject_user_id");
         out.subject_user_id = try as_text(csil_fv);
     }
 }
@@ -8448,15 +9610,15 @@ fn dec_GetApplicationKeysRequest(alloc: std.mem.Allocator, m: Value, out: *types
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "instance_id");
+        const csil_fv = try csil_required_field(m, "instance_id");
         out.instance_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "application_id");
+        const csil_fv = try csil_required_field(m, "application_id");
         out.application_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_user_id");
+        const csil_fv = try csil_required_field(m, "subject_user_id");
         out.subject_user_id = try as_text(csil_fv);
     }
 }
@@ -8486,7 +9648,7 @@ fn enc_GetApplicationKeysResponse(out: *std.ArrayList(u8), v: *const types.GetAp
 fn dec_GetApplicationKeysResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetApplicationKeysResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "keys");
+        const csil_fv = try csil_required_field(m, "keys");
         if (csil_fv != .array) return error.WrongType;
         out.keys = try alloc.alloc(types.SignedApplicationKeyAttestation, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -8494,11 +9656,11 @@ fn dec_GetApplicationKeysResponse(alloc: std.mem.Allocator, m: Value, out: *type
         }
     }
     {
-        const csil_fv = try req(m, "instance_id");
+        const csil_fv = try csil_required_field(m, "instance_id");
         out.instance_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "revocations");
+        const csil_fv = try csil_required_field(m, "revocations");
         if (csil_fv != .array) return error.WrongType;
         out.revocations = try alloc.alloc(types.ApplicationKeyRevocation, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -8506,15 +9668,15 @@ fn dec_GetApplicationKeysResponse(alloc: std.mem.Allocator, m: Value, out: *type
         }
     }
     {
-        const csil_fv = try req(m, "application_id");
+        const csil_fv = try csil_required_field(m, "application_id");
         out.application_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_domain");
+        const csil_fv = try csil_required_field(m, "subject_domain");
         out.subject_domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_user_id");
+        const csil_fv = try csil_required_field(m, "subject_user_id");
         out.subject_user_id = try as_text(csil_fv);
     }
 }
@@ -8535,7 +9697,7 @@ fn dec_RpResolveDomainKeysRequest(alloc: std.mem.Allocator, m: Value, out: *type
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "domain");
+        const csil_fv = try csil_required_field(m, "domain");
         out.domain = try as_text(csil_fv);
     }
     {
@@ -8557,22 +9719,22 @@ fn enc_RpResolveDomainKeysResponse(out: *std.ArrayList(u8), v: *const types.RpRe
     try w_text(out, "domain");
     try w_text(out, v.domain);
     try w_text(out, "fetched_at");
-    try w_text(out, v.fetched_at);
+    try csil_w_timestamp(out, (v.fetched_at).rfc3339);
     try w_text(out, "revocations");
     try w_array_head(out, v.revocations.len);
     for (v.revocations) |csil_it| {
         try enc_RevocationCertificate(out, &(csil_it));
     }
     try w_text(out, "cache_status");
-    try w_text(out, v.cache_status);
+    try enc_RpCacheStatus(out, &(v.cache_status));
     try w_text(out, "revocations_checked_at");
-    try w_text(out, v.revocations_checked_at);
+    try csil_w_timestamp(out, (v.revocations_checked_at).rfc3339);
 }
 
 fn dec_RpResolveDomainKeysResponse(alloc: std.mem.Allocator, m: Value, out: *types.RpResolveDomainKeysResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "keys");
+        const csil_fv = try csil_required_field(m, "keys");
         if (csil_fv != .array) return error.WrongType;
         out.keys = try alloc.alloc(types.DomainPublicKey, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -8580,15 +9742,18 @@ fn dec_RpResolveDomainKeysResponse(alloc: std.mem.Allocator, m: Value, out: *typ
         }
     }
     {
-        const csil_fv = try req(m, "domain");
+        const csil_fv = try csil_required_field(m, "domain");
         out.domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "fetched_at");
-        out.fetched_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "fetched_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.fetched_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "revocations");
+        const csil_fv = try csil_required_field(m, "revocations");
         if (csil_fv != .array) return error.WrongType;
         out.revocations = try alloc.alloc(types.RevocationCertificate, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -8596,12 +9761,15 @@ fn dec_RpResolveDomainKeysResponse(alloc: std.mem.Allocator, m: Value, out: *typ
         }
     }
     {
-        const csil_fv = try req(m, "cache_status");
-        out.cache_status = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "cache_status");
+        try dec_RpCacheStatus(alloc, csil_fv, &(out.cache_status));
     }
     {
-        const csil_fv = try req(m, "revocations_checked_at");
-        out.revocations_checked_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "revocations_checked_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.revocations_checked_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
 }
 
@@ -8627,19 +9795,19 @@ fn dec_RpResolveApplicationKeysRequest(alloc: std.mem.Allocator, m: Value, out: 
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "instance_id");
+        const csil_fv = try csil_required_field(m, "instance_id");
         out.instance_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "application_id");
+        const csil_fv = try csil_required_field(m, "application_id");
         out.application_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_domain");
+        const csil_fv = try csil_required_field(m, "subject_domain");
         out.subject_domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_user_id");
+        const csil_fv = try csil_required_field(m, "subject_user_id");
         out.subject_user_id = try as_text(csil_fv);
     }
     {
@@ -8654,11 +9822,11 @@ fn dec_RpResolveApplicationKeysRequest(alloc: std.mem.Allocator, m: Value, out: 
 fn enc_RpResolveApplicationKeysResponse(out: *std.ArrayList(u8), v: *const types.RpResolveApplicationKeysResponse) CodecError!void {
     try w_map_head(out, 11);
     try w_text(out, "fetched_at");
-    try w_text(out, v.fetched_at);
+    try csil_w_timestamp(out, (v.fetched_at).rfc3339);
     try w_text(out, "instance_id");
     try w_text(out, v.instance_id);
     try w_text(out, "cache_status");
-    try w_text(out, v.cache_status);
+    try enc_RpCacheStatus(out, &(v.cache_status));
     try w_text(out, "application_id");
     try w_text(out, v.application_id);
     try w_text(out, "subject_domain");
@@ -8676,7 +9844,7 @@ fn enc_RpResolveApplicationKeysResponse(out: *std.ArrayList(u8), v: *const types
         try enc_DomainPublicKey(out, &(csil_it));
     }
     try w_text(out, "revocations_checked_at");
-    try w_text(out, v.revocations_checked_at);
+    try csil_w_timestamp(out, (v.revocations_checked_at).rfc3339);
     try w_text(out, "application_key_revocations");
     try w_array_head(out, v.application_key_revocations.len);
     for (v.application_key_revocations) |csil_it| {
@@ -8692,31 +9860,34 @@ fn enc_RpResolveApplicationKeysResponse(out: *std.ArrayList(u8), v: *const types
 fn dec_RpResolveApplicationKeysResponse(alloc: std.mem.Allocator, m: Value, out: *types.RpResolveApplicationKeysResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "fetched_at");
-        out.fetched_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "fetched_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.fetched_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "instance_id");
+        const csil_fv = try csil_required_field(m, "instance_id");
         out.instance_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "cache_status");
-        out.cache_status = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "cache_status");
+        try dec_RpCacheStatus(alloc, csil_fv, &(out.cache_status));
     }
     {
-        const csil_fv = try req(m, "application_id");
+        const csil_fv = try csil_required_field(m, "application_id");
         out.application_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_domain");
+        const csil_fv = try csil_required_field(m, "subject_domain");
         out.subject_domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_user_id");
+        const csil_fv = try csil_required_field(m, "subject_user_id");
         out.subject_user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "application_keys");
+        const csil_fv = try csil_required_field(m, "application_keys");
         if (csil_fv != .array) return error.WrongType;
         out.application_keys = try alloc.alloc(types.SignedApplicationKeyAttestation, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -8724,7 +9895,7 @@ fn dec_RpResolveApplicationKeysResponse(alloc: std.mem.Allocator, m: Value, out:
         }
     }
     {
-        const csil_fv = try req(m, "home_domain_keys");
+        const csil_fv = try csil_required_field(m, "home_domain_keys");
         if (csil_fv != .array) return error.WrongType;
         out.home_domain_keys = try alloc.alloc(types.DomainPublicKey, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -8732,11 +9903,14 @@ fn dec_RpResolveApplicationKeysResponse(alloc: std.mem.Allocator, m: Value, out:
         }
     }
     {
-        const csil_fv = try req(m, "revocations_checked_at");
-        out.revocations_checked_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "revocations_checked_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.revocations_checked_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "application_key_revocations");
+        const csil_fv = try csil_required_field(m, "application_key_revocations");
         if (csil_fv != .array) return error.WrongType;
         out.application_key_revocations = try alloc.alloc(types.ApplicationKeyRevocation, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -8744,7 +9918,7 @@ fn dec_RpResolveApplicationKeysResponse(alloc: std.mem.Allocator, m: Value, out:
         }
     }
     {
-        const csil_fv = try req(m, "home_domain_key_revocations");
+        const csil_fv = try csil_required_field(m, "home_domain_key_revocations");
         if (csil_fv != .array) return error.WrongType;
         out.home_domain_key_revocations = try alloc.alloc(types.RevocationCertificate, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -8767,15 +9941,15 @@ fn dec_ApplicationRef(alloc: std.mem.Allocator, m: Value, out: *types.Applicatio
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "application_id");
+        const csil_fv = try csil_required_field(m, "application_id");
         out.application_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_domain");
+        const csil_fv = try csil_required_field(m, "subject_domain");
         out.subject_domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_user_id");
+        const csil_fv = try csil_required_field(m, "subject_user_id");
         out.subject_user_id = try as_text(csil_fv);
     }
 }
@@ -8800,7 +9974,7 @@ fn dec_GranteeRef(alloc: std.mem.Allocator, m: Value, out: *types.GranteeRef) Co
     {
         if (mget(m, "application")) |csil_fv| {
             var csil_tmp: types.ApplicationRef = undefined;
-            try dec_ApplicationRef(alloc, csil_fv, &csil_tmp);
+            try dec_ApplicationRef(alloc, csil_fv, &(csil_tmp));
             out.application = csil_tmp;
         } else {
             out.application = null;
@@ -8835,13 +10009,13 @@ fn enc_GranteeProof(out: *std.ArrayList(u8), v: *const types.GranteeProof) Codec
 fn dec_GranteeProof(alloc: std.mem.Allocator, m: Value, out: *types.GranteeProof) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "signature");
+        const csil_fv = try csil_required_field(m, "signature");
         try dec_ApplicationKeySignature(alloc, csil_fv, &(out.signature));
     }
     {
         if (mget(m, "local_rp_descriptor")) |csil_fv| {
             var csil_tmp: types.SignedLocalRpDescriptor = undefined;
-            try dec_SignedLocalRpDescriptor(alloc, csil_fv, &csil_tmp);
+            try dec_SignedLocalRpDescriptor(alloc, csil_fv, &(csil_tmp));
             out.local_rp_descriptor = csil_tmp;
         } else {
             out.local_rp_descriptor = null;
@@ -8872,7 +10046,7 @@ fn dec_ActAsScopeEntry(alloc: std.mem.Allocator, m: Value, out: *types.ActAsScop
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "scope");
+        const csil_fv = try csil_required_field(m, "scope");
         out.scope = try as_text(csil_fv);
     }
     {
@@ -8903,9 +10077,9 @@ fn enc_ActAsScopeSet(out: *std.ArrayList(u8), v: *const types.ActAsScopeSet) Cod
         try w_text(out, csil_x);
     }
     try w_text(out, "issued_at");
-    try w_text(out, v.issued_at);
+    try csil_w_timestamp(out, (v.issued_at).rfc3339);
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     if (v.audience_handle_claim) |csil_x| {
         try w_text(out, "audience_handle_claim");
         try enc_Claim(out, &(csil_x));
@@ -8915,7 +10089,7 @@ fn enc_ActAsScopeSet(out: *std.ArrayList(u8), v: *const types.ActAsScopeSet) Cod
 fn dec_ActAsScopeSet(alloc: std.mem.Allocator, m: Value, out: *types.ActAsScopeSet) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "entries");
+        const csil_fv = try csil_required_field(m, "entries");
         if (csil_fv != .array) return error.WrongType;
         out.entries = try alloc.alloc(types.ActAsScopeEntry, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -8923,11 +10097,11 @@ fn dec_ActAsScopeSet(alloc: std.mem.Allocator, m: Value, out: *types.ActAsScopeS
         }
     }
     {
-        const csil_fv = try req(m, "grantee");
+        const csil_fv = try csil_required_field(m, "grantee");
         try dec_GranteeRef(alloc, csil_fv, &(out.grantee));
     }
     {
-        const csil_fv = try req(m, "audience");
+        const csil_fv = try csil_required_field(m, "audience");
         try dec_ApplicationRef(alloc, csil_fv, &(out.audience));
     }
     {
@@ -8938,17 +10112,23 @@ fn dec_ActAsScopeSet(alloc: std.mem.Allocator, m: Value, out: *types.ActAsScopeS
         }
     }
     {
-        const csil_fv = try req(m, "issued_at");
-        out.issued_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "issued_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.issued_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
         if (mget(m, "audience_handle_claim")) |csil_fv| {
             var csil_tmp: types.Claim = undefined;
-            try dec_Claim(alloc, csil_fv, &csil_tmp);
+            try dec_Claim(alloc, csil_fv, &(csil_tmp));
             out.audience_handle_claim = csil_tmp;
         } else {
             out.audience_handle_claim = null;
@@ -8972,11 +10152,11 @@ fn enc_SignedActAsScopeSet(out: *std.ArrayList(u8), v: *const types.SignedActAsS
 fn dec_SignedActAsScopeSet(alloc: std.mem.Allocator, m: Value, out: *types.SignedActAsScopeSet) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "scope_set");
+        const csil_fv = try csil_required_field(m, "scope_set");
         out.scope_set = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signatures");
+        const csil_fv = try csil_required_field(m, "signatures");
         if (csil_fv != .array) return error.WrongType;
         out.signatures = try alloc.alloc(types.ApplicationKeySignature, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -8984,7 +10164,7 @@ fn dec_SignedActAsScopeSet(alloc: std.mem.Allocator, m: Value, out: *types.Signe
         }
     }
     {
-        const csil_fv = try req(m, "signer_instance_id");
+        const csil_fv = try csil_required_field(m, "signer_instance_id");
         out.signer_instance_id = try as_text(csil_fv);
     }
 }
@@ -9012,7 +10192,7 @@ fn enc_ActAsScopeSetRequest(out: *std.ArrayList(u8), v: *const types.ActAsScopeS
 fn dec_ActAsScopeSetRequest(alloc: std.mem.Allocator, m: Value, out: *types.ActAsScopeSetRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "scope");
+        const csil_fv = try csil_required_field(m, "scope");
         if (csil_fv != .array) return error.WrongType;
         out.scope = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -9020,7 +10200,7 @@ fn dec_ActAsScopeSetRequest(alloc: std.mem.Allocator, m: Value, out: *types.ActA
         }
     }
     {
-        const csil_fv = try req(m, "grantee");
+        const csil_fv = try csil_required_field(m, "grantee");
         try dec_GranteeRef(alloc, csil_fv, &(out.grantee));
     }
     {
@@ -9050,11 +10230,11 @@ fn enc_ActAsGrant(out: *std.ArrayList(u8), v: *const types.ActAsGrant) CodecErro
     try w_text(out, "grant_id");
     try w_text(out, v.grant_id);
     try w_text(out, "issued_at");
-    try w_text(out, v.issued_at);
+    try csil_w_timestamp(out, (v.issued_at).rfc3339);
     try w_text(out, "scope_set");
     try enc_SignedActAsScopeSet(out, &(v.scope_set));
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     try w_text(out, "approved_scope");
     try w_array_head(out, v.approved_scope.len);
     for (v.approved_scope) |csil_it| {
@@ -9063,9 +10243,9 @@ fn enc_ActAsGrant(out: *std.ArrayList(u8), v: *const types.ActAsGrant) CodecErro
     try w_text(out, "subject_domain");
     try w_text(out, v.subject_domain);
     try w_text(out, "renewable_until");
-    try w_text(out, v.renewable_until);
+    try csil_w_timestamp(out, (v.renewable_until).rfc3339);
     try w_text(out, "series_issued_at");
-    try w_text(out, v.series_issued_at);
+    try csil_w_timestamp(out, (v.series_issued_at).rfc3339);
     if (v.device_fingerprint) |csil_x| {
         try w_text(out, "device_fingerprint");
         try w_text(out, csil_x);
@@ -9075,35 +10255,41 @@ fn enc_ActAsGrant(out: *std.ArrayList(u8), v: *const types.ActAsGrant) CodecErro
 fn dec_ActAsGrant(alloc: std.mem.Allocator, m: Value, out: *types.ActAsGrant) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "grantee");
+        const csil_fv = try csil_required_field(m, "grantee");
         try dec_GranteeRef(alloc, csil_fv, &(out.grantee));
     }
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "audience");
+        const csil_fv = try csil_required_field(m, "audience");
         try dec_ApplicationRef(alloc, csil_fv, &(out.audience));
     }
     {
-        const csil_fv = try req(m, "grant_id");
+        const csil_fv = try csil_required_field(m, "grant_id");
         out.grant_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "issued_at");
-        out.issued_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "issued_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.issued_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "scope_set");
+        const csil_fv = try csil_required_field(m, "scope_set");
         try dec_SignedActAsScopeSet(alloc, csil_fv, &(out.scope_set));
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "approved_scope");
+        const csil_fv = try csil_required_field(m, "approved_scope");
         if (csil_fv != .array) return error.WrongType;
         out.approved_scope = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -9111,16 +10297,22 @@ fn dec_ActAsGrant(alloc: std.mem.Allocator, m: Value, out: *types.ActAsGrant) Co
         }
     }
     {
-        const csil_fv = try req(m, "subject_domain");
+        const csil_fv = try csil_required_field(m, "subject_domain");
         out.subject_domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "renewable_until");
-        out.renewable_until = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "renewable_until");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.renewable_until = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "series_issued_at");
-        out.series_issued_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "series_issued_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.series_issued_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
         if (mget(m, "device_fingerprint")) |csil_fv| {
@@ -9145,11 +10337,11 @@ fn enc_SignedActAsGrant(out: *std.ArrayList(u8), v: *const types.SignedActAsGran
 fn dec_SignedActAsGrant(alloc: std.mem.Allocator, m: Value, out: *types.SignedActAsGrant) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "grant");
+        const csil_fv = try csil_required_field(m, "grant");
         out.grant = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signatures");
+        const csil_fv = try csil_required_field(m, "signatures");
         if (csil_fv != .array) return error.WrongType;
         out.signatures = try alloc.alloc(types.ClaimSignature, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -9171,11 +10363,11 @@ fn enc_ActAsGrantRequest(out: *std.ArrayList(u8), v: *const types.ActAsGrantRequ
     try w_text(out, "scope_set");
     try enc_SignedActAsScopeSet(out, &(v.scope_set));
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     try w_text(out, "callback_url");
     try w_text(out, v.callback_url);
     try w_text(out, "requested_at");
-    try w_text(out, v.requested_at);
+    try csil_w_timestamp(out, (v.requested_at).rfc3339);
     if (v.grantee_handle_claim) |csil_x| {
         try w_text(out, "grantee_handle_claim");
         try enc_Claim(out, &(csil_x));
@@ -9193,33 +10385,39 @@ fn enc_ActAsGrantRequest(out: *std.ArrayList(u8), v: *const types.ActAsGrantRequ
 fn dec_ActAsGrantRequest(alloc: std.mem.Allocator, m: Value, out: *types.ActAsGrantRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "nonce");
+        const csil_fv = try csil_required_field(m, "nonce");
         out.nonce = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "grantee");
+        const csil_fv = try csil_required_field(m, "grantee");
         try dec_GranteeRef(alloc, csil_fv, &(out.grantee));
     }
     {
-        const csil_fv = try req(m, "scope_set");
+        const csil_fv = try csil_required_field(m, "scope_set");
         try dec_SignedActAsScopeSet(alloc, csil_fv, &(out.scope_set));
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "callback_url");
+        const csil_fv = try csil_required_field(m, "callback_url");
         out.callback_url = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "requested_at");
-        out.requested_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "requested_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.requested_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
         if (mget(m, "grantee_handle_claim")) |csil_fv| {
             var csil_tmp: types.Claim = undefined;
-            try dec_Claim(alloc, csil_fv, &csil_tmp);
+            try dec_Claim(alloc, csil_fv, &(csil_tmp));
             out.grantee_handle_claim = csil_tmp;
         } else {
             out.grantee_handle_claim = null;
@@ -9252,11 +10450,11 @@ fn enc_SignedActAsGrantRequest(out: *std.ArrayList(u8), v: *const types.SignedAc
 fn dec_SignedActAsGrantRequest(alloc: std.mem.Allocator, m: Value, out: *types.SignedActAsGrantRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "proof");
+        const csil_fv = try csil_required_field(m, "proof");
         try dec_GranteeProof(alloc, csil_fv, &(out.proof));
     }
     {
-        const csil_fv = try req(m, "request");
+        const csil_fv = try csil_required_field(m, "request");
         out.request = try as_bytes(csil_fv);
     }
 }
@@ -9270,32 +10468,38 @@ fn enc_ActAsRefreshRequest(out: *std.ArrayList(u8), v: *const types.ActAsRefresh
     try w_text(out, "grant_id");
     try w_text(out, v.grant_id);
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     try w_text(out, "requested_at");
-    try w_text(out, v.requested_at);
+    try csil_w_timestamp(out, (v.requested_at).rfc3339);
 }
 
 fn dec_ActAsRefreshRequest(alloc: std.mem.Allocator, m: Value, out: *types.ActAsRefreshRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "nonce");
+        const csil_fv = try csil_required_field(m, "nonce");
         out.nonce = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "grantee");
+        const csil_fv = try csil_required_field(m, "grantee");
         try dec_GranteeRef(alloc, csil_fv, &(out.grantee));
     }
     {
-        const csil_fv = try req(m, "grant_id");
+        const csil_fv = try csil_required_field(m, "grant_id");
         out.grant_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "requested_at");
-        out.requested_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "requested_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.requested_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
 }
 
@@ -9310,11 +10514,11 @@ fn enc_SignedActAsRefreshRequest(out: *std.ArrayList(u8), v: *const types.Signed
 fn dec_SignedActAsRefreshRequest(alloc: std.mem.Allocator, m: Value, out: *types.SignedActAsRefreshRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "proof");
+        const csil_fv = try csil_required_field(m, "proof");
         try dec_GranteeProof(alloc, csil_fv, &(out.proof));
     }
     {
-        const csil_fv = try req(m, "request");
+        const csil_fv = try csil_required_field(m, "request");
         out.request = try as_bytes(csil_fv);
     }
 }
@@ -9328,7 +10532,7 @@ fn enc_RefreshActAsGrantRequest(out: *std.ArrayList(u8), v: *const types.Refresh
 fn dec_RefreshActAsGrantRequest(alloc: std.mem.Allocator, m: Value, out: *types.RefreshActAsGrantRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "request");
+        const csil_fv = try csil_required_field(m, "request");
         try dec_SignedActAsRefreshRequest(alloc, csil_fv, &(out.request));
     }
 }
@@ -9344,11 +10548,11 @@ fn enc_RefreshActAsGrantResponse(out: *std.ArrayList(u8), v: *const types.Refres
 fn dec_RefreshActAsGrantResponse(alloc: std.mem.Allocator, m: Value, out: *types.RefreshActAsGrantResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "grant");
+        const csil_fv = try csil_required_field(m, "grant");
         try dec_SignedActAsGrant(alloc, csil_fv, &(out.grant));
     }
     {
-        const csil_fv = try req(m, "signed");
+        const csil_fv = try csil_required_field(m, "signed");
         out.signed = try as_bool(csil_fv);
     }
 }
@@ -9362,7 +10566,7 @@ fn enc_ActAsPresentation(out: *std.ArrayList(u8), v: *const types.ActAsPresentat
     try w_text(out, "grant_hash");
     try w_bytes(out, v.grant_hash);
     try w_text(out, "presented_at");
-    try w_text(out, v.presented_at);
+    try csil_w_timestamp(out, (v.presented_at).rfc3339);
     try w_text(out, "request_digest");
     try w_bytes(out, v.request_digest);
 }
@@ -9370,23 +10574,26 @@ fn enc_ActAsPresentation(out: *std.ArrayList(u8), v: *const types.ActAsPresentat
 fn dec_ActAsPresentation(alloc: std.mem.Allocator, m: Value, out: *types.ActAsPresentation) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "nonce");
+        const csil_fv = try csil_required_field(m, "nonce");
         out.nonce = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "audience");
+        const csil_fv = try csil_required_field(m, "audience");
         try dec_ApplicationRef(alloc, csil_fv, &(out.audience));
     }
     {
-        const csil_fv = try req(m, "grant_hash");
+        const csil_fv = try csil_required_field(m, "grant_hash");
         out.grant_hash = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "presented_at");
-        out.presented_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "presented_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.presented_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "request_digest");
+        const csil_fv = try csil_required_field(m, "request_digest");
         out.request_digest = try as_bytes(csil_fv);
     }
 }
@@ -9402,11 +10609,11 @@ fn enc_SignedActAsPresentation(out: *std.ArrayList(u8), v: *const types.SignedAc
 fn dec_SignedActAsPresentation(alloc: std.mem.Allocator, m: Value, out: *types.SignedActAsPresentation) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "proof");
+        const csil_fv = try csil_required_field(m, "proof");
         try dec_GranteeProof(alloc, csil_fv, &(out.proof));
     }
     {
-        const csil_fv = try req(m, "presentation");
+        const csil_fv = try csil_required_field(m, "presentation");
         out.presentation = try as_bytes(csil_fv);
     }
 }
@@ -9422,11 +10629,11 @@ fn enc_ActAsCredential(out: *std.ArrayList(u8), v: *const types.ActAsCredential)
 fn dec_ActAsCredential(alloc: std.mem.Allocator, m: Value, out: *types.ActAsCredential) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "grant");
+        const csil_fv = try csil_required_field(m, "grant");
         try dec_SignedActAsGrant(alloc, csil_fv, &(out.grant));
     }
     {
-        const csil_fv = try req(m, "presentation");
+        const csil_fv = try csil_required_field(m, "presentation");
         try dec_SignedActAsPresentation(alloc, csil_fv, &(out.presentation));
     }
 }
@@ -9438,28 +10645,30 @@ fn enc_ActAsGrantRevocation(out: *std.ArrayList(u8), v: *const types.ActAsGrantR
     try w_text(out, "grant_id");
     try w_text(out, v.grant_id);
     try w_text(out, "revoked_at");
-    try w_text(out, v.revoked_at);
+    try csil_w_timestamp(out, (v.revoked_at).rfc3339);
     try w_text(out, "subject_domain");
     try w_text(out, v.subject_domain);
 }
 
 fn dec_ActAsGrantRevocation(alloc: std.mem.Allocator, m: Value, out: *types.ActAsGrantRevocation) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "user_id");
+        const csil_fv = try csil_required_field(m, "user_id");
         out.user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "grant_id");
+        const csil_fv = try csil_required_field(m, "grant_id");
         out.grant_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "revoked_at");
-        out.revoked_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "revoked_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.revoked_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "subject_domain");
+        const csil_fv = try csil_required_field(m, "subject_domain");
         out.subject_domain = try as_text(csil_fv);
     }
 }
@@ -9478,11 +10687,11 @@ fn enc_SignedActAsGrantRevocation(out: *std.ArrayList(u8), v: *const types.Signe
 fn dec_SignedActAsGrantRevocation(alloc: std.mem.Allocator, m: Value, out: *types.SignedActAsGrantRevocation) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "revocation");
+        const csil_fv = try csil_required_field(m, "revocation");
         out.revocation = try as_bytes(csil_fv);
     }
     {
-        const csil_fv = try req(m, "signatures");
+        const csil_fv = try csil_required_field(m, "signatures");
         if (csil_fv != .array) return error.WrongType;
         out.signatures = try alloc.alloc(types.ClaimSignature, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -9503,7 +10712,7 @@ fn enc_GetActAsGrantRevocationsRequest(out: *std.ArrayList(u8), v: *const types.
 fn dec_GetActAsGrantRevocationsRequest(alloc: std.mem.Allocator, m: Value, out: *types.GetActAsGrantRevocationsRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "grant_ids");
+        const csil_fv = try csil_required_field(m, "grant_ids");
         if (csil_fv != .array) return error.WrongType;
         out.grant_ids = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -9524,7 +10733,7 @@ fn enc_GetActAsGrantRevocationsResponse(out: *std.ArrayList(u8), v: *const types
 fn dec_GetActAsGrantRevocationsResponse(alloc: std.mem.Allocator, m: Value, out: *types.GetActAsGrantRevocationsResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "revocations");
+        const csil_fv = try csil_required_field(m, "revocations");
         if (csil_fv != .array) return error.WrongType;
         out.revocations = try alloc.alloc(types.SignedActAsGrantRevocation, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -9544,11 +10753,11 @@ fn enc_RpActAsRefreshRequest(out: *std.ArrayList(u8), v: *const types.RpActAsRef
 fn dec_RpActAsRefreshRequest(alloc: std.mem.Allocator, m: Value, out: *types.RpActAsRefreshRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "request");
+        const csil_fv = try csil_required_field(m, "request");
         try dec_SignedActAsRefreshRequest(alloc, csil_fv, &(out.request));
     }
     {
-        const csil_fv = try req(m, "subject_domain");
+        const csil_fv = try csil_required_field(m, "subject_domain");
         out.subject_domain = try as_text(csil_fv);
     }
 }
@@ -9567,7 +10776,7 @@ fn enc_RpResolveActAsRevocationsRequest(out: *std.ArrayList(u8), v: *const types
 fn dec_RpResolveActAsRevocationsRequest(alloc: std.mem.Allocator, m: Value, out: *types.RpResolveActAsRevocationsRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "grant_ids");
+        const csil_fv = try csil_required_field(m, "grant_ids");
         if (csil_fv != .array) return error.WrongType;
         out.grant_ids = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -9575,7 +10784,7 @@ fn dec_RpResolveActAsRevocationsRequest(alloc: std.mem.Allocator, m: Value, out:
         }
     }
     {
-        const csil_fv = try req(m, "subject_domain");
+        const csil_fv = try csil_required_field(m, "subject_domain");
         out.subject_domain = try as_text(csil_fv);
     }
 }
@@ -9590,7 +10799,7 @@ fn dec_BrowserActAsInspectRequest(alloc: std.mem.Allocator, m: Value, out: *type
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "signed_request");
+        const csil_fv = try csil_required_field(m, "signed_request");
         out.signed_request = try as_text(csil_fv);
     }
 }
@@ -9613,7 +10822,7 @@ fn dec_BrowserActAsScopeEntry(alloc: std.mem.Allocator, m: Value, out: *types.Br
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "scope");
+        const csil_fv = try csil_required_field(m, "scope");
         out.scope = try as_text(csil_fv);
     }
     {
@@ -9624,7 +10833,7 @@ fn dec_BrowserActAsScopeEntry(alloc: std.mem.Allocator, m: Value, out: *types.Br
         }
     }
     {
-        const csil_fv = try req(m, "removed_by_policy");
+        const csil_fv = try csil_required_field(m, "removed_by_policy");
         out.removed_by_policy = try as_bool(csil_fv);
     }
 }
@@ -9690,7 +10899,7 @@ fn dec_BrowserActAsParty(alloc: std.mem.Allocator, m: Value, out: *types.Browser
         }
     }
     {
-        const csil_fv = try req(m, "own_domain");
+        const csil_fv = try csil_required_field(m, "own_domain");
         out.own_domain = try as_bool(csil_fv);
     }
     {
@@ -9715,15 +10924,15 @@ fn dec_BrowserActAsParty(alloc: std.mem.Allocator, m: Value, out: *types.Browser
         }
     }
     {
-        const csil_fv = try req(m, "operator_trusted");
+        const csil_fv = try csil_required_field(m, "operator_trusted");
         out.operator_trusted = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "user_has_history");
+        const csil_fv = try csil_required_field(m, "user_has_history");
         out.user_has_history = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "domain_key_pinned");
+        const csil_fv = try csil_required_field(m, "domain_key_pinned");
         out.domain_key_pinned = try as_bool(csil_fv);
     }
     {
@@ -9774,7 +10983,7 @@ fn enc_BrowserActAsInspectResponse(out: *std.ArrayList(u8), v: *const types.Brow
 fn dec_BrowserActAsInspectResponse(alloc: std.mem.Allocator, m: Value, out: *types.BrowserActAsInspectResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "entries");
+        const csil_fv = try csil_required_field(m, "entries");
         if (csil_fv != .array) return error.WrongType;
         out.entries = try alloc.alloc(types.BrowserActAsScopeEntry, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -9782,11 +10991,11 @@ fn dec_BrowserActAsInspectResponse(alloc: std.mem.Allocator, m: Value, out: *typ
         }
     }
     {
-        const csil_fv = try req(m, "grantee");
+        const csil_fv = try csil_required_field(m, "grantee");
         try dec_GranteeRef(alloc, csil_fv, &(out.grantee));
     }
     {
-        const csil_fv = try req(m, "audience");
+        const csil_fv = try csil_required_field(m, "audience");
         try dec_ApplicationRef(alloc, csil_fv, &(out.audience));
     }
     {
@@ -9799,34 +11008,34 @@ fn dec_BrowserActAsInspectResponse(alloc: std.mem.Allocator, m: Value, out: *typ
     {
         if (mget(m, "access_denied")) |csil_fv| {
             var csil_tmp: types.AppAccessDenial = undefined;
-            try dec_AppAccessDenial(alloc, csil_fv, &csil_tmp);
+            try dec_AppAccessDenial(alloc, csil_fv, &(csil_tmp));
             out.access_denied = csil_tmp;
         } else {
             out.access_denied = null;
         }
     }
     {
-        const csil_fv = try req(m, "grantee_party");
+        const csil_fv = try csil_required_field(m, "grantee_party");
         try dec_BrowserActAsParty(alloc, csil_fv, &(out.grantee_party));
     }
     {
-        const csil_fv = try req(m, "audience_party");
+        const csil_fv = try csil_required_field(m, "audience_party");
         try dec_BrowserActAsParty(alloc, csil_fv, &(out.audience_party));
     }
     {
-        const csil_fv = try req(m, "max_lifetime_seconds");
+        const csil_fv = try csil_required_field(m, "max_lifetime_seconds");
         out.max_lifetime_seconds = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "default_lifetime_seconds");
+        const csil_fv = try csil_required_field(m, "default_lifetime_seconds");
         out.default_lifetime_seconds = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "max_renewal_window_seconds");
+        const csil_fv = try csil_required_field(m, "max_renewal_window_seconds");
         out.max_renewal_window_seconds = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "default_renewal_window_seconds");
+        const csil_fv = try csil_required_field(m, "default_renewal_window_seconds");
         out.default_renewal_window_seconds = try as_i64(csil_fv);
     }
 }
@@ -9849,7 +11058,7 @@ fn enc_BrowserActAsCompleteRequest(out: *std.ArrayList(u8), v: *const types.Brow
 fn dec_BrowserActAsCompleteRequest(alloc: std.mem.Allocator, m: Value, out: *types.BrowserActAsCompleteRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "approved_scope");
+        const csil_fv = try csil_required_field(m, "approved_scope");
         if (csil_fv != .array) return error.WrongType;
         out.approved_scope = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -9857,15 +11066,15 @@ fn dec_BrowserActAsCompleteRequest(alloc: std.mem.Allocator, m: Value, out: *typ
         }
     }
     {
-        const csil_fv = try req(m, "signed_request");
+        const csil_fv = try csil_required_field(m, "signed_request");
         out.signed_request = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "lifetime_seconds");
+        const csil_fv = try csil_required_field(m, "lifetime_seconds");
         out.lifetime_seconds = try as_i64(csil_fv);
     }
     {
-        const csil_fv = try req(m, "renewal_window_seconds");
+        const csil_fv = try csil_required_field(m, "renewal_window_seconds");
         out.renewal_window_seconds = try as_i64(csil_fv);
     }
 }
@@ -9880,7 +11089,7 @@ fn dec_BrowserActAsCompleteResponse(alloc: std.mem.Allocator, m: Value, out: *ty
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "redirect_url");
+        const csil_fv = try csil_required_field(m, "redirect_url");
         out.redirect_url = try as_text(csil_fv);
     }
 }
@@ -9896,12 +11105,12 @@ fn enc_ActAsGrantSummary(out: *std.ArrayList(u8), v: *const types.ActAsGrantSumm
     try w_text(out, "grant_id");
     try w_text(out, v.grant_id);
     try w_text(out, "issued_at");
-    try w_text(out, v.issued_at);
+    try csil_w_timestamp(out, (v.issued_at).rfc3339);
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     if (v.revoked_at) |csil_x| {
         try w_text(out, "revoked_at");
-        try w_text(out, csil_x);
+        try csil_w_timestamp(out, (csil_x).rfc3339);
     }
     try w_text(out, "approved_scope");
     try w_array_head(out, v.approved_scope.len);
@@ -9909,40 +11118,49 @@ fn enc_ActAsGrantSummary(out: *std.ArrayList(u8), v: *const types.ActAsGrantSumm
         try w_text(out, csil_it);
     }
     try w_text(out, "renewable_until");
-    try w_text(out, v.renewable_until);
+    try csil_w_timestamp(out, (v.renewable_until).rfc3339);
 }
 
 fn dec_ActAsGrantSummary(alloc: std.mem.Allocator, m: Value, out: *types.ActAsGrantSummary) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "grantee");
+        const csil_fv = try csil_required_field(m, "grantee");
         try dec_GranteeRef(alloc, csil_fv, &(out.grantee));
     }
     {
-        const csil_fv = try req(m, "audience");
+        const csil_fv = try csil_required_field(m, "audience");
         try dec_ApplicationRef(alloc, csil_fv, &(out.audience));
     }
     {
-        const csil_fv = try req(m, "grant_id");
+        const csil_fv = try csil_required_field(m, "grant_id");
         out.grant_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "issued_at");
-        out.issued_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "issued_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.issued_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
         if (mget(m, "revoked_at")) |csil_fv| {
-            out.revoked_at = try as_text(csil_fv);
+            {
+                const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+                out.revoked_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+            }
         } else {
             out.revoked_at = null;
         }
     }
     {
-        const csil_fv = try req(m, "approved_scope");
+        const csil_fv = try csil_required_field(m, "approved_scope");
         if (csil_fv != .array) return error.WrongType;
         out.approved_scope = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -9950,8 +11168,11 @@ fn dec_ActAsGrantSummary(alloc: std.mem.Allocator, m: Value, out: *types.ActAsGr
         }
     }
     {
-        const csil_fv = try req(m, "renewable_until");
-        out.renewable_until = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "renewable_until");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.renewable_until = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
 }
 
@@ -9967,7 +11188,7 @@ fn enc_ListActAsGrantsResponse(out: *std.ArrayList(u8), v: *const types.ListActA
 fn dec_ListActAsGrantsResponse(alloc: std.mem.Allocator, m: Value, out: *types.ListActAsGrantsResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "grants");
+        const csil_fv = try csil_required_field(m, "grants");
         if (csil_fv != .array) return error.WrongType;
         out.grants = try alloc.alloc(types.ActAsGrantSummary, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -9986,7 +11207,7 @@ fn dec_RevokeActAsGrantRequest(alloc: std.mem.Allocator, m: Value, out: *types.R
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "grant_id");
+        const csil_fv = try csil_required_field(m, "grant_id");
         out.grant_id = try as_text(csil_fv);
     }
 }
@@ -9994,15 +11215,17 @@ fn dec_RevokeActAsGrantRequest(alloc: std.mem.Allocator, m: Value, out: *types.R
 fn enc_RevokeActAsGrantResponse(out: *std.ArrayList(u8), v: *const types.RevokeActAsGrantResponse) CodecError!void {
     try w_map_head(out, 1);
     try w_text(out, "revoked_at");
-    try w_text(out, v.revoked_at);
+    try csil_w_timestamp(out, (v.revoked_at).rfc3339);
 }
 
 fn dec_RevokeActAsGrantResponse(alloc: std.mem.Allocator, m: Value, out: *types.RevokeActAsGrantResponse) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "revoked_at");
-        out.revoked_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "revoked_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.revoked_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
 }
 
@@ -10044,18 +11267,18 @@ fn enc_PreviewReleasePolicyRequest(out: *std.ArrayList(u8), v: *const types.Prev
     }
     if (v.temp_disposition) |csil_x| {
         try w_text(out, "temp_disposition");
-        try w_text(out, csil_x);
+        try enc_ReleaseDisposition(out, &(csil_x));
     }
 }
 
 fn dec_PreviewReleasePolicyRequest(alloc: std.mem.Allocator, m: Value, out: *types.PreviewReleasePolicyRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "audience");
+        const csil_fv = try csil_required_field(m, "audience");
         out.audience = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "user_choices");
+        const csil_fv = try csil_required_field(m, "user_choices");
         if (csil_fv != .array) return error.WrongType;
         out.user_choices = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -10070,7 +11293,7 @@ fn dec_PreviewReleasePolicyRequest(alloc: std.mem.Allocator, m: Value, out: *typ
         }
     }
     {
-        const csil_fv = try req(m, "optional_claims");
+        const csil_fv = try csil_required_field(m, "optional_claims");
         if (csil_fv != .array) return error.WrongType;
         out.optional_claims = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -10078,7 +11301,7 @@ fn dec_PreviewReleasePolicyRequest(alloc: std.mem.Allocator, m: Value, out: *typ
         }
     }
     {
-        const csil_fv = try req(m, "required_claims");
+        const csil_fv = try csil_required_field(m, "required_claims");
         if (csil_fv != .array) return error.WrongType;
         out.required_claims = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -10093,7 +11316,7 @@ fn dec_PreviewReleasePolicyRequest(alloc: std.mem.Allocator, m: Value, out: *typ
         }
     }
     {
-        const csil_fv = try req(m, "available_claims");
+        const csil_fv = try csil_required_field(m, "available_claims");
         if (csil_fv != .array) return error.WrongType;
         out.available_claims = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -10102,7 +11325,9 @@ fn dec_PreviewReleasePolicyRequest(alloc: std.mem.Allocator, m: Value, out: *typ
     }
     {
         if (mget(m, "temp_disposition")) |csil_fv| {
-            out.temp_disposition = try as_text(csil_fv);
+            var csil_tmp: types.ReleaseDisposition = undefined;
+            try dec_ReleaseDisposition(alloc, csil_fv, &(csil_tmp));
+            out.temp_disposition = csil_tmp;
         } else {
             out.temp_disposition = null;
         }
@@ -10114,7 +11339,7 @@ fn enc_PreviewReleaseRow(out: *std.ArrayList(u8), v: *const types.PreviewRelease
     try w_text(out, "locked");
     try w_bool(out, v.locked);
     try w_text(out, "policy");
-    try w_text(out, v.policy);
+    try enc_ConsentRowPolicy(out, &(v.policy));
     try w_text(out, "required");
     try w_bool(out, v.required);
     try w_text(out, "available");
@@ -10126,30 +11351,29 @@ fn enc_PreviewReleaseRow(out: *std.ArrayList(u8), v: *const types.PreviewRelease
 }
 
 fn dec_PreviewReleaseRow(alloc: std.mem.Allocator, m: Value, out: *types.PreviewReleaseRow) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "locked");
+        const csil_fv = try csil_required_field(m, "locked");
         out.locked = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "policy");
-        out.policy = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "policy");
+        try dec_ConsentRowPolicy(alloc, csil_fv, &(out.policy));
     }
     {
-        const csil_fv = try req(m, "required");
+        const csil_fv = try csil_required_field(m, "required");
         out.required = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "available");
+        const csil_fv = try csil_required_field(m, "available");
         out.available = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "default_granted");
+        const csil_fv = try csil_required_field(m, "default_granted");
         out.default_granted = try as_bool(csil_fv);
     }
 }
@@ -10181,7 +11405,7 @@ fn enc_PreviewReleasePolicyResponse(out: *std.ArrayList(u8), v: *const types.Pre
 fn dec_PreviewReleasePolicyResponse(alloc: std.mem.Allocator, m: Value, out: *types.PreviewReleasePolicyResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "rows");
+        const csil_fv = try csil_required_field(m, "rows");
         if (csil_fv != .array) return error.WrongType;
         out.rows = try alloc.alloc(types.PreviewReleaseRow, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -10189,7 +11413,7 @@ fn dec_PreviewReleasePolicyResponse(alloc: std.mem.Allocator, m: Value, out: *ty
         }
     }
     {
-        const csil_fv = try req(m, "forced_deny");
+        const csil_fv = try csil_required_field(m, "forced_deny");
         if (csil_fv != .array) return error.WrongType;
         out.forced_deny = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -10197,7 +11421,7 @@ fn dec_PreviewReleasePolicyResponse(alloc: std.mem.Allocator, m: Value, out: *ty
         }
     }
     {
-        const csil_fv = try req(m, "forced_allow");
+        const csil_fv = try csil_required_field(m, "forced_allow");
         if (csil_fv != .array) return error.WrongType;
         out.forced_allow = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -10205,7 +11429,7 @@ fn dec_PreviewReleasePolicyResponse(alloc: std.mem.Allocator, m: Value, out: *ty
         }
     }
     {
-        const csil_fv = try req(m, "authorized_claims");
+        const csil_fv = try csil_required_field(m, "authorized_claims");
         if (csil_fv != .array) return error.WrongType;
         out.authorized_claims = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -10288,7 +11512,7 @@ fn dec_PreviewIssuerPolicyRequest(alloc: std.mem.Allocator, m: Value, out: *type
         }
     }
     {
-        const csil_fv = try req(m, "subject_domain");
+        const csil_fv = try csil_required_field(m, "subject_domain");
         out.subject_domain = try as_text(csil_fv);
     }
 }
@@ -10322,15 +11546,15 @@ fn enc_PreviewIssuerPolicyResponse(out: *std.ArrayList(u8), v: *const types.Prev
 fn dec_PreviewIssuerPolicyResponse(alloc: std.mem.Allocator, m: Value, out: *types.PreviewIssuerPolicyResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "reason");
+        const csil_fv = try csil_required_field(m, "reason");
         out.reason = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "allowed");
+        const csil_fv = try csil_required_field(m, "allowed");
         out.allowed = try as_bool(csil_fv);
     }
     {
-        const csil_fv = try req(m, "denied_tlds");
+        const csil_fv = try csil_required_field(m, "denied_tlds");
         if (csil_fv != .array) return error.WrongType;
         out.denied_tlds = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -10338,7 +11562,7 @@ fn dec_PreviewIssuerPolicyResponse(alloc: std.mem.Allocator, m: Value, out: *typ
         }
     }
     {
-        const csil_fv = try req(m, "denied_domains");
+        const csil_fv = try csil_required_field(m, "denied_domains");
         if (csil_fv != .array) return error.WrongType;
         out.denied_domains = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -10353,7 +11577,7 @@ fn dec_PreviewIssuerPolicyResponse(alloc: std.mem.Allocator, m: Value, out: *typ
         }
     }
     {
-        const csil_fv = try req(m, "attested_claim_ttl_seconds");
+        const csil_fv = try csil_required_field(m, "attested_claim_ttl_seconds");
         out.attested_claim_ttl_seconds = try as_i64(csil_fv);
     }
 }
@@ -10368,7 +11592,7 @@ fn dec_InspectSigningRequestRequest(alloc: std.mem.Allocator, m: Value, out: *ty
     _ = alloc;
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "signed_request");
+        const csil_fv = try csil_required_field(m, "signed_request");
         out.signed_request = try as_text(csil_fv);
     }
 }
@@ -10376,7 +11600,7 @@ fn dec_InspectSigningRequestRequest(alloc: std.mem.Allocator, m: Value, out: *ty
 fn enc_InspectSigningRequestResponse(out: *std.ArrayList(u8), v: *const types.InspectSigningRequestResponse) CodecError!void {
     try w_map_head(out, 5);
     try w_text(out, "expires_at");
-    try w_text(out, v.expires_at);
+    try csil_w_timestamp(out, (v.expires_at).rfc3339);
     try w_text(out, "subject_domain");
     try w_text(out, v.subject_domain);
     try w_text(out, "subject_user_id");
@@ -10396,19 +11620,22 @@ fn enc_InspectSigningRequestResponse(out: *std.ArrayList(u8), v: *const types.In
 fn dec_InspectSigningRequestResponse(alloc: std.mem.Allocator, m: Value, out: *types.InspectSigningRequestResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "expires_at");
-        out.expires_at = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "expires_at");
+        {
+            const csil_ts = try csil_as_timestamp(alloc, csil_fv);
+            out.expires_at = .{ .rfc3339 = csil_ts.rfc3339, .epoch_seconds = csil_ts.epoch_seconds };
+        }
     }
     {
-        const csil_fv = try req(m, "subject_domain");
+        const csil_fv = try csil_required_field(m, "subject_domain");
         out.subject_domain = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "subject_user_id");
+        const csil_fv = try csil_required_field(m, "subject_user_id");
         out.subject_user_id = try as_text(csil_fv);
     }
     {
-        const csil_fv = try req(m, "issuable_claim_types");
+        const csil_fv = try csil_required_field(m, "issuable_claim_types");
         if (csil_fv != .array) return error.WrongType;
         out.issuable_claim_types = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -10416,7 +11643,7 @@ fn dec_InspectSigningRequestResponse(alloc: std.mem.Allocator, m: Value, out: *t
         }
     }
     {
-        const csil_fv = try req(m, "requested_claim_types");
+        const csil_fv = try csil_required_field(m, "requested_claim_types");
         if (csil_fv != .array) return error.WrongType;
         out.requested_claim_types = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -10444,7 +11671,7 @@ fn enc_IssueForSigningRequestRequest(out: *std.ArrayList(u8), v: *const types.Is
 fn dec_IssueForSigningRequestRequest(alloc: std.mem.Allocator, m: Value, out: *types.IssueForSigningRequestRequest) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "claim_types");
+        const csil_fv = try csil_required_field(m, "claim_types");
         if (csil_fv != .array) return error.WrongType;
         out.claim_types = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -10452,7 +11679,7 @@ fn dec_IssueForSigningRequestRequest(alloc: std.mem.Allocator, m: Value, out: *t
         }
     }
     {
-        const csil_fv = try req(m, "claim_values");
+        const csil_fv = try csil_required_field(m, "claim_values");
         if (csil_fv != .array) return error.WrongType;
         out.claim_values = try alloc.alloc([]const u8, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
@@ -10460,7 +11687,7 @@ fn dec_IssueForSigningRequestRequest(alloc: std.mem.Allocator, m: Value, out: *t
         }
     }
     {
-        const csil_fv = try req(m, "signed_request");
+        const csil_fv = try csil_required_field(m, "signed_request");
         out.signed_request = try as_text(csil_fv);
     }
 }
@@ -10475,7 +11702,7 @@ fn enc_IssuedClaimResult(out: *std.ArrayList(u8), v: *const types.IssuedClaimRes
         try w_text(out, csil_x);
     }
     try w_text(out, "outcome");
-    try w_text(out, v.outcome);
+    try enc_IssuedClaimOutcome(out, &(v.outcome));
     if (v.claim_code) |csil_x| {
         try w_text(out, "claim_code");
         try w_text(out, csil_x);
@@ -10485,7 +11712,6 @@ fn enc_IssuedClaimResult(out: *std.ArrayList(u8), v: *const types.IssuedClaimRes
 }
 
 fn dec_IssuedClaimResult(alloc: std.mem.Allocator, m: Value, out: *types.IssuedClaimResult) CodecError!void {
-    _ = alloc;
     if (m != .map) return error.WrongType;
     {
         if (mget(m, "message")) |csil_fv| {
@@ -10495,8 +11721,8 @@ fn dec_IssuedClaimResult(alloc: std.mem.Allocator, m: Value, out: *types.IssuedC
         }
     }
     {
-        const csil_fv = try req(m, "outcome");
-        out.outcome = try as_text(csil_fv);
+        const csil_fv = try csil_required_field(m, "outcome");
+        try dec_IssuedClaimOutcome(alloc, csil_fv, &(out.outcome));
     }
     {
         if (mget(m, "claim_code")) |csil_fv| {
@@ -10506,7 +11732,7 @@ fn dec_IssuedClaimResult(alloc: std.mem.Allocator, m: Value, out: *types.IssuedC
         }
     }
     {
-        const csil_fv = try req(m, "claim_type");
+        const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
     }
 }
@@ -10523,12 +11749,74 @@ fn enc_IssueForSigningRequestResponse(out: *std.ArrayList(u8), v: *const types.I
 fn dec_IssueForSigningRequestResponse(alloc: std.mem.Allocator, m: Value, out: *types.IssueForSigningRequestResponse) CodecError!void {
     if (m != .map) return error.WrongType;
     {
-        const csil_fv = try req(m, "results");
+        const csil_fv = try csil_required_field(m, "results");
         if (csil_fv != .array) return error.WrongType;
         out.results = try alloc.alloc(types.IssuedClaimResult, csil_fv.array.len);
         for (csil_fv.array, 0..) |csil_it, csil_i| {
             try dec_IssuedClaimResult(alloc, csil_it, &(out.results[csil_i]));
         }
+    }
+}
+
+fn csil_enc_map_0f9403fe75a51f0b(csil_dst: *std.ArrayList(u8), csil_m: *const std.StringHashMapUnmanaged(types.CheckValue)) CodecError!void {
+    var csil_buf = std.ArrayList(u8).init(csil_dst.allocator);
+    defer csil_buf.deinit();
+    const out = &csil_buf;
+    var csil_spans = try std.ArrayList(CsilSpan).initCapacity(csil_dst.allocator, csil_m.count());
+    defer csil_spans.deinit();
+    var csil_mi = csil_m.iterator();
+    while (csil_mi.next()) |csil_e| {
+        const csil_start = out.items.len;
+        try w_text(out, csil_e.key_ptr.*);
+        const csil_key_end = out.items.len;
+        try enc_CheckValue(out, &(csil_e.value_ptr.*));
+        csil_spans.appendAssumeCapacity(.{ .start = csil_start, .key_end = csil_key_end, .end = out.items.len });
+    }
+    try csil_w_sorted_map(csil_dst, out.items, csil_spans.items);
+}
+
+fn csil_dec_map_0f9403fe75a51f0b(alloc: std.mem.Allocator, csil_src: Value, csil_out: *std.StringHashMapUnmanaged(types.CheckValue)) CodecError!void {
+    if (csil_src != .map) return error.WrongType;
+    try csil_check_canonical(csil_src.map);
+    csil_out.* = .{};
+    try csil_out.ensureTotalCapacity(alloc, @intCast(@min(csil_src.map.len, prealloc_limit)));
+    for (csil_src.map) |csil_kv| {
+        var csil_k: []const u8 = undefined;
+        csil_k = try as_text(csil_kv.key);
+        var csil_val: types.CheckValue = undefined;
+        try dec_CheckValue(alloc, csil_kv.val, &(csil_val));
+        try csil_out.put(alloc, csil_k, csil_val);
+    }
+}
+
+fn csil_enc_map_36c5142d213547ff(csil_dst: *std.ArrayList(u8), csil_m: *const std.StringHashMapUnmanaged([]const u8)) CodecError!void {
+    var csil_buf = std.ArrayList(u8).init(csil_dst.allocator);
+    defer csil_buf.deinit();
+    const out = &csil_buf;
+    var csil_spans = try std.ArrayList(CsilSpan).initCapacity(csil_dst.allocator, csil_m.count());
+    defer csil_spans.deinit();
+    var csil_mi = csil_m.iterator();
+    while (csil_mi.next()) |csil_e| {
+        const csil_start = out.items.len;
+        try w_text(out, csil_e.key_ptr.*);
+        const csil_key_end = out.items.len;
+        try w_text(out, csil_e.value_ptr.*);
+        csil_spans.appendAssumeCapacity(.{ .start = csil_start, .key_end = csil_key_end, .end = out.items.len });
+    }
+    try csil_w_sorted_map(csil_dst, out.items, csil_spans.items);
+}
+
+fn csil_dec_map_36c5142d213547ff(alloc: std.mem.Allocator, csil_src: Value, csil_out: *std.StringHashMapUnmanaged([]const u8)) CodecError!void {
+    if (csil_src != .map) return error.WrongType;
+    try csil_check_canonical(csil_src.map);
+    csil_out.* = .{};
+    try csil_out.ensureTotalCapacity(alloc, @intCast(@min(csil_src.map.len, prealloc_limit)));
+    for (csil_src.map) |csil_kv| {
+        var csil_k: []const u8 = undefined;
+        csil_k = try as_text(csil_kv.key);
+        var csil_val: []const u8 = undefined;
+        csil_val = try as_text(csil_kv.val);
+        try csil_out.put(alloc, csil_k, csil_val);
     }
 }
 
@@ -10562,6 +11850,422 @@ pub fn encode_CheckResult(alloc: std.mem.Allocator, v: *const types.CheckResult)
 pub fn decode_CheckResult(alloc: std.mem.Allocator, bytes: []const u8, out: *types.CheckResult) CodecError!void {
     const root = try decode(alloc, bytes);
     try dec_CheckResult(alloc, root, out);
+}
+
+/// Encode a KeyAlgorithm to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_KeyAlgorithm(alloc: std.mem.Allocator, v: *const types.KeyAlgorithm) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_KeyAlgorithm(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a KeyAlgorithm. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_KeyAlgorithm(alloc: std.mem.Allocator, bytes: []const u8, out: *types.KeyAlgorithm) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_KeyAlgorithm(alloc, root, out);
+}
+
+/// Encode a KeyUsage to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_KeyUsage(alloc: std.mem.Allocator, v: *const types.KeyUsage) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_KeyUsage(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a KeyUsage. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_KeyUsage(alloc: std.mem.Allocator, bytes: []const u8, out: *types.KeyUsage) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_KeyUsage(alloc, root, out);
+}
+
+/// Encode a AeadSuite to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_AeadSuite(alloc: std.mem.Allocator, v: *const types.AeadSuite) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_AeadSuite(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a AeadSuite. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_AeadSuite(alloc: std.mem.Allocator, bytes: []const u8, out: *types.AeadSuite) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_AeadSuite(alloc, root, out);
+}
+
+/// Encode a ClaimValueType to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ClaimValueType(alloc: std.mem.Allocator, v: *const types.ClaimValueType) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ClaimValueType(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ClaimValueType. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ClaimValueType(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ClaimValueType) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ClaimValueType(alloc, root, out);
+}
+
+/// Encode a SetRule to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SetRule(alloc: std.mem.Allocator, v: *const types.SetRule) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SetRule(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SetRule. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SetRule(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SetRule) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SetRule(alloc, root, out);
+}
+
+/// Encode a SigningRule to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SigningRule(alloc: std.mem.Allocator, v: *const types.SigningRule) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SigningRule(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SigningRule. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SigningRule(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SigningRule) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SigningRule(alloc, root, out);
+}
+
+/// Encode a SetClaimOutcome to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SetClaimOutcome(alloc: std.mem.Allocator, v: *const types.SetClaimOutcome) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SetClaimOutcome(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SetClaimOutcome. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SetClaimOutcome(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SetClaimOutcome) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SetClaimOutcome(alloc, root, out);
+}
+
+/// Encode a ReleaseDisposition to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ReleaseDisposition(alloc: std.mem.Allocator, v: *const types.ReleaseDisposition) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ReleaseDisposition(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ReleaseDisposition. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ReleaseDisposition(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ReleaseDisposition) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ReleaseDisposition(alloc, root, out);
+}
+
+/// Encode a ConsentRowPolicy to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ConsentRowPolicy(alloc: std.mem.Allocator, v: *const types.ConsentRowPolicy) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ConsentRowPolicy(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ConsentRowPolicy. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ConsentRowPolicy(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ConsentRowPolicy) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ConsentRowPolicy(alloc, root, out);
+}
+
+/// Encode a ClaimApprovalStatus to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ClaimApprovalStatus(alloc: std.mem.Allocator, v: *const types.ClaimApprovalStatus) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ClaimApprovalStatus(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ClaimApprovalStatus. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ClaimApprovalStatus(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ClaimApprovalStatus) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ClaimApprovalStatus(alloc, root, out);
+}
+
+/// Encode a PinRecheckOutcome to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_PinRecheckOutcome(alloc: std.mem.Allocator, v: *const types.PinRecheckOutcome) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_PinRecheckOutcome(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a PinRecheckOutcome. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_PinRecheckOutcome(alloc: std.mem.Allocator, bytes: []const u8, out: *types.PinRecheckOutcome) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_PinRecheckOutcome(alloc, root, out);
+}
+
+/// Encode a NotificationPurpose to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_NotificationPurpose(alloc: std.mem.Allocator, v: *const types.NotificationPurpose) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_NotificationPurpose(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a NotificationPurpose. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_NotificationPurpose(alloc: std.mem.Allocator, bytes: []const u8, out: *types.NotificationPurpose) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_NotificationPurpose(alloc, root, out);
+}
+
+/// Encode a NotificationChannel to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_NotificationChannel(alloc: std.mem.Allocator, v: *const types.NotificationChannel) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_NotificationChannel(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a NotificationChannel. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_NotificationChannel(alloc: std.mem.Allocator, bytes: []const u8, out: *types.NotificationChannel) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_NotificationChannel(alloc, root, out);
+}
+
+/// Encode a DestinationKind to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_DestinationKind(alloc: std.mem.Allocator, v: *const types.DestinationKind) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_DestinationKind(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a DestinationKind. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_DestinationKind(alloc: std.mem.Allocator, bytes: []const u8, out: *types.DestinationKind) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_DestinationKind(alloc, root, out);
+}
+
+/// Encode a LocalRpPolicy to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_LocalRpPolicy(alloc: std.mem.Allocator, v: *const types.LocalRpPolicy) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_LocalRpPolicy(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a LocalRpPolicy. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_LocalRpPolicy(alloc: std.mem.Allocator, bytes: []const u8, out: *types.LocalRpPolicy) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_LocalRpPolicy(alloc, root, out);
+}
+
+/// Encode a LocalRpStatus to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_LocalRpStatus(alloc: std.mem.Allocator, v: *const types.LocalRpStatus) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_LocalRpStatus(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a LocalRpStatus. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_LocalRpStatus(alloc: std.mem.Allocator, bytes: []const u8, out: *types.LocalRpStatus) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_LocalRpStatus(alloc, root, out);
+}
+
+/// Encode a LocalRpAdmission to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_LocalRpAdmission(alloc: std.mem.Allocator, v: *const types.LocalRpAdmission) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_LocalRpAdmission(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a LocalRpAdmission. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_LocalRpAdmission(alloc: std.mem.Allocator, bytes: []const u8, out: *types.LocalRpAdmission) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_LocalRpAdmission(alloc, root, out);
+}
+
+/// Encode a AppAccessMode to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_AppAccessMode(alloc: std.mem.Allocator, v: *const types.AppAccessMode) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_AppAccessMode(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a AppAccessMode. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_AppAccessMode(alloc: std.mem.Allocator, bytes: []const u8, out: *types.AppAccessMode) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_AppAccessMode(alloc, root, out);
+}
+
+/// Encode a AppAccessTargetKind to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_AppAccessTargetKind(alloc: std.mem.Allocator, v: *const types.AppAccessTargetKind) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_AppAccessTargetKind(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a AppAccessTargetKind. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_AppAccessTargetKind(alloc: std.mem.Allocator, bytes: []const u8, out: *types.AppAccessTargetKind) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_AppAccessTargetKind(alloc, root, out);
+}
+
+/// Encode a ClaimOperator to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ClaimOperator(alloc: std.mem.Allocator, v: *const types.ClaimOperator) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ClaimOperator(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ClaimOperator. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ClaimOperator(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ClaimOperator) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ClaimOperator(alloc, root, out);
+}
+
+/// Encode a ApplicationKeyChallengePurpose to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ApplicationKeyChallengePurpose(alloc: std.mem.Allocator, v: *const types.ApplicationKeyChallengePurpose) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ApplicationKeyChallengePurpose(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ApplicationKeyChallengePurpose. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ApplicationKeyChallengePurpose(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ApplicationKeyChallengePurpose) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ApplicationKeyChallengePurpose(alloc, root, out);
+}
+
+/// Encode a AuthFlow to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_AuthFlow(alloc: std.mem.Allocator, v: *const types.AuthFlow) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_AuthFlow(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a AuthFlow. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_AuthFlow(alloc: std.mem.Allocator, bytes: []const u8, out: *types.AuthFlow) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_AuthFlow(alloc, root, out);
+}
+
+/// Encode a RpCacheStatus to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RpCacheStatus(alloc: std.mem.Allocator, v: *const types.RpCacheStatus) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RpCacheStatus(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RpCacheStatus. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RpCacheStatus(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RpCacheStatus) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RpCacheStatus(alloc, root, out);
+}
+
+/// Encode a AccountKind to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_AccountKind(alloc: std.mem.Allocator, v: *const types.AccountKind) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_AccountKind(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a AccountKind. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_AccountKind(alloc: std.mem.Allocator, bytes: []const u8, out: *types.AccountKind) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_AccountKind(alloc, root, out);
+}
+
+/// Encode a RpErrorCode to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RpErrorCode(alloc: std.mem.Allocator, v: *const types.RpErrorCode) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RpErrorCode(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RpErrorCode. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RpErrorCode(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RpErrorCode) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RpErrorCode(alloc, root, out);
+}
+
+/// Encode a IssuedClaimOutcome to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_IssuedClaimOutcome(alloc: std.mem.Allocator, v: *const types.IssuedClaimOutcome) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_IssuedClaimOutcome(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a IssuedClaimOutcome. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_IssuedClaimOutcome(alloc: std.mem.Allocator, bytes: []const u8, out: *types.IssuedClaimOutcome) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_IssuedClaimOutcome(alloc, root, out);
 }
 
 /// Encode a HelloRequest to CBOR. The returned slice is owned by the caller
@@ -11522,6 +13226,310 @@ pub fn encode_CreateUserResponse(alloc: std.mem.Allocator, v: *const types.Creat
 pub fn decode_CreateUserResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.CreateUserResponse) CodecError!void {
     const root = try decode(alloc, bytes);
     try dec_CreateUserResponse(alloc, root, out);
+}
+
+/// Encode a RenameUserRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RenameUserRequest(alloc: std.mem.Allocator, v: *const types.RenameUserRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RenameUserRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RenameUserRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RenameUserRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RenameUserRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RenameUserRequest(alloc, root, out);
+}
+
+/// Encode a RenameUserResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RenameUserResponse(alloc: std.mem.Allocator, v: *const types.RenameUserResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RenameUserResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RenameUserResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RenameUserResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RenameUserResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RenameUserResponse(alloc, root, out);
+}
+
+/// Encode a SetApplicationIdRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SetApplicationIdRequest(alloc: std.mem.Allocator, v: *const types.SetApplicationIdRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SetApplicationIdRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SetApplicationIdRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SetApplicationIdRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SetApplicationIdRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SetApplicationIdRequest(alloc, root, out);
+}
+
+/// Encode a SetApplicationIdResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SetApplicationIdResponse(alloc: std.mem.Allocator, v: *const types.SetApplicationIdResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SetApplicationIdResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SetApplicationIdResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SetApplicationIdResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SetApplicationIdResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SetApplicationIdResponse(alloc, root, out);
+}
+
+/// Encode a ApiKeyInfo to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ApiKeyInfo(alloc: std.mem.Allocator, v: *const types.ApiKeyInfo) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ApiKeyInfo(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ApiKeyInfo. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ApiKeyInfo(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ApiKeyInfo) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ApiKeyInfo(alloc, root, out);
+}
+
+/// Encode a CreateApiKeyRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_CreateApiKeyRequest(alloc: std.mem.Allocator, v: *const types.CreateApiKeyRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_CreateApiKeyRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a CreateApiKeyRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_CreateApiKeyRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.CreateApiKeyRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_CreateApiKeyRequest(alloc, root, out);
+}
+
+/// Encode a CreateApiKeyResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_CreateApiKeyResponse(alloc: std.mem.Allocator, v: *const types.CreateApiKeyResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_CreateApiKeyResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a CreateApiKeyResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_CreateApiKeyResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.CreateApiKeyResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_CreateApiKeyResponse(alloc, root, out);
+}
+
+/// Encode a ListApiKeysRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ListApiKeysRequest(alloc: std.mem.Allocator, v: *const types.ListApiKeysRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ListApiKeysRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ListApiKeysRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ListApiKeysRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ListApiKeysRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ListApiKeysRequest(alloc, root, out);
+}
+
+/// Encode a ListApiKeysResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ListApiKeysResponse(alloc: std.mem.Allocator, v: *const types.ListApiKeysResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ListApiKeysResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ListApiKeysResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ListApiKeysResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ListApiKeysResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ListApiKeysResponse(alloc, root, out);
+}
+
+/// Encode a RevokeApiKeyRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RevokeApiKeyRequest(alloc: std.mem.Allocator, v: *const types.RevokeApiKeyRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RevokeApiKeyRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RevokeApiKeyRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RevokeApiKeyRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RevokeApiKeyRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RevokeApiKeyRequest(alloc, root, out);
+}
+
+/// Encode a RevokeApiKeyResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RevokeApiKeyResponse(alloc: std.mem.Allocator, v: *const types.RevokeApiKeyResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RevokeApiKeyResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RevokeApiKeyResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RevokeApiKeyResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RevokeApiKeyResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RevokeApiKeyResponse(alloc, root, out);
+}
+
+/// Encode a AccountLimits to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_AccountLimits(alloc: std.mem.Allocator, v: *const types.AccountLimits) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_AccountLimits(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a AccountLimits. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_AccountLimits(alloc: std.mem.Allocator, bytes: []const u8, out: *types.AccountLimits) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_AccountLimits(alloc, root, out);
+}
+
+/// Encode a GetAccountLimitsRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_GetAccountLimitsRequest(alloc: std.mem.Allocator, v: *const types.GetAccountLimitsRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_GetAccountLimitsRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a GetAccountLimitsRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_GetAccountLimitsRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.GetAccountLimitsRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_GetAccountLimitsRequest(alloc, root, out);
+}
+
+/// Encode a GetAccountLimitsResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_GetAccountLimitsResponse(alloc: std.mem.Allocator, v: *const types.GetAccountLimitsResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_GetAccountLimitsResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a GetAccountLimitsResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_GetAccountLimitsResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.GetAccountLimitsResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_GetAccountLimitsResponse(alloc, root, out);
+}
+
+/// Encode a SetAccountLimitsRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SetAccountLimitsRequest(alloc: std.mem.Allocator, v: *const types.SetAccountLimitsRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SetAccountLimitsRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SetAccountLimitsRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SetAccountLimitsRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SetAccountLimitsRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SetAccountLimitsRequest(alloc, root, out);
+}
+
+/// Encode a SetAccountLimitsResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_SetAccountLimitsResponse(alloc: std.mem.Allocator, v: *const types.SetAccountLimitsResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_SetAccountLimitsResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a SetAccountLimitsResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_SetAccountLimitsResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.SetAccountLimitsResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_SetAccountLimitsResponse(alloc, root, out);
+}
+
+/// Encode a RpUsageDay to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RpUsageDay(alloc: std.mem.Allocator, v: *const types.RpUsageDay) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RpUsageDay(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RpUsageDay. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RpUsageDay(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RpUsageDay) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RpUsageDay(alloc, root, out);
+}
+
+/// Encode a GetApplicationUsageRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_GetApplicationUsageRequest(alloc: std.mem.Allocator, v: *const types.GetApplicationUsageRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_GetApplicationUsageRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a GetApplicationUsageRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_GetApplicationUsageRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.GetApplicationUsageRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_GetApplicationUsageRequest(alloc, root, out);
+}
+
+/// Encode a GetApplicationUsageResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_GetApplicationUsageResponse(alloc: std.mem.Allocator, v: *const types.GetApplicationUsageResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_GetApplicationUsageResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a GetApplicationUsageResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_GetApplicationUsageResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.GetApplicationUsageResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_GetApplicationUsageResponse(alloc, root, out);
 }
 
 /// Encode a UpdateUserRequest to CBOR. The returned slice is owned by the caller
@@ -13604,6 +15612,22 @@ pub fn decode_RpUserInfoRequest(alloc: std.mem.Allocator, bytes: []const u8, out
     try dec_RpUserInfoRequest(alloc, root, out);
 }
 
+/// Encode a RpError to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RpError(alloc: std.mem.Allocator, v: *const types.RpError) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RpError(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RpError. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RpError(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RpError) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RpError(alloc, root, out);
+}
+
 /// Encode a RpIssueAttestationRequest to CBOR. The returned slice is owned by the caller
 /// (free it with alloc.free).
 pub fn encode_RpIssueAttestationRequest(alloc: std.mem.Allocator, v: *const types.RpIssueAttestationRequest) CodecError![]u8 {
@@ -15538,4 +17562,142 @@ pub fn encode_IssueForSigningRequestResponse(alloc: std.mem.Allocator, v: *const
 pub fn decode_IssueForSigningRequestResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.IssueForSigningRequestResponse) CodecError!void {
     const root = try decode(alloc, bytes);
     try dec_IssueForSigningRequestResponse(alloc, root, out);
+}
+
+pub const RpcReply = struct { variant: []const u8, payload: []u8 };
+
+pub fn encode_RpSignRequestReply(alloc: std.mem.Allocator, value: types.RpSignRequestReply) CodecError!RpcReply {
+    var buf = std.ArrayList(u8).init(alloc);
+    errdefer buf.deinit();
+    const out = &buf;
+    switch (value) {
+        .rp_sign_response => |v| {
+            try enc_RpSignResponse(out, &(v));
+            return .{ .variant = "RpSignResponse", .payload = try buf.toOwnedSlice() };
+        },
+        .rp_error => |v| {
+            try enc_RpError(out, &(v));
+            return .{ .variant = "RpError", .payload = try buf.toOwnedSlice() };
+        },
+    }
+}
+
+pub fn decode_RpSignRequestReply(alloc: std.mem.Allocator, variant: ?[]const u8, payload: []const u8, out: *types.RpSignRequestReply) CodecError!void {
+    const name = variant orelse return error.WrongType;
+    const src = try decode(alloc, payload);
+    if (std.mem.eql(u8, name, "RpSignResponse")) {
+        var v: types.RpSignResponse = undefined;
+        try dec_RpSignResponse(alloc, src, &(v));
+        out.* = .{ .rp_sign_response = v };
+        return;
+    }
+    if (std.mem.eql(u8, name, "RpError")) {
+        var v: types.RpError = undefined;
+        try dec_RpError(alloc, src, &(v));
+        out.* = .{ .rp_error = v };
+        return;
+    }
+    return error.WrongType;
+}
+
+pub fn encode_RpDecryptTokenReply(alloc: std.mem.Allocator, value: types.RpDecryptTokenReply) CodecError!RpcReply {
+    var buf = std.ArrayList(u8).init(alloc);
+    errdefer buf.deinit();
+    const out = &buf;
+    switch (value) {
+        .rp_decrypt_response => |v| {
+            try enc_RpDecryptResponse(out, &(v));
+            return .{ .variant = "RpDecryptResponse", .payload = try buf.toOwnedSlice() };
+        },
+        .rp_error => |v| {
+            try enc_RpError(out, &(v));
+            return .{ .variant = "RpError", .payload = try buf.toOwnedSlice() };
+        },
+    }
+}
+
+pub fn decode_RpDecryptTokenReply(alloc: std.mem.Allocator, variant: ?[]const u8, payload: []const u8, out: *types.RpDecryptTokenReply) CodecError!void {
+    const name = variant orelse return error.WrongType;
+    const src = try decode(alloc, payload);
+    if (std.mem.eql(u8, name, "RpDecryptResponse")) {
+        var v: types.RpDecryptResponse = undefined;
+        try dec_RpDecryptResponse(alloc, src, &(v));
+        out.* = .{ .rp_decrypt_response = v };
+        return;
+    }
+    if (std.mem.eql(u8, name, "RpError")) {
+        var v: types.RpError = undefined;
+        try dec_RpError(alloc, src, &(v));
+        out.* = .{ .rp_error = v };
+        return;
+    }
+    return error.WrongType;
+}
+
+pub fn encode_RpVerifyAssertionReply(alloc: std.mem.Allocator, value: types.RpVerifyAssertionReply) CodecError!RpcReply {
+    var buf = std.ArrayList(u8).init(alloc);
+    errdefer buf.deinit();
+    const out = &buf;
+    switch (value) {
+        .rp_verify_response => |v| {
+            try enc_RpVerifyResponse(out, &(v));
+            return .{ .variant = "RpVerifyResponse", .payload = try buf.toOwnedSlice() };
+        },
+        .rp_error => |v| {
+            try enc_RpError(out, &(v));
+            return .{ .variant = "RpError", .payload = try buf.toOwnedSlice() };
+        },
+    }
+}
+
+pub fn decode_RpVerifyAssertionReply(alloc: std.mem.Allocator, variant: ?[]const u8, payload: []const u8, out: *types.RpVerifyAssertionReply) CodecError!void {
+    const name = variant orelse return error.WrongType;
+    const src = try decode(alloc, payload);
+    if (std.mem.eql(u8, name, "RpVerifyResponse")) {
+        var v: types.RpVerifyResponse = undefined;
+        try dec_RpVerifyResponse(alloc, src, &(v));
+        out.* = .{ .rp_verify_response = v };
+        return;
+    }
+    if (std.mem.eql(u8, name, "RpError")) {
+        var v: types.RpError = undefined;
+        try dec_RpError(alloc, src, &(v));
+        out.* = .{ .rp_error = v };
+        return;
+    }
+    return error.WrongType;
+}
+
+pub fn encode_RpUserinfoFetchReply(alloc: std.mem.Allocator, value: types.RpUserinfoFetchReply) CodecError!RpcReply {
+    var buf = std.ArrayList(u8).init(alloc);
+    errdefer buf.deinit();
+    const out = &buf;
+    switch (value) {
+        .user_info => |v| {
+            try enc_UserInfo(out, &(v));
+            return .{ .variant = "UserInfo", .payload = try buf.toOwnedSlice() };
+        },
+        .rp_error => |v| {
+            try enc_RpError(out, &(v));
+            return .{ .variant = "RpError", .payload = try buf.toOwnedSlice() };
+        },
+    }
+}
+
+pub fn decode_RpUserinfoFetchReply(alloc: std.mem.Allocator, variant: ?[]const u8, payload: []const u8, out: *types.RpUserinfoFetchReply) CodecError!void {
+    const name = variant orelse return error.WrongType;
+    const src = try decode(alloc, payload);
+    if (std.mem.eql(u8, name, "UserInfo")) {
+        var v: types.UserInfo = undefined;
+        try dec_UserInfo(alloc, src, &(v));
+        out.* = .{ .user_info = v };
+        return;
+    }
+    if (std.mem.eql(u8, name, "RpError")) {
+        var v: types.RpError = undefined;
+        try dec_RpError(alloc, src, &(v));
+        out.* = .{ .rp_error = v };
+        return;
+    }
+    return error.WrongType;
 }

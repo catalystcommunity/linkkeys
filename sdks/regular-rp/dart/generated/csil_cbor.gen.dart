@@ -16,26 +16,243 @@ class _CsilDate {
   int get hashCode => text.hashCode;
 }
 
+// Tag 1 decodes to this wrapper, not to a bare DateTime, so that a `timestamp`
+// field still refuses tag 1 and a `cddl_time` field still refuses tag 0. It
+// keeps the raw content unchecked so that tag 1 inside an `any` value
+// round-trips; only a declared `cddl_time` field applies the wire rule, in
+// asCddlTime.
+class _CsilEpoch {
+  final Object? content;
+  const _CsilEpoch(this.content);
+
+  @override
+  bool operator ==(Object other) =>
+      other is _CsilEpoch && CsilCbor._valueEquals(other.content, content);
+
+  @override
+  int get hashCode => content is num ? content.hashCode : 0;
+}
+
 /// A minimal canonical-CBOR (RFC 8949 subset) encoder/decoder over the dynamic
 /// value tree the generated records map to. Scalars, bytes (major type 2),
 /// timestamps (DateTime -> tag 0), lists, and maps are supported; the generated
 /// records call this behind their toCbor/fromCbor.
 class CsilCbor {
   static Object dateValue(Object? text) {
-    if (text is String && text.length == 10 && RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(text)) {
+    if (text is String &&
+        text.length == 10 &&
+        RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(text)) {
       final y = int.parse(text.substring(0, 4));
       final m = int.parse(text.substring(5, 7));
       final d = int.parse(text.substring(8));
       final leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
       final days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-      if (m >= 1 && m <= 12 && d >= 1 && d <= days[m - 1]) return _CsilDate(text);
+      if (m >= 1 && m <= 12 && d >= 1 && d <= days[m - 1])
+        return _CsilDate(text);
     }
     throw FormatException('expected YYYY-MM-DD');
+  }
+
+  static DateTime timestampValue(Object? text) {
+    final t = text is String ? _parseTimestamp(text) : null;
+    if (t == null) throw FormatException('expected RFC 3339 timestamp');
+    return t;
+  }
+
+  // DateTime.parse accepts a space separator, a missing offset and second 60,
+  // which the wire contract refuses, so the shape is checked by hand.
+  static DateTime? _parseTimestamp(String s) {
+    final c = s.codeUnits;
+    bool digits(int from, int to) {
+      if (to > c.length) return false;
+      for (var i = from; i < to; i++) {
+        if (c[i] < 48 || c[i] > 57) return false;
+      }
+      return true;
+    }
+
+    int value(int from, int to) {
+      var n = 0;
+      for (var i = from; i < to; i++) {
+        n = n * 10 + c[i] - 48;
+      }
+      return n;
+    }
+
+    if (!digits(0, 4) ||
+        c.length < 20 ||
+        c[4] != 45 ||
+        !digits(5, 7) ||
+        c[7] != 45 ||
+        !digits(8, 10) ||
+        (c[10] != 84 && c[10] != 116) ||
+        !digits(11, 13) ||
+        c[13] != 58 ||
+        !digits(14, 16) ||
+        c[16] != 58 ||
+        !digits(17, 19)) {
+      return null;
+    }
+    final y = value(0, 4), mo = value(5, 7), d = value(8, 10);
+    final h = value(11, 13), mi = value(14, 16), sec = value(17, 19);
+    final leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    final days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if (y < 1 ||
+        mo < 1 ||
+        mo > 12 ||
+        d < 1 ||
+        d > days[mo - 1] ||
+        h > 23 ||
+        mi > 59 ||
+        sec > 59) {
+      return null;
+    }
+    var i = 19;
+    var nanos = 0;
+    if (c[i] == 46) {
+      final start = ++i;
+      while (i < c.length && c[i] >= 48 && c[i] <= 57) {
+        i++;
+      }
+      if (i - start < 1 || i - start > 9) return null;
+      nanos = value(start, i);
+      for (var k = i - start; k < 9; k++) {
+        nanos *= 10;
+      }
+    }
+    var offset = 0;
+    if (i == c.length - 1 && (c[i] == 90 || c[i] == 122)) {
+      offset = 0;
+    } else if (i == c.length - 6 &&
+        (c[i] == 43 || c[i] == 45) &&
+        digits(i + 1, i + 3) &&
+        c[i + 3] == 58 &&
+        digits(i + 4, i + 6)) {
+      final oh = value(i + 1, i + 3), om = value(i + 4, i + 6);
+      if (oh > 23 || om > 59) return null;
+      offset = (oh * 60 + om) * (c[i] == 43 ? 1 : -1);
+    } else {
+      return null;
+    }
+    // A fraction finer than DateTime holds must fail, never round.
+    if (nanos % 1000 != 0) return null;
+    final micros = nanos ~/ 1000;
+    final t = DateTime.utc(
+      y,
+      mo,
+      d,
+      h,
+      mi,
+      sec,
+      0,
+      micros,
+    ).subtract(Duration(minutes: offset));
+    // Web DateTime keeps only milliseconds, so a lost microsecond shows here.
+    if (t.year < 1 ||
+        t.year > 9999 ||
+        t.millisecond * 1000 + t.microsecond != micros) {
+      return null;
+    }
+    return t;
+  }
+
+  static String timestampText(DateTime v) {
+    final u = v.toUtc();
+    if (u.year < 1 || u.year > 9999) {
+      throw ArgumentError('timestamp year out of range');
+    }
+    String p(int n, int w) => n.toString().padLeft(w, '0');
+    final micros = u.millisecond * 1000 + u.microsecond;
+    final frac = micros == 0
+        ? ''
+        : micros % 1000 == 0
+        ? '.${p(u.millisecond, 3)}'
+        : '.${p(micros, 6)}';
+    return '${p(u.year, 4)}-${p(u.month, 2)}-${p(u.day, 2)}T'
+        '${p(u.hour, 2)}:${p(u.minute, 2)}:${p(u.second, 2)}${frac}Z';
   }
 
   static String asDate(Object? value) {
     if (value is _CsilDate) return value.text;
     throw FormatException('expected calendar date tag 1004');
+  }
+
+  static const _cddlTimeFirst = -62135596800;
+  static const _cddlTimeLast = 253402300799;
+
+  static Object cddlTimeValue(DateTime v) => _CsilEpoch(_cddlTimeNumber(v));
+
+  static DateTime asCddlTime(Object? value) {
+    if (value is _CsilEpoch) return _cddlTimeDecode(value.content);
+    throw FormatException('expected CBOR tag 1 cddl_time');
+  }
+
+  // The float split is spelled out step by step because the wire contract fixes
+  // each binary64 operation, so every target lands on the same instant.
+  static DateTime _cddlTimeDecode(Object? content) {
+    int seconds;
+    var units = 0;
+    if (content is int) {
+      seconds = content;
+    } else if (content is double) {
+      if (!content.isFinite) throw FormatException('cddl_time is not finite');
+      // Refused before the integer conversion so that the cast cannot saturate.
+      if (content < (_cddlTimeFirst - 1).toDouble() ||
+          content > (_cddlTimeLast + 1).toDouble()) {
+        throw FormatException('cddl_time year outside 0001-9999');
+      }
+      final whole = content.floorToDouble();
+      final scaled = (content - whole) * 1e6;
+      final rounded = (scaled + 0.5).floorToDouble();
+      seconds = whole.toInt();
+      units = rounded.toInt();
+      if (units == 1000000) {
+        seconds += 1;
+        units = 0;
+      }
+    } else {
+      throw FormatException('cddl_time tag 1 requires a number');
+    }
+    if (seconds < _cddlTimeFirst || seconds > _cddlTimeLast) {
+      throw FormatException('cddl_time year outside 0001-9999');
+    }
+    return DateTime.fromMicrosecondsSinceEpoch(
+      seconds * 1000000 + units,
+      isUtc: true,
+    );
+  }
+
+  static num _cddlTimeNumber(DateTime v) {
+    final micros = v.microsecondsSinceEpoch;
+    // `~/` truncates toward zero; the contract splits at the floor.
+    var seconds = micros ~/ 1000000;
+    var units = micros - seconds * 1000000;
+    if (units < 0) {
+      seconds -= 1;
+      units += 1000000;
+    }
+    if (seconds < _cddlTimeFirst || seconds > _cddlTimeLast) {
+      throw ArgumentError('cddl_time year out of range');
+    }
+    if (units == 0) return seconds;
+    return seconds.toDouble() + units.toDouble() / 1e6;
+  }
+
+  static double _halfToDouble(int h) {
+    final exp = (h >> 10) & 0x1f;
+    final mant = h & 0x3ff;
+    final double magnitude;
+    if (exp == 0) {
+      magnitude = mant / 16777216.0;
+    } else if (exp == 31) {
+      magnitude = mant == 0 ? double.infinity : double.nan;
+    } else {
+      // Rebias the exponent into binary64 bits, which is exact for every half.
+      final bits = ByteData(8)
+        ..setUint32(0, ((exp - 15 + 1023) << 20) | (mant << 10), Endian.big);
+      magnitude = bits.getFloat64(0, Endian.big);
+    }
+    return (h & 0x8000) != 0 ? -magnitude : magnitude;
   }
 
   static Uint8List encodeValue(Object? value) {
@@ -93,16 +310,12 @@ class CsilCbor {
     } else if (v is _CsilDate) {
       _head(b, 6, 1004);
       _enc(b, v.text);
+    } else if (v is _CsilEpoch) {
+      b.addByte(0xc1);
+      _enc(b, v.content);
     } else if (v is DateTime) {
       b.addByte(0xc0);
-      // Canonical RFC3339 (tag 0): Dart's toIso8601String always emits a
-      // fractional-seconds part (.000); the wire form omits it when it is zero, so
-      // strip an all-zero fraction to match the other languages byte-for-byte.
-      final iso = v.toUtc().toIso8601String().replaceFirst(
-        RegExp(r'\.0+Z$'),
-        'Z',
-      );
-      final u = utf8.encode(iso);
+      final u = utf8.encode(timestampText(v));
       _head(b, 3, u.length);
       b.add(u);
     } else if (v is List) {
@@ -119,6 +332,77 @@ class CsilCbor {
     } else {
       throw ArgumentError('CsilCbor: cannot encode ${v.runtimeType}');
     }
+  }
+
+  // Marks each decoded map whose keys are out of canonical order, so the
+  // reader of a dynamic map can refuse it without sorting.
+  static final _nonCanonical = Expando<bool>('csil-non-canonical-map');
+
+  /// A decoded dynamic map (`{ * K => V }`). Its keys must be in the canonical
+  /// order of RFC 8949 section 4.2.1: bytewise order of the encoded keys.
+  static Map canonicalMap(Object? value) {
+    final map = value as Map;
+    if (_nonCanonical[map] == true) {
+      throw FormatException('csil cbor: map keys are not in canonical order');
+    }
+    return map;
+  }
+
+  /// [map] with its entries in the canonical order a dynamic map is written in:
+  /// bytewise order of the encoded keys, so `"b"` comes before `"aa"`.
+  static Map<Object?, Object?> sortedMap(Map map) {
+    final keyed = [for (final e in map.entries) (encodeValue(e.key), e)];
+    keyed.sort(
+      (x, y) => _compareBytes(x.$1, 0, x.$1.length, y.$1, 0, y.$1.length),
+    );
+    return {for (final (_, e) in keyed) e.key: e.value};
+  }
+
+  /// A decoded array as a typed list, each element converted by [element].
+  static List<T> listOf<T>(Object? value, T Function(Object?) element) => [
+    for (final e in value as List) element(e),
+  ];
+
+  /// A decoded dynamic map as a typed map. The keys must be in canonical order.
+  static Map<K, V> mapOf<K, V>(
+    Object? value,
+    K Function(Object?) key,
+    V Function(Object?) item,
+  ) => {for (final e in canonicalMap(value).entries) key(e.key): item(e.value)};
+
+  /// A decoded union: the pair `[variant_index, value]`.
+  static List unionPair(Object? value) {
+    if (value is List && value.length == 2 && value[0] is int) return value;
+    throw FormatException('csil cbor: a union must be [variant_index, value]');
+  }
+
+  // A key in a longer head than its value needs would sort apart from the same
+  // key in its shortest head, so the canonical order check needs shortest keys.
+  static bool _shortestHead(Uint8List b, int pos) {
+    if (b[pos] >> 5 == 7) return true;
+    final low = b[pos] & 0x1f;
+    if (low < 24) return true;
+    final a = _readArg(b, pos, low).value;
+    return switch (low) {
+      24 => a >= 24,
+      25 => a >= 0x100,
+      26 => a >= 0x10000,
+      _ => a >= 0x100000000,
+    };
+  }
+
+  static int _compareBytes(
+    Uint8List a,
+    int i,
+    int aEnd,
+    Uint8List b,
+    int j,
+    int bEnd,
+  ) {
+    for (; i < aEnd && j < bEnd; i++, j++) {
+      if (a[i] != b[j]) return a[i] - b[j];
+    }
+    return (aEnd - i) - (bEnd - j);
   }
 
   static Object? decode(List<int> bytes) {
@@ -191,6 +475,11 @@ class CsilCbor {
       return _CsilRead(v, pos + 5);
     }
     if (low == 27) {
+      // A Dart int holds 64 signed bits, so an argument of 2^63 or more would
+      // wrap to a wrong value; refusing it is the only exact answer.
+      if (b[pos + 1] >= 0x80) {
+        throw FormatException('CsilCbor: argument exceeds 2^63 - 1');
+      }
       var v = 0;
       for (var i = 1; i <= 8; i++) {
         v = (v << 8) | b[pos + i];
@@ -211,6 +500,14 @@ class CsilCbor {
       if (low == 20) return _CsilDecoded(false, pos + 1);
       if (low == 21) return _CsilDecoded(true, pos + 1);
       if (low == 22 || low == 23) return _CsilDecoded(null, pos + 1);
+      if (low == 25) {
+        if (b.length - pos < 3)
+          throw ArgumentError('CsilCbor: truncated float');
+        return _CsilDecoded(
+          _halfToDouble((b[pos + 1] << 8) | b[pos + 2]),
+          pos + 3,
+        );
+      }
       if (low == 26) {
         if (b.length - pos < 5)
           throw ArgumentError('CsilCbor: truncated float');
@@ -257,26 +554,47 @@ class CsilCbor {
           throw ArgumentError('CsilCbor: map length exceeds remaining input');
         final map = <Object?, Object?>{};
         var off5 = p;
+        var prevKey = -1;
+        var prevKeyEnd = -1;
+        var canonical = true;
         for (var i = 0; i < arg; i++) {
           final k = _dec(b, off5, depth + 1);
+          if (!_shortestHead(b, off5)) {
+            throw FormatException('csil cbor: map key is not in shortest form');
+          }
+          // Comparing each key's encoded bytes with the previous key's keeps
+          // the check O(n); a record accepts any field order, so the order is
+          // only recorded here and enforced where a dynamic map is read.
+          final order = prevKey < 0
+              ? -1
+              : _compareBytes(b, prevKey, prevKeyEnd, b, off5, k.next);
+          if (order == 0 || map.containsKey(k.value)) {
+            throw FormatException('csil cbor: duplicate key "${k.value}"');
+          }
+          if (order > 0) canonical = false;
           final v = _dec(b, k.next, depth + 1);
           map[k.value] = v.value;
+          prevKey = off5;
+          prevKeyEnd = k.next;
           off5 = v.next;
         }
+        if (!canonical) _nonCanonical[map] = true;
         return _CsilDecoded(map, off5);
       case 6:
         if (arg == 1004 && (p >= b.length || b[p] >> 5 != 3)) {
           throw FormatException('calendar date tag 1004 requires text');
         }
-        final inner = _dec(b, p, depth + 1);
-        if (arg == 1004) return _CsilDecoded(dateValue(inner.value), inner.next);
-        if (inner.value is _CsilDate) throw FormatException('unexpected nested date tag');
-        if (arg == 0 && inner.value is String) {
-          return _CsilDecoded(
-            DateTime.parse(inner.value as String).toUtc(),
-            inner.next,
-          );
+        if (arg == 0 && (p >= b.length || b[p] >> 5 != 3)) {
+          throw FormatException('timestamp tag 0 requires text');
         }
+        final inner = _dec(b, p, depth + 1);
+        if (arg == 1004)
+          return _CsilDecoded(dateValue(inner.value), inner.next);
+        if (inner.value is _CsilDate)
+          throw FormatException('unexpected nested date tag');
+        if (arg == 0)
+          return _CsilDecoded(timestampValue(inner.value), inner.next);
+        if (arg == 1) return _CsilDecoded(_CsilEpoch(inner.value), inner.next);
         return _CsilDecoded(inner.value, inner.next);
       default:
         throw ArgumentError('CsilCbor: unsupported major $major');

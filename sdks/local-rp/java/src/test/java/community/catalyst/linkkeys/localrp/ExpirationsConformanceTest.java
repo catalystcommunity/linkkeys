@@ -18,7 +18,7 @@ class ExpirationsConformanceTest {
     @Test
     void checkExpirationsThresholdsViaSdkWrapper() {
         JsonValue d = Fixtures.load("expirations.json").get("check_expirations");
-        String expiresAt = d.get("expires_at").asString();
+        Instant expiresAt = Fixtures.time(d.get("expires_at").asString());
         List<JsonValue> cases = d.get("cases").asArray();
         assertEquals(11, cases.size());
 
@@ -26,7 +26,7 @@ class ExpirationsConformanceTest {
         // exercising `LinkKeysLocalRp.checkExpirations` end to end (identity
         // -> descriptor -> threshold logic), not the underlying LocalRp
         // function directly.
-        Instant expires = OffsetDateTime.parse(expiresAt).toInstant();
+        Instant expires = expiresAt;
         Instant createdAt = expires.minus(Duration.ofDays(3650));
         Identity.GenerateLocalRpIdentityConfig config =
                 new Identity.GenerateLocalRpIdentityConfig("Conformance Test App", createdAt);
@@ -43,8 +43,8 @@ class ExpirationsConformanceTest {
     @Test
     void checkTimestampsSkewBoundariesAreExact() {
         JsonValue d = Fixtures.load("expirations.json").get("check_timestamps");
-        String issuedAt = d.get("issued_at").asString();
-        String expiresAt = d.get("expires_at").asString();
+        Instant issuedAt = Fixtures.time(d.get("issued_at").asString());
+        Instant expiresAt = Fixtures.time(d.get("expires_at").asString());
         long skew = d.get("skew_seconds").asLong();
         List<JsonValue> cases = d.get("cases").asArray();
         assertEquals(4, cases.size());

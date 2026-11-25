@@ -67,6 +67,15 @@ int lrp_generate_local_rp_identity(const lrp_generate_identity_config *config, l
         suites = config->supported_suites;
         suites_count = config->supported_suites_count;
     }
+    /* The descriptor carries each suite as its AeadSuite number, so only a
+     * registry suite id can be advertised. */
+    for (size_t i = 0; i < suites_count; i++) {
+        if (cbor_enum_number(&CBOR_ENUM_AEAD_SUITE, suites[i]) == 0) {
+            lrp_identity_free(out);
+            return lrp_fail(err, LRP_ERR_INVALID_INPUT, "unsupported AEAD suite: %s",
+                            suites[i] != NULL ? suites[i] : "(null)");
+        }
+    }
 
     int64_t lifetime =
         config->lifetime_seconds > 0 ? config->lifetime_seconds : DEFAULT_LIFETIME_SECONDS;
@@ -222,7 +231,7 @@ int lrp_check_expirations(const lrp_identity *id, int64_t now_unix, lrp_expirati
         return -1;
     }
     lrp_str expires_at = {0};
-    int rc = cbor_get_text(root, "expires_at", &expires_at, err);
+    int rc = cbor_get_timestamp(root, "expires_at", &expires_at, err);
     cbor_value_free(root);
     free(root);
     if (rc != 0) return -1;

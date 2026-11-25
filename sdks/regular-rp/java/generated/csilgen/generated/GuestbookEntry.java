@@ -2,10 +2,12 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
+
 public record GuestbookEntry(
     String id /* wire: "id" */,
     String name /* wire: "name" */,
-    String createdAt /* wire: "created_at" */,
-    String updatedAt /* wire: "updated_at" */
+    Instant createdAt /* wire: "created_at" */,
+    Instant updatedAt /* wire: "updated_at" */
 ) {
 }

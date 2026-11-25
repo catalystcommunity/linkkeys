@@ -348,7 +348,8 @@ let test_claims_ticket_redemption_response () =
     (Hex.encode (Types.Local_rp_ticket_redemption_response.to_cbor decoded));
   Alcotest.(check string) "ticket_redemption_response: user_id" (text "user_id" trr) decoded.user_id;
   Alcotest.(check string) "ticket_redemption_response: user_domain" (text "user_domain" trr) decoded.user_domain;
-  Alcotest.(check string) "ticket_redemption_response: ticket_expires_at" (text "ticket_expires_at" trr) decoded.ticket_expires_at;
+  Alcotest.(check string) "ticket_redemption_response: ticket_expires_at"
+    (Timeutil.normalize_rfc3339 (text "ticket_expires_at" trr)) decoded.ticket_expires_at;
   Alcotest.(check int) "ticket_redemption_response: claim count" 3 (List.length decoded.claims);
   (* Decoding without verifying fails the point (per the README): verify
      every embedded claim's signatures too, through the SDK's own path. *)
@@ -1474,6 +1475,11 @@ let run_act_as_refresh (km : Identity.key_material) ~(now : float) (response : s
        let request = serve_one_tls server_fd ~cert ~priv response in
        ignore (Unix.write_substring pipe_w request 0 (String.length request))
      with _ -> ());
+    (* Stay connected until the client closes its end. If the child exits
+       first, the client's TLS close_notify write gets SIGPIPE, which kills
+       the test process when SIGPIPE is not ignored (as under dune). *)
+    Unix.close pipe_w;
+    (try ignore (read_all server_fd) with _ -> ());
     Unix._exit 0
   | pid ->
     Unix.close server_fd;
@@ -1530,10 +1536,10 @@ let served_act_as_grant ~grant_id ~fingerprint ~subject_domain : Types.Signed_ac
                      ] );
                ] );
            (Text "approved_scope", Array [ Text "read" ]);
-           (Text "issued_at", Text "2026-10-06T12:00:00Z");
-           (Text "expires_at", Text "2026-10-06T13:00:00Z");
-           (Text "series_issued_at", Text "2026-10-06T12:00:00Z");
-           (Text "renewable_until", Text "2026-10-06T13:00:00Z");
+           (Text "issued_at", Tag (0, Text "2026-10-06T12:00:00Z"));
+           (Text "expires_at", Tag (0, Text "2026-10-06T13:00:00Z"));
+           (Text "series_issued_at", Tag (0, Text "2026-10-06T12:00:00Z"));
+           (Text "renewable_until", Tag (0, Text "2026-10-06T13:00:00Z"));
          ])
   in
   { grant; signatures = [ { domain = subject_domain; signed_by_key_id = "domain-key"; signature = String.make 64 '\009' } ] }
@@ -1617,6 +1623,122 @@ let test_act_as_refresh_transport_error () =
   | Error (Error.Transport_error _) -> ()
   | _ -> Alcotest.fail "expected Transport_error"
 
+(* ==================================================================== *)
+(* CSIL wire rules: tag-0 timestamps, named-number enums, signed times    *)
+(* ==================================================================== *)
+
+let wire_t = "2026-01-01T00:10:00Z"
+
+let test_wire_timestamp_is_tag0_utc () =
+  (* c0 = tag 0, 74 = text(20), then "2026-01-01T00:10:00Z". *)
+  Alcotest.(check string) "tag-0 bytes" ("c074" ^ Hex.encode wire_t) (Hex.encode (Cbor.encode (Cbor.timestamp wire_t)));
+  (* Another offset is written in UTC with Z. *)
+  Alcotest.(check string) "+01:00 normalized to Z" ("c074" ^ Hex.encode wire_t)
+    (Hex.encode (Cbor.encode (Cbor.timestamp "2026-01-01T01:10:00+01:00")));
+  Alcotest.(check string) "fraction in groups of three" "2026-01-01T00:10:00.500Z" (Timeutil.normalize_rfc3339 "2026-01-01T00:10:00.5Z");
+  Alcotest.(check string) "decode" wire_t (Cbor.as_timestamp (Cbor.Tag (0, Cbor.Text "2026-01-01T00:10:00+00:00")))
+
+let test_wire_timestamp_refusals () =
+  let refused v = match Cbor.as_timestamp v with _ -> false | exception Cbor.Decode_error _ -> true in
+  check_bool "untagged text refused" true (refused (Cbor.Text wire_t));
+  check_bool "tag 1 refused" true (refused (Cbor.Tag (1, Cbor.Text wire_t)));
+  check_bool "tag 0 integer refused" true (refused (Cbor.Tag (0, Cbor.Int 1767226200)));
+  List.iter
+    (fun bad -> check_bool ("non-RFC 3339 refused: " ^ bad) true (refused (Cbor.Tag (0, Cbor.Text bad))))
+    [ "2026-01-01T00:10Z"; "2026-01-01T00:10:00"; "2026-01-01"; "2026-02-30T00:00:00Z"; " 2026-01-01T00:10:00Z"; "2026-01-01T00:10:00+0100" ];
+  (* A whole struct with an untagged time fails to decode. *)
+  let key : Types.Domain_public_key.t =
+    {
+      key_id = "k1"; public_key = String.make 32 '\001'; fingerprint = "fp"; algorithm = "ed25519"; key_usage = "sign";
+      created_at = wire_t; expires_at = wire_t; revoked_at = None; signed_by_key_id = None; key_signature = None;
+    }
+  in
+  let untagged =
+    match Cbor.decode (Types.Domain_public_key.to_cbor key) with
+    | Cbor.Map m -> Cbor.encode (Cbor.Map (List.map (fun (k, v) -> if k = Cbor.Text "expires_at" then (k, Cbor.Text wire_t) else (k, v)) m))
+    | _ -> Alcotest.fail "not a map"
+  in
+  check_bool "domain key with untagged expires_at refused" true
+    (match Types.Domain_public_key.of_cbor untagged with _ -> false | exception Cbor.Decode_error _ -> true)
+
+let test_wire_enum_numbers () =
+  Alcotest.(check int) "ed25519" 1 (Cbor.enum_number Cbor.key_algorithm "ed25519");
+  Alcotest.(check int) "x25519" 2 (Cbor.enum_number Cbor.key_algorithm "x25519");
+  Alcotest.(check int) "sign" 1 (Cbor.enum_number Cbor.key_usage "sign");
+  Alcotest.(check int) "encrypt" 2 (Cbor.enum_number Cbor.key_usage "encrypt");
+  Alcotest.(check int) "agree" 3 (Cbor.enum_number Cbor.key_usage "agree");
+  Alcotest.(check int) "aes-256-gcm" 1 (Cbor.enum_number Cbor.aead_suite "aes-256-gcm");
+  Alcotest.(check int) "chacha20-poly1305" 2 (Cbor.enum_number Cbor.aead_suite "chacha20-poly1305");
+  let refused v = match Cbor.as_enum Cbor.aead_suite v with _ -> false | exception Cbor.Decode_error _ -> true in
+  check_bool "unknown number 3 refused" true (refused (Cbor.Int 3));
+  check_bool "number 0 refused" true (refused (Cbor.Int 0));
+  check_bool "text label refused" true (refused (Cbor.Text "aes-256-gcm"));
+  check_bool "unknown label refused on encode" true
+    (match Cbor.enum_number Cbor.key_algorithm "rsa" with _ -> false | exception Cbor.Encode_error _ -> true)
+
+let test_wire_unknown_suite_refused_at_identity () =
+  let config =
+    Identity.make_config ~app_name:"Suite Test" ~now:(Timeutil.parse_rfc3339 wire_t)
+      ~supported_suites:[ "aes-256-gcm"; "AES-256-GCM" ] ()
+  in
+  check_bool "unknown suite label refused" true
+    (match Identity.generate_local_rp_identity config with Error (Error.Invalid_config _) -> true | _ -> false)
+
+let test_wire_fractional_signed_time_refused () =
+  let now = Timeutil.parse_rfc3339 "2026-06-01T00:00:00Z" in
+  let pub, priv = Crypto.generate_ed25519_keypair () in
+  let key : Types.Domain_public_key.t =
+    {
+      key_id = "k1"; public_key = pub; fingerprint = Crypto.fingerprint pub; algorithm = "ed25519"; key_usage = "sign";
+      created_at = wire_t; expires_at = "2126-01-01T00:00:00Z"; revoked_at = None; signed_by_key_id = None; key_signature = None;
+    }
+  in
+  (* Claim: same signature, attested_at moved by half a second. Rounding down would make it verify. *)
+  let claim =
+    Claims.sign_claim
+      { claim_id = "c1"; claim_type = "handle"; claim_value = "v"; user_id = "u1"; subject_domain = "example.com"; attested_at = wire_t; expires_at = None }
+      [ { domain = "example.com"; key_id = "k1"; algorithm = "ed25519"; private_key = priv } ]
+  in
+  let keys = [ ({ domain = "example.com"; keys = [ key ] } : Claims.domain_key_set) ] in
+  Claims.verify_claim claim "example.com" keys now;
+  let fractional = { claim with attested_at = "2026-01-01T00:10:00.5Z" } in
+  check_bool "fractional attested_at fails" true
+    (match Claims.verify_claim fractional "example.com" keys now with
+     | () -> false
+     | exception Error.Sdk_error (Error.Bad_timestamp _) -> true);
+  (* Revocation: a valid quorum over whole seconds, then the same signatures with a fraction. *)
+  let p1, k1 = Crypto.generate_ed25519_keypair () in
+  let p2, k2 = Crypto.generate_ed25519_keypair () in
+  let sib id p = { key with key_id = id; public_key = p; fingerprint = Crypto.fingerprint p } in
+  let siblings = [ sib "s1" p1; sib "s2" p2 ] in
+  let payload = Revocation.revocation_payload "target" "fp" wire_t "example.com" in
+  let signatures : Types.Claim_signature.t list =
+    [
+      { domain = "example.com"; signed_by_key_id = "s1"; signature = Crypto.sign_ed25519 k1 payload };
+      { domain = "example.com"; signed_by_key_id = "s2"; signature = Crypto.sign_ed25519 k2 payload };
+    ]
+  in
+  let cert : Types.Revocation_certificate.t = { target_key_id = "target"; target_fingerprint = "fp"; revoked_at = wire_t; signatures } in
+  Alcotest.(check int) "whole-second revocation counts" 2 (Revocation.count_valid_signers ~now cert siblings "example.com");
+  Alcotest.(check int) "fractional revocation counts none" 0
+    (Revocation.count_valid_signers ~now { cert with revoked_at = "2026-01-01T00:10:00.000000001Z" } siblings "example.com");
+  (* Key vouch: the same, for an encryption key's expires_at. *)
+  let enc_pub = String.make 32 '\007' in
+  let vouch_payload =
+    Cbor.encode
+      (Cbor.Array [ Cbor.Text "linkkeys-key-vouch-v1alpha"; Cbor.Text (Crypto.fingerprint enc_pub); Cbor.Int (Timeutil.whole_unix_seconds "2126-01-01T00:00:00Z") ])
+  in
+  let enc : Types.Domain_public_key.t =
+    {
+      key with key_id = "e1"; public_key = enc_pub; algorithm = "x25519"; key_usage = "encrypt"; signed_by_key_id = Some "k1";
+      key_signature = Some (Crypto.sign_ed25519 priv vouch_payload);
+    }
+  in
+  check_bool "whole-second vouch verifies" true (Dns.verify_key_vouch enc key now);
+  check_bool "fractional vouch expiry refused" false (Dns.verify_key_vouch { enc with expires_at = "2126-01-01T00:00:00.5Z" } key now);
+  check_bool "signed_time refuses a fraction" true
+    (match Cbor.signed_time "2026-01-01T00:10:00.5Z" with _ -> false | exception Timeutil.Bad_timestamp _ -> true)
+
 let () =
   Alcotest.run "linkkeys_local_rp"
     [
@@ -1676,6 +1798,14 @@ let () =
           Alcotest.test_case "hostile IDP (5): certificate-revoked signing key is excluded" `Quick
             test_rpc_establish_trusted_keys_cert_revoked_signing_key_excluded;
           Alcotest.test_case "SF-4: spoofed/mismatched DNS response is rejected" `Quick test_dns_spoofed_response_rejected;
+        ] );
+      ( "wire format",
+        [
+          Alcotest.test_case "timestamp is tag 0 UTC text" `Quick test_wire_timestamp_is_tag0_utc;
+          Alcotest.test_case "untagged / non-RFC 3339 timestamps refused" `Quick test_wire_timestamp_refusals;
+          Alcotest.test_case "enum numbers; unknown refused" `Quick test_wire_enum_numbers;
+          Alcotest.test_case "fractional signed time refused, not rounded" `Quick test_wire_fractional_signed_time_refused;
+          Alcotest.test_case "unknown suite label refused at identity" `Quick test_wire_unknown_suite_refused_at_identity;
         ] );
       ( "act-as grantee",
         [

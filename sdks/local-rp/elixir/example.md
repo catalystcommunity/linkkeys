@@ -127,13 +127,34 @@ integration this document mirrors.
 
 ```
 service Rp {
-    sign-request:       RpSignRequest             -> RpSignResponse,
-    decrypt-token:      RpDecryptRequest           -> RpDecryptResponse,
-    verify-assertion:   RpVerifyRequest            -> RpVerifyResponse,
-    userinfo-fetch:     RpUserInfoRequest          -> UserInfo,
+    sign-request:       RpSignRequest             -> RpSignResponse / RpError,
+    decrypt-token:      RpDecryptRequest           -> RpDecryptResponse / RpError,
+    verify-assertion:   RpVerifyRequest            -> RpVerifyResponse / RpError,
+    userinfo-fetch:     RpUserInfoRequest          -> UserInfo / RpError,
     issue-attestation:  RpIssueAttestationRequest  -> RpIssueAttestationResponse
 }
 ```
+
+The four login operations have two output arms. A reply with `status` 0
+also has a `variant` field. The `variant` field names the arm that the
+`payload` contains: the success type (for example `RpSignResponse`), or
+`RpError`. `RpError` is `{code: RpErrorCode, message: text}`. Always read
+`variant` before you decode `payload`. `RegularRp.Client` below returns
+`{:error, %RegularRp.Types.RpError{}}` for an `RpError` arm.
+
+Wire format rules (see `docs/UPGRADING.md`, "Wire format: timestamps and
+enums"):
+
+- Each `timestamp` field is CBOR tag 0 that contains RFC 3339 text in UTC
+  (`c0 74 "2026-01-01T00:00:00Z"`). The types below use
+  `LinkkeysLocalRp.Timeutil.to_wire/1` and `from_wire!/1` for these fields,
+  and keep a `DateTime.t()` in memory.
+- Each closed vocabulary (`ClaimValueType`, `AuthFlow`, `RpErrorCode`, and
+  more) is a named-number enum. On the wire it is a CBOR unsigned integer.
+  The types below keep the CSIL label as an atom in memory (for example
+  `:text` or `:login`).
+- `IdentityAssertion.application` is required. It identifies the
+  application that the login is for.
 
 (`issue-attestation` is a different feature — your RP server issuing a
 claim it signs itself about a *visiting* user, the way `demoappsite`'s
@@ -212,6 +233,41 @@ defmodule RegularRp.Types do
   """
 
   alias LinkkeysLocalRp.Cbor
+  alias LinkkeysLocalRp.Timeutil
+
+  # CSIL named-number enums: a CBOR unsigned integer on the wire, the CSIL
+  # label as an atom in memory. An unknown number fails the decode.
+  @claim_value_types [
+    text: 1, url: 2, email: 3, bool: 4, int: 5, float: 6, decimal: 7, date: 8, timestamp: 9, opaque: 10
+  ]
+  @auth_flows [login: 1, claims_update: 2]
+  @rp_error_codes [
+    not_application_account: 1,
+    application_mismatch: 2,
+    application_user_limit: 3,
+    bad_request: 4,
+    upstream_failed: 5,
+    internal: 6
+  ]
+
+  defp enum_to_wire(vocab, label), do: Keyword.fetch!(vocab, label)
+
+  defp enum_from_wire!(vocab, n) when is_integer(n) do
+    case Enum.find(vocab, fn {_label, number} -> number == n end) do
+      {label, _} -> label
+      nil -> raise ArgumentError, "unknown enum number #{n}"
+    end
+  end
+
+  defmodule ApplicationRef do
+    @moduledoc "CSIL `ApplicationRef` -- the application a login is for."
+    defstruct [:subject_user_id, :subject_domain, :application_id]
+  end
+
+  defmodule RpError do
+    @moduledoc "CSIL `RpError` -- the error arm of the `Rp` login operations. `code` is an `RpErrorCode` atom."
+    defexception [:code, :message]
+  end
 
   defmodule RequestedClaim do
     @moduledoc "CSIL `RequestedClaim`."
@@ -258,6 +314,7 @@ defmodule RegularRp.Types do
       :issued_at,
       :expires_at,
       :authorized_claims,
+      :application,
       display_name: nil
     ]
   end
@@ -312,11 +369,14 @@ defmodule RegularRp.Types do
   # -- RequestedClaim / ClaimRequest / AuthFlowContext ----------------------
 
   def requested_claim_to_tree(%RequestedClaim{} = v) do
-    %{"claim_type" => v.claim_type, "datatype" => v.datatype}
+    %{"claim_type" => v.claim_type, "datatype" => enum_to_wire(@claim_value_types, v.datatype)}
   end
 
   def requested_claim_from_tree(tree) do
-    %RequestedClaim{claim_type: get(tree, "claim_type"), datatype: get(tree, "datatype")}
+    %RequestedClaim{
+      claim_type: get(tree, "claim_type"),
+      datatype: enum_from_wire!(@claim_value_types, get(tree, "datatype"))
+    }
   end
 
   def claim_request_to_tree(nil), do: nil
@@ -340,7 +400,7 @@ defmodule RegularRp.Types do
   def auth_flow_context_to_tree(nil), do: nil
 
   def auth_flow_context_to_tree(%AuthFlowContext{} = v) do
-    %{"flow" => v.flow}
+    %{"flow" => enum_to_wire(@auth_flows, v.flow)}
     |> put_opt("prior_session", v.prior_session)
     |> put_opt("request_reason", v.request_reason)
   end
@@ -349,7 +409,7 @@ defmodule RegularRp.Types do
 
   def auth_flow_context_from_tree(tree) do
     %AuthFlowContext{
-      flow: get(tree, "flow"),
+      flow: enum_from_wire!(@auth_flows, get(tree, "flow")),
       prior_session: get_opt(tree, "prior_session"),
       request_reason: get_opt(tree, "request_reason")
     }
@@ -376,11 +436,11 @@ defmodule RegularRp.Types do
       "claim_type" => v.claim_type,
       "claim_value" => Cbor.bytes(v.claim_value),
       "signatures" => Enum.map(v.signatures, &claim_signature_to_tree/1),
-      "attested_at" => v.attested_at,
-      "created_at" => v.created_at
+      "attested_at" => Timeutil.to_wire(v.attested_at),
+      "created_at" => Timeutil.to_wire(v.created_at)
     }
-    |> put_opt("expires_at", v.expires_at)
-    |> put_opt("revoked_at", v.revoked_at)
+    |> put_opt("expires_at", Timeutil.to_wire_opt(v.expires_at))
+    |> put_opt("revoked_at", Timeutil.to_wire_opt(v.revoked_at))
   end
 
   def claim_from_tree(tree) do
@@ -390,11 +450,34 @@ defmodule RegularRp.Types do
       claim_type: get(tree, "claim_type"),
       claim_value: Cbor.bytes!(get(tree, "claim_value")),
       signatures: Enum.map(get(tree, "signatures"), &claim_signature_from_tree/1),
-      attested_at: get(tree, "attested_at"),
-      created_at: get(tree, "created_at"),
-      expires_at: get_opt(tree, "expires_at"),
-      revoked_at: get_opt(tree, "revoked_at")
+      attested_at: Timeutil.from_wire!(get(tree, "attested_at")),
+      created_at: Timeutil.from_wire!(get(tree, "created_at")),
+      expires_at: Timeutil.from_wire_opt!(get_opt(tree, "expires_at")),
+      revoked_at: Timeutil.from_wire_opt!(get_opt(tree, "revoked_at"))
     }
+  end
+
+  # -- ApplicationRef / RpError ----------------------------------------------
+
+  def application_ref_to_tree(%ApplicationRef{} = v) do
+    %{
+      "subject_user_id" => v.subject_user_id,
+      "subject_domain" => v.subject_domain,
+      "application_id" => v.application_id
+    }
+  end
+
+  def application_ref_from_tree(tree) do
+    %ApplicationRef{
+      subject_user_id: get(tree, "subject_user_id"),
+      subject_domain: get(tree, "subject_domain"),
+      application_id: get(tree, "application_id")
+    }
+  end
+
+  def rp_error_from_cbor(data) do
+    tree = Cbor.decode(data)
+    %RpError{code: enum_from_wire!(@rp_error_codes, get(tree, "code")), message: get(tree, "message")}
   end
 
   # -- IdentityAssertion / UserInfo -----------------------------------------
@@ -405,9 +488,10 @@ defmodule RegularRp.Types do
       domain: get(tree, "domain"),
       audience: get(tree, "audience"),
       nonce: get(tree, "nonce"),
-      issued_at: get(tree, "issued_at"),
-      expires_at: get(tree, "expires_at"),
+      issued_at: Timeutil.from_wire!(get(tree, "issued_at")),
+      expires_at: Timeutil.from_wire!(get(tree, "expires_at")),
       authorized_claims: get(tree, "authorized_claims"),
+      application: application_ref_from_tree(get(tree, "application")),
       display_name: get_opt(tree, "display_name")
     }
   end
@@ -421,9 +505,10 @@ defmodule RegularRp.Types do
       "domain" => v.domain,
       "audience" => v.audience,
       "nonce" => v.nonce,
-      "issued_at" => v.issued_at,
-      "expires_at" => v.expires_at,
-      "authorized_claims" => v.authorized_claims
+      "issued_at" => Timeutil.to_wire(v.issued_at),
+      "expires_at" => Timeutil.to_wire(v.expires_at),
+      "authorized_claims" => v.authorized_claims,
+      "application" => application_ref_to_tree(v.application)
     }
     |> put_opt("display_name", v.display_name)
   end
@@ -565,12 +650,16 @@ defmodule RegularRp.Client do
     })
   end
 
+  # Returns `{:ok, variant, payload}`. `variant` names the output arm that
+  # `payload` contains (`nil` when the server omits it).
   defp parse_response_envelope(response_bytes) do
     case Cbor.decode(response_bytes) do
       %{"status" => 0} = tree ->
+        variant = Map.get(tree, "variant")
+
         case Map.get(tree, "payload") do
-          %Tag{tag: @tag_encoded_cbor, value: v} -> {:ok, Cbor.bytes!(v)}
-          _ -> {:ok, <<>>}
+          %Tag{tag: @tag_encoded_cbor, value: v} -> {:ok, variant, Cbor.bytes!(v)}
+          _ -> {:ok, variant, <<>>}
         end
 
       %{"status" => status} = tree ->
@@ -610,7 +699,7 @@ defmodule RegularRp.Client do
   client certificate -- your app holds no domain key, only the RP server
   does.
   """
-  @spec rp_call(RpConfig.t(), String.t(), binary) :: {:ok, binary} | {:error, term}
+  @spec rp_call(RpConfig.t(), String.t(), binary) :: {:ok, String.t() | nil, binary} | {:error, term}
   def rp_call(%RpConfig{} = cfg, op, payload) do
     with {:ok, raw_sock} <- Transport.dial(cfg.tcp_addr) do
       hostname = Tls.extract_hostname(cfg.tcp_addr)
@@ -633,6 +722,17 @@ defmodule RegularRp.Client do
     end
   end
 
+  # The login operations reply with a success arm or an `RpError` arm.
+  # Decode `payload` only after `variant` names the expected arm.
+  defp rp_typed_call(cfg, op, payload, success_variant, decode) do
+    case rp_call(cfg, op, payload) do
+      {:ok, ^success_variant, bytes} -> {:ok, decode.(bytes)}
+      {:ok, "RpError", bytes} -> {:error, Types.rp_error_from_cbor(bytes)}
+      {:ok, other, _bytes} -> {:error, %RpCallError{message: "unexpected reply variant #{inspect(other)} for #{op}"}}
+      {:error, _} = error -> error
+    end
+  end
+
   @doc "Step 1: sign an auth request before ever redirecting the browser."
   @spec sign_request(RpConfig.t(), String.t(), String.t(), Types.ClaimRequest.t() | nil, Types.AuthFlowContext.t() | nil) ::
           {:ok, Types.RpSignResponse.t()} | {:error, term}
@@ -644,9 +744,7 @@ defmodule RegularRp.Client do
       flow_context: flow_context
     }
 
-    with {:ok, resp_bytes} <- rp_call(cfg, "sign-request", Types.rp_sign_request_to_cbor(req)) do
-      {:ok, Types.rp_sign_response_from_cbor(resp_bytes)}
-    end
+    rp_typed_call(cfg, "sign-request", Types.rp_sign_request_to_cbor(req), "RpSignResponse", &Types.rp_sign_response_from_cbor/1)
   end
 
   @doc "Step 4: exchange the callback's `encrypted_token` for the signed assertion inside it."
@@ -654,9 +752,7 @@ defmodule RegularRp.Client do
   def decrypt_token(cfg, encrypted_token) do
     req = %Types.RpDecryptRequest{encrypted_token: encrypted_token}
 
-    with {:ok, resp_bytes} <- rp_call(cfg, "decrypt-token", Types.rp_decrypt_request_to_cbor(req)) do
-      {:ok, Types.rp_decrypt_response_from_cbor(resp_bytes)}
-    end
+    rp_typed_call(cfg, "decrypt-token", Types.rp_decrypt_request_to_cbor(req), "RpDecryptResponse", &Types.rp_decrypt_response_from_cbor/1)
   end
 
   @doc """
@@ -668,9 +764,7 @@ defmodule RegularRp.Client do
   def verify_assertion(cfg, signed_assertion, expected_domain) do
     req = %Types.RpVerifyRequest{signed_assertion: signed_assertion, expected_domain: expected_domain}
 
-    with {:ok, resp_bytes} <- rp_call(cfg, "verify-assertion", Types.rp_verify_request_to_cbor(req)) do
-      {:ok, Types.rp_verify_response_from_cbor(resp_bytes)}
-    end
+    rp_typed_call(cfg, "verify-assertion", Types.rp_verify_request_to_cbor(req), "RpVerifyResponse", &Types.rp_verify_response_from_cbor/1)
   end
 
   @doc "Step 6 (optional): fetch the user's consented claims via your RP server."
@@ -679,9 +773,7 @@ defmodule RegularRp.Client do
   def userinfo_fetch(cfg, token, api_base, domain) do
     req = %Types.RpUserInfoRequest{token: token, api_base: api_base, domain: domain}
 
-    with {:ok, resp_bytes} <- rp_call(cfg, "userinfo-fetch", Types.rp_user_info_request_to_cbor(req)) do
-      {:ok, Types.user_info_from_cbor(resp_bytes)}
-    end
+    rp_typed_call(cfg, "userinfo-fetch", Types.rp_user_info_request_to_cbor(req), "UserInfo", &Types.user_info_from_cbor/1)
   end
 
   @doc """
@@ -1168,6 +1260,13 @@ warnings) with `elixirc`, against this checkout's already-built
 `sdks/local-rp/elixir` (`mix compile` first, then `elixirc -pa
 _build/dev/lib/linkkeys_local_rp/ebin ...`), using only `LinkkeysLocalRp`'s
 public API — no SDK file was modified.
+
+After the wire format change (tag 0 timestamps, named-number enums,
+required `IdentityAssertion.application`, and the `RpError` reply arm), the
+modules above were compiled again with `elixirc --warnings-as-errors`. A
+script then did these checks: an `RpVerifyResponse` with an `application`
+round trip, a timestamp encodes as tag 0, `datatype` and `flow` encode as
+numbers, and an `RpError` payload decodes to `%RegularRp.Types.RpError{}`.
 
 Everything that doesn't need a live RP server + IDP — CBOR envelope
 encode/decode, every CSIL type's round trip, the raw-API-key envelope

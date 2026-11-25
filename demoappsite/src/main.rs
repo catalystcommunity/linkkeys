@@ -54,15 +54,15 @@ async fn rp_call<Req, Resp>(
     rp: &RpConfig,
     op: &'static str,
     req: Req,
-    encode: fn(&Req) -> Vec<u8>,
+    encode: fn(&Req) -> Result<Vec<u8>, liblinkkeys::generated::codec::CsilCborError>,
     decode: fn(&[u8]) -> Result<Resp, liblinkkeys::generated::codec::CsilCborError>,
 ) -> Result<Resp, String> {
     let addr = rp.tcp_addr.clone();
     let fingerprints = rp.fingerprints.clone();
     let api_key = rp.api_key.clone();
-    let payload = encode(&req);
-    let resp_bytes = tokio::task::spawn_blocking(move || {
-        linkkeys_rpc_client::send_request(
+    let payload = encode(&req).map_err(|e| format!("Rp {op}: encoding request: {e}"))?;
+    let reply = tokio::task::spawn_blocking(move || {
+        linkkeys_rpc_client::send_request_reply(
             &addr,
             fingerprints,
             None,
@@ -75,7 +75,17 @@ async fn rp_call<Req, Resp>(
     .await
     .map_err(|e| format!("RP task join failed: {}", e))?
     .map_err(|e| format!("RP {} failed: {}", op, e))?;
-    decode(&resp_bytes).map_err(|e| format!("RP {} decode failed: {}", op, e))
+    if reply.variant.as_deref() == Some("RpError") {
+        let error = liblinkkeys::generated::decode_rp_error(&reply.payload)
+            .map_err(|e| format!("RP {} decode failed: {}", op, e))?;
+        return Err(format!(
+            "RP {} refused ({}): {}",
+            op,
+            error.code.as_str(),
+            error.message
+        ));
+    }
+    decode(&reply.payload).map_err(|e| format!("RP {} decode failed: {}", op, e))
 }
 
 fn get_own_origin() -> String {
@@ -444,25 +454,25 @@ fn demo_initial_claim_request() -> lk::ClaimRequest {
         required: vec![
             lk::RequestedClaim {
                 claim_type: "display_name".to_string(),
-                datatype: "text".to_string(),
+                datatype: liblinkkeys::generated::types::ClaimValueType::Text,
             },
             lk::RequestedClaim {
                 claim_type: "handle".to_string(),
-                datatype: "text".to_string(),
+                datatype: liblinkkeys::generated::types::ClaimValueType::Text,
             },
         ],
         optional: vec![
             lk::RequestedClaim {
                 claim_type: "email".to_string(),
-                datatype: "email".to_string(),
+                datatype: liblinkkeys::generated::types::ClaimValueType::Email,
             },
             lk::RequestedClaim {
                 claim_type: "over_21".to_string(),
-                datatype: "bool".to_string(),
+                datatype: liblinkkeys::generated::types::ClaimValueType::Bool,
             },
             lk::RequestedClaim {
                 claim_type: "address".to_string(),
-                datatype: "text".to_string(),
+                datatype: liblinkkeys::generated::types::ClaimValueType::Text,
             },
         ],
     }
@@ -473,15 +483,15 @@ fn demo_age_update_claim_request() -> lk::ClaimRequest {
     request.optional.extend([
         lk::RequestedClaim {
             claim_type: "over_13".to_string(),
-            datatype: "bool".to_string(),
+            datatype: liblinkkeys::generated::types::ClaimValueType::Bool,
         },
         lk::RequestedClaim {
             claim_type: "over_16".to_string(),
-            datatype: "bool".to_string(),
+            datatype: liblinkkeys::generated::types::ClaimValueType::Bool,
         },
         lk::RequestedClaim {
             claim_type: "over_18".to_string(),
-            datatype: "bool".to_string(),
+            datatype: liblinkkeys::generated::types::ClaimValueType::Bool,
         },
     ]);
     request
@@ -506,8 +516,6 @@ async fn begin_linkkeys_redirect(
         lk::RpSignRequest {
             callback_url: callback_url.clone(),
             nonce: nonce.clone(),
-            // The RP names this app by the API-key account's username.
-            application_id: None,
             requested_claims: Some(requested_claims),
             authentication_requirements: None,
             flow_context,
@@ -586,7 +594,7 @@ async fn request_age_checks(
         None,
         demo_age_update_claim_request(),
         Some(lk::AuthFlowContext {
-            flow: "claims_update".to_string(),
+            flow: liblinkkeys::generated::types::AuthFlow::ClaimsUpdate,
             prior_session: Some(session.user_id),
             request_reason: Some("linkidspec.com now supports age-tier checks".to_string()),
         }),

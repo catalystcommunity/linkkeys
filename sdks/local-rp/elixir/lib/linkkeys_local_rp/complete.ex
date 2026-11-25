@@ -171,9 +171,9 @@ defmodule LinkkeysLocalRp.Complete do
          claims: redemption.claims,
          domain_public_keys: user_domain_keys,
          local_rp_fingerprint: key_material.fingerprint,
-         issued_at: Timeutil.parse_rfc3339(payload.issued_at),
-         expires_at: Timeutil.parse_rfc3339(payload.expires_at),
-         ticket_expires_at: Timeutil.parse_rfc3339(redemption.ticket_expires_at)
+         issued_at: payload.issued_at,
+         expires_at: payload.expires_at,
+         ticket_expires_at: redemption.ticket_expires_at
        }}
     else
       {:error, reason} -> {:error, reason}
@@ -214,7 +214,7 @@ defmodule LinkkeysLocalRp.Complete do
       LocalRp.build_local_rp_ticket_redemption_request(
         payload.claim_ticket,
         key_material.fingerprint,
-        Timeutil.to_rfc3339(now)
+        Timeutil.whole_seconds(now)
       )
 
     signed_redemption =

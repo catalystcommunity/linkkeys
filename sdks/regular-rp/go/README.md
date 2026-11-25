@@ -23,8 +23,22 @@ reimplements the pure application-key logic from
 `crates/liblinkkeys/src/application_keys.rs` directly in Go. It uses the
 generated CBOR codec and typed `Rp` client from `generated/` for every CSIL
 wire type. It hand-builds only the few structures that are not CSIL wire
-types: the envelope signature input and the sealed-challenge tuple (see
-`cbor.go`).
+types: the envelope signature input, the signed tuple payloads, and the
+sealed-challenge tuple (see `cbor.go`).
+
+Wire rules for these hand-built structures:
+
+- A signed tuple payload (claim, domain-key revocation, application-key
+  revocation) encodes each timestamp as a CBOR integer of whole Unix
+  seconds. A signed timestamp with a fraction of a second fails
+  verification. The SDK does not round it.
+- The sealed-challenge tuple starts with the `AeadSuite` number
+  (`2` is `chacha20-poly1305`). The box key derivation binds the suite text
+  id.
+- In the generated types, timestamps are `time.Time` and closed
+  vocabularies (`KeyUsage`, `KeyAlgorithm`, `RpCacheStatus`, and others) are
+  integer enums. Use the constants `KeyUsageSign`, `KeyUsageAgree`,
+  `AlgorithmEd25519`, and `AlgorithmX25519`.
 
 Do not hand-edit any file under `generated/`. That directory is `csilgen`
 output. Regenerate it with:
@@ -87,7 +101,7 @@ Look up the specific key that signed the message. `KeyForUse` fails closed
 on an unknown, expired, unattested, mismatched, or revoked key:
 
 ```go
-attestation, err := result.Keys.KeyForUse(signedByKeyID, regularrp.KeyUsageSign, "ed25519")
+attestation, err := result.Keys.KeyForUse(signedByKeyID, regularrp.KeyUsageSign, regularrp.AlgorithmEd25519)
 if err != nil {
 	// refuse the message
 }
@@ -163,8 +177,8 @@ domain signs it. C and D enforce the scope. Read
 This package ports `crates/liblinkkeys/src/act_as.rs` (`actas.go`) and adds
 the RP calls (`actas_rp.go`).
 
-Use `FormatActAsTime` for every timestamp that you put in a request. It
-gives whole-second RFC3339 UTC with a trailing `Z`.
+Use `ActAsTime` for every timestamp that you put in a request. It gives the
+time in UTC without a fraction of a second.
 
 ### Grantee flow (application C)
 
@@ -182,8 +196,8 @@ gives whole-second RFC3339 UTC with a trailing `Z`.
    	GranteeHandleClaim: handleClaim, // optional; nil when you have none
    	CallbackUrl:        "https://c.example/act-as/callback",
    	Nonce:              nonce, // single use; check it on the callback
-   	RequestedAt:        regularrp.FormatActAsTime(now),
-   	ExpiresAt:          regularrp.FormatActAsTime(now.Add(5 * time.Minute)),
+   	RequestedAt:        regularrp.ActAsTime(now),
+   	ExpiresAt:          regularrp.ActAsTime(now.Add(5 * time.Minute)),
    }, signer)
    link, err := regularrp.GrantRequestURL("https://home.example", signed)
    ```
@@ -203,8 +217,8 @@ gives whole-second RFC3339 UTC with a trailing `Z`.
    refresh, err := regularrp.SignRefreshRequest(api.ActAsRefreshRequest{
    	GrantId:     grantID,
    	Grantee:     grantee,
-   	RequestedAt: regularrp.FormatActAsTime(now),
-   	ExpiresAt:   regularrp.FormatActAsTime(now.Add(5 * time.Minute)),
+   	RequestedAt: regularrp.ActAsTime(now),
+   	ExpiresAt:   regularrp.ActAsTime(now.Add(5 * time.Minute)),
    	Nonce:       freshNonce,
    }, signer)
    got, err := regularrp.RefreshGrant(ctx, transport, userHomeDomain, refresh)

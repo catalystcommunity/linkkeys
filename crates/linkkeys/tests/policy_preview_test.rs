@@ -37,8 +37,12 @@ fn release_request(temp: Option<(&str, &str, &str)>) -> Vec<u8> {
         user_choices: strings(&["email", "ssn"]),
         temp_audience: temp.map(|t| t.0.to_string()),
         temp_claim_type: temp.map(|t| t.1.to_string()),
-        temp_disposition: temp.map(|t| t.2.to_string()),
+        temp_disposition: temp.map(|t| {
+            liblinkkeys::generated::types::ReleaseDisposition::from_label(t.2)
+                .expect("known disposition")
+        }),
     })
+    .unwrap()
 }
 
 #[test]
@@ -76,10 +80,10 @@ fn release_preview_applies_stored_and_temporary_rules_without_storing() {
         "a forced deny wins over the user's choice"
     );
     let row = |ct: &str| preview.rows.iter().find(|r| r.claim_type == ct).unwrap();
-    assert_eq!(row("ssn").policy, "forced_deny");
+    assert_eq!(row("ssn").policy.as_str(), "forced_deny");
     assert!(row("ssn").locked);
     assert!(!row("over_21").available);
-    assert_eq!(row("email").policy, "forced_allow");
+    assert_eq!(row("email").policy.as_str(), "forced_allow");
 
     let stored = pool
         .list_release_policies_for_audience("app.example")
@@ -88,16 +92,6 @@ fn release_preview_applies_stored_and_temporary_rules_without_storing() {
         !stored.iter().any(|r| r.claim_type == "email"),
         "the temporary rule is never stored"
     );
-
-    let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
-        "Admin",
-        "preview-release-policy",
-        release_request(Some(("*", "email", "sometimes"))),
-        Some(&operator),
-        &pool,
-        None,
-    );
-    assert_ne!(status, 0, "an unknown temporary disposition is refused");
 }
 
 #[test]
@@ -112,6 +106,7 @@ fn issuer_preview_reports_the_domain_decision_and_issue_rights() {
             issuer_user_id: Some("no-such-user".to_string()),
             claim_type: Some("over_21".to_string()),
         })
+        .unwrap()
     };
     for (domain, allowed) in [
         ("fine.example", true),

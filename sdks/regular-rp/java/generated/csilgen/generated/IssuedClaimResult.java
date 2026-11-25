@@ -4,7 +4,7 @@ package csilgen.generated;
 
 public record IssuedClaimResult(
     String claimType /* wire: "claim_type" */,
-    String outcome /* wire: "outcome" */,
+    IssuedClaimOutcome outcome /* wire: "outcome" */,
     String message /* wire: "message" */,
     String claimCode /* wire: "claim_code" */
 ) {

@@ -23,8 +23,8 @@ pub mod pg {
                 algorithm: key.algorithm.clone(),
                 fingerprint: key.fingerprint.clone(),
                 key_usage: key.key_usage.clone(),
-                expires_at: key.expires_at.clone(),
-                revoked_at: key.revoked_at.clone(),
+                expires_at: key.expires_at.clone().to_rfc3339(),
+                revoked_at: key.revoked_at.map(|t| t.to_rfc3339()),
             })
             .on_conflict((peer_keys::domain, peer_keys::key_id))
             .do_nothing()
@@ -67,7 +67,7 @@ pub mod pg {
         conn: &mut diesel::PgConnection,
         domain: &str,
         key_id: &str,
-        revoked_at: &str,
+        revoked_at: &time::OffsetDateTime,
     ) -> QueryResult<usize> {
         diesel::update(
             peer_keys::table
@@ -75,7 +75,7 @@ pub mod pg {
                 .filter(peer_keys::key_id.eq(key_id))
                 .filter(peer_keys::revoked_at.is_null()),
         )
-        .set(peer_keys::revoked_at.eq(revoked_at))
+        .set(peer_keys::revoked_at.eq(crate::db::db_time::store(revoked_at)))
         .execute(conn)
     }
 }
@@ -98,8 +98,8 @@ pub mod sqlite {
                 algorithm: key.algorithm.clone(),
                 fingerprint: key.fingerprint.clone(),
                 key_usage: key.key_usage.clone(),
-                expires_at: key.expires_at.clone(),
-                revoked_at: key.revoked_at.clone(),
+                expires_at: key.expires_at.clone().to_rfc3339(),
+                revoked_at: key.revoked_at.map(|t| t.to_rfc3339()),
             })
             .on_conflict((peer_keys::domain, peer_keys::key_id))
             .do_nothing()
@@ -140,7 +140,7 @@ pub mod sqlite {
         conn: &mut diesel::SqliteConnection,
         domain: &str,
         key_id: &str,
-        revoked_at: &str,
+        revoked_at: &time::OffsetDateTime,
     ) -> QueryResult<usize> {
         diesel::update(
             peer_keys::table
@@ -148,7 +148,7 @@ pub mod sqlite {
                 .filter(peer_keys::key_id.eq(key_id))
                 .filter(peer_keys::revoked_at.is_null()),
         )
-        .set(peer_keys::revoked_at.eq(revoked_at))
+        .set(peer_keys::revoked_at.eq(crate::db::db_time::store(revoked_at)))
         .execute(conn)
     }
 }

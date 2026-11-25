@@ -25,9 +25,9 @@ public class ClaimsConformanceTests
                 k.Get("fingerprint_hex").AsString(),
                 k.Get("algorithm").AsString(),
                 k.Get("key_usage").AsString(),
-                k.Get("created_at").AsString(),
-                k.Get("expires_at").AsString(),
-                k.GetStringOrNull("revoked_at"),
+                k.Get("created_at").AsTime(),
+                k.Get("expires_at").AsTime(),
+                k.GetTimeOrNull("revoked_at"),
                 null,
                 null);
 
@@ -49,7 +49,7 @@ public class ClaimsConformanceTests
         var d = Fixtures.Load("claims.json");
         Assert.Equal("linkkeys-claim-v1alpha", d.Get("tag").AsString());
         Assert.Equal(
-            "CBOR([tag, claim_id, claim_type, claim_value(bstr), 'user_id@subject_domain', signing_domain, expires_at_or_null, attested_at])",
+            "CBOR([tag, claim_id, claim_type, claim_value(bstr), 'user_id@subject_domain', signing_domain, expires_at_unix_seconds_or_null, attested_at_unix_seconds])",
             d.Get("payload_layout").AsString());
 
         var defaultDomainKeys = ParseDomainKeySets(d.Get("domain_keys"));
@@ -71,10 +71,10 @@ public class ClaimsConformanceTests
             Assert.Equal(claimJson.Get("user_id").AsString(), claim.UserId);
             Assert.Equal(claimJson.Get("claim_type").AsString(), claim.ClaimType);
             Assert.Equal(Fixtures.Hex(claimJson.Get("claim_value_hex").AsString()), claim.ClaimValue);
-            Assert.Equal(claimJson.Get("attested_at").AsString(), claim.AttestedAt);
-            Assert.Equal(claimJson.Get("created_at").AsString(), claim.CreatedAt);
-            Assert.Equal(claimJson.GetStringOrNull("expires_at"), claim.ExpiresAt);
-            Assert.Equal(claimJson.GetStringOrNull("revoked_at"), claim.RevokedAt);
+            Assert.Equal(claimJson.Get("attested_at").AsTime(), claim.AttestedAt);
+            Assert.Equal(claimJson.Get("created_at").AsTime(), claim.CreatedAt);
+            Assert.Equal(claimJson.GetTimeOrNull("expires_at"), claim.ExpiresAt);
+            Assert.Equal(claimJson.GetTimeOrNull("revoked_at"), claim.RevokedAt);
 
             var sigJsonList = claimJson.Get("signatures").AsArray().ToList();
             Assert.Equal(sigJsonList.Count, claim.Signatures.Count);
@@ -173,7 +173,7 @@ public class ClaimsConformanceTests
 
         Assert.Equal(fixture.Get("user_id").AsString(), response.UserId);
         Assert.Equal(fixture.Get("user_domain").AsString(), response.UserDomain);
-        Assert.Equal(fixture.Get("ticket_expires_at").AsString(), response.TicketExpiresAt);
+        Assert.Equal(fixture.Get("ticket_expires_at").AsTime(), response.TicketExpiresAt);
         Assert.Equal(3, response.Claims.Count);
 
         // Decoding without verifying fails the point: verify every embedded claim's

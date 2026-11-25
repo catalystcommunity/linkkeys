@@ -3,6 +3,7 @@ pub mod act_as;
 pub mod admin;
 pub mod app_access;
 pub mod application_keys;
+pub mod applications;
 pub mod attestation;
 pub mod auth;
 pub mod authorization;

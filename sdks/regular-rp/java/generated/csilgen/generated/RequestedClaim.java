@@ -4,6 +4,6 @@ package csilgen.generated;
 
 public record RequestedClaim(
     String claimType /* wire: "claim_type" */,
-    String datatype /* wire: "datatype" */
+    ClaimValueType datatype /* wire: "datatype" */
 ) {
 }

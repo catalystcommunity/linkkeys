@@ -2,14 +2,15 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.List;
 
 public record BrowserLocalRpInspectResponse(
-    String admission /* wire: "admission" */,
+    LocalRpAdmission admission /* wire: "admission" */,
     String appName /* wire: "app_name" */,
     String fingerprint /* wire: "fingerprint" */,
     String callbackHost /* wire: "callback_host" */,
-    String firstSeenAt /* wire: "first_seen_at" */,
+    Instant firstSeenAt /* wire: "first_seen_at" */,
     List<BrowserConsentClaim> claims /* wire: "claims" */,
     String requestReason /* wire: "request_reason" */,
     Boolean alreadyConsented /* wire: "already_consented" */,

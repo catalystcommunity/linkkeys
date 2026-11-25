@@ -60,10 +60,8 @@ public static class LocalRp
     // Timestamps / expirations
     // -----------------------------------------------------------------
 
-    public static void CheckTimestamps(string issuedAt, string expiresAt, DateTimeOffset now, long skewSeconds)
+    public static void CheckTimestamps(DateTimeOffset issued, DateTimeOffset expires, DateTimeOffset now, long skewSeconds)
     {
-        var issued = Rfc3339.Parse("issued_at", issuedAt);
-        var expires = Rfc3339.Parse("expires_at", expiresAt);
         var skew = TimeSpan.FromSeconds(skewSeconds);
         if (now + skew < issued)
         {
@@ -95,9 +93,8 @@ public static class LocalRp
     /// <see cref="CheckTimestamps"/>): expiry warnings are advisory, day-scale facts,
     /// not a replay/freshness security boundary.
     /// </summary>
-    public static ExpirationStatus CheckExpirations(string expiresAt, DateTimeOffset now)
+    public static ExpirationStatus CheckExpirations(DateTimeOffset expires, DateTimeOffset now)
     {
-        var expires = Rfc3339.Parse("expires_at", expiresAt);
         var remaining = expires - now;
         ExpirationLevel level;
         if (now >= expires)
@@ -251,17 +248,7 @@ public static class LocalRp
             throw new LocalRpError(LocalRpError.ErrorKind.KeyRevoked, key.KeyId);
         }
 
-        DateTimeOffset expires;
-        try
-        {
-            expires = Rfc3339.Parse("expires_at", key.ExpiresAt);
-        }
-        catch (LocalRpError)
-        {
-            throw new LocalRpError(LocalRpError.ErrorKind.KeyExpired, key.KeyId);
-        }
-
-        if (DateTimeOffset.UtcNow > expires)
+        if (DateTimeOffset.UtcNow > key.ExpiresAt)
         {
             throw new LocalRpError(LocalRpError.ErrorKind.KeyExpired, key.KeyId);
         }
@@ -277,8 +264,8 @@ public static class LocalRp
         byte[] signingPublicKey,
         byte[] encryptionPublicKey,
         IReadOnlyList<string> supportedSuites,
-        string createdAt,
-        string expiresAt) => new(
+        DateTimeOffset createdAt,
+        DateTimeOffset expiresAt) => new(
         appName,
         localDomainHint,
         (byte[])signingPublicKey.Clone(),
@@ -340,8 +327,8 @@ public static class LocalRp
         byte[] state,
         IReadOnlyList<string> requestedClaims,
         IReadOnlyList<string> requiredClaims,
-        string issuedAt,
-        string expiresAt) => new(descriptor, callbackUrl, nonce, state, requestedClaims, requiredClaims, issuedAt, expiresAt);
+        DateTimeOffset issuedAt,
+        DateTimeOffset expiresAt) => new(descriptor, callbackUrl, nonce, state, requestedClaims, requiredClaims, issuedAt, expiresAt);
 
     public static SignedLocalRpLoginRequest SignLocalRpLoginRequest(LocalRpLoginRequest request, byte[] privateKeySeed)
     {
@@ -380,7 +367,7 @@ public static class LocalRp
     // -----------------------------------------------------------------
 
     public static LocalRpTicketRedemptionRequest BuildLocalRpTicketRedemptionRequest(
-        byte[] claimTicket, string fingerprint, string issuedAt) => new(claimTicket, fingerprint, issuedAt);
+        byte[] claimTicket, string fingerprint, DateTimeOffset issuedAt) => new(claimTicket, fingerprint, issuedAt);
 
     public static SignedLocalRpTicketRedemptionRequest SignLocalRpTicketRedemptionRequest(
         LocalRpTicketRedemptionRequest request, byte[] privateKeySeed)
@@ -437,8 +424,8 @@ public static class LocalRp
         string callbackUrl,
         byte[] nonce,
         byte[] state,
-        string issuedAt,
-        string expiresAt) => new(userId, userDomain, claimTicket, audienceFingerprint, callbackUrl, nonce, state, issuedAt, expiresAt);
+        DateTimeOffset issuedAt,
+        DateTimeOffset expiresAt) => new(userId, userDomain, claimTicket, audienceFingerprint, callbackUrl, nonce, state, issuedAt, expiresAt);
 
     /// <summary>
     /// Sign a callback payload with one of the issuing domain's signing keys. Server-side
@@ -569,8 +556,8 @@ public static class LocalRp
         string fingerprint,
         byte[] nonce,
         byte[] state,
-        string issuedAt,
-        string expiresAt)
+        DateTimeOffset issuedAt,
+        DateTimeOffset expiresAt)
     {
         var ephemeral = Crypto.Crypto.GenerateX25519KeyPair();
         var aeadNonce = Crypto.Crypto.RandomBytes(12);
@@ -593,8 +580,8 @@ public static class LocalRp
         string fingerprint,
         byte[] nonce,
         byte[] state,
-        string issuedAt,
-        string expiresAt,
+        DateTimeOffset issuedAt,
+        DateTimeOffset expiresAt,
         byte[] ephemeralPrivateKey,
         byte[] aeadNonce)
     {
@@ -611,8 +598,8 @@ public static class LocalRp
         string fingerprint,
         byte[] nonce,
         byte[] state,
-        string issuedAt,
-        string expiresAt,
+        DateTimeOffset issuedAt,
+        DateTimeOffset expiresAt,
         byte[] ephemeralPrivateKey,
         byte[] ephemeralPublicKey,
         byte[] aeadNonce)

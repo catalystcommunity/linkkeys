@@ -60,10 +60,10 @@ class SignedActAsGrant internal constructor(internal val java: JTypes.SignedActA
             subjectDomain = g.subjectDomain(),
             audience = ApplicationRef(g.audience().subjectUserId(), g.audience().subjectDomain(), g.audience().applicationId()),
             approvedScope = g.approvedScope(),
-            issuedAt = parseRfc3339("issued_at", g.issuedAt()),
-            expiresAt = parseRfc3339("expires_at", g.expiresAt()),
-            seriesIssuedAt = parseRfc3339("series_issued_at", g.seriesIssuedAt()),
-            renewableUntil = parseRfc3339("renewable_until", g.renewableUntil()),
+            issuedAt = g.issuedAt(),
+            expiresAt = g.expiresAt(),
+            seriesIssuedAt = g.seriesIssuedAt(),
+            renewableUntil = g.renewableUntil(),
         )
     }
 
@@ -230,8 +230,8 @@ fun signActAsGrantRequest(
     scopeSetCbor: ByteArray,
     callbackUrl: String,
     nonce: String,
-    requestedAt: String,
-    expiresAt: String,
+    requestedAt: Instant,
+    expiresAt: Instant,
     requestedLifetimeSeconds: Long? = null,
     requestedRenewalWindowSeconds: Long? = null,
 ): ByteArray {
@@ -255,8 +255,8 @@ fun signActAsGrantRequest(
 fun signActAsRefreshRequest(
     identity: LocalRpIdentity,
     grantId: String,
-    requestedAt: String,
-    expiresAt: String,
+    requestedAt: Instant,
+    expiresAt: Instant,
     nonce: String,
 ): ByteArray {
     val request = JTypes.ActAsRefreshRequest(grantId, JActAs.localRpGrantee(identity.javaMaterial), requestedAt, expiresAt, nonce)

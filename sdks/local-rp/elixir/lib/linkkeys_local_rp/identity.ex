@@ -86,8 +86,8 @@ defmodule LinkkeysLocalRp.Identity do
     end
 
     lifetime_days = Map.get(config, :lifetime_days) || @default_lifetime_days
-    created_at = Timeutil.to_rfc3339(now)
-    expires_at = Timeutil.to_rfc3339(DateTime.add(now, lifetime_days * 86_400, :second))
+    created_at = Timeutil.whole_seconds(now)
+    expires_at = Timeutil.whole_seconds(DateTime.add(now, lifetime_days * 86_400, :second))
 
     descriptor =
       LocalRp.build_local_rp_descriptor(

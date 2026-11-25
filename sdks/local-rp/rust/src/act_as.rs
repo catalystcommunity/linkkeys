@@ -84,9 +84,9 @@ pub fn sign_act_as_grant_request(
 
 /// The `signed_request` query value: base64url (no padding) of
 /// `CBOR(SignedActAsGrantRequest)`.
-pub fn act_as_grant_request_url_param(signed: &SignedActAsGrantRequest) -> String {
-    Base64UrlUnpadded::encode_string(&liblinkkeys::generated::encode_signed_act_as_grant_request(
-        signed,
+pub fn act_as_grant_request_url_param(signed: &SignedActAsGrantRequest) -> Result<String, Error> {
+    Ok(Base64UrlUnpadded::encode_string(
+        &liblinkkeys::generated::encode_signed_act_as_grant_request(signed)?,
     ))
 }
 
@@ -236,11 +236,11 @@ pub fn begin_act_as(config: BeginActAsConfig<'_>) -> Result<(ActAsRedirect, Pend
         grantee_handle_claim: None,
         callback_url: config.callback_url.clone(),
         nonce: nonce.clone(),
-        requested_at: act_as::format_time(config.now),
-        expires_at: act_as::format_time(config.now + window),
+        requested_at: config.now,
+        expires_at: config.now + window,
     };
     let signed = sign_act_as_grant_request(config.key_material, &request)?;
-    let param = act_as_grant_request_url_param(&signed);
+    let param = act_as_grant_request_url_param(&signed)?;
 
     let dns: &dyn DnsResolver = match config.dns {
         Some(dns) => dns,
@@ -364,8 +364,8 @@ pub fn refresh_act_as_grant(
     let request = ActAsRefreshRequest {
         grant_id: config.grant_id.to_string(),
         grantee: grantee.clone(),
-        requested_at: act_as::format_time(config.now),
-        expires_at: act_as::format_time(config.now + ACT_AS_REFRESH_REQUEST_WINDOW),
+        requested_at: config.now,
+        expires_at: config.now + ACT_AS_REFRESH_REQUEST_WINDOW,
         nonce: fresh_nonce(),
     };
     let signed = sign_act_as_refresh_request(config.key_material, &request)?;
@@ -420,7 +420,7 @@ pub fn present_act_as(
         nonce,
         &signer(key_material),
     )?;
-    let credential_cbor = liblinkkeys::generated::encode_act_as_credential(&credential);
+    let credential_cbor = liblinkkeys::generated::encode_act_as_credential(&credential)?;
     Ok(ActAsPresentationCredential {
         credential,
         credential_cbor,

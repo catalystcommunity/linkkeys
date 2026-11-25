@@ -61,6 +61,7 @@ import {
 import { completeLocalLogin, type VerifiedLocalLogin } from "../src/complete.ts";
 import { RpcServerError } from "../src/rpc.ts";
 import { revocationPayload } from "../src/revocation.ts";
+import { wholeSeconds } from "../src/timestamp.ts";
 import type { Transport } from "../src/transport.ts";
 import { RpcRequest, RpcResponse, Status } from "../src/vendor/csilgen-transport/index.ts";
 
@@ -204,8 +205,8 @@ function fixedKeyMaterial(now: Date): LocalRpKeyMaterial {
   const signingPublicKey = derivePublicKeyFromEd25519PrivateKey(LOCAL_RP_SIGNING_SEED);
   const encryptionPublicKey = derivePublicKeyFromX25519PrivateKey(LOCAL_RP_ENCRYPTION_PRIVATE);
 
-  const createdAt = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-  const expiresAt = new Date(now.getTime() + 3650 * 24 * 60 * 60 * 1000).toISOString();
+  const createdAt = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(now.getTime() + 3650 * 24 * 60 * 60 * 1000);
   const descriptor = buildLocalRpDescriptor(
     "Flow Test App",
     undefined,
@@ -242,8 +243,8 @@ function domainPublicKey(
     keyUsage: "sign",
     signedByKeyId: undefined,
     keySignature: undefined,
-    createdAt: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-    expiresAt: new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+    createdAt: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000),
+    expiresAt: new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000),
     revokedAt: undefined,
   };
 }
@@ -296,8 +297,8 @@ async function runScenario(scenario: Scenario): Promise<VerifiedLocalLogin> {
     CALLBACK_URL,
     Buffer.from(pending.nonceHex, "hex"),
     Buffer.from(pending.stateHex, "hex"),
-    now.toISOString(),
-    new Date(now.getTime() + 5 * 60 * 1000).toISOString(),
+    now,
+    new Date(now.getTime() + 5 * 60 * 1000),
   );
   scenario.mutatePayload?.(payload);
 
@@ -328,13 +329,13 @@ async function runScenario(scenario: Scenario): Promise<VerifiedLocalLogin> {
       claimValue: new TextEncoder().encode("flowtestuser"),
       userId: "user-1",
       subjectDomain: USER_DOMAIN,
-      attestedAt: now.toISOString(),
+      attestedAt: wholeSeconds(now),
     },
     [claimSigner],
   );
   scenario.mutateClaim?.(claim);
 
-  const ticketExpiresAt = new Date(now.getTime() + 60 * 60 * 1000).toISOString();
+  const ticketExpiresAt = new Date(now.getTime() + 60 * 60 * 1000);
   const redemptionResponse: LocalRpTicketRedemptionResponse = {
     userId: "user-1",
     userDomain: USER_DOMAIN,
@@ -444,8 +445,8 @@ test("expired callback payload is rejected", async () => {
     runScenario({
       mutatePayload: (p) => {
         const n = new Date();
-        p.issuedAt = new Date(n.getTime() - 2 * 60 * 60 * 1000).toISOString();
-        p.expiresAt = new Date(n.getTime() - 60 * 60 * 1000).toISOString();
+        p.issuedAt = new Date(n.getTime() - 2 * 60 * 60 * 1000);
+        p.expiresAt = new Date(n.getTime() - 60 * 60 * 1000);
       },
     }),
     LocalRpError,
@@ -461,7 +462,7 @@ test("DNS fingerprint pin mismatch is rejected", async () => {
 
 test("revoked signing key is rejected", async () => {
   await assert.rejects(
-    runScenario({ mutateDomainKey: (k) => (k.revokedAt = new Date().toISOString()) }),
+    runScenario({ mutateDomainKey: (k) => (k.revokedAt = new Date()) }),
     LocalRpError,
   );
 });
@@ -553,7 +554,7 @@ test("[hostile IDP 5] a quorum-verified revocation certificate for the callback'
   const siblingB = domainPublicKey(now, siblingSeedB, "test-domain-key-3");
 
   const targetFingerprint = fingerprint(derivePublicKeyFromEd25519PrivateKey(DOMAIN_SIGNING_SEED));
-  const revokedAt = now.toISOString();
+  const revokedAt = wholeSeconds(now);
   const cert: RevocationCertificate = {
     targetKeyId: DOMAIN_KEY_ID,
     targetFingerprint,
@@ -616,10 +617,10 @@ function servedActAsGrant(grantId: string, fingerprint: string, subjectDomain: s
         signatures: [{ signedByKeyId: "audience-key", signature: new Uint8Array(64) }],
       },
       approvedScope: ["read"],
-      issuedAt: "2026-10-06T12:00:00Z",
-      expiresAt: "2026-10-06T13:00:00Z",
-      seriesIssuedAt: "2026-10-06T12:00:00Z",
-      renewableUntil: "2026-10-06T13:00:00Z",
+      issuedAt: new Date("2026-10-06T12:00:00Z"),
+      expiresAt: new Date("2026-10-06T13:00:00Z"),
+      seriesIssuedAt: new Date("2026-10-06T12:00:00Z"),
+      renewableUntil: new Date("2026-10-06T13:00:00Z"),
     }),
     signatures: [{ domain: subjectDomain, signedByKeyId: DOMAIN_KEY_ID, signature: new Uint8Array(64).fill(9) }],
   };
@@ -657,8 +658,8 @@ test("refreshActAsGrant calls ActAs/refresh-grant with a verifiable signed reque
   const request = generated.fromActAsRefreshRequestCbor(signed.request);
   assert.equal(request.grantId, "grant-1");
   assert.equal(request.grantee.localRpDescriptorFingerprint, keyMaterial.fingerprint);
-  assert.equal(request.requestedAt, "2026-10-06T12:40:00Z");
-  assert.equal(request.expiresAt, "2026-10-06T12:45:00Z");
+  assert.equal(request.requestedAt.toISOString(), "2026-10-06T12:40:00.000Z");
+  assert.equal(request.expiresAt.toISOString(), "2026-10-06T12:45:00.000Z");
   assert.match(request.nonce, /^[A-Za-z0-9_-]{43}$/);
   assert.equal(signed.proof.signature.signedByKeyId, keyMaterial.fingerprint);
   assert.equal(signed.proof.applicationInstanceId, undefined);

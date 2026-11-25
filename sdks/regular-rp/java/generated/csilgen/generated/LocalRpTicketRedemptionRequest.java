@@ -2,13 +2,14 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Objects;
 
 public record LocalRpTicketRedemptionRequest(
     byte[] claimTicket /* wire: "claim_ticket" */,
     String fingerprint /* wire: "fingerprint" */,
-    String issuedAt /* wire: "issued_at" */
+    Instant issuedAt /* wire: "issued_at" */
 ) {
     @Override
     public boolean equals(Object obj) {

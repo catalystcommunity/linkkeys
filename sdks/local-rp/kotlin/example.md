@@ -159,6 +159,8 @@ deprecated HTTP routes" at the end of this document.
 1. Your app calls `Rp/sign-request` on its own RP server —
    `{callback_url, nonce, ?requested_claims}` → `{signed_request}`. Envelope
    auth (the CSIL-RPC `auth` field, not an HTTP header) carries the API key.
+   The request has no `application_id`: the RP server finds the application
+   from the API key.
 2. Your app redirects the browser to
    `https://<user's home domain>/auth/authorize?signed_request=<...>`
    (optionally `&username=<...>` to pre-fill a username).
@@ -170,7 +172,8 @@ deprecated HTTP routes" at the end of this document.
    → `{assertion, verified}`. `expected_domain` must be the home domain your
    app itself redirected to in step 2 (read from your own session state, never
    from the unverified assertion) — this is what pins the signature check to
-   the right domain's keys.
+   the right domain's keys. The assertion always has an `application`
+   (`subject_user_id`, `subject_domain`, `application_id`).
 6. Nonce single-use enforcement is **your app's job**: compare
    `assertion.nonce` against the nonce you generated in step 1 and reject a
    reused one. The SDK/protocol layer verifies the signature, not replay.
@@ -185,10 +188,27 @@ claims) live under the `Rp` CSIL service
 `service Rp { ... }`) and share one API-key-gated TCP client — the
 `RegularRpClient` below.
 
+The four login ops (`sign-request`, `decrypt-token`, `verify-assertion`,
+`userinfo-fetch`) send status 0 with one of two `variant` values: the result
+type (`RpSignResponse`, `RpDecryptResponse`, `RpVerifyResponse`, or
+`UserInfo`), or `RpError`. An `RpError` payload is `{code, message}`, where
+`code` is an `RpErrorCode` number. Always read the `variant` before you decode
+the payload. `RegularRpClient.call` below does this and throws
+`RpRefusedException` for an `RpError`.
+
+Wire rules (see `docs/UPGRADING.md`, "Wire format: timestamps and enums"): a
+CSIL `timestamp` is CBOR tag 0 that holds RFC 3339 text in UTC, and a closed
+vocabulary (for example `RpErrorCode`) is an unsigned integer. The Java SDK's
+`Cbor.requireTimestamp` and `Cbor.WireEnum` do these conversions.
+
 ## Kotlin walkthrough
 
 Three files. All three compiled clean (`gradle compileKotlin` and
 `gradle build`) against `../java` via the composite build described above.
+
+After the wire format change (tag-0 timestamps, number enums, the required
+`IdentityAssertion.application`, and the `RpError` response arm), the three
+files were compiled again (`gradle compileKotlin`) against this checkout.
 
 ### `RpWire.kt` — the `Rp` service's CBOR wire mapping
 
@@ -202,6 +222,9 @@ is built on — canonical-CBOR map encode/decode, nothing bespoke.
 package example
 
 import community.catalyst.linkkeys.localrp.wire.Cbor
+import community.catalyst.linkkeys.localrp.wire.Codec
+import community.catalyst.linkkeys.localrp.wire.Types
+import java.time.Instant
 
 // Hand-written CBOR mapping for the `Rp` CSIL service's request/response
 // types (csil/linkkeys.csil, "Relying Party (Rp) helper Types"). No codec
@@ -210,6 +233,8 @@ import community.catalyst.linkkeys.localrp.wire.Cbor
 // `wire.Cbor` builder/accessor functions the Java SDK's own Codec is written
 // against, applied to the Rp service's field names directly from the CSIL.
 
+// The RP server finds the application from the API key that calls it, so
+// RpSignRequest has no `application_id`.
 fun encodeRpSignRequest(callbackUrl: String, nonce: String): ByteArray {
     val entries = mutableListOf<Cbor.Entry>()
     Cbor.putText(entries, "callback_url", callbackUrl)
@@ -250,10 +275,11 @@ data class VerifiedAssertion(
     val domain: String,
     val audience: String,
     val nonce: String,
-    val issuedAt: String,
-    val expiresAt: String,
+    val issuedAt: Instant,
+    val expiresAt: Instant,
     val authorizedClaims: List<String>,
     val displayName: String?,
+    val application: Types.ApplicationRef,
 )
 
 fun decodeRpVerifyResponse(bytes: ByteArray): VerifiedAssertion {
@@ -266,10 +292,11 @@ fun decodeRpVerifyResponse(bytes: ByteArray): VerifiedAssertion {
         domain = Cbor.requireText(assertion, "domain"),
         audience = Cbor.requireText(assertion, "audience"),
         nonce = Cbor.requireText(assertion, "nonce"),
-        issuedAt = Cbor.requireText(assertion, "issued_at"),
-        expiresAt = Cbor.requireText(assertion, "expires_at"),
+        issuedAt = Cbor.requireTimestamp(assertion, "issued_at"),
+        expiresAt = Cbor.requireTimestamp(assertion, "expires_at"),
         authorizedClaims = authorizedClaims,
         displayName = Cbor.optText(assertion, "display_name"),
+        application = Codec.decodeApplicationRef(Cbor.encode(Cbor.require(assertion, "application"))),
     )
 }
 
@@ -304,6 +331,24 @@ fun decodeUserInfo(bytes: ByteArray): UserInfo {
         displayName = Cbor.requireText(response, "display_name"),
         claims = claims,
     )
+}
+
+/** `RpErrorCode` numbers (csil/linkkeys.csil). In memory the app keeps the text label. */
+val RP_ERROR_CODE = Cbor.WireEnum(
+    "RpErrorCode",
+    arrayOf(
+        "not_application_account", "application_mismatch", "application_user_limit",
+        "bad_request", "upstream_failed", "internal",
+    ),
+    longArrayOf(1, 2, 3, 4, 5, 6),
+)
+
+/** The typed refusal every `Rp` op can send instead of its result. [code] is an `RpErrorCode` label. */
+data class RpError(val code: String, val message: String)
+
+fun decodeRpError(bytes: ByteArray): RpError {
+    val error = Cbor.decode(bytes)
+    return RpError(RP_ERROR_CODE.decode(Cbor.require(error, "code")), Cbor.requireText(error, "message"))
 }
 ```
 
@@ -350,15 +395,21 @@ import java.io.OutputStream
  * the framing `csil-rpc-transport.md` section 2.3 documents for the
  * byte-stream carrier, so there is nothing SDK-specific about it.
  */
+/** The RP server refused the call with a typed `RpError`. */
+class RpRefusedException(op: String, val error: RpError) :
+    RuntimeException("Rp/$op: refused (${error.code}): ${error.message}")
+
 class RegularRpClient(
     private val rpDomain: String,
     private val apiKey: String,
     private val dns: DnsResolver = SystemDnsResolver(),
     private val transport: Transport = StdTransport(),
 ) {
-    /** Send one `Rp/<op>` request and return the decoded success payload, or
-     *  throw [SdkException] on any transport/TLS/server-status failure. */
-    fun call(op: String, payload: ByteArray): ByteArray {
+    /** Send one `Rp/<op>` request and return the success payload.
+     *  [expectedVariant] is the op's result type name, for example
+     *  `"RpSignResponse"`. Throws [RpRefusedException] for a typed `RpError`,
+     *  and [SdkException] on any transport/TLS/server-status failure. */
+    fun call(op: String, expectedVariant: String, payload: ByteArray): ByteArray {
         val endpoint = RpcClient.discoverDomainEndpoint(dns, rpDomain)
         val hostname = extractHostname(endpoint.tcpAddr())
         val raw = transport.dial(endpoint.tcpAddr())
@@ -368,6 +419,14 @@ class RegularRpClient(
             val response = RpcEnvelope.decodeResponse(readFrame(tls.inputStream))
             if (!response.isOk) {
                 throw SdkException(response.status, response.error ?: "unknown error")
+            }
+            // Status 0 has two arms: the op's result type, or a typed RpError.
+            // Read the variant. Do not decode the payload without this check.
+            if (response.variant == "RpError") {
+                throw RpRefusedException(op, decodeRpError(response.payload))
+            }
+            if (response.variant != expectedVariant) {
+                throw SdkException(SdkException.Kind.PROTOCOL, "Rp/$op: unexpected response variant ${response.variant}")
             }
             return response.payload
         }
@@ -539,6 +598,7 @@ private class LoginHandler(
         val (sessionId, nonce) = sessions.begin(homeDomain)
         val signResponse = client.call(
             "sign-request",
+            "RpSignResponse",
             encodeRpSignRequest(callbackUrl = config.callbackUrl, nonce = nonce),
         )
         val signedRequest = decodeRpSignResponse(signResponse)
@@ -580,7 +640,7 @@ private class CallbackHandler(
         }
 
         val signedAssertion = decodeRpDecryptResponse(
-            client.call("decrypt-token", encodeRpDecryptRequest(encryptedToken)),
+            client.call("decrypt-token", "RpDecryptResponse", encodeRpDecryptRequest(encryptedToken)),
         )
 
         // expected_domain is the identity domain we redirected the browser
@@ -590,6 +650,7 @@ private class CallbackHandler(
         val assertion = decodeRpVerifyResponse(
             client.call(
                 "verify-assertion",
+                "RpVerifyResponse",
                 encodeRpVerifyRequest(signedAssertion = signedAssertion, expectedDomain = pending.homeDomain),
             ),
         )
@@ -602,6 +663,7 @@ private class CallbackHandler(
         val userInfo = decodeUserInfo(
             client.call(
                 "userinfo-fetch",
+                "UserInfo",
                 encodeRpUserInfoRequest(
                     token = signedAssertion,
                     apiBase = "https://${assertion.domain}",

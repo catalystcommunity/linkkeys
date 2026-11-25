@@ -2,6 +2,8 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
+
 public record ActAsGrantRequest(
     GranteeRef grantee /* wire: "grantee" */,
     SignedActAsScopeSet scopeSet /* wire: "scope_set" */,
@@ -10,7 +12,7 @@ public record ActAsGrantRequest(
     Claim granteeHandleClaim /* wire: "grantee_handle_claim" */,
     String callbackUrl /* wire: "callback_url" */,
     String nonce /* wire: "nonce" */,
-    String requestedAt /* wire: "requested_at" */,
-    String expiresAt /* wire: "expires_at" */
+    Instant requestedAt /* wire: "requested_at" */,
+    Instant expiresAt /* wire: "expires_at" */
 ) {
 }

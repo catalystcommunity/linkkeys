@@ -15,60 +15,19 @@ use std::fmt;
 /// The type of a claim's value, which determines whether and how the IDP can
 /// validate it. Primitives are validatable (so the IDP may self-sign); `Opaque`
 /// is not (so the IDP can only custody an issuer-attested value).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ValueType {
-    Text,
-    Url,
-    Email,
-    Bool,
-    Int,
-    Float,
-    Decimal,
-    /// A calendar date, `YYYY-MM-DD`. Always interpreted as UTC.
-    Date,
-    /// An RFC3339 timestamp. Always interpreted/stored as UTC.
-    Timestamp,
-    /// The IDP cannot validate the value; meaning is by convention only.
-    Opaque,
-}
+/// The type a claim value carries: the CSIL `ClaimValueType`.
+pub use crate::generated::types::ClaimValueType as ValueType;
+/// Who may set a claim type: the CSIL `SetRule`.
+pub use crate::generated::types::SetRule;
+/// How a claim type is signed: the CSIL `SigningRule`.
+pub use crate::generated::types::SigningRule;
 
 impl ValueType {
-    /// Parse the wire/registry spelling (lowercase) of a value type.
+    /// The value type with this label (`"text"`, `"email"`, ...).
     pub fn parse(s: &str) -> Option<ValueType> {
-        Some(match s {
-            "text" => ValueType::Text,
-            "url" => ValueType::Url,
-            "email" => ValueType::Email,
-            "bool" => ValueType::Bool,
-            "int" => ValueType::Int,
-            "float" => ValueType::Float,
-            "decimal" => ValueType::Decimal,
-            "date" => ValueType::Date,
-            "timestamp" => ValueType::Timestamp,
-            "opaque" => ValueType::Opaque,
-            _ => return None,
-        })
+        ValueType::from_label(s)
     }
 
-    /// The canonical lowercase spelling.
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ValueType::Text => "text",
-            ValueType::Url => "url",
-            ValueType::Email => "email",
-            ValueType::Bool => "bool",
-            ValueType::Int => "int",
-            ValueType::Float => "float",
-            ValueType::Decimal => "decimal",
-            ValueType::Date => "date",
-            ValueType::Timestamp => "timestamp",
-            ValueType::Opaque => "opaque",
-        }
-    }
-
-    /// Validate a raw claim value against this type. `Opaque` accepts anything;
-    /// every other type requires valid UTF-8 plus a format check. The IDP only
-    /// ever self-signs a value that validates here.
     pub fn validate(&self, value: &[u8]) -> Result<(), ValidationError> {
         if *self == ValueType::Opaque {
             return Ok(());
@@ -160,76 +119,17 @@ pub enum ValidationError {
 }
 
 /// How a claim type's value gets signed — the four lanes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SigningRule {
-    /// Lane A: a validatable primitive the IDP signs itself, on set.
-    SelfSigned,
-    /// Lane B: the IDP signs only after a built-in verification flow proves the
-    /// real-world fact (e.g. an email round-trip).
-    Verified,
-    /// Lane C: the IDP does not vouch for the value; it admits an external
-    /// signature from a trusted issuer.
-    Attested,
-    /// Lane D: never carries a domain signature.
-    Unsigned,
-}
-
 impl SigningRule {
+    /// The signing rule with this label (`"self_signed"`, ...).
     pub fn parse(s: &str) -> Option<SigningRule> {
-        Some(match s {
-            "self_signed" => SigningRule::SelfSigned,
-            "verified" => SigningRule::Verified,
-            "attested" => SigningRule::Attested,
-            "unsigned" => SigningRule::Unsigned,
-            _ => return None,
-        })
+        SigningRule::from_label(s)
     }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            SigningRule::SelfSigned => "self_signed",
-            SigningRule::Verified => "verified",
-            SigningRule::Attested => "attested",
-            SigningRule::Unsigned => "unsigned",
-        }
-    }
-}
-
-/// Who may set a value for a claim type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SetRule {
-    /// The subject may set it themselves (self-asserted lane).
-    UserSelf,
-    /// The user may request the IDP set it, subject to a validator or approval.
-    IdpOnRequest,
-    /// Only an attestation from a trusted issuer may set it.
-    TrustedIssuerOnly,
-    /// Only a domain admin may set it.
-    AdminOnly,
-    /// No one may set it (effectively retired).
-    Deny,
 }
 
 impl SetRule {
+    /// The set rule with this label (`"user_self"`, ...).
     pub fn parse(s: &str) -> Option<SetRule> {
-        Some(match s {
-            "user_self" => SetRule::UserSelf,
-            "idp_on_request" => SetRule::IdpOnRequest,
-            "trusted_issuer_only" => SetRule::TrustedIssuerOnly,
-            "admin_only" => SetRule::AdminOnly,
-            "deny" => SetRule::Deny,
-            _ => return None,
-        })
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            SetRule::UserSelf => "user_self",
-            SetRule::IdpOnRequest => "idp_on_request",
-            SetRule::TrustedIssuerOnly => "trusted_issuer_only",
-            SetRule::AdminOnly => "admin_only",
-            SetRule::Deny => "deny",
-        }
+        SetRule::from_label(s)
     }
 }
 

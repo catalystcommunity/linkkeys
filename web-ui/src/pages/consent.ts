@@ -5,7 +5,7 @@ import { t } from "../i18n";
 import { Page, createPage } from "../page";
 import { button, checkBox, comboBox, fill, form, formatted, h, link, setBusy, show, textButton, textField, yesNoOptions, type Child } from "../dom";
 import { loading, query, unavailable, type PageProps } from "../shared";
-import type { AppAccessDenial, BrowserActAsInspectResponse, BrowserActAsParty, BrowserAuthorizationInspectResponse, BrowserConsentClaim, BrowserLocalRpInspectResponse } from "../generated/types.gen";
+import { ClaimValueType, ConsentRowPolicy, LocalRpAdmission, type AppAccessDenial, type BrowserActAsInspectResponse, type BrowserActAsParty, type BrowserAuthorizationInspectResponse, type BrowserConsentClaim, type BrowserLocalRpInspectResponse } from "../generated/types.gen";
 import {
   actAsHandoff,
   actAsRequestKey,
@@ -87,12 +87,12 @@ class ConsentClaimRow {
   private valueField?: HTMLElement;
 
   constructor(private claim: BrowserConsentClaim, private choices: ClaimChoices) {
-    const userChoice = claim.policy === "user";
+    const userChoice = claim.policy === ConsentRowPolicy.USER;
     this.check = checkBox([
       h("span", null, claim.required ? t("app.consent.required_label", { label: claim.label }) : claim.label),
       claim.newlyRequested && h("span", { class: "pill new" }, t("app.consent.new_badge")),
     ], {
-      checked: claim.policy === "forced_allow" || choices.selected[claim.claimType],
+      checked: claim.policy === ConsentRowPolicy.FORCED_ALLOW || choices.selected[claim.claimType],
       disabled: !userChoice,
       required: claim.required && userChoice,
       on: { change: () => this.select(this.check.checked) },
@@ -102,17 +102,17 @@ class ConsentClaimRow {
     if (!claim.available && claim.userSettable) this.valueSlot = h("div", { class: "consent-value" });
     this.element = h("div", { class: "consent-claim" },
       this.check,
-      claim.policy === "forced_allow" && h("small", null, t("app.consent.forced_allow")),
+      claim.policy === ConsentRowPolicy.FORCED_ALLOW && h("small", null, t("app.consent.forced_allow")),
       this.requiredHint,
       this.valueSlot,
       !claim.available && claim.requiresApproval && h("small", null, t("app.consent.needs_approval")),
       !claim.available && !claim.userSettable && !claim.requiresApproval && h("small", null, t("app.consent.not_in_profile")),
-      claim.policy === "forced_deny" && h("small", null, t("app.consent.forced_deny")));
+      claim.policy === ConsentRowPolicy.FORCED_DENY && h("small", null, t("app.consent.forced_deny")));
     this.update();
   }
 
   private released(): boolean {
-    return this.claim.policy === "forced_allow" || Boolean(this.choices.selected[this.claim.claimType]);
+    return this.claim.policy === ConsentRowPolicy.FORCED_ALLOW || Boolean(this.choices.selected[this.claim.claimType]);
   }
 
   private select(checked: boolean): void {
@@ -133,7 +133,7 @@ class ConsentClaimRow {
     const label = t("app.consent.add_value", { label: claim.label });
     const value = choices.values[claim.claimType] ?? "";
     const keep = (text: string) => { choices.values[claim.claimType] = text; };
-    if (claim.datatype === "bool") {
+    if (claim.datatype === ClaimValueType.BOOL) {
       const box: ZestComboBox = comboBox(label, yesNoOptions(), { value, required: claim.required, on: { change: () => keep(box.value) } });
       return box;
     }
@@ -158,7 +158,7 @@ class ConsentClaimRow {
 
   /** While the form is busy, the user cannot change the selection. */
   setBusy(busy: boolean): void {
-    this.check.disabled = this.claim.policy !== "user" || busy;
+    this.check.disabled = this.claim.policy !== ConsentRowPolicy.USER || busy;
   }
 }
 
@@ -418,7 +418,7 @@ class LocalRpConsentPage extends Page {
       const result = await api.browserAuthorization.inspectLocalRp({ signedRequest });
       if (!this.isActive()) return;
       if (result.accessDenied) sessionStorage.removeItem(localRpRequestKey);
-      if (result.admission === "consent" && result.alreadyConsented && result.authorizedClaims) {
+      if (result.admission === LocalRpAdmission.CONSENT && result.alreadyConsented && result.authorizedClaims) {
         try {
           const completion = await api.browserAuthorization.completeLocalRp({ signedRequest, authorizedClaims: result.authorizedClaims, claimTypesToSet: [], claimValuesToSet: [], useStandingGrant: true });
           if (!this.isActive()) return;
@@ -436,14 +436,14 @@ class LocalRpConsentPage extends Page {
 
   private showConsent(result: BrowserLocalRpInspectResponse): void {
     this.consentContext = result;
-    if (!result.accessDenied && result.admission !== "pending") {
+    if (!result.accessDenied && result.admission !== LocalRpAdmission.PENDING) {
       this.claimForm = new ClaimForm(result.claims, [
         h("div", { class: "notice" },
           h("p", null, h("strong", null, t("app.local_rp.unverified", { app: result.appName }))),
           h("p", null, t("app.local_rp.warning")),
           h("p", null, formatted("app.local_rp.callback_host", { host: h("code", null, result.callbackHost) })),
           h("p", null, h("small", null, formatted("app.local_rp.fingerprint", { fingerprint: h("code", { title: result.fingerprint }, result.fingerprint.slice(0, 16)) }))),
-          result.firstSeenAt && h("p", null, h("small", null, t("app.local_rp.first_seen", { date: new Date(result.firstSeenAt).toLocaleString() })))),
+          result.firstSeenAt && h("p", null, h("small", null, t("app.local_rp.first_seen", { date: result.firstSeenAt.toLocaleString() })))),
         hasNewlyRequestedClaim(result.claims) && h("p", { class: "notice" }, t("app.consent.new_notice")),
         result.requestReason && h("p", { class: "notice" }, result.requestReason),
       ], () => void this.submit(), () => this.cancel());
@@ -458,7 +458,7 @@ class LocalRpConsentPage extends Page {
 
   private refresh(): void {
     const context = this.consentContext;
-    const pending = context?.admission === "pending";
+    const pending = context?.admission === LocalRpAdmission.PENDING;
     const denied = context?.accessDenied;
     const title = denied ? t("app.access_blocked.title")
       : pending ? t("app.local_rp.pending_title")

@@ -8,6 +8,7 @@ import java.util.Set;
 
 import community.catalyst.linkkeys.localrp.crypto.Crypto;
 import community.catalyst.linkkeys.localrp.wire.Cbor;
+import community.catalyst.linkkeys.localrp.wire.Cbor.Value;
 import community.catalyst.linkkeys.localrp.wire.Types.Claim;
 import community.catalyst.linkkeys.localrp.wire.Types.ClaimSignature;
 import community.catalyst.linkkeys.localrp.wire.Types.DomainPublicKey;
@@ -45,9 +46,17 @@ public final class Claims {
             String userId,
             String subjectDomain,
             String signingDomain,
-            String expiresAt,
-            String attestedAt) {
+            Instant expiresAt,
+            Instant attestedAt) {
         String subject = userId + "@" + subjectDomain;
+        Value expires;
+        Value attested;
+        try {
+            expires = Cbor.optSignedTime(expiresAt);
+            attested = Cbor.signedTime(attestedAt);
+        } catch (IllegalArgumentException e) {
+            throw new ClaimError(ClaimError.Kind.BAD_TIMESTAMP, e.getMessage());
+        }
         return Cbor.encode(Cbor.tuple(
                 Cbor.vtext(CLAIM_PAYLOAD_TAG),
                 Cbor.vtext(claimId),
@@ -55,8 +64,8 @@ public final class Claims {
                 Cbor.vbytes(claimValue),
                 Cbor.vtext(subject),
                 Cbor.vtext(signingDomain),
-                Cbor.optTextItem(expiresAt),
-                Cbor.vtext(attestedAt)));
+                expires,
+                attested));
     }
 
     /** What is being claimed, independent of who signs it. Mirrors {@code liblinkkeys::claims::ClaimSpec}. */
@@ -66,8 +75,8 @@ public final class Claims {
             byte[] claimValue,
             String userId,
             String subjectDomain,
-            String expiresAt,
-            String attestedAt) {}
+            Instant expiresAt,
+            Instant attestedAt) {}
 
     /** One signer of a claim: a single key, owned by {@code domain}. */
     public record ClaimSigner(String domain, String keyId, byte[] privateKeySeed) {}
@@ -99,7 +108,7 @@ public final class Claims {
                 spec.claimValue(),
                 signatures,
                 spec.attestedAt(),
-                Rfc3339.format(Instant.now()),
+                Instant.now(),
                 spec.expiresAt(),
                 null);
     }
@@ -119,13 +128,7 @@ public final class Claims {
         if (key.revokedAt() != null) {
             throw new ClaimError(ClaimError.Kind.KEY_REVOKED, key.keyId());
         }
-        Instant expires;
-        try {
-            expires = Rfc3339.parse("expires_at", key.expiresAt());
-        } catch (LocalRpError e) {
-            throw new ClaimError(ClaimError.Kind.KEY_EXPIRED, key.keyId());
-        }
-        if (Instant.now().isAfter(expires)) {
+        if (Instant.now().isAfter(key.expiresAt())) {
             throw new ClaimError(ClaimError.Kind.KEY_EXPIRED, key.keyId());
         }
         if (!"ed25519".equals(key.algorithm())) {
@@ -216,13 +219,7 @@ public final class Claims {
             throw new ClaimError(ClaimError.Kind.REVOKED, null);
         }
         if (claim.expiresAt() != null) {
-            Instant expires;
-            try {
-                expires = Rfc3339.parse("expires_at", claim.expiresAt());
-            } catch (LocalRpError e) {
-                throw new ClaimError(ClaimError.Kind.BAD_EXPIRY, null);
-            }
-            if (Instant.now().isAfter(expires)) {
+            if (Instant.now().isAfter(claim.expiresAt())) {
                 throw new ClaimError(ClaimError.Kind.EXPIRED, null);
             }
         }

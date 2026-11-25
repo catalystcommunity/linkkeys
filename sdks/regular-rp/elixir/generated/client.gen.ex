@@ -18,6 +18,19 @@ defmodule Csilgen.Generated.Transport do
   def call(%mod{} = transport, service, method, req) do
     mod.call(transport, service, method, req)
   end
+
+  @doc """
+  Performs a call for an operation with more than one reply arm and returns
+  `{variant, payload}`; `variant` is `nil` when the reply carries none.
+  """
+  @callback call_reply(t(), service :: String.t(), method :: String.t(), req :: binary()) ::
+              {String.t() | nil, binary()}
+
+  @doc "Dispatches a multi-arm call to the transport struct's implementing module."
+  @spec call_reply(t(), String.t(), String.t(), binary()) :: {String.t() | nil, binary()}
+  def call_reply(%mod{} = transport, service, method, req) do
+    mod.call_reply(transport, service, method, req)
+  end
 end
 
 defmodule Csilgen.Generated.OpsClient do
@@ -1482,6 +1495,118 @@ defmodule Csilgen.Generated.AdminClient do
 
     Csilgen.Generated.PreviewAppAccessResponse.from_cbor(resp)
   end
+
+  @spec rename_user(t(), Csilgen.Generated.RenameUserRequest.t()) ::
+          Csilgen.Generated.RenameUserResponse.t()
+  def rename_user(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "rename-user",
+        Csilgen.Generated.RenameUserRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.RenameUserResponse.from_cbor(resp)
+  end
+
+  @spec set_application_id(t(), Csilgen.Generated.SetApplicationIdRequest.t()) ::
+          Csilgen.Generated.SetApplicationIdResponse.t()
+  def set_application_id(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "set-application-id",
+        Csilgen.Generated.SetApplicationIdRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.SetApplicationIdResponse.from_cbor(resp)
+  end
+
+  @spec create_api_key(t(), Csilgen.Generated.CreateApiKeyRequest.t()) ::
+          Csilgen.Generated.CreateApiKeyResponse.t()
+  def create_api_key(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "create-api-key",
+        Csilgen.Generated.CreateApiKeyRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.CreateApiKeyResponse.from_cbor(resp)
+  end
+
+  @spec list_api_keys(t(), Csilgen.Generated.ListApiKeysRequest.t()) ::
+          Csilgen.Generated.ListApiKeysResponse.t()
+  def list_api_keys(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "list-api-keys",
+        Csilgen.Generated.ListApiKeysRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.ListApiKeysResponse.from_cbor(resp)
+  end
+
+  @spec revoke_api_key(t(), Csilgen.Generated.RevokeApiKeyRequest.t()) ::
+          Csilgen.Generated.RevokeApiKeyResponse.t()
+  def revoke_api_key(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "revoke-api-key",
+        Csilgen.Generated.RevokeApiKeyRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.RevokeApiKeyResponse.from_cbor(resp)
+  end
+
+  @spec get_account_limits(t(), Csilgen.Generated.GetAccountLimitsRequest.t()) ::
+          Csilgen.Generated.GetAccountLimitsResponse.t()
+  def get_account_limits(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "get-account-limits",
+        Csilgen.Generated.GetAccountLimitsRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.GetAccountLimitsResponse.from_cbor(resp)
+  end
+
+  @spec set_account_limits(t(), Csilgen.Generated.SetAccountLimitsRequest.t()) ::
+          Csilgen.Generated.SetAccountLimitsResponse.t()
+  def set_account_limits(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "set-account-limits",
+        Csilgen.Generated.SetAccountLimitsRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.SetAccountLimitsResponse.from_cbor(resp)
+  end
+
+  @spec get_application_usage(t(), Csilgen.Generated.GetApplicationUsageRequest.t()) ::
+          Csilgen.Generated.GetApplicationUsageResponse.t()
+  def get_application_usage(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Admin",
+        "get-application-usage",
+        Csilgen.Generated.GetApplicationUsageRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.GetApplicationUsageResponse.from_cbor(resp)
+  end
 end
 
 defmodule Csilgen.Generated.AccountClient do
@@ -1774,56 +1899,60 @@ defmodule Csilgen.Generated.RpClient do
   @spec sign_request(t(), Csilgen.Generated.RpSignRequest.t()) ::
           Csilgen.Generated.RpSignResponse.t()
   def sign_request(%__MODULE__{transport: transport}, req) do
-    resp =
-      Csilgen.Generated.Transport.call(
+    {variant, payload} =
+      Csilgen.Generated.Transport.call_reply(
         transport,
         "Rp",
         "sign-request",
         Csilgen.Generated.RpSignRequest.to_cbor(req)
       )
 
+    resp = Csilgen.Generated.Cbor.resolve_rpc_reply("Rp", "sign-request", variant, payload)
     Csilgen.Generated.RpSignResponse.from_cbor(resp)
   end
 
   @spec decrypt_token(t(), Csilgen.Generated.RpDecryptRequest.t()) ::
           Csilgen.Generated.RpDecryptResponse.t()
   def decrypt_token(%__MODULE__{transport: transport}, req) do
-    resp =
-      Csilgen.Generated.Transport.call(
+    {variant, payload} =
+      Csilgen.Generated.Transport.call_reply(
         transport,
         "Rp",
         "decrypt-token",
         Csilgen.Generated.RpDecryptRequest.to_cbor(req)
       )
 
+    resp = Csilgen.Generated.Cbor.resolve_rpc_reply("Rp", "decrypt-token", variant, payload)
     Csilgen.Generated.RpDecryptResponse.from_cbor(resp)
   end
 
   @spec verify_assertion(t(), Csilgen.Generated.RpVerifyRequest.t()) ::
           Csilgen.Generated.RpVerifyResponse.t()
   def verify_assertion(%__MODULE__{transport: transport}, req) do
-    resp =
-      Csilgen.Generated.Transport.call(
+    {variant, payload} =
+      Csilgen.Generated.Transport.call_reply(
         transport,
         "Rp",
         "verify-assertion",
         Csilgen.Generated.RpVerifyRequest.to_cbor(req)
       )
 
+    resp = Csilgen.Generated.Cbor.resolve_rpc_reply("Rp", "verify-assertion", variant, payload)
     Csilgen.Generated.RpVerifyResponse.from_cbor(resp)
   end
 
   @spec userinfo_fetch(t(), Csilgen.Generated.RpUserInfoRequest.t()) ::
           Csilgen.Generated.UserInfo.t()
   def userinfo_fetch(%__MODULE__{transport: transport}, req) do
-    resp =
-      Csilgen.Generated.Transport.call(
+    {variant, payload} =
+      Csilgen.Generated.Transport.call_reply(
         transport,
         "Rp",
         "userinfo-fetch",
         Csilgen.Generated.RpUserInfoRequest.to_cbor(req)
       )
 
+    resp = Csilgen.Generated.Cbor.resolve_rpc_reply("Rp", "userinfo-fetch", variant, payload)
     Csilgen.Generated.UserInfo.from_cbor(resp)
   end
 

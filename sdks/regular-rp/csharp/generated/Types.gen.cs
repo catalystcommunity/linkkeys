@@ -4,8 +4,6 @@
 #nullable enable
 
 global using CheckEntries = System.Collections.Generic.Dictionary<string, Csilgen.Transport.CheckValue>;
-global using AeadSuite = string;
-global using LocalRpPolicy = string;
 global using LocaleMessages = System.Collections.Generic.Dictionary<string, string>;
 
 namespace Csilgen.Transport;
@@ -27,6 +25,969 @@ public sealed record CheckResult
     public required CheckEntries Entries { get; init; }
 }
 
+[System.Text.Json.Serialization.JsonConverter(typeof(KeyAlgorithmJsonConverter))]
+public enum KeyAlgorithm : long
+{
+    Ed25519 = 1,
+    X25519 = 2,
+}
+
+public static class KeyAlgorithmNumbers
+{
+    public static long ToNumber(this KeyAlgorithm value) => (long)value;
+
+    public static KeyAlgorithm FromNumber(long number) => System.Enum.IsDefined(typeof(KeyAlgorithm), number)
+        ? (KeyAlgorithm)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class KeyAlgorithmJsonConverter : System.Text.Json.Serialization.JsonConverter<KeyAlgorithm>
+{
+    public override KeyAlgorithm Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "ed25519" => KeyAlgorithm.Ed25519,
+        "x25519" => KeyAlgorithm.X25519,
+        _ => throw new System.Text.Json.JsonException("unknown KeyAlgorithm label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, KeyAlgorithm value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        KeyAlgorithm.Ed25519 => "ed25519",
+        KeyAlgorithm.X25519 => "x25519",
+        _ => throw new System.Text.Json.JsonException("unknown KeyAlgorithm value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(KeyUsageJsonConverter))]
+public enum KeyUsage : long
+{
+    Sign = 1,
+    Encrypt = 2,
+    Agree = 3,
+}
+
+public static class KeyUsageNumbers
+{
+    public static long ToNumber(this KeyUsage value) => (long)value;
+
+    public static KeyUsage FromNumber(long number) => System.Enum.IsDefined(typeof(KeyUsage), number)
+        ? (KeyUsage)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class KeyUsageJsonConverter : System.Text.Json.Serialization.JsonConverter<KeyUsage>
+{
+    public override KeyUsage Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "sign" => KeyUsage.Sign,
+        "encrypt" => KeyUsage.Encrypt,
+        "agree" => KeyUsage.Agree,
+        _ => throw new System.Text.Json.JsonException("unknown KeyUsage label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, KeyUsage value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        KeyUsage.Sign => "sign",
+        KeyUsage.Encrypt => "encrypt",
+        KeyUsage.Agree => "agree",
+        _ => throw new System.Text.Json.JsonException("unknown KeyUsage value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(AeadSuiteJsonConverter))]
+public enum AeadSuite : long
+{
+    Aes256Gcm = 1,
+    Chacha20Poly1305 = 2,
+}
+
+public static class AeadSuiteNumbers
+{
+    public static long ToNumber(this AeadSuite value) => (long)value;
+
+    public static AeadSuite FromNumber(long number) => System.Enum.IsDefined(typeof(AeadSuite), number)
+        ? (AeadSuite)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class AeadSuiteJsonConverter : System.Text.Json.Serialization.JsonConverter<AeadSuite>
+{
+    public override AeadSuite Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "aes_256_gcm" => AeadSuite.Aes256Gcm,
+        "chacha20_poly1305" => AeadSuite.Chacha20Poly1305,
+        _ => throw new System.Text.Json.JsonException("unknown AeadSuite label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, AeadSuite value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        AeadSuite.Aes256Gcm => "aes_256_gcm",
+        AeadSuite.Chacha20Poly1305 => "chacha20_poly1305",
+        _ => throw new System.Text.Json.JsonException("unknown AeadSuite value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(ClaimValueTypeJsonConverter))]
+public enum ClaimValueType : long
+{
+    Text = 1,
+    Url = 2,
+    Email = 3,
+    Bool = 4,
+    Int = 5,
+    Float = 6,
+    Decimal = 7,
+    Date = 8,
+    Timestamp = 9,
+    Opaque = 10,
+}
+
+public static class ClaimValueTypeNumbers
+{
+    public static long ToNumber(this ClaimValueType value) => (long)value;
+
+    public static ClaimValueType FromNumber(long number) => System.Enum.IsDefined(typeof(ClaimValueType), number)
+        ? (ClaimValueType)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class ClaimValueTypeJsonConverter : System.Text.Json.Serialization.JsonConverter<ClaimValueType>
+{
+    public override ClaimValueType Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "text" => ClaimValueType.Text,
+        "url" => ClaimValueType.Url,
+        "email" => ClaimValueType.Email,
+        "bool" => ClaimValueType.Bool,
+        "int" => ClaimValueType.Int,
+        "float" => ClaimValueType.Float,
+        "decimal" => ClaimValueType.Decimal,
+        "date" => ClaimValueType.Date,
+        "timestamp" => ClaimValueType.Timestamp,
+        "opaque" => ClaimValueType.Opaque,
+        _ => throw new System.Text.Json.JsonException("unknown ClaimValueType label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, ClaimValueType value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        ClaimValueType.Text => "text",
+        ClaimValueType.Url => "url",
+        ClaimValueType.Email => "email",
+        ClaimValueType.Bool => "bool",
+        ClaimValueType.Int => "int",
+        ClaimValueType.Float => "float",
+        ClaimValueType.Decimal => "decimal",
+        ClaimValueType.Date => "date",
+        ClaimValueType.Timestamp => "timestamp",
+        ClaimValueType.Opaque => "opaque",
+        _ => throw new System.Text.Json.JsonException("unknown ClaimValueType value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(SetRuleJsonConverter))]
+public enum SetRule : long
+{
+    UserSelf = 1,
+    IdpOnRequest = 2,
+    TrustedIssuerOnly = 3,
+    AdminOnly = 4,
+    Deny = 5,
+}
+
+public static class SetRuleNumbers
+{
+    public static long ToNumber(this SetRule value) => (long)value;
+
+    public static SetRule FromNumber(long number) => System.Enum.IsDefined(typeof(SetRule), number)
+        ? (SetRule)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class SetRuleJsonConverter : System.Text.Json.Serialization.JsonConverter<SetRule>
+{
+    public override SetRule Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "user_self" => SetRule.UserSelf,
+        "idp_on_request" => SetRule.IdpOnRequest,
+        "trusted_issuer_only" => SetRule.TrustedIssuerOnly,
+        "admin_only" => SetRule.AdminOnly,
+        "deny" => SetRule.Deny,
+        _ => throw new System.Text.Json.JsonException("unknown SetRule label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, SetRule value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        SetRule.UserSelf => "user_self",
+        SetRule.IdpOnRequest => "idp_on_request",
+        SetRule.TrustedIssuerOnly => "trusted_issuer_only",
+        SetRule.AdminOnly => "admin_only",
+        SetRule.Deny => "deny",
+        _ => throw new System.Text.Json.JsonException("unknown SetRule value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(SigningRuleJsonConverter))]
+public enum SigningRule : long
+{
+    SelfSigned = 1,
+    Verified = 2,
+    Attested = 3,
+    Unsigned = 4,
+}
+
+public static class SigningRuleNumbers
+{
+    public static long ToNumber(this SigningRule value) => (long)value;
+
+    public static SigningRule FromNumber(long number) => System.Enum.IsDefined(typeof(SigningRule), number)
+        ? (SigningRule)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class SigningRuleJsonConverter : System.Text.Json.Serialization.JsonConverter<SigningRule>
+{
+    public override SigningRule Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "self_signed" => SigningRule.SelfSigned,
+        "verified" => SigningRule.Verified,
+        "attested" => SigningRule.Attested,
+        "unsigned" => SigningRule.Unsigned,
+        _ => throw new System.Text.Json.JsonException("unknown SigningRule label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, SigningRule value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        SigningRule.SelfSigned => "self_signed",
+        SigningRule.Verified => "verified",
+        SigningRule.Attested => "attested",
+        SigningRule.Unsigned => "unsigned",
+        _ => throw new System.Text.Json.JsonException("unknown SigningRule value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(SetClaimOutcomeJsonConverter))]
+public enum SetClaimOutcome : long
+{
+    Signed = 1,
+    StoredUnsigned = 2,
+    VerificationRequired = 3,
+    Queued = 4,
+}
+
+public static class SetClaimOutcomeNumbers
+{
+    public static long ToNumber(this SetClaimOutcome value) => (long)value;
+
+    public static SetClaimOutcome FromNumber(long number) => System.Enum.IsDefined(typeof(SetClaimOutcome), number)
+        ? (SetClaimOutcome)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class SetClaimOutcomeJsonConverter : System.Text.Json.Serialization.JsonConverter<SetClaimOutcome>
+{
+    public override SetClaimOutcome Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "signed" => SetClaimOutcome.Signed,
+        "stored_unsigned" => SetClaimOutcome.StoredUnsigned,
+        "verification_required" => SetClaimOutcome.VerificationRequired,
+        "queued" => SetClaimOutcome.Queued,
+        _ => throw new System.Text.Json.JsonException("unknown SetClaimOutcome label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, SetClaimOutcome value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        SetClaimOutcome.Signed => "signed",
+        SetClaimOutcome.StoredUnsigned => "stored_unsigned",
+        SetClaimOutcome.VerificationRequired => "verification_required",
+        SetClaimOutcome.Queued => "queued",
+        _ => throw new System.Text.Json.JsonException("unknown SetClaimOutcome value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(ReleaseDispositionJsonConverter))]
+public enum ReleaseDisposition : long
+{
+    ForcedAllow = 1,
+    ForcedDeny = 2,
+}
+
+public static class ReleaseDispositionNumbers
+{
+    public static long ToNumber(this ReleaseDisposition value) => (long)value;
+
+    public static ReleaseDisposition FromNumber(long number) => System.Enum.IsDefined(typeof(ReleaseDisposition), number)
+        ? (ReleaseDisposition)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class ReleaseDispositionJsonConverter : System.Text.Json.Serialization.JsonConverter<ReleaseDisposition>
+{
+    public override ReleaseDisposition Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "forced_allow" => ReleaseDisposition.ForcedAllow,
+        "forced_deny" => ReleaseDisposition.ForcedDeny,
+        _ => throw new System.Text.Json.JsonException("unknown ReleaseDisposition label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, ReleaseDisposition value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        ReleaseDisposition.ForcedAllow => "forced_allow",
+        ReleaseDisposition.ForcedDeny => "forced_deny",
+        _ => throw new System.Text.Json.JsonException("unknown ReleaseDisposition value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(ConsentRowPolicyJsonConverter))]
+public enum ConsentRowPolicy : long
+{
+    User = 1,
+    ForcedAllow = 2,
+    ForcedDeny = 3,
+}
+
+public static class ConsentRowPolicyNumbers
+{
+    public static long ToNumber(this ConsentRowPolicy value) => (long)value;
+
+    public static ConsentRowPolicy FromNumber(long number) => System.Enum.IsDefined(typeof(ConsentRowPolicy), number)
+        ? (ConsentRowPolicy)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class ConsentRowPolicyJsonConverter : System.Text.Json.Serialization.JsonConverter<ConsentRowPolicy>
+{
+    public override ConsentRowPolicy Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "user" => ConsentRowPolicy.User,
+        "forced_allow" => ConsentRowPolicy.ForcedAllow,
+        "forced_deny" => ConsentRowPolicy.ForcedDeny,
+        _ => throw new System.Text.Json.JsonException("unknown ConsentRowPolicy label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, ConsentRowPolicy value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        ConsentRowPolicy.User => "user",
+        ConsentRowPolicy.ForcedAllow => "forced_allow",
+        ConsentRowPolicy.ForcedDeny => "forced_deny",
+        _ => throw new System.Text.Json.JsonException("unknown ConsentRowPolicy value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(ClaimApprovalStatusJsonConverter))]
+public enum ClaimApprovalStatus : long
+{
+    Pending = 1,
+    Approved = 2,
+    Rejected = 3,
+}
+
+public static class ClaimApprovalStatusNumbers
+{
+    public static long ToNumber(this ClaimApprovalStatus value) => (long)value;
+
+    public static ClaimApprovalStatus FromNumber(long number) => System.Enum.IsDefined(typeof(ClaimApprovalStatus), number)
+        ? (ClaimApprovalStatus)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class ClaimApprovalStatusJsonConverter : System.Text.Json.Serialization.JsonConverter<ClaimApprovalStatus>
+{
+    public override ClaimApprovalStatus Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "pending" => ClaimApprovalStatus.Pending,
+        "approved" => ClaimApprovalStatus.Approved,
+        "rejected" => ClaimApprovalStatus.Rejected,
+        _ => throw new System.Text.Json.JsonException("unknown ClaimApprovalStatus label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, ClaimApprovalStatus value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        ClaimApprovalStatus.Pending => "pending",
+        ClaimApprovalStatus.Approved => "approved",
+        ClaimApprovalStatus.Rejected => "rejected",
+        _ => throw new System.Text.Json.JsonException("unknown ClaimApprovalStatus value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(PinRecheckOutcomeJsonConverter))]
+public enum PinRecheckOutcome : long
+{
+    FirstSeen = 1,
+    Unchanged = 2,
+    Rotated = 3,
+    Mismatch = 4,
+    Error = 5,
+}
+
+public static class PinRecheckOutcomeNumbers
+{
+    public static long ToNumber(this PinRecheckOutcome value) => (long)value;
+
+    public static PinRecheckOutcome FromNumber(long number) => System.Enum.IsDefined(typeof(PinRecheckOutcome), number)
+        ? (PinRecheckOutcome)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class PinRecheckOutcomeJsonConverter : System.Text.Json.Serialization.JsonConverter<PinRecheckOutcome>
+{
+    public override PinRecheckOutcome Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "first_seen" => PinRecheckOutcome.FirstSeen,
+        "unchanged" => PinRecheckOutcome.Unchanged,
+        "rotated" => PinRecheckOutcome.Rotated,
+        "mismatch" => PinRecheckOutcome.Mismatch,
+        "error" => PinRecheckOutcome.Error,
+        _ => throw new System.Text.Json.JsonException("unknown PinRecheckOutcome label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, PinRecheckOutcome value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        PinRecheckOutcome.FirstSeen => "first_seen",
+        PinRecheckOutcome.Unchanged => "unchanged",
+        PinRecheckOutcome.Rotated => "rotated",
+        PinRecheckOutcome.Mismatch => "mismatch",
+        PinRecheckOutcome.Error => "error",
+        _ => throw new System.Text.Json.JsonException("unknown PinRecheckOutcome value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(NotificationPurposeJsonConverter))]
+public enum NotificationPurpose : long
+{
+    VerifyContact = 1,
+    ResetPassword = 2,
+}
+
+public static class NotificationPurposeNumbers
+{
+    public static long ToNumber(this NotificationPurpose value) => (long)value;
+
+    public static NotificationPurpose FromNumber(long number) => System.Enum.IsDefined(typeof(NotificationPurpose), number)
+        ? (NotificationPurpose)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class NotificationPurposeJsonConverter : System.Text.Json.Serialization.JsonConverter<NotificationPurpose>
+{
+    public override NotificationPurpose Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "verify_contact" => NotificationPurpose.VerifyContact,
+        "reset_password" => NotificationPurpose.ResetPassword,
+        _ => throw new System.Text.Json.JsonException("unknown NotificationPurpose label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, NotificationPurpose value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        NotificationPurpose.VerifyContact => "verify_contact",
+        NotificationPurpose.ResetPassword => "reset_password",
+        _ => throw new System.Text.Json.JsonException("unknown NotificationPurpose value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(NotificationChannelJsonConverter))]
+public enum NotificationChannel : long
+{
+    Email = 1,
+}
+
+public static class NotificationChannelNumbers
+{
+    public static long ToNumber(this NotificationChannel value) => (long)value;
+
+    public static NotificationChannel FromNumber(long number) => System.Enum.IsDefined(typeof(NotificationChannel), number)
+        ? (NotificationChannel)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class NotificationChannelJsonConverter : System.Text.Json.Serialization.JsonConverter<NotificationChannel>
+{
+    public override NotificationChannel Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "email" => NotificationChannel.Email,
+        _ => throw new System.Text.Json.JsonException("unknown NotificationChannel label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, NotificationChannel value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        NotificationChannel.Email => "email",
+        _ => throw new System.Text.Json.JsonException("unknown NotificationChannel value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(DestinationKindJsonConverter))]
+public enum DestinationKind : long
+{
+    Email = 1,
+}
+
+public static class DestinationKindNumbers
+{
+    public static long ToNumber(this DestinationKind value) => (long)value;
+
+    public static DestinationKind FromNumber(long number) => System.Enum.IsDefined(typeof(DestinationKind), number)
+        ? (DestinationKind)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class DestinationKindJsonConverter : System.Text.Json.Serialization.JsonConverter<DestinationKind>
+{
+    public override DestinationKind Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "email" => DestinationKind.Email,
+        _ => throw new System.Text.Json.JsonException("unknown DestinationKind label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, DestinationKind value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        DestinationKind.Email => "email",
+        _ => throw new System.Text.Json.JsonException("unknown DestinationKind value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(LocalRpPolicyJsonConverter))]
+public enum LocalRpPolicy : long
+{
+    Disabled = 1,
+    AdminApprovalRequired = 2,
+    AllowByDefault = 3,
+}
+
+public static class LocalRpPolicyNumbers
+{
+    public static long ToNumber(this LocalRpPolicy value) => (long)value;
+
+    public static LocalRpPolicy FromNumber(long number) => System.Enum.IsDefined(typeof(LocalRpPolicy), number)
+        ? (LocalRpPolicy)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class LocalRpPolicyJsonConverter : System.Text.Json.Serialization.JsonConverter<LocalRpPolicy>
+{
+    public override LocalRpPolicy Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "disabled" => LocalRpPolicy.Disabled,
+        "admin_approval_required" => LocalRpPolicy.AdminApprovalRequired,
+        "allow_by_default" => LocalRpPolicy.AllowByDefault,
+        _ => throw new System.Text.Json.JsonException("unknown LocalRpPolicy label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, LocalRpPolicy value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        LocalRpPolicy.Disabled => "disabled",
+        LocalRpPolicy.AdminApprovalRequired => "admin_approval_required",
+        LocalRpPolicy.AllowByDefault => "allow_by_default",
+        _ => throw new System.Text.Json.JsonException("unknown LocalRpPolicy value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(LocalRpStatusJsonConverter))]
+public enum LocalRpStatus : long
+{
+    Pending = 1,
+    Approved = 2,
+    Denied = 3,
+    Revoked = 4,
+}
+
+public static class LocalRpStatusNumbers
+{
+    public static long ToNumber(this LocalRpStatus value) => (long)value;
+
+    public static LocalRpStatus FromNumber(long number) => System.Enum.IsDefined(typeof(LocalRpStatus), number)
+        ? (LocalRpStatus)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class LocalRpStatusJsonConverter : System.Text.Json.Serialization.JsonConverter<LocalRpStatus>
+{
+    public override LocalRpStatus Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "pending" => LocalRpStatus.Pending,
+        "approved" => LocalRpStatus.Approved,
+        "denied" => LocalRpStatus.Denied,
+        "revoked" => LocalRpStatus.Revoked,
+        _ => throw new System.Text.Json.JsonException("unknown LocalRpStatus label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, LocalRpStatus value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        LocalRpStatus.Pending => "pending",
+        LocalRpStatus.Approved => "approved",
+        LocalRpStatus.Denied => "denied",
+        LocalRpStatus.Revoked => "revoked",
+        _ => throw new System.Text.Json.JsonException("unknown LocalRpStatus value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(LocalRpAdmissionJsonConverter))]
+public enum LocalRpAdmission : long
+{
+    Consent = 1,
+    Pending = 2,
+    Blocked = 3,
+}
+
+public static class LocalRpAdmissionNumbers
+{
+    public static long ToNumber(this LocalRpAdmission value) => (long)value;
+
+    public static LocalRpAdmission FromNumber(long number) => System.Enum.IsDefined(typeof(LocalRpAdmission), number)
+        ? (LocalRpAdmission)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class LocalRpAdmissionJsonConverter : System.Text.Json.Serialization.JsonConverter<LocalRpAdmission>
+{
+    public override LocalRpAdmission Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "consent" => LocalRpAdmission.Consent,
+        "pending" => LocalRpAdmission.Pending,
+        "blocked" => LocalRpAdmission.Blocked,
+        _ => throw new System.Text.Json.JsonException("unknown LocalRpAdmission label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, LocalRpAdmission value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        LocalRpAdmission.Consent => "consent",
+        LocalRpAdmission.Pending => "pending",
+        LocalRpAdmission.Blocked => "blocked",
+        _ => throw new System.Text.Json.JsonException("unknown LocalRpAdmission value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(AppAccessModeJsonConverter))]
+public enum AppAccessMode : long
+{
+    Allow = 1,
+    Deny = 2,
+}
+
+public static class AppAccessModeNumbers
+{
+    public static long ToNumber(this AppAccessMode value) => (long)value;
+
+    public static AppAccessMode FromNumber(long number) => System.Enum.IsDefined(typeof(AppAccessMode), number)
+        ? (AppAccessMode)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class AppAccessModeJsonConverter : System.Text.Json.Serialization.JsonConverter<AppAccessMode>
+{
+    public override AppAccessMode Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "allow" => AppAccessMode.Allow,
+        "deny" => AppAccessMode.Deny,
+        _ => throw new System.Text.Json.JsonException("unknown AppAccessMode label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, AppAccessMode value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        AppAccessMode.Allow => "allow",
+        AppAccessMode.Deny => "deny",
+        _ => throw new System.Text.Json.JsonException("unknown AppAccessMode value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(AppAccessTargetKindJsonConverter))]
+public enum AppAccessTargetKind : long
+{
+    Everyone = 1,
+    User = 2,
+    Group = 3,
+    Claim = 4,
+}
+
+public static class AppAccessTargetKindNumbers
+{
+    public static long ToNumber(this AppAccessTargetKind value) => (long)value;
+
+    public static AppAccessTargetKind FromNumber(long number) => System.Enum.IsDefined(typeof(AppAccessTargetKind), number)
+        ? (AppAccessTargetKind)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class AppAccessTargetKindJsonConverter : System.Text.Json.Serialization.JsonConverter<AppAccessTargetKind>
+{
+    public override AppAccessTargetKind Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "everyone" => AppAccessTargetKind.Everyone,
+        "user" => AppAccessTargetKind.User,
+        "group" => AppAccessTargetKind.Group,
+        "claim" => AppAccessTargetKind.Claim,
+        _ => throw new System.Text.Json.JsonException("unknown AppAccessTargetKind label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, AppAccessTargetKind value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        AppAccessTargetKind.Everyone => "everyone",
+        AppAccessTargetKind.User => "user",
+        AppAccessTargetKind.Group => "group",
+        AppAccessTargetKind.Claim => "claim",
+        _ => throw new System.Text.Json.JsonException("unknown AppAccessTargetKind value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(ClaimOperatorJsonConverter))]
+public enum ClaimOperator : long
+{
+    Present = 1,
+    Absent = 2,
+    Equals = 3,
+    AgeUnder = 4,
+    AgeAtLeast = 5,
+}
+
+public static class ClaimOperatorNumbers
+{
+    public static long ToNumber(this ClaimOperator value) => (long)value;
+
+    public static ClaimOperator FromNumber(long number) => System.Enum.IsDefined(typeof(ClaimOperator), number)
+        ? (ClaimOperator)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class ClaimOperatorJsonConverter : System.Text.Json.Serialization.JsonConverter<ClaimOperator>
+{
+    public override ClaimOperator Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "present" => ClaimOperator.Present,
+        "absent" => ClaimOperator.Absent,
+        "equals" => ClaimOperator.Equals,
+        "age_under" => ClaimOperator.AgeUnder,
+        "age_at_least" => ClaimOperator.AgeAtLeast,
+        _ => throw new System.Text.Json.JsonException("unknown ClaimOperator label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, ClaimOperator value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        ClaimOperator.Present => "present",
+        ClaimOperator.Absent => "absent",
+        ClaimOperator.Equals => "equals",
+        ClaimOperator.AgeUnder => "age_under",
+        ClaimOperator.AgeAtLeast => "age_at_least",
+        _ => throw new System.Text.Json.JsonException("unknown ClaimOperator value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(ApplicationKeyChallengePurposeJsonConverter))]
+public enum ApplicationKeyChallengePurpose : long
+{
+    Add = 1,
+    Renew = 2,
+}
+
+public static class ApplicationKeyChallengePurposeNumbers
+{
+    public static long ToNumber(this ApplicationKeyChallengePurpose value) => (long)value;
+
+    public static ApplicationKeyChallengePurpose FromNumber(long number) => System.Enum.IsDefined(typeof(ApplicationKeyChallengePurpose), number)
+        ? (ApplicationKeyChallengePurpose)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class ApplicationKeyChallengePurposeJsonConverter : System.Text.Json.Serialization.JsonConverter<ApplicationKeyChallengePurpose>
+{
+    public override ApplicationKeyChallengePurpose Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "add" => ApplicationKeyChallengePurpose.Add,
+        "renew" => ApplicationKeyChallengePurpose.Renew,
+        _ => throw new System.Text.Json.JsonException("unknown ApplicationKeyChallengePurpose label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, ApplicationKeyChallengePurpose value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        ApplicationKeyChallengePurpose.Add => "add",
+        ApplicationKeyChallengePurpose.Renew => "renew",
+        _ => throw new System.Text.Json.JsonException("unknown ApplicationKeyChallengePurpose value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(AuthFlowJsonConverter))]
+public enum AuthFlow : long
+{
+    Login = 1,
+    ClaimsUpdate = 2,
+}
+
+public static class AuthFlowNumbers
+{
+    public static long ToNumber(this AuthFlow value) => (long)value;
+
+    public static AuthFlow FromNumber(long number) => System.Enum.IsDefined(typeof(AuthFlow), number)
+        ? (AuthFlow)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class AuthFlowJsonConverter : System.Text.Json.Serialization.JsonConverter<AuthFlow>
+{
+    public override AuthFlow Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "login" => AuthFlow.Login,
+        "claims_update" => AuthFlow.ClaimsUpdate,
+        _ => throw new System.Text.Json.JsonException("unknown AuthFlow label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, AuthFlow value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        AuthFlow.Login => "login",
+        AuthFlow.ClaimsUpdate => "claims_update",
+        _ => throw new System.Text.Json.JsonException("unknown AuthFlow value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(RpCacheStatusJsonConverter))]
+public enum RpCacheStatus : long
+{
+    Fresh = 1,
+    Refreshed = 2,
+    Stale = 3,
+}
+
+public static class RpCacheStatusNumbers
+{
+    public static long ToNumber(this RpCacheStatus value) => (long)value;
+
+    public static RpCacheStatus FromNumber(long number) => System.Enum.IsDefined(typeof(RpCacheStatus), number)
+        ? (RpCacheStatus)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class RpCacheStatusJsonConverter : System.Text.Json.Serialization.JsonConverter<RpCacheStatus>
+{
+    public override RpCacheStatus Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "fresh" => RpCacheStatus.Fresh,
+        "refreshed" => RpCacheStatus.Refreshed,
+        "stale" => RpCacheStatus.Stale,
+        _ => throw new System.Text.Json.JsonException("unknown RpCacheStatus label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, RpCacheStatus value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        RpCacheStatus.Fresh => "fresh",
+        RpCacheStatus.Refreshed => "refreshed",
+        RpCacheStatus.Stale => "stale",
+        _ => throw new System.Text.Json.JsonException("unknown RpCacheStatus value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(AccountKindJsonConverter))]
+public enum AccountKind : long
+{
+    Human = 1,
+    Application = 2,
+}
+
+public static class AccountKindNumbers
+{
+    public static long ToNumber(this AccountKind value) => (long)value;
+
+    public static AccountKind FromNumber(long number) => System.Enum.IsDefined(typeof(AccountKind), number)
+        ? (AccountKind)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class AccountKindJsonConverter : System.Text.Json.Serialization.JsonConverter<AccountKind>
+{
+    public override AccountKind Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "human" => AccountKind.Human,
+        "application" => AccountKind.Application,
+        _ => throw new System.Text.Json.JsonException("unknown AccountKind label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, AccountKind value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        AccountKind.Human => "human",
+        AccountKind.Application => "application",
+        _ => throw new System.Text.Json.JsonException("unknown AccountKind value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(RpErrorCodeJsonConverter))]
+public enum RpErrorCode : long
+{
+    NotApplicationAccount = 1,
+    ApplicationMismatch = 2,
+    ApplicationUserLimit = 3,
+    BadRequest = 4,
+    UpstreamFailed = 5,
+    Internal = 6,
+}
+
+public static class RpErrorCodeNumbers
+{
+    public static long ToNumber(this RpErrorCode value) => (long)value;
+
+    public static RpErrorCode FromNumber(long number) => System.Enum.IsDefined(typeof(RpErrorCode), number)
+        ? (RpErrorCode)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class RpErrorCodeJsonConverter : System.Text.Json.Serialization.JsonConverter<RpErrorCode>
+{
+    public override RpErrorCode Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "not_application_account" => RpErrorCode.NotApplicationAccount,
+        "application_mismatch" => RpErrorCode.ApplicationMismatch,
+        "application_user_limit" => RpErrorCode.ApplicationUserLimit,
+        "bad_request" => RpErrorCode.BadRequest,
+        "upstream_failed" => RpErrorCode.UpstreamFailed,
+        "internal" => RpErrorCode.Internal,
+        _ => throw new System.Text.Json.JsonException("unknown RpErrorCode label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, RpErrorCode value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        RpErrorCode.NotApplicationAccount => "not_application_account",
+        RpErrorCode.ApplicationMismatch => "application_mismatch",
+        RpErrorCode.ApplicationUserLimit => "application_user_limit",
+        RpErrorCode.BadRequest => "bad_request",
+        RpErrorCode.UpstreamFailed => "upstream_failed",
+        RpErrorCode.Internal => "internal",
+        _ => throw new System.Text.Json.JsonException("unknown RpErrorCode value"),
+    });
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(IssuedClaimOutcomeJsonConverter))]
+public enum IssuedClaimOutcome : long
+{
+    Deposited = 1,
+    Handoff = 2,
+    Skipped = 3,
+    Failed = 4,
+}
+
+public static class IssuedClaimOutcomeNumbers
+{
+    public static long ToNumber(this IssuedClaimOutcome value) => (long)value;
+
+    public static IssuedClaimOutcome FromNumber(long number) => System.Enum.IsDefined(typeof(IssuedClaimOutcome), number)
+        ? (IssuedClaimOutcome)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class IssuedClaimOutcomeJsonConverter : System.Text.Json.Serialization.JsonConverter<IssuedClaimOutcome>
+{
+    public override IssuedClaimOutcome Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "deposited" => IssuedClaimOutcome.Deposited,
+        "handoff" => IssuedClaimOutcome.Handoff,
+        "skipped" => IssuedClaimOutcome.Skipped,
+        "failed" => IssuedClaimOutcome.Failed,
+        _ => throw new System.Text.Json.JsonException("unknown IssuedClaimOutcome label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, IssuedClaimOutcome value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        IssuedClaimOutcome.Deposited => "deposited",
+        IssuedClaimOutcome.Handoff => "handoff",
+        IssuedClaimOutcome.Skipped => "skipped",
+        IssuedClaimOutcome.Failed => "failed",
+        _ => throw new System.Text.Json.JsonException("unknown IssuedClaimOutcome value"),
+    });
+}
+
 public sealed record HelloRequest
 {
     // CBOR key: name
@@ -46,9 +1007,9 @@ public sealed record GuestbookEntry
     // CBOR key: name
     public required string Name { get; init; }
     // CBOR key: created_at
-    public required string CreatedAt { get; init; }
+    public required System.DateTimeOffset CreatedAt { get; init; }
     // CBOR key: updated_at
-    public required string UpdatedAt { get; init; }
+    public required System.DateTimeOffset UpdatedAt { get; init; }
 }
 
 public sealed record CreateGuestbookRequest
@@ -104,15 +1065,15 @@ public sealed record DomainPublicKey
     // CBOR key: fingerprint
     public required string Fingerprint { get; init; }
     // CBOR key: algorithm
-    public required string Algorithm { get; init; }
+    public required KeyAlgorithm Algorithm { get; init; }
     // CBOR key: key_usage
-    public required string KeyUsage { get; init; }
+    public required KeyUsage KeyUsage { get; init; }
     // CBOR key: created_at
-    public required string CreatedAt { get; init; }
+    public required System.DateTimeOffset CreatedAt { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
     // CBOR key: revoked_at
-    public string? RevokedAt { get; init; }
+    public System.DateTimeOffset? RevokedAt { get; init; }
     // CBOR key: signed_by_key_id
     public string? SignedByKeyId { get; init; }
     // CBOR key: key_signature
@@ -132,7 +1093,7 @@ public sealed record GetDomainKeysResponse
 public sealed record GetRevocationsRequest
 {
     // CBOR key: since
-    public string? Since { get; init; }
+    public System.DateTimeOffset? Since { get; init; }
 }
 
 public sealed record GetRevocationsResponse
@@ -152,7 +1113,9 @@ public sealed record PinRecheckResult
     // CBOR key: domain
     public required string Domain { get; init; }
     // CBOR key: outcome
-    public required string Outcome { get; init; }
+    public required PinRecheckOutcome Outcome { get; init; }
+    // CBOR key: message
+    public string? Message { get; init; }
 }
 
 public sealed record RecheckPinsResponse
@@ -172,15 +1135,15 @@ public sealed record UserPublicKey
     // CBOR key: fingerprint
     public required string Fingerprint { get; init; }
     // CBOR key: algorithm
-    public required string Algorithm { get; init; }
+    public required KeyAlgorithm Algorithm { get; init; }
     // CBOR key: key_usage
-    public required string KeyUsage { get; init; }
+    public required KeyUsage KeyUsage { get; init; }
     // CBOR key: created_at
-    public required string CreatedAt { get; init; }
+    public required System.DateTimeOffset CreatedAt { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
     // CBOR key: revoked_at
-    public string? RevokedAt { get; init; }
+    public System.DateTimeOffset? RevokedAt { get; init; }
     // CBOR key: signed_by_key_id
     public string? SignedByKeyId { get; init; }
     // CBOR key: key_signature
@@ -220,7 +1183,7 @@ public sealed record RevocationCertificate
     // CBOR key: target_fingerprint
     public required string TargetFingerprint { get; init; }
     // CBOR key: revoked_at
-    public required string RevokedAt { get; init; }
+    public required System.DateTimeOffset RevokedAt { get; init; }
     // CBOR key: signatures
     public required System.Collections.Generic.List<ClaimSignature> Signatures { get; init; }
 }
@@ -238,13 +1201,13 @@ public sealed record Claim
     // CBOR key: signatures
     public required System.Collections.Generic.List<ClaimSignature> Signatures { get; init; }
     // CBOR key: attested_at
-    public required string AttestedAt { get; init; }
+    public required System.DateTimeOffset AttestedAt { get; init; }
     // CBOR key: created_at
-    public required string CreatedAt { get; init; }
+    public required System.DateTimeOffset CreatedAt { get; init; }
     // CBOR key: expires_at
-    public string? ExpiresAt { get; init; }
+    public System.DateTimeOffset? ExpiresAt { get; init; }
     // CBOR key: revoked_at
-    public string? RevokedAt { get; init; }
+    public System.DateTimeOffset? RevokedAt { get; init; }
 }
 
 public sealed record GetUserClaimsRequest
@@ -270,7 +1233,7 @@ public sealed record RequestedClaim
     // CBOR key: claim_type
     public required string ClaimType { get; init; }
     // CBOR key: datatype
-    public required string Datatype { get; init; }
+    public required ClaimValueType Datatype { get; init; }
 }
 
 public sealed record ClaimRequest
@@ -290,7 +1253,7 @@ public sealed record AuthenticationRequirements
 public sealed record AuthFlowContext
 {
     // CBOR key: flow
-    public required string Flow { get; init; }
+    public required AuthFlow Flow { get; init; }
     // CBOR key: prior_session
     public string? PriorSession { get; init; }
     // CBOR key: request_reason
@@ -310,11 +1273,11 @@ public sealed record ConsentGrant
     // CBOR key: claim_types
     public required System.Collections.Generic.List<string> ClaimTypes { get; init; }
     // CBOR key: issued_at
-    public required string IssuedAt { get; init; }
+    public required System.DateTimeOffset IssuedAt { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
     // CBOR key: revoked_at
-    public string? RevokedAt { get; init; }
+    public System.DateTimeOffset? RevokedAt { get; init; }
     // CBOR key: application
     public ApplicationRef? Application { get; init; }
 }
@@ -336,9 +1299,9 @@ public sealed record DomainClaim
     // CBOR key: signatures
     public required System.Collections.Generic.List<ClaimSignature> Signatures { get; init; }
     // CBOR key: attested_at
-    public required string AttestedAt { get; init; }
+    public required System.DateTimeOffset AttestedAt { get; init; }
     // CBOR key: expires_at
-    public string? ExpiresAt { get; init; }
+    public System.DateTimeOffset? ExpiresAt { get; init; }
 }
 
 public sealed record SigningRequest
@@ -356,9 +1319,9 @@ public sealed record SigningRequest
     // CBOR key: nonce
     public required string Nonce { get; init; }
     // CBOR key: issued_at
-    public required string IssuedAt { get; init; }
+    public required System.DateTimeOffset IssuedAt { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
     // CBOR key: callback
     public string? Callback { get; init; }
 }
@@ -394,13 +1357,15 @@ public sealed record IdentityAssertion
     // CBOR key: nonce
     public required string Nonce { get; init; }
     // CBOR key: issued_at
-    public required string IssuedAt { get; init; }
+    public required System.DateTimeOffset IssuedAt { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
     // CBOR key: authorized_claims
     public required System.Collections.Generic.List<string> AuthorizedClaims { get; init; }
     // CBOR key: display_name
     public string? DisplayName { get; init; }
+    // CBOR key: application
+    public required ApplicationRef Application { get; init; }
 }
 
 public sealed record SignedIdentityAssertion
@@ -426,7 +1391,7 @@ public sealed record UserInfoRequest
     // CBOR key: relying_party
     public required string RelyingParty { get; init; }
     // CBOR key: timestamp
-    public required string Timestamp { get; init; }
+    public required System.DateTimeOffset Timestamp { get; init; }
     // CBOR key: nonce
     public required string Nonce { get; init; }
 }
@@ -472,7 +1437,7 @@ public sealed record AuthRequest
     // CBOR key: nonce
     public required string Nonce { get; init; }
     // CBOR key: timestamp
-    public required string Timestamp { get; init; }
+    public required System.DateTimeOffset Timestamp { get; init; }
     // CBOR key: signing_key_id
     public required string SigningKeyId { get; init; }
     // CBOR key: requested_claims
@@ -484,7 +1449,7 @@ public sealed record AuthRequest
     // CBOR key: relying_party_claims
     public System.Collections.Generic.List<DomainClaim>? RelyingPartyClaims { get; init; }
     // CBOR key: application
-    public RelyingPartyApplication? Application { get; init; }
+    public required RelyingPartyApplication Application { get; init; }
 }
 
 public sealed record SignedAuthRequest
@@ -512,9 +1477,9 @@ public sealed record EncryptedToken
 public sealed record AlgorithmSupport
 {
     // CBOR key: signing
-    public required System.Collections.Generic.List<string> Signing { get; init; }
+    public required System.Collections.Generic.List<KeyAlgorithm> Signing { get; init; }
     // CBOR key: encryption
-    public System.Collections.Generic.List<string>? Encryption { get; init; }
+    public System.Collections.Generic.List<AeadSuite>? Encryption { get; init; }
 }
 
 public sealed record HandshakeRequest
@@ -548,9 +1513,9 @@ public sealed record Relation
     // CBOR key: object_id
     public required string ObjectId { get; init; }
     // CBOR key: created_at
-    public required string CreatedAt { get; init; }
+    public required System.DateTimeOffset CreatedAt { get; init; }
     // CBOR key: removed_at
-    public string? RemovedAt { get; init; }
+    public System.DateTimeOffset? RemovedAt { get; init; }
 }
 
 public sealed record AdminUser
@@ -561,14 +1526,18 @@ public sealed record AdminUser
     public required string Username { get; init; }
     // CBOR key: display_name
     public required string DisplayName { get; init; }
+    // CBOR key: kind
+    public required AccountKind Kind { get; init; }
+    // CBOR key: application_id
+    public string? ApplicationId { get; init; }
     // CBOR key: is_active
     public required bool IsActive { get; init; }
     // CBOR key: created_at
-    public required string CreatedAt { get; init; }
+    public required System.DateTimeOffset CreatedAt { get; init; }
     // CBOR key: updated_at
-    public required string UpdatedAt { get; init; }
+    public required System.DateTimeOffset UpdatedAt { get; init; }
     // CBOR key: purged_at
-    public string? PurgedAt { get; init; }
+    public System.DateTimeOffset? PurgedAt { get; init; }
     // CBOR key: purge_reason
     public string? PurgeReason { get; init; }
     // CBOR key: password_locked
@@ -608,9 +1577,9 @@ public sealed record UserAuthenticationActivity
     // CBOR key: user_id
     public required string UserId { get; init; }
     // CBOR key: last_authenticated_at
-    public string? LastAuthenticatedAt { get; init; }
+    public System.DateTimeOffset? LastAuthenticatedAt { get; init; }
     // CBOR key: last_seen_at
-    public string? LastSeenAt { get; init; }
+    public System.DateTimeOffset? LastSeenAt { get; init; }
     // CBOR key: successful_authentication_count
     public required long SuccessfulAuthenticationCount { get; init; }
     // CBOR key: active_browser_session_count
@@ -637,6 +1606,8 @@ public sealed record CreateUserRequest
     public required string DisplayName { get; init; }
     // CBOR key: password
     public string? Password { get; init; }
+    // CBOR key: application_id
+    public string? ApplicationId { get; init; }
 }
 
 public sealed record CreateUserResponse
@@ -645,6 +1616,164 @@ public sealed record CreateUserResponse
     public required AdminUser User { get; init; }
     // CBOR key: api_key
     public string? ApiKey { get; init; }
+}
+
+public sealed record RenameUserRequest
+{
+    // CBOR key: user_id
+    public required string UserId { get; init; }
+    // CBOR key: username
+    public required string Username { get; init; }
+}
+
+public sealed record RenameUserResponse
+{
+    // CBOR key: user
+    public required AdminUser User { get; init; }
+}
+
+public sealed record SetApplicationIdRequest
+{
+    // CBOR key: user_id
+    public required string UserId { get; init; }
+    // CBOR key: application_id
+    public required string ApplicationId { get; init; }
+}
+
+public sealed record SetApplicationIdResponse
+{
+    // CBOR key: user
+    public required AdminUser User { get; init; }
+}
+
+public sealed record ApiKeyInfo
+{
+    // CBOR key: key_id
+    public required string KeyId { get; init; }
+    // CBOR key: name
+    public required string Name { get; init; }
+    // CBOR key: hint
+    public required string Hint { get; init; }
+    // CBOR key: created_at
+    public required System.DateTimeOffset CreatedAt { get; init; }
+    // CBOR key: last_used_at
+    public System.DateTimeOffset? LastUsedAt { get; init; }
+}
+
+public sealed record CreateApiKeyRequest
+{
+    // CBOR key: user_id
+    public required string UserId { get; init; }
+    // CBOR key: name
+    public required string Name { get; init; }
+}
+
+public sealed record CreateApiKeyResponse
+{
+    // CBOR key: key
+    public required ApiKeyInfo Key { get; init; }
+    // CBOR key: api_key
+    public required string ApiKey { get; init; }
+}
+
+public sealed record ListApiKeysRequest
+{
+    // CBOR key: user_id
+    public required string UserId { get; init; }
+}
+
+public sealed record ListApiKeysResponse
+{
+    // CBOR key: keys
+    public required System.Collections.Generic.List<ApiKeyInfo> Keys { get; init; }
+}
+
+public sealed record RevokeApiKeyRequest
+{
+    // CBOR key: user_id
+    public required string UserId { get; init; }
+    // CBOR key: key_id
+    public required string KeyId { get; init; }
+}
+
+public sealed record RevokeApiKeyResponse
+{
+    // CBOR key: revoked
+    public required bool Revoked { get; init; }
+}
+
+public sealed record AccountLimits
+{
+    // CBOR key: max_api_keys
+    public long? MaxApiKeys { get; init; }
+    // CBOR key: max_distinct_users
+    public long? MaxDistinctUsers { get; init; }
+    // CBOR key: distinct_user_window_days
+    public required long DistinctUserWindowDays { get; init; }
+    // CBOR key: requests_per_minute
+    public long? RequestsPerMinute { get; init; }
+    // CBOR key: request_burst
+    public long? RequestBurst { get; init; }
+}
+
+public sealed record GetAccountLimitsRequest
+{
+    // CBOR key: user_id
+    public required string UserId { get; init; }
+}
+
+public sealed record GetAccountLimitsResponse
+{
+    // CBOR key: limits
+    public required AccountLimits Limits { get; init; }
+}
+
+public sealed record SetAccountLimitsRequest
+{
+    // CBOR key: user_id
+    public required string UserId { get; init; }
+    // CBOR key: limits
+    public required AccountLimits Limits { get; init; }
+}
+
+public sealed record SetAccountLimitsResponse
+{
+    // CBOR key: limits
+    public required AccountLimits Limits { get; init; }
+}
+
+public sealed record RpUsageDay
+{
+    // CBOR key: day
+    public required System.DateOnly Day { get; init; }
+    // CBOR key: operation
+    public required string Operation { get; init; }
+    // CBOR key: succeeded
+    public required long Succeeded { get; init; }
+    // CBOR key: failed
+    public required long Failed { get; init; }
+}
+
+public sealed record GetApplicationUsageRequest
+{
+    // CBOR key: user_id
+    public required string UserId { get; init; }
+    // CBOR key: first_day
+    public required System.DateOnly FirstDay { get; init; }
+    // CBOR key: last_day
+    public required System.DateOnly LastDay { get; init; }
+}
+
+public sealed record GetApplicationUsageResponse
+{
+    // CBOR key: distinct_users
+    public required long DistinctUsers { get; init; }
+    // CBOR key: distinct_user_window_days
+    public required long DistinctUserWindowDays { get; init; }
+    // CBOR key: max_distinct_users
+    public long? MaxDistinctUsers { get; init; }
+    // CBOR key: days
+    public required System.Collections.Generic.List<RpUsageDay> Days { get; init; }
 }
 
 public sealed record UpdateUserRequest
@@ -784,7 +1913,7 @@ public sealed record SetClaimRequest
     // CBOR key: claim_value
     public required string ClaimValue { get; init; }
     // CBOR key: expires_at
-    public string? ExpiresAt { get; init; }
+    public System.DateTimeOffset? ExpiresAt { get; init; }
 }
 
 public sealed record SetClaimResponse
@@ -842,7 +1971,7 @@ public sealed record SetUserClaimRequest
 public sealed record SetUserClaimResponse
 {
     // CBOR key: outcome
-    public required string Outcome { get; init; }
+    public required SetClaimOutcome Outcome { get; init; }
     // CBOR key: claim
     public Claim? Claim { get; init; }
 }
@@ -856,15 +1985,15 @@ public sealed record SettableClaimPolicy
     // CBOR key: description
     public required string Description { get; init; }
     // CBOR key: datatype
-    public required string Datatype { get; init; }
+    public required ClaimValueType Datatype { get; init; }
     // CBOR key: max_bytes
     public required long MaxBytes { get; init; }
     // CBOR key: set_rule
-    public required string SetRule { get; init; }
+    public required SetRule SetRule { get; init; }
     // CBOR key: requires_approval
     public required bool RequiresApproval { get; init; }
     // CBOR key: signing_rule
-    public required string SigningRule { get; init; }
+    public required SigningRule SigningRule { get; init; }
 }
 
 public sealed record ListSettablePoliciesResponse
@@ -882,13 +2011,13 @@ public sealed record ClaimTypePolicy
     // CBOR key: description
     public required string Description { get; init; }
     // CBOR key: value_type
-    public required string ValueType { get; init; }
+    public required ClaimValueType ValueType { get; init; }
     // CBOR key: max_bytes
     public required long MaxBytes { get; init; }
     // CBOR key: set_rule
-    public required string SetRule { get; init; }
+    public required SetRule SetRule { get; init; }
     // CBOR key: signing_rule
-    public required string SigningRule { get; init; }
+    public required SigningRule SigningRule { get; init; }
     // CBOR key: requires_approval
     public required bool RequiresApproval { get; init; }
     // CBOR key: user_settable
@@ -914,13 +2043,13 @@ public sealed record SetClaimTypeRequest
     // CBOR key: description
     public string? Description { get; init; }
     // CBOR key: value_type
-    public required string ValueType { get; init; }
+    public required ClaimValueType ValueType { get; init; }
     // CBOR key: max_bytes
     public required long MaxBytes { get; init; }
     // CBOR key: set_rule
-    public required string SetRule { get; init; }
+    public required SetRule SetRule { get; init; }
     // CBOR key: signing_rule
-    public required string SigningRule { get; init; }
+    public required SigningRule SigningRule { get; init; }
     // CBOR key: user_settable
     public required bool UserSettable { get; init; }
     // CBOR key: default_auto_sign
@@ -1048,7 +2177,7 @@ public sealed record ReleaseRule
     // CBOR key: claim_type
     public required string ClaimType { get; init; }
     // CBOR key: disposition
-    public required string Disposition { get; init; }
+    public required ReleaseDisposition Disposition { get; init; }
 }
 
 public sealed record ListReleaseRulesResponse
@@ -1064,7 +2193,7 @@ public sealed record SetReleaseRuleRequest
     // CBOR key: claim_type
     public required string ClaimType { get; init; }
     // CBOR key: disposition
-    public required string Disposition { get; init; }
+    public required ReleaseDisposition Disposition { get; init; }
 }
 
 public sealed record SetReleaseRuleResponse
@@ -1098,13 +2227,13 @@ public sealed record ClaimApproval
     // CBOR key: claim_value
     public required byte[] ClaimValue { get; init; }
     // CBOR key: status
-    public required string Status { get; init; }
+    public required ClaimApprovalStatus Status { get; init; }
     // CBOR key: resolved_by
     public string? ResolvedBy { get; init; }
     // CBOR key: resolved_at
-    public string? ResolvedAt { get; init; }
+    public System.DateTimeOffset? ResolvedAt { get; init; }
     // CBOR key: created_at
-    public required string CreatedAt { get; init; }
+    public required System.DateTimeOffset CreatedAt { get; init; }
 }
 
 public sealed record ListPendingClaimApprovalsResponse
@@ -1256,7 +2385,7 @@ public sealed record SetMyClaimRequest
 public sealed record SetMyClaimResponse
 {
     // CBOR key: outcome
-    public required string Outcome { get; init; }
+    public required SetClaimOutcome Outcome { get; init; }
     // CBOR key: claim
     public Claim? Claim { get; init; }
 }
@@ -1370,11 +2499,11 @@ public sealed record BrowserSessionInfo
     // CBOR key: user
     public required AdminUser User { get; init; }
     // CBOR key: issued_at
-    public required string IssuedAt { get; init; }
+    public required System.DateTimeOffset IssuedAt { get; init; }
     // CBOR key: authenticated_at
-    public required string AuthenticatedAt { get; init; }
+    public required System.DateTimeOffset AuthenticatedAt { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
     // CBOR key: authentication_methods
     public required System.Collections.Generic.List<string> AuthenticationMethods { get; init; }
 }
@@ -1418,9 +2547,9 @@ public sealed record IntrospectBrowserSessionResponse
     // CBOR key: user_domain
     public required string UserDomain { get; init; }
     // CBOR key: authenticated_at
-    public required string AuthenticatedAt { get; init; }
+    public required System.DateTimeOffset AuthenticatedAt { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
     // CBOR key: authentication_methods
     public required System.Collections.Generic.List<string> AuthenticationMethods { get; init; }
 }
@@ -1428,11 +2557,11 @@ public sealed record IntrospectBrowserSessionResponse
 public sealed record NotificationCapability
 {
     // CBOR key: purpose
-    public required string Purpose { get; init; }
+    public required NotificationPurpose Purpose { get; init; }
     // CBOR key: channel
-    public required string Channel { get; init; }
+    public required NotificationChannel Channel { get; init; }
     // CBOR key: destination_kind
-    public required string DestinationKind { get; init; }
+    public required DestinationKind DestinationKind { get; init; }
 }
 
 public sealed record GetNotificationCapabilitiesResponse
@@ -1446,15 +2575,15 @@ public sealed record VerifiedContactMethod
     // CBOR key: id
     public required string Id { get; init; }
     // CBOR key: channel
-    public required string Channel { get; init; }
+    public required NotificationChannel Channel { get; init; }
     // CBOR key: destination
     public required string Destination { get; init; }
     // CBOR key: verified_at
-    public required string VerifiedAt { get; init; }
+    public required System.DateTimeOffset VerifiedAt { get; init; }
     // CBOR key: purposes
-    public required System.Collections.Generic.List<string> Purposes { get; init; }
+    public required System.Collections.Generic.List<NotificationPurpose> Purposes { get; init; }
     // CBOR key: revoked_at
-    public string? RevokedAt { get; init; }
+    public System.DateTimeOffset? RevokedAt { get; init; }
 }
 
 public sealed record ListVerifiedContactMethodsResponse
@@ -1480,7 +2609,7 @@ public sealed record RevokeVerifiedContactMethodResponse
 public sealed record RequestContactVerificationRequest
 {
     // CBOR key: channel
-    public required string Channel { get; init; }
+    public required NotificationChannel Channel { get; init; }
     // CBOR key: destination
     public required string Destination { get; init; }
     // CBOR key: current_password
@@ -1490,7 +2619,7 @@ public sealed record RequestContactVerificationRequest
 public sealed record RequestContactVerificationResponse
 {
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
 }
 
 public sealed record ConfirmContactVerificationRequest
@@ -1526,7 +2655,7 @@ public sealed record ValidatePasswordRecoveryRequest
 public sealed record ValidatePasswordRecoveryResponse
 {
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
     // CBOR key: password_policy
     public required PasswordPolicy PasswordPolicy { get; init; }
 }
@@ -1558,7 +2687,7 @@ public sealed record BrowserConsentClaim
     // CBOR key: label
     public required string Label { get; init; }
     // CBOR key: datatype
-    public required string Datatype { get; init; }
+    public required ClaimValueType Datatype { get; init; }
     // CBOR key: required
     public required bool Required { get; init; }
     // CBOR key: available
@@ -1566,7 +2695,7 @@ public sealed record BrowserConsentClaim
     // CBOR key: default_granted
     public required bool DefaultGranted { get; init; }
     // CBOR key: policy
-    public required string Policy { get; init; }
+    public required ConsentRowPolicy Policy { get; init; }
     // CBOR key: user_settable
     public required bool UserSettable { get; init; }
     // CBOR key: max_bytes
@@ -1628,7 +2757,7 @@ public sealed record BrowserLocalRpInspectRequest
 public sealed record BrowserLocalRpInspectResponse
 {
     // CBOR key: admission
-    public required string Admission { get; init; }
+    public required LocalRpAdmission Admission { get; init; }
     // CBOR key: app_name
     public required string AppName { get; init; }
     // CBOR key: fingerprint
@@ -1636,7 +2765,7 @@ public sealed record BrowserLocalRpInspectResponse
     // CBOR key: callback_host
     public required string CallbackHost { get; init; }
     // CBOR key: first_seen_at
-    public string? FirstSeenAt { get; init; }
+    public System.DateTimeOffset? FirstSeenAt { get; init; }
     // CBOR key: claims
     public required System.Collections.Generic.List<BrowserConsentClaim> Claims { get; init; }
     // CBOR key: request_reason
@@ -1725,8 +2854,6 @@ public sealed record RpSignRequest
     public required string CallbackUrl { get; init; }
     // CBOR key: nonce
     public required string Nonce { get; init; }
-    // CBOR key: application_id
-    public string? ApplicationId { get; init; }
     // CBOR key: requested_claims
     public ClaimRequest? RequestedClaims { get; init; }
     // CBOR key: authentication_requirements
@@ -1777,6 +2904,14 @@ public sealed record RpUserInfoRequest
     public required string ApiBase { get; init; }
     // CBOR key: domain
     public required string Domain { get; init; }
+}
+
+public sealed record RpError
+{
+    // CBOR key: code
+    public required RpErrorCode Code { get; init; }
+    // CBOR key: message
+    public required string Message { get; init; }
 }
 
 public sealed record RpIssueAttestationRequest
@@ -1921,9 +3056,9 @@ public sealed record LocalRpDescriptor
     // CBOR key: supported_suites
     public required System.Collections.Generic.List<AeadSuite> SupportedSuites { get; init; }
     // CBOR key: created_at
-    public required string CreatedAt { get; init; }
+    public required System.DateTimeOffset CreatedAt { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
 
     /// <summary>Throws System.ArgumentException when a field violates a CSIL constraint.</summary>
     public void Validate()
@@ -1966,9 +3101,9 @@ public sealed record LocalRpLoginRequest
     // CBOR key: flow_context
     public AuthFlowContext? FlowContext { get; init; }
     // CBOR key: issued_at
-    public required string IssuedAt { get; init; }
+    public required System.DateTimeOffset IssuedAt { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
 }
 
 public sealed record SignedLocalRpLoginRequest
@@ -1994,9 +3129,9 @@ public sealed record LocalRpCallbackHeader
     // CBOR key: aead_nonce
     public required byte[] AeadNonce { get; init; }
     // CBOR key: issued_at
-    public required string IssuedAt { get; init; }
+    public required System.DateTimeOffset IssuedAt { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
 
     /// <summary>Throws System.ArgumentException when a field violates a CSIL constraint.</summary>
     public void Validate()
@@ -2037,9 +3172,9 @@ public sealed record LocalRpCallbackPayload
     // CBOR key: state
     public required byte[] State { get; init; }
     // CBOR key: issued_at
-    public required string IssuedAt { get; init; }
+    public required System.DateTimeOffset IssuedAt { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
 }
 
 public sealed record SignedLocalRpCallbackPayload
@@ -2059,7 +3194,7 @@ public sealed record LocalRpTicketRedemptionRequest
     // CBOR key: fingerprint
     public required string Fingerprint { get; init; }
     // CBOR key: issued_at
-    public required string IssuedAt { get; init; }
+    public required System.DateTimeOffset IssuedAt { get; init; }
 }
 
 public sealed record SignedLocalRpTicketRedemptionRequest
@@ -2079,7 +3214,7 @@ public sealed record LocalRpTicketRedemptionResponse
     // CBOR key: claims
     public required System.Collections.Generic.List<Claim> Claims { get; init; }
     // CBOR key: ticket_expires_at
-    public required string TicketExpiresAt { get; init; }
+    public required System.DateTimeOffset TicketExpiresAt { get; init; }
 }
 
 public sealed record AdminLocalRp
@@ -2095,15 +3230,15 @@ public sealed record AdminLocalRp
     // CBOR key: local_domain_hint
     public string? LocalDomainHint { get; init; }
     // CBOR key: status
-    public required string Status { get; init; }
+    public required LocalRpStatus Status { get; init; }
     // CBOR key: created_at
-    public required string CreatedAt { get; init; }
+    public required System.DateTimeOffset CreatedAt { get; init; }
     // CBOR key: updated_at
-    public required string UpdatedAt { get; init; }
+    public required System.DateTimeOffset UpdatedAt { get; init; }
     // CBOR key: expires_at
-    public string? ExpiresAt { get; init; }
+    public System.DateTimeOffset? ExpiresAt { get; init; }
     // CBOR key: last_seen_at
-    public string? LastSeenAt { get; init; }
+    public System.DateTimeOffset? LastSeenAt { get; init; }
     // CBOR key: admin_notes
     public string? AdminNotes { get; init; }
 
@@ -2128,7 +3263,7 @@ public sealed record ListLocalRpsRequest
     // CBOR key: limit
     public long? Limit { get; init; }
     // CBOR key: status
-    public string? Status { get; init; }
+    public LocalRpStatus? Status { get; init; }
 }
 
 public sealed record ListLocalRpsResponse
@@ -2248,7 +3383,7 @@ public sealed record SetUserPasswordLockResponse
 public sealed record AppAccessTarget
 {
     // CBOR key: kind
-    public required string Kind { get; init; }
+    public required AppAccessTargetKind Kind { get; init; }
     // CBOR key: user_id
     public string? UserId { get; init; }
     // CBOR key: group_name
@@ -2256,7 +3391,7 @@ public sealed record AppAccessTarget
     // CBOR key: claim_type
     public string? ClaimType { get; init; }
     // CBOR key: claim_operator
-    public string? ClaimOperator { get; init; }
+    public ClaimOperator? ClaimOperator { get; init; }
     // CBOR key: claim_value
     public string? ClaimValue { get; init; }
 }
@@ -2268,7 +3403,7 @@ public sealed record AppAccessPolicy
     // CBOR key: name
     public required string Name { get; init; }
     // CBOR key: mode
-    public required string Mode { get; init; }
+    public required AppAccessMode Mode { get; init; }
     // CBOR key: patterns
     public required System.Collections.Generic.List<string> Patterns { get; init; }
     // CBOR key: message
@@ -2290,7 +3425,7 @@ public sealed record SetAppAccessPolicyRequest
     // CBOR key: name
     public required string Name { get; init; }
     // CBOR key: mode
-    public required string Mode { get; init; }
+    public required AppAccessMode Mode { get; init; }
     // CBOR key: patterns
     public required System.Collections.Generic.List<string> Patterns { get; init; }
     // CBOR key: message
@@ -2400,21 +3535,21 @@ public sealed record ApplicationKeyAttestation
     // CBOR key: key_id
     public required string KeyId { get; init; }
     // CBOR key: key_usage
-    public required string KeyUsage { get; init; }
+    public required KeyUsage KeyUsage { get; init; }
     // CBOR key: algorithm
-    public required string Algorithm { get; init; }
+    public required KeyAlgorithm Algorithm { get; init; }
     // CBOR key: public_key
     public required byte[] PublicKey { get; init; }
     // CBOR key: fingerprint
     public required string Fingerprint { get; init; }
     // CBOR key: key_created_at
-    public required string KeyCreatedAt { get; init; }
+    public required System.DateTimeOffset KeyCreatedAt { get; init; }
     // CBOR key: key_expires_at
-    public required string KeyExpiresAt { get; init; }
+    public required System.DateTimeOffset KeyExpiresAt { get; init; }
     // CBOR key: attested_at
-    public required string AttestedAt { get; init; }
+    public required System.DateTimeOffset AttestedAt { get; init; }
     // CBOR key: attestation_expires_at
-    public required string AttestationExpiresAt { get; init; }
+    public required System.DateTimeOffset AttestationExpiresAt { get; init; }
 }
 
 public sealed record SignedApplicationKeyAttestation
@@ -2438,9 +3573,9 @@ public sealed record ApplicationKeyAddition
     // CBOR key: key_id
     public required string KeyId { get; init; }
     // CBOR key: key_usage
-    public required string KeyUsage { get; init; }
+    public required KeyUsage KeyUsage { get; init; }
     // CBOR key: algorithm
-    public required string Algorithm { get; init; }
+    public required KeyAlgorithm Algorithm { get; init; }
     // CBOR key: public_key
     public required byte[] PublicKey { get; init; }
     // CBOR key: fingerprint
@@ -2452,9 +3587,9 @@ public sealed record ApplicationKeyAddition
     // CBOR key: challenge
     public required byte[] Challenge { get; init; }
     // CBOR key: requested_at
-    public required string RequestedAt { get; init; }
+    public required System.DateTimeOffset RequestedAt { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
 }
 
 public sealed record SignedApplicationKeyAddition
@@ -2484,9 +3619,9 @@ public sealed record ApplicationKeyRenewal
     // CBOR key: challenge
     public required byte[] Challenge { get; init; }
     // CBOR key: requested_at
-    public required string RequestedAt { get; init; }
+    public required System.DateTimeOffset RequestedAt { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
 }
 
 public sealed record SignedApplicationKeyRenewal
@@ -2514,7 +3649,7 @@ public sealed record ApplicationKeyRevocation
     // CBOR key: target_fingerprint
     public required string TargetFingerprint { get; init; }
     // CBOR key: revoked_at
-    public required string RevokedAt { get; init; }
+    public required System.DateTimeOffset RevokedAt { get; init; }
     // CBOR key: signatures
     public required System.Collections.Generic.List<ApplicationKeySignature> Signatures { get; init; }
 }
@@ -2528,11 +3663,11 @@ public sealed record StartApplicationKeyChallengeRequest
     // CBOR key: instance_id
     public required string InstanceId { get; init; }
     // CBOR key: purpose
-    public required string Purpose { get; init; }
+    public required ApplicationKeyChallengePurpose Purpose { get; init; }
     // CBOR key: key_usage
-    public required string KeyUsage { get; init; }
+    public required KeyUsage KeyUsage { get; init; }
     // CBOR key: algorithm
-    public required string Algorithm { get; init; }
+    public required KeyAlgorithm Algorithm { get; init; }
     // CBOR key: public_key
     public required byte[] PublicKey { get; init; }
 }
@@ -2546,7 +3681,7 @@ public sealed record StartApplicationKeyChallengeResponse
     // CBOR key: sealed_challenge
     public byte[]? SealedChallenge { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
 }
 
 public sealed record AddApplicationKeyRequest
@@ -2584,7 +3719,7 @@ public sealed record RevokeApplicationKeyRequest
 public sealed record RevokeApplicationKeyResponse
 {
     // CBOR key: revoked_at
-    public required string RevokedAt { get; init; }
+    public required System.DateTimeOffset RevokedAt { get; init; }
 }
 
 public sealed record EnrollApplicationInstanceRequest
@@ -2654,11 +3789,11 @@ public sealed record RpResolveDomainKeysResponse
     // CBOR key: revocations
     public required System.Collections.Generic.List<RevocationCertificate> Revocations { get; init; }
     // CBOR key: fetched_at
-    public required string FetchedAt { get; init; }
+    public required System.DateTimeOffset FetchedAt { get; init; }
     // CBOR key: revocations_checked_at
-    public required string RevocationsCheckedAt { get; init; }
+    public required System.DateTimeOffset RevocationsCheckedAt { get; init; }
     // CBOR key: cache_status
-    public required string CacheStatus { get; init; }
+    public required RpCacheStatus CacheStatus { get; init; }
 }
 
 public sealed record RpResolveApplicationKeysRequest
@@ -2694,11 +3829,11 @@ public sealed record RpResolveApplicationKeysResponse
     // CBOR key: home_domain_key_revocations
     public required System.Collections.Generic.List<RevocationCertificate> HomeDomainKeyRevocations { get; init; }
     // CBOR key: fetched_at
-    public required string FetchedAt { get; init; }
+    public required System.DateTimeOffset FetchedAt { get; init; }
     // CBOR key: revocations_checked_at
-    public required string RevocationsCheckedAt { get; init; }
+    public required System.DateTimeOffset RevocationsCheckedAt { get; init; }
     // CBOR key: cache_status
-    public required string CacheStatus { get; init; }
+    public required RpCacheStatus CacheStatus { get; init; }
 }
 
 public sealed record ApplicationRef
@@ -2750,9 +3885,9 @@ public sealed record ActAsScopeSet
     // CBOR key: audience_handle_claim
     public Claim? AudienceHandleClaim { get; init; }
     // CBOR key: issued_at
-    public required string IssuedAt { get; init; }
+    public required System.DateTimeOffset IssuedAt { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
 }
 
 public sealed record SignedActAsScopeSet
@@ -2792,13 +3927,13 @@ public sealed record ActAsGrant
     // CBOR key: approved_scope
     public required System.Collections.Generic.List<string> ApprovedScope { get; init; }
     // CBOR key: issued_at
-    public required string IssuedAt { get; init; }
+    public required System.DateTimeOffset IssuedAt { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
     // CBOR key: series_issued_at
-    public required string SeriesIssuedAt { get; init; }
+    public required System.DateTimeOffset SeriesIssuedAt { get; init; }
     // CBOR key: renewable_until
-    public required string RenewableUntil { get; init; }
+    public required System.DateTimeOffset RenewableUntil { get; init; }
     // CBOR key: device_fingerprint
     public string? DeviceFingerprint { get; init; }
 }
@@ -2828,9 +3963,9 @@ public sealed record ActAsGrantRequest
     // CBOR key: nonce
     public required string Nonce { get; init; }
     // CBOR key: requested_at
-    public required string RequestedAt { get; init; }
+    public required System.DateTimeOffset RequestedAt { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
 }
 
 public sealed record SignedActAsGrantRequest
@@ -2848,9 +3983,9 @@ public sealed record ActAsRefreshRequest
     // CBOR key: grantee
     public required GranteeRef Grantee { get; init; }
     // CBOR key: requested_at
-    public required string RequestedAt { get; init; }
+    public required System.DateTimeOffset RequestedAt { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
     // CBOR key: nonce
     public required string Nonce { get; init; }
 }
@@ -2886,7 +4021,7 @@ public sealed record ActAsPresentation
     // CBOR key: request_digest
     public required byte[] RequestDigest { get; init; }
     // CBOR key: presented_at
-    public required string PresentedAt { get; init; }
+    public required System.DateTimeOffset PresentedAt { get; init; }
     // CBOR key: nonce
     public required byte[] Nonce { get; init; }
 }
@@ -2916,7 +4051,7 @@ public sealed record ActAsGrantRevocation
     // CBOR key: subject_domain
     public required string SubjectDomain { get; init; }
     // CBOR key: revoked_at
-    public required string RevokedAt { get; init; }
+    public required System.DateTimeOffset RevokedAt { get; init; }
 }
 
 public sealed record SignedActAsGrantRevocation
@@ -3050,13 +4185,13 @@ public sealed record ActAsGrantSummary
     // CBOR key: approved_scope
     public required System.Collections.Generic.List<string> ApprovedScope { get; init; }
     // CBOR key: issued_at
-    public required string IssuedAt { get; init; }
+    public required System.DateTimeOffset IssuedAt { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
     // CBOR key: renewable_until
-    public required string RenewableUntil { get; init; }
+    public required System.DateTimeOffset RenewableUntil { get; init; }
     // CBOR key: revoked_at
-    public string? RevokedAt { get; init; }
+    public System.DateTimeOffset? RevokedAt { get; init; }
 }
 
 public sealed record ListActAsGrantsResponse
@@ -3074,7 +4209,7 @@ public sealed record RevokeActAsGrantRequest
 public sealed record RevokeActAsGrantResponse
 {
     // CBOR key: revoked_at
-    public required string RevokedAt { get; init; }
+    public required System.DateTimeOffset RevokedAt { get; init; }
 }
 
 public sealed record PreviewReleasePolicyRequest
@@ -3094,7 +4229,7 @@ public sealed record PreviewReleasePolicyRequest
     // CBOR key: temp_claim_type
     public string? TempClaimType { get; init; }
     // CBOR key: temp_disposition
-    public string? TempDisposition { get; init; }
+    public ReleaseDisposition? TempDisposition { get; init; }
 }
 
 public sealed record PreviewReleaseRow
@@ -3108,7 +4243,7 @@ public sealed record PreviewReleaseRow
     // CBOR key: locked
     public required bool Locked { get; init; }
     // CBOR key: policy
-    public required string Policy { get; init; }
+    public required ConsentRowPolicy Policy { get; init; }
     // CBOR key: default_granted
     public required bool DefaultGranted { get; init; }
 }
@@ -3170,7 +4305,7 @@ public sealed record InspectSigningRequestResponse
     // CBOR key: requested_claim_types
     public required System.Collections.Generic.List<string> RequestedClaimTypes { get; init; }
     // CBOR key: expires_at
-    public required string ExpiresAt { get; init; }
+    public required System.DateTimeOffset ExpiresAt { get; init; }
     // CBOR key: issuable_claim_types
     public required System.Collections.Generic.List<string> IssuableClaimTypes { get; init; }
 }
@@ -3190,7 +4325,7 @@ public sealed record IssuedClaimResult
     // CBOR key: claim_type
     public required string ClaimType { get; init; }
     // CBOR key: outcome
-    public required string Outcome { get; init; }
+    public required IssuedClaimOutcome Outcome { get; init; }
     // CBOR key: message
     public string? Message { get; init; }
     // CBOR key: claim_code

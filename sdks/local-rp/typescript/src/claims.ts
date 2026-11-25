@@ -3,9 +3,10 @@
 // against per-signer-domain public keys. `sign_claim` is included too (small,
 // and useful for tests/fakes that need to mint a realistic `Claim`).
 
-import { encodeCborTuple, text, bytes as tupleBytes, textOrNull } from "./cborTuple.ts";
+import { encodeCborTuple, text, bytes as tupleBytes } from "./cborTuple.ts";
 import { signEd25519, verifyEd25519 } from "./crypto.ts";
 import type { Claim, ClaimSignature, DomainPublicKey } from "./generated/types.gen.ts";
+import { isValidDate, signedTime, signedTimeOrNull } from "./timestamp.ts";
 
 export type ClaimErrorCode =
   | "signature-invalid"
@@ -15,6 +16,7 @@ export type ClaimErrorCode =
   | "revoked"
   | "expired"
   | "bad-expiry"
+  | "bad-timestamp"
   | "unsigned"
   | "domain-keys-unavailable"
   | "domain-unverified";
@@ -39,8 +41,11 @@ const CLAIM_PAYLOAD_TAG = "linkkeys-claim-v1alpha";
  * can't be relabeled as another's, and a claim about one subject domain
  * can't be replayed against a different one. `claimValue` is a raw byte
  * string (bstr) in the payload, never text — see `claims.json`'s
- * `claim_non_utf8_binary_value` conformance case. Exported so conformance
- * tests can byte-compare against `claims.json`'s `signed_payload_cbor_hex`.
+ * `claim_non_utf8_binary_value` conformance case. `expiresAt` and
+ * `attestedAt` are CBOR integers of whole Unix seconds (`expiresAt` is null
+ * when absent); a time with a fraction of a second throws `ClaimError`
+ * (`bad-timestamp`), it is never rounded. Exported so conformance tests can
+ * byte-compare against `claims.json`'s `signed_payload_cbor_hex`.
  */
 export function claimSignPayload(
   claimId: string,
@@ -49,10 +54,18 @@ export function claimSignPayload(
   userId: string,
   subjectDomain: string,
   signingDomain: string,
-  expiresAt: string | undefined,
-  attestedAt: string,
+  expiresAt: Date | undefined,
+  attestedAt: Date,
 ): Uint8Array {
   const subject = `${userId}@${subjectDomain}`;
+  let expiresElem;
+  let attestedElem;
+  try {
+    expiresElem = signedTimeOrNull(expiresAt);
+    attestedElem = signedTime(attestedAt);
+  } catch (e) {
+    throw new ClaimError("bad-timestamp", e instanceof Error ? e.message : String(e));
+  }
   return encodeCborTuple([
     text(CLAIM_PAYLOAD_TAG),
     text(claimId),
@@ -60,8 +73,8 @@ export function claimSignPayload(
     tupleBytes(claimValue),
     text(subject),
     text(signingDomain),
-    textOrNull(expiresAt),
-    text(attestedAt),
+    expiresElem,
+    attestedElem,
   ]);
 }
 
@@ -71,8 +84,10 @@ export interface ClaimSpec {
   claimValue: Uint8Array;
   userId: string;
   subjectDomain: string;
-  expiresAt?: string;
-  attestedAt: string;
+  /** Whole seconds. */
+  expiresAt?: Date;
+  /** Whole seconds. */
+  attestedAt: Date;
 }
 
 export interface ClaimSigner {
@@ -108,7 +123,7 @@ export function signClaim(spec: ClaimSpec, signers: readonly ClaimSigner[]): Cla
     claimValue: spec.claimValue,
     signatures,
     attestedAt: spec.attestedAt,
-    createdAt: new Date().toISOString(),
+    createdAt: new Date(),
     expiresAt: spec.expiresAt,
     revokedAt: undefined,
   };
@@ -122,9 +137,8 @@ export interface DomainKeySet {
 
 function signingKeyValidity(key: DomainPublicKey, now: Date): "valid" | "revoked" | "expired" {
   if (key.revokedAt !== undefined) return "revoked";
-  const expires = new Date(key.expiresAt);
-  if (Number.isNaN(expires.getTime())) return "expired";
-  return now.getTime() > expires.getTime() ? "expired" : "valid";
+  if (!isValidDate(key.expiresAt)) return "expired";
+  return now.getTime() > key.expiresAt.getTime() ? "expired" : "valid";
 }
 
 function verifyOneSignature(
@@ -232,11 +246,10 @@ export function verifyClaim(
     throw new ClaimError("revoked");
   }
   if (claim.expiresAt !== undefined) {
-    const expires = new Date(claim.expiresAt);
-    if (Number.isNaN(expires.getTime())) {
+    if (!isValidDate(claim.expiresAt)) {
       throw new ClaimError("bad-expiry");
     }
-    if (now.getTime() > expires.getTime()) {
+    if (now.getTime() > claim.expiresAt.getTime()) {
       throw new ClaimError("expired");
     }
   }

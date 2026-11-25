@@ -252,3 +252,66 @@ let field_bytes (m : (value * value) list) (name : string) : string = as_bytes (
 let field_bool_opt (m : (value * value) list) (name : string) : bool option =
   Option.map as_bool (field m name)
 let field_array (m : (value * value) list) (name : string) : value list = as_array (field_exn m name)
+
+(* ------------------------------------------------------------------ *)
+(* CSIL [timestamp]: CBOR tag 0 wrapping RFC 3339 text in UTC          *)
+(* ------------------------------------------------------------------ *)
+
+(* Encode a timestamp. The text is written in UTC with [Z]; an input with
+   another offset is converted first. Raises [Encode_error] if [s] is not
+   RFC 3339. *)
+let timestamp (s : string) : value =
+  match Timeutil.normalize_rfc3339 s with
+  | normalized -> Tag (0, Text normalized)
+  | exception Timeutil.Bad_timestamp msg -> raise (Encode_error msg)
+
+(* Decode a timestamp. Tag 0 and RFC 3339 text are both required. The
+   result is the UTC [Z] form, so two equal instants give equal strings. *)
+let as_timestamp = function
+  | Tag (0, Text s) -> (
+    match Timeutil.normalize_rfc3339 s with
+    | normalized -> normalized
+    | exception Timeutil.Bad_timestamp msg -> raise (Decode_error msg))
+  | _ -> raise (Decode_error "expected a CBOR tag-0 RFC 3339 timestamp")
+
+let field_timestamp (m : (value * value) list) (name : string) : string = as_timestamp (field_exn m name)
+
+let field_timestamp_opt (m : (value * value) list) (name : string) : string option =
+  Option.map as_timestamp (field m name)
+
+(* A timestamp inside a signed tuple payload: a CBOR integer of whole Unix
+   seconds. Raises [Timeutil.Bad_timestamp] for a fraction of a second; it
+   does not round. *)
+let signed_time (s : string) : value = Int (Timeutil.whole_unix_seconds s)
+
+(* ------------------------------------------------------------------ *)
+(* CSIL named-number enums: an unsigned integer on the wire            *)
+(* ------------------------------------------------------------------ *)
+
+(* A closed CSIL vocabulary. The SDK keeps each value as its text label in
+   memory and writes the registered number on the wire. *)
+type wire_enum = { enum_name : string; members : (string * int) list }
+
+let key_algorithm = { enum_name = "KeyAlgorithm"; members = [ ("ed25519", 1); ("x25519", 2) ] }
+let key_usage = { enum_name = "KeyUsage"; members = [ ("sign", 1); ("encrypt", 2); ("agree", 3) ] }
+
+(* Labelled by the suite text ids: the callback-box KDF context still binds
+   this text; only the wire field is a number. *)
+let aead_suite = { enum_name = "AeadSuite"; members = [ ("aes-256-gcm", 1); ("chacha20-poly1305", 2) ] }
+
+let enum_number (e : wire_enum) (label : string) : int =
+  match List.assoc_opt label e.members with
+  | Some n -> n
+  | None -> raise (Encode_error (Printf.sprintf "%s: unknown value %S" e.enum_name label))
+
+let enum_value (e : wire_enum) (label : string) : value = Int (enum_number e label)
+
+let as_enum (e : wire_enum) (v : value) : string =
+  match v with
+  | Int n when n >= 0 -> (
+    match List.find_opt (fun (_, num) -> num = n) e.members with
+    | Some (label, _) -> label
+    | None -> raise (Decode_error (Printf.sprintf "%s: unknown enum number %d" e.enum_name n)))
+  | _ -> raise (Decode_error (Printf.sprintf "%s: expected an unsigned integer" e.enum_name))
+
+let field_enum (e : wire_enum) (m : (value * value) list) (name : string) : string = as_enum e (field_exn m name)

@@ -26,7 +26,7 @@ from . import encoding, local_rp
 from .browser import BROWSER_ROUTE_LOCAL_RP, resolve_browser_endpoint
 from .dns import DnsResolver
 from .identity import LocalRpKeyMaterial
-from .timeutil import to_rfc3339
+from .timeutil import to_utc
 
 # Default requested claims when the caller doesn't specify any (design doc,
 # "Default Claim Set"): a usable "identity" out of the box with zero claim
@@ -172,8 +172,8 @@ def begin_local_login(config: BeginLocalLoginConfig) -> "tuple[LocalLoginRedirec
     )
     required_claims = config.required_claims if config.required_claims is not None else list(DEFAULT_REQUIRED_CLAIMS)
     lifetime = config.request_lifetime if config.request_lifetime is not None else DEFAULT_LOGIN_REQUEST_LIFETIME
-    issued_at = to_rfc3339(config.now)
-    expires_at = to_rfc3339(config.now + lifetime)
+    issued_at = to_utc(config.now)
+    expires_at = to_utc(config.now + lifetime)
 
     request = local_rp.build_local_rp_login_request(
         config.key_material.descriptor,

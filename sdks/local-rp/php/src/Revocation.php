@@ -26,11 +26,13 @@ final class Revocation
      * domain-separation tag first — the older house tuple pattern, distinct
      * from the local-RP envelopes' two-element `CBOR([context, payload])`
      * framing. `signing_domain` is bound per-signature to stop cross-domain
-     * signature reuse.
+     * signature reuse. `$revokedAt` is RFC 3339 text; the payload carries
+     * it as whole Unix seconds. Throws `\InvalidArgumentException` when it
+     * has a fraction of a second.
      */
     public static function revocationPayload(string $targetKeyId, string $targetFingerprint, string $revokedAt, string $signingDomain): string
     {
-        return Cbor::encode([self::TAG, $targetKeyId, $targetFingerprint, $revokedAt, $signingDomain]);
+        return Cbor::encode([self::TAG, $targetKeyId, $targetFingerprint, Time::signedSeconds($revokedAt), $signingDomain]);
     }
 
     /**
@@ -62,6 +64,12 @@ final class Revocation
     public static function countValidSigners(RevocationCertificate $cert, array $domainKeys, string $domain): int
     {
         $validSigners = [];
+        // A revocation time with a fraction of a second was never signed.
+        try {
+            Time::signedSeconds($cert->revokedAt);
+        } catch (\InvalidArgumentException $e) {
+            return 0;
+        }
 
         foreach ($cert->signatures as $sig) {
             // A key can never authorize its own revocation.

@@ -5,6 +5,6 @@ package csilgen.generated;
 public record ListLocalRpsRequest(
     Long offset /* wire: "offset" */,
     Long limit /* wire: "limit" */,
-    String status /* wire: "status" */
+    LocalRpStatus status /* wire: "status" */
 ) {
 }

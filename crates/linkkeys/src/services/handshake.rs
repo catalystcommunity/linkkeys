@@ -1,5 +1,7 @@
 use liblinkkeys::generated::services::{Handshake, ServiceError};
-use liblinkkeys::generated::types::{AlgorithmSupport, HandshakeRequest, HandshakeResponse};
+use liblinkkeys::generated::types::{
+    AeadSuite, AlgorithmSupport, HandshakeRequest, HandshakeResponse, KeyAlgorithm,
+};
 
 const PROTOCOL_VERSION: &str = "v1alpha";
 
@@ -14,11 +16,11 @@ impl Handshake for HandshakeHandler {
         input: HandshakeRequest,
     ) -> Result<HandshakeResponse, ServiceError> {
         let server_signing = liblinkkeys::crypto::SigningAlgorithm::all_supported();
-        let negotiated_signing: Vec<String> = input
+        let negotiated_signing: Vec<KeyAlgorithm> = input
             .algorithms
             .signing
             .iter()
-            .filter(|a| server_signing.contains(&a.as_str()))
+            .filter(|a| server_signing.contains(a))
             .cloned()
             .collect();
 
@@ -31,13 +33,13 @@ impl Handshake for HandshakeHandler {
         // suite negotiation yet), respond with everything we support so a
         // caller that DOES understand this field can still discover it.
         let server_encryption = liblinkkeys::crypto::AeadSuite::all_supported();
-        let negotiated_encryption: Vec<String> = match &input.algorithms.encryption {
+        let negotiated_encryption: Vec<AeadSuite> = match &input.algorithms.encryption {
             Some(requested) => requested
                 .iter()
-                .filter(|a| server_encryption.contains(&a.as_str()))
+                .filter(|a| server_encryption.contains(a))
                 .cloned()
                 .collect(),
-            None => server_encryption.iter().map(|s| s.to_string()).collect(),
+            None => server_encryption,
         };
 
         Ok(HandshakeResponse {
@@ -54,12 +56,12 @@ impl Handshake for HandshakeHandler {
 mod tests {
     use super::*;
 
-    fn request(signing: Vec<&str>, encryption: Option<Vec<&str>>) -> HandshakeRequest {
+    fn request(signing: Vec<KeyAlgorithm>, encryption: Option<Vec<AeadSuite>>) -> HandshakeRequest {
         HandshakeRequest {
             version: PROTOCOL_VERSION.to_string(),
             algorithms: AlgorithmSupport {
-                signing: signing.into_iter().map(String::from).collect(),
-                encryption: encryption.map(|list| list.into_iter().map(String::from).collect()),
+                signing,
+                encryption,
             },
         }
     }
@@ -71,13 +73,10 @@ mod tests {
         // supports nothing" — we advertise our own full support list so a
         // caller that DOES understand the field can discover it.
         let resp = HandshakeHandler
-            .handshake(&(), request(vec!["ed25519"], None))
+            .handshake(&(), request(vec![KeyAlgorithm::Ed25519], None))
             .unwrap();
         let encryption = resp.algorithms.encryption.expect("must be populated");
-        assert_eq!(
-            encryption,
-            liblinkkeys::crypto::AeadSuite::all_supported().to_vec()
-        );
+        assert_eq!(encryption, liblinkkeys::crypto::AeadSuite::all_supported());
     }
 
     #[test]
@@ -85,31 +84,36 @@ mod tests {
         let resp = HandshakeHandler
             .handshake(
                 &(),
-                request(vec!["ed25519"], Some(vec!["chacha20-poly1305"])),
+                request(
+                    vec![KeyAlgorithm::Ed25519],
+                    Some(vec![AeadSuite::Chacha20Poly1305]),
+                ),
             )
             .unwrap();
         assert_eq!(
             resp.algorithms.encryption,
-            Some(vec!["chacha20-poly1305".to_string()])
+            Some(vec![AeadSuite::Chacha20Poly1305])
         );
     }
 
     #[test]
     fn never_selects_a_suite_outside_the_advertised_list() {
-        // The server supports both suites, but the caller only advertised an
-        // unrecognized id — the response must not include anything the
-        // caller didn't ask for, and must not include unknown ids either.
+        // The caller advertised an empty list: the response must not include
+        // anything the caller did not ask for.
         let resp = HandshakeHandler
-            .handshake(&(), request(vec!["ed25519"], Some(vec!["made-up-suite"])))
+            .handshake(&(), request(vec![KeyAlgorithm::Ed25519], Some(vec![])))
             .unwrap();
         assert_eq!(resp.algorithms.encryption, Some(vec![]));
     }
 
     #[test]
-    fn signing_negotiation_is_unaffected_by_encryption_wiring() {
+    fn signing_negotiation_drops_algorithms_that_cannot_sign() {
         let resp = HandshakeHandler
-            .handshake(&(), request(vec!["ed25519", "made-up-algo"], None))
+            .handshake(
+                &(),
+                request(vec![KeyAlgorithm::Ed25519, KeyAlgorithm::X25519], None),
+            )
             .unwrap();
-        assert_eq!(resp.algorithms.signing, vec!["ed25519".to_string()]);
+        assert_eq!(resp.algorithms.signing, vec![KeyAlgorithm::Ed25519]);
     }
 }

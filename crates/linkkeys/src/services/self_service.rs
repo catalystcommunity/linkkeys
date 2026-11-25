@@ -9,7 +9,6 @@
 //! result, so the same logic backs the web editor today and a CLI / native agent
 //! later — the transport only renders.
 
-use liblinkkeys::timestamp::Rfc3339 as _;
 use std::env;
 
 use liblinkkeys::claim_policy::{
@@ -44,6 +43,19 @@ pub enum SetOutcome {
     VerificationRequired,
     /// Held for admin approval before signing.
     Queued,
+}
+
+impl SetOutcome {
+    /// The CSIL value sent to the caller.
+    pub fn csil(&self) -> liblinkkeys::generated::types::SetClaimOutcome {
+        use liblinkkeys::generated::types::SetClaimOutcome;
+        match self {
+            SetOutcome::Signed => SetClaimOutcome::Signed,
+            SetOutcome::StoredUnsigned => SetClaimOutcome::StoredUnsigned,
+            SetOutcome::VerificationRequired => SetClaimOutcome::VerificationRequired,
+            SetOutcome::Queued => SetClaimOutcome::Queued,
+        }
+    }
 }
 
 /// Map a registry row onto the pure evaluator's policy view, or fail if the row
@@ -176,10 +188,7 @@ pub(crate) fn prepare_signed_claim(
 
     let claim_id = uuid::Uuid::now_v7().to_string();
     let subject_domain = crate::conversions::get_domain_name();
-    let attested_time = time::OffsetDateTime::now_utc()
-        .replace_nanosecond(0)
-        .unwrap();
-    let attested_str = attested_time.to_rfc3339();
+    let attested_time = liblinkkeys::timestamp::now_whole_seconds();
     let signed = crate::claim_signing::sign_with_active(
         &liblinkkeys::claims::ClaimSpec {
             claim_id: &claim_id,
@@ -188,7 +197,7 @@ pub(crate) fn prepare_signed_claim(
             user_id: subject_id,
             subject_domain: &subject_domain,
             expires_at: None,
-            attested_at: &attested_str,
+            attested_at: attested_time,
         },
         &signers,
     )

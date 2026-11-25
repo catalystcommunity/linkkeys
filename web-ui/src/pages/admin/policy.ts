@@ -3,18 +3,18 @@
 import { api } from "../../transport";
 import { t } from "../../i18n";
 import { button, comboBox, fill, form, h, textButton, type Child } from "../../dom";
-import type { ClaimTypeLabel, ClaimTypePolicy, PreviewIssuerPolicyResponse, PreviewReleasePolicyResponse, ReleaseRule, TrustedIssuer } from "../../generated/types.gen";
+import { ClaimValueType, ReleaseDisposition, SetRule, SigningRule, type ClaimTypeLabel, type ClaimTypePolicy, type PreviewIssuerPolicyResponse, type PreviewReleasePolicyResponse, type ReleaseRule, type TrustedIssuer } from "../../generated/types.gen";
 import { serviceMessage as message } from "../../ui-logic";
-import { AdminPage, Slot, adminHeader, choices, claimTypeOptions, dispositionLabel, flagBox, list, numberText, plainField, setOptions, suggestField } from "./common";
+import { AdminPage, Slot, adminHeader, choices, chosen, claimTypeOptions, dispositionLabel, flagBox, list, numberText, plainField, setOptions, suggestField } from "./common";
 
-const VALUE_TYPES = ["text", "url", "email", "bool", "int", "float", "decimal", "date", "timestamp", "opaque"];
-const SET_RULES = ["user_self", "idp_on_request", "trusted_issuer_only", "admin_only", "deny"];
-const SIGNING_RULES = ["self_signed", "verified", "attested", "unsigned"];
-const DISPOSITIONS = ["forced_allow", "forced_deny"];
+const VALUE_TYPES: ClaimValueType[] = [ClaimValueType.TEXT, ClaimValueType.URL, ClaimValueType.EMAIL, ClaimValueType.BOOL, ClaimValueType.INT, ClaimValueType.FLOAT, ClaimValueType.DECIMAL, ClaimValueType.DATE, ClaimValueType.TIMESTAMP, ClaimValueType.OPAQUE];
+const SET_RULES: SetRule[] = [SetRule.USER_SELF, SetRule.IDP_ON_REQUEST, SetRule.TRUSTED_ISSUER_ONLY, SetRule.ADMIN_ONLY, SetRule.DENY];
+const SIGNING_RULES: SigningRule[] = [SigningRule.SELF_SIGNED, SigningRule.VERIFIED, SigningRule.ATTESTED, SigningRule.UNSIGNED];
+const DISPOSITIONS: ReleaseDisposition[] = [ReleaseDisposition.FORCED_ALLOW, ReleaseDisposition.FORCED_DENY];
 
-type ClaimTypeForm = { claimType: string; label: string; description: string; valueType: string; maxBytes: string; setRule: string; signingRule: string; userSettable: boolean; defaultAutoSign: boolean; requiresApproval: boolean; suggested: boolean };
+type ClaimTypeForm = { claimType: string; label: string; description: string; valueType: ClaimValueType; maxBytes: string; setRule: SetRule; signingRule: SigningRule; userSettable: boolean; defaultAutoSign: boolean; requiresApproval: boolean; suggested: boolean };
 
-const emptyClaimType = (): ClaimTypeForm => ({ claimType: "", label: "", description: "", valueType: "text", maxBytes: "33792", setRule: "user_self", signingRule: "self_signed", userSettable: false, defaultAutoSign: false, requiresApproval: false, suggested: false });
+const emptyClaimType = (): ClaimTypeForm => ({ claimType: "", label: "", description: "", valueType: ClaimValueType.TEXT, maxBytes: "33792", setRule: SetRule.USER_SELF, signingRule: SigningRule.SELF_SIGNED, userSettable: false, defaultAutoSign: false, requiresApproval: false, suggested: false });
 
 /** A table with a header row. */
 function table(headings: string[], rows: HTMLTableRowElement[]): HTMLElement {
@@ -43,10 +43,10 @@ export class AdminPolicyPage extends AdminPage {
     claimType: plainField(t("app.policy.field_type"), { required: true, placeholder: "pronouns" }),
     label: plainField(t("app.policy.field_name"), { required: true }),
     description: plainField(t("app.policy.field_description")),
-    valueType: comboBox(t("app.policy.col_value_type"), choices(VALUE_TYPES), { value: "text" }),
+    valueType: comboBox(t("app.policy.col_value_type"), choices(VALUE_TYPES), { value: ClaimValueType.TEXT }),
     maxBytes: plainField(t("app.policy.field_max_bytes"), { inputmode: "numeric", required: true, value: "33792" }),
-    setRule: comboBox(t("app.policy.col_set_rule"), choices(SET_RULES), { value: "user_self" }),
-    signingRule: comboBox(t("app.policy.col_signing"), choices(SIGNING_RULES), { value: "self_signed" }),
+    setRule: comboBox(t("app.policy.col_set_rule"), choices(SET_RULES), { value: SetRule.USER_SELF }),
+    signingRule: comboBox(t("app.policy.col_signing"), choices(SIGNING_RULES), { value: SigningRule.SELF_SIGNED }),
     userSettable: flagBox(t("app.policy.flag_user_settable")),
     defaultAutoSign: flagBox(t("app.policy.flag_auto_sign")),
     requiresApproval: flagBox(t("app.policy.flag_approval")),
@@ -74,7 +74,7 @@ export class AdminPolicyPage extends AdminPage {
   private readonly rule = {
     audience: plainField(t("app.policy.col_audience"), { value: "*", placeholder: "* or app.example", required: true }),
     claimType: this.typeBox(t("app.policy.col_type"), true),
-    disposition: comboBox(t("app.policy.col_disposition"), choices(DISPOSITIONS, dispositionLabel), { value: "forced_allow" }),
+    disposition: comboBox(t("app.policy.col_disposition"), choices(DISPOSITIONS, dispositionLabel), { value: ReleaseDisposition.FORCED_ALLOW }),
   };
   private readonly release = {
     audience: plainField(t("app.policy.col_audience"), { placeholder: "app.example", required: true }),
@@ -84,7 +84,7 @@ export class AdminPolicyPage extends AdminPage {
     available: plainField(t("app.policy.field_available"), { placeholder: t("app.policy.all_requested") }),
     tempAudience: plainField(t("app.policy.field_temp_audience"), { placeholder: "* or app.example" }),
     tempClaimType: this.typeBox(t("app.policy.field_temp_type"), false),
-    tempDisposition: comboBox(t("app.policy.field_temp_disposition"), choices(DISPOSITIONS, dispositionLabel), { value: "forced_allow" }),
+    tempDisposition: comboBox(t("app.policy.field_temp_disposition"), choices(DISPOSITIONS, dispositionLabel), { value: ReleaseDisposition.FORCED_ALLOW }),
   };
 
   private typeBox(label: string, required: boolean): ZestComboBox {
@@ -249,7 +249,7 @@ export class AdminPolicyPage extends AdminPage {
     if (!numberText(maxBytesText) || !Number.isInteger(maxBytes) || maxBytes <= 0) return this.messages.fail(t("app.policy.max_bytes_invalid"));
     const request = {
       claimType: fields.claimType.value.trim(), label: fields.label.value.trim(), description: fields.description.value.trim() || undefined,
-      valueType: fields.valueType.value, maxBytes, setRule: fields.setRule.value, signingRule: fields.signingRule.value,
+      valueType: chosen(VALUE_TYPES, fields.valueType.value), maxBytes, setRule: chosen(SET_RULES, fields.setRule.value), signingRule: chosen(SIGNING_RULES, fields.signingRule.value),
       userSettable: fields.userSettable.checked, defaultAutoSign: fields.defaultAutoSign.checked, requiresApproval: fields.requiresApproval.checked, suggested: fields.suggested.checked,
     };
     if (await this.act(() => api.admin.setClaimType(request), t("app.policy.type_saved"), t("app.policy.type_save_failed"))) this.fillTypeForm(emptyClaimType());
@@ -267,7 +267,7 @@ export class AdminPolicyPage extends AdminPage {
   }
 
   private saveRule(): void {
-    const request = { audience: this.rule.audience.value.trim(), claimType: this.rule.claimType.value, disposition: this.rule.disposition.value };
+    const request = { audience: this.rule.audience.value.trim(), claimType: this.rule.claimType.value, disposition: chosen(DISPOSITIONS, this.rule.disposition.value) };
     void this.act(() => api.admin.setReleaseRule(request), t("app.policy.rule_saved"), t("app.policy.rule_save_failed"));
   }
 
@@ -282,7 +282,7 @@ export class AdminPolicyPage extends AdminPage {
       const result = await api.admin.previewReleasePolicy({
         audience: value.audience.value.trim(), requiredClaims: list(value.required.value), optionalClaims: list(value.optional.value),
         availableClaims: list(value.available.value), userChoices: list(value.choices.value),
-        tempAudience: value.tempAudience.value.trim() || undefined, tempClaimType: tempClaimType || undefined, tempDisposition: tempClaimType ? value.tempDisposition.value : undefined,
+        tempAudience: value.tempAudience.value.trim() || undefined, tempClaimType: tempClaimType || undefined, tempDisposition: tempClaimType ? chosen(DISPOSITIONS, value.tempDisposition.value) : undefined,
       });
       if (this.isActive() && request === this.releaseRequest) this.releaseResult.set(this.releaseView(result));
     } catch (cause) {

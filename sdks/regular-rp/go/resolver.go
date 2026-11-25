@@ -79,10 +79,10 @@ type ResolveResult struct {
 	Freshness Freshness
 	FetchedAt time.Time
 	// RPCacheStatus is the RP's OWN cache_status for the fetch that
-	// produced the cached material ("fresh" / "refreshed" / "stale") —
+	// produced the cached material (fresh, refreshed, or stale) —
 	// informational only; this SDK's Freshness above is the value to act
 	// on.
-	RPCacheStatus string
+	RPCacheStatus api.RpCacheStatus
 }
 
 // cacheEntry holds the raw, once-fetched signed material for one instance.
@@ -98,7 +98,7 @@ type cacheEntry struct {
 	homeDomainKeyRevocations  []api.RevocationCertificate
 
 	fetchedAt     time.Time
-	rpCacheStatus string
+	rpCacheStatus api.RpCacheStatus
 
 	elem *list.Element // LRU position, valid only while r.mu is held
 }

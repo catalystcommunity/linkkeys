@@ -56,6 +56,12 @@ let generate_local_rp_identity_exn (config : config) : key_material =
   let encryption_public_key, encryption_private_key = Crypto.generate_x25519_keypair () in
   let suites = match config.supported_suites with Some s -> s | None -> Crypto.AeadSuite.all_supported_str in
   if suites = [] then Error.raise_ (Error.Invalid_config "supported_suites must not be empty");
+  (* Each suite becomes a CSIL number on the wire, so it must be a registry id. *)
+  List.iter
+    (fun suite ->
+      if Crypto.AeadSuite.parse_str suite = None then
+        Error.raise_ (Error.Invalid_config (Printf.sprintf "unknown AEAD suite: %S" suite)))
+    suites;
   let lifetime = match config.lifetime with Some l -> l | None -> default_lifetime in
   let created_at = Timeutil.to_rfc3339 config.now in
   let expires_at = Timeutil.to_rfc3339 (config.now +. lifetime) in

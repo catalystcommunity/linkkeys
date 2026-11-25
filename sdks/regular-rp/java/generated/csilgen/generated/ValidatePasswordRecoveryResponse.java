@@ -2,8 +2,10 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
+
 public record ValidatePasswordRecoveryResponse(
-    String expiresAt /* wire: "expires_at" */,
+    Instant expiresAt /* wire: "expires_at" */,
     PasswordPolicy passwordPolicy /* wire: "password_policy" */
 ) {
 }

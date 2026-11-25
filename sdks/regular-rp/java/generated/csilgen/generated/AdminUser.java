@@ -2,14 +2,18 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
+
 public record AdminUser(
     String id /* wire: "id" */,
     String username /* wire: "username" */,
     String displayName /* wire: "display_name" */,
+    AccountKind kind /* wire: "kind" */,
+    String applicationId /* wire: "application_id" */,
     boolean isActive /* wire: "is_active" */,
-    String createdAt /* wire: "created_at" */,
-    String updatedAt /* wire: "updated_at" */,
-    String purgedAt /* wire: "purged_at" */,
+    Instant createdAt /* wire: "created_at" */,
+    Instant updatedAt /* wire: "updated_at" */,
+    Instant purgedAt /* wire: "purged_at" */,
     String purgeReason /* wire: "purge_reason" */,
     Boolean passwordLocked /* wire: "password_locked" */
 ) {

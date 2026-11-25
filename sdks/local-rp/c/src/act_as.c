@@ -63,6 +63,12 @@ static void mb_text(map_builder *m, const char *key, const char *s, size_t len) 
 
 static void mb_cstr(map_builder *m, const char *key, const char *s) { mb_text(m, key, s, strlen(s)); }
 
+/* A CSIL timestamp: tag 0 + RFC3339 text. */
+static void mb_timestamp(map_builder *m, const char *key, const char *rfc3339) {
+    cbor_buf *b = mb_slot(m, key);
+    if (b != NULL && cbor_write_timestamp(b, rfc3339) != 0) m->rc = -1;
+}
+
 static void mb_bytes(map_builder *m, const char *key, const uint8_t *data, size_t len) {
     cbor_buf *b = mb_slot(m, key);
     if (b != NULL && cbor_write_bytes(b, data, len) != 0) m->rc = -1;
@@ -102,14 +108,8 @@ static int oom(lrp_error *err, const char *what) {
 /* --------------------------------------------------------------------- */
 
 void lrp_act_as_format_time(int64_t unix_seconds, char out[32]) {
-    /* lrp_format_rfc3339 writes "...+00:00"; the act-as wire form ends in
-     * "Z" (liblinkkeys act_as::format_time). */
+    /* Whole-second UTC text that ends in "Z" (liblinkkeys act_as). */
     lrp_format_rfc3339(unix_seconds, out);
-    size_t len = strlen(out);
-    if (len >= 6 && strcmp(out + len - 6, "+00:00") == 0) {
-        out[len - 6] = 'Z';
-        out[len - 5] = '\0';
-    }
 }
 
 static const cbor_value *field_of(const cbor_value *map, const char *key, cbor_type type) {
@@ -327,8 +327,8 @@ int lrp_act_as_sign_grant_request(const lrp_identity *identity, const uint8_t *s
         }
         mb_cstr(&m, "callback_url", callback_url);
         mb_cstr(&m, "nonce", nonce);
-        mb_cstr(&m, "requested_at", requested_at);
-        mb_cstr(&m, "expires_at", expires_at);
+        mb_timestamp(&m, "requested_at", requested_at);
+        mb_timestamp(&m, "expires_at", expires_at);
         if (mb_finish(&m, &request) != 0) rc = oom(err, "ActAsGrantRequest");
     }
     if (rc == 0) {
@@ -361,8 +361,8 @@ int lrp_act_as_sign_refresh_request(const lrp_identity *identity, const char *gr
         mb_init(&m);
         mb_cstr(&m, "grant_id", grant_id);
         mb_raw(&m, "grantee", &grantee);
-        mb_cstr(&m, "requested_at", requested_at);
-        mb_cstr(&m, "expires_at", expires_at);
+        mb_timestamp(&m, "requested_at", requested_at);
+        mb_timestamp(&m, "expires_at", expires_at);
         mb_cstr(&m, "nonce", nonce);
         if (mb_finish(&m, &request) != 0) rc = oom(err, "ActAsRefreshRequest");
     }
@@ -728,7 +728,7 @@ int lrp_act_as_present(const lrp_act_as_present_config *config, lrp_act_as_crede
         mb_bytes(&m, "grant_hash", out->grant_hash, sizeof(out->grant_hash));
         mb_raw(&m, "audience", &audience);
         mb_bytes(&m, "request_digest", config->request_digest, config->request_digest_len);
-        mb_cstr(&m, "presented_at", presented_at);
+        mb_timestamp(&m, "presented_at", presented_at);
         mb_bytes(&m, "nonce", config->nonce, config->nonce_len);
         if (mb_finish(&m, &presentation) != 0) rc = oom(err, "ActAsPresentation");
     }

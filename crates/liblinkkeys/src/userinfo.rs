@@ -17,7 +17,6 @@
 use crate::assertions::VerifyError;
 use crate::crypto::{self, CryptoError, SigningAlgorithm};
 use crate::generated::types::{DomainPublicKey, SignedUserInfoRequest, UserInfoRequest};
-use crate::timestamp::Rfc3339 as _;
 use time::OffsetDateTime;
 
 /// Build an unsigned user-info request with the current timestamp.
@@ -34,7 +33,7 @@ pub fn build_user_info_request(
     UserInfoRequest {
         token,
         relying_party: relying_party.to_string(),
-        timestamp: OffsetDateTime::now_utc().to_rfc3339(),
+        timestamp: OffsetDateTime::now_utc(),
         nonce: nonce.to_string(),
     }
 }
@@ -53,7 +52,7 @@ pub fn sign_user_info_request(
     private_key_bytes: &[u8],
     public_keys: Option<Vec<DomainPublicKey>>,
 ) -> Result<SignedUserInfoRequest, CryptoError> {
-    let request_bytes = crate::generated::encode_user_info_request(request);
+    let request_bytes = crate::generated::encode_user_info_request(request)?;
 
     let signature = crypto::sign_with_algorithm(algorithm, &request_bytes, private_key_bytes)?;
 
@@ -88,7 +87,7 @@ pub fn verify_user_info_request(
 
     // Only a signing key can authenticate a request; an encryption key that
     // happens to share the id must never be accepted as a PoP key.
-    if key.key_usage != "sign" {
+    if key.key_usage != crate::generated::types::KeyUsage::Sign {
         return Err(VerifyError::SignatureInvalid);
     }
 
@@ -109,10 +108,7 @@ pub fn verify_user_info_request(
     let request = crate::generated::decode_user_info_request(signed.request.as_slice())
         .map_err(|e| VerifyError::DeserializationFailed(format!("CBOR decode failed: {}", e)))?;
 
-    let timestamp = crate::timestamp::parse_rfc3339(&request.timestamp)
-        .map_err(|e| VerifyError::DeserializationFailed(format!("invalid timestamp: {}", e)))?;
-
-    let age = OffsetDateTime::now_utc() - timestamp;
+    let age = OffsetDateTime::now_utc() - request.timestamp;
     if age.whole_seconds() > max_age_seconds || age.whole_seconds() < 0 {
         return Err(VerifyError::Expired);
     }
@@ -123,19 +119,19 @@ pub fn verify_user_info_request(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::{fingerprint, generate_keypair, ALGORITHM_ED25519};
+    use crate::crypto::{fingerprint, generate_keypair};
 
     fn make_signing_key(key_id: &str, pk_bytes: &[u8]) -> DomainPublicKey {
         DomainPublicKey {
             key_id: key_id.to_string(),
             public_key: pk_bytes.to_vec(),
             fingerprint: fingerprint(pk_bytes),
-            algorithm: ALGORITHM_ED25519.to_string(),
-            key_usage: "sign".to_string(),
+            algorithm: crate::generated::types::KeyAlgorithm::Ed25519,
+            key_usage: crate::generated::types::KeyUsage::Sign,
             signed_by_key_id: None,
             key_signature: None,
-            created_at: OffsetDateTime::now_utc().to_rfc3339(),
-            expires_at: (OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339(),
+            created_at: OffsetDateTime::now_utc(),
+            expires_at: OffsetDateTime::now_utc() + time::Duration::hours(1),
             revoked_at: None,
         }
     }
@@ -165,7 +161,7 @@ mod tests {
         let request = UserInfoRequest {
             token: b"token".to_vec(),
             relying_party: "app.example.com".to_string(),
-            timestamp: (OffsetDateTime::now_utc() - time::Duration::seconds(120)).to_rfc3339(),
+            timestamp: OffsetDateTime::now_utc() - time::Duration::seconds(120),
             nonce: "nonce".to_string(),
         };
         let signed =
@@ -215,7 +211,7 @@ mod tests {
         // as a PoP key, even though the bytes are a valid Ed25519 verifier.
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let mut key = make_signing_key("rp-key-1", &pk);
-        key.key_usage = "encrypt".to_string();
+        key.key_usage = crate::generated::types::KeyUsage::Encrypt;
 
         let request = build_user_info_request(b"token".to_vec(), "app.example.com", "nonce");
         let signed =

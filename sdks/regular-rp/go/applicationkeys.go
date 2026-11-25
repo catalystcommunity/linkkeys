@@ -1,7 +1,9 @@
 package regularrp
 
 import (
+	"encoding"
 	"sort"
+	"strconv"
 	"time"
 
 	api "github.com/catalystcommunity/linkkeys/sdks/regular-rp/go/generated"
@@ -59,17 +61,35 @@ const (
 	RecommendedSigningKeys = 3
 )
 
-// Key use strings (wire values of `key_usage`).
+// Key uses (the `key_usage` enum; an unsigned integer on the wire).
 const (
-	KeyUsageSign  = "sign"
-	KeyUsageAgree = "agree"
+	KeyUsageSign  = api.KeyUsageSign
+	KeyUsageAgree = api.KeyUsageAgree
 )
 
-// Challenge purpose strings (wire values of `purpose`).
+// Key algorithms (the `algorithm` enum; an unsigned integer on the wire).
 const (
-	PurposeAdd   = "add"
-	PurposeRenew = "renew"
+	AlgorithmEd25519 = api.KeyAlgorithmEd25519
+	AlgorithmX25519  = api.KeyAlgorithmX25519
 )
+
+// Challenge purposes (the `purpose` enum; an unsigned integer on the wire).
+const (
+	PurposeAdd   = api.ApplicationKeyChallengePurposeAdd
+	PurposeRenew = api.ApplicationKeyChallengePurposeRenew
+)
+
+// enumLabel is the CSIL label of a generated enum value, for error text.
+// An unknown value shows as its number.
+func enumLabel[T interface {
+	encoding.TextMarshaler
+	ToNumber() int64
+}](v T) string {
+	if b, err := v.MarshalText(); err == nil {
+		return string(b)
+	}
+	return "unknown value " + strconv.FormatInt(v.ToNumber(), 10)
+}
 
 // ---------------------------------------------------------------------------
 // Identity and key references
@@ -91,13 +111,13 @@ type InstanceRef struct {
 // knows it: no private key here, and never will be.
 type ApplicationKeyRef struct {
 	KeyID       string
-	KeyUsage    string
-	Algorithm   string
+	KeyUsage    api.KeyUsage
+	Algorithm   api.KeyAlgorithm
 	PublicKey   []byte
 	Fingerprint string
-	CreatedAt   string
-	ExpiresAt   string
-	RevokedAt   *string
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
+	RevokedAt   *time.Time
 }
 
 // IsValidSigningKey reports whether this key can currently make a quorum
@@ -109,17 +129,10 @@ func (k ApplicationKeyRef) IsValidSigningKey(now time.Time) bool {
 // IsValid reports whether this key is not revoked and inside its own
 // validity window at now.
 func (k ApplicationKeyRef) IsValid(now time.Time) bool {
-	if k.RevokedAt != nil {
-		t, err := parseAppKeyTime(*k.RevokedAt)
-		if err != nil || !t.After(now) {
-			return false
-		}
-	}
-	exp, err := parseAppKeyTime(k.ExpiresAt)
-	if err != nil {
+	if k.RevokedAt != nil && !k.RevokedAt.After(now) {
 		return false
 	}
-	return exp.After(now)
+	return k.ExpiresAt.After(now)
 }
 
 // WasValidAt reports whether this key was able to authorize something at
@@ -127,18 +140,14 @@ func (k ApplicationKeyRef) IsValid(now time.Time) bool {
 // was valid when it signed authorized the revocation, and a verifier must
 // still be able to confirm that after the signer itself expires.
 func (k ApplicationKeyRef) WasValidAt(at time.Time) bool {
-	if created, err := parseAppKeyTime(k.CreatedAt); err == nil && created.After(at) {
+	if k.CreatedAt.After(at) {
 		return false
 	}
-	exp, err := parseAppKeyTime(k.ExpiresAt)
-	if err != nil || !exp.After(at) {
+	if !k.ExpiresAt.After(at) {
 		return false
 	}
-	if k.RevokedAt != nil {
-		rev, err := parseAppKeyTime(*k.RevokedAt)
-		if err != nil || !rev.After(at) {
-			return false
-		}
+	if k.RevokedAt != nil && !k.RevokedAt.After(at) {
+		return false
 	}
 	return true
 }
@@ -149,12 +158,8 @@ func (k ApplicationKeyRef) WasValidAt(at time.Time) bool {
 // private key anywhere.
 type ApplicationSigner struct {
 	KeyID           string
-	Algorithm       string // "ed25519"
+	Algorithm       api.KeyAlgorithm // AlgorithmEd25519
 	PrivateKeyBytes []byte
-}
-
-func parseAppKeyTime(s string) (time.Time, error) {
-	return time.Parse(time.RFC3339, s)
 }
 
 // ---------------------------------------------------------------------------
@@ -197,8 +202,14 @@ func envelopeSignatureInput(tag string, payloadBytes []byte) []byte {
 // covers. Unlike the attestation and the requests, a revocation is verified
 // from its FIELDS rather than from a stored byte string: a tagged
 // eight-element tuple. Every identifier is bound, so a revocation cannot
-// move between subjects, applications, or instances.
-func RevocationPayload(subjectUserID, subjectDomain, applicationID, instanceID, targetKeyID, targetFingerprint, revokedAt string) []byte {
+// move between subjects, applications, or instances. revoked_at is whole
+// Unix seconds as a CBOR integer; a revokedAt with a fraction of a second is
+// refused (it was never signed).
+func RevocationPayload(subjectUserID, subjectDomain, applicationID, instanceID, targetKeyID, targetFingerprint string, revokedAt time.Time) ([]byte, error) {
+	revoked, err := cborSignedTime(revokedAt)
+	if err != nil {
+		return nil, &ApplicationKeyError{Kind: ErrBadTimestamp, Detail: err.Error()}
+	}
 	return cborTuple(
 		cborText(RevocationTag),
 		cborText(subjectUserID),
@@ -207,11 +218,11 @@ func RevocationPayload(subjectUserID, subjectDomain, applicationID, instanceID, 
 		cborText(instanceID),
 		cborText(targetKeyID),
 		cborText(targetFingerprint),
-		cborText(revokedAt),
-	)
+		revoked,
+	), nil
 }
 
-func revocationPayloadOf(rev api.ApplicationKeyRevocation) []byte {
+func revocationPayloadOf(rev api.ApplicationKeyRevocation) ([]byte, error) {
 	return RevocationPayload(
 		rev.SubjectUserId, rev.SubjectDomain, rev.ApplicationId, rev.InstanceId,
 		rev.TargetKeyId, rev.TargetFingerprint, rev.RevokedAt,
@@ -236,26 +247,26 @@ func checkIdentity(expected InstanceRef, subjectUserID, subjectDomain, applicati
 	return nil
 }
 
-func expectedAlgorithm(keyUsage string) (string, bool) {
+func expectedAlgorithm(keyUsage api.KeyUsage) (api.KeyAlgorithm, bool) {
 	switch keyUsage {
 	case KeyUsageSign:
-		return algorithmEd25519, true
+		return AlgorithmEd25519, true
 	case KeyUsageAgree:
-		return algorithmX25519, true
+		return AlgorithmX25519, true
 	default:
-		return "", false
+		return 0, false
 	}
 }
 
 // CheckKeyShape checks that a key's stated use, algorithm, and fingerprint
 // are internally consistent before anything trusts them.
-func CheckKeyShape(keyUsage, algorithm string, publicKey []byte, fingerprint string) error {
+func CheckKeyShape(keyUsage api.KeyUsage, algorithm api.KeyAlgorithm, publicKey []byte, fingerprint string) error {
 	expected, ok := expectedAlgorithm(keyUsage)
 	if !ok {
-		return &ApplicationKeyError{Kind: ErrUsageMismatch, Detail: "expected sign or agree, got " + keyUsage}
+		return &ApplicationKeyError{Kind: ErrUsageMismatch, Detail: "expected sign or agree, got " + enumLabel(keyUsage)}
 	}
 	if algorithm != expected {
-		return &ApplicationKeyError{Kind: ErrUsageMismatch, Detail: "expected " + expected + ", got " + algorithm}
+		return &ApplicationKeyError{Kind: ErrUsageMismatch, Detail: "expected " + enumLabel(expected) + ", got " + enumLabel(algorithm)}
 	}
 	if len(publicKey) != 32 {
 		return &ApplicationKeyError{Kind: ErrCrypto, Detail: "public key must be 32 bytes"}
@@ -389,7 +400,7 @@ func (k KeyStatusKind) String() string {
 // KeyStatusRevoked.
 type KeyStatus struct {
 	Kind      KeyStatusKind
-	RevokedAt string // only meaningful when Kind == KeyStatusRevoked
+	RevokedAt time.Time // only meaningful when Kind == KeyStatusRevoked
 }
 
 // VerifiedApplicationKey is one attestation-verified key, with the reason it
@@ -427,7 +438,7 @@ type VerifiedApplicationKeySet struct {
 // specific operation. This is the call a peer makes before it verifies a
 // message: it fails closed on an unknown, expired, unattested, mismatched,
 // or revoked key.
-func (s VerifiedApplicationKeySet) KeyForUse(keyID, keyUsage, algorithm string) (api.ApplicationKeyAttestation, error) {
+func (s VerifiedApplicationKeySet) KeyForUse(keyID string, keyUsage api.KeyUsage, algorithm api.KeyAlgorithm) (api.ApplicationKeyAttestation, error) {
 	if s.RevokedKeyIDs[keyID] {
 		return api.ApplicationKeyAttestation{}, &ApplicationKeyError{Kind: ErrKeyRevoked, Detail: keyID}
 	}
@@ -451,10 +462,10 @@ func (s VerifiedApplicationKeySet) KeyForUse(keyID, keyUsage, algorithm string) 
 		return api.ApplicationKeyAttestation{}, &ApplicationKeyError{Kind: ErrKeyRevoked, Detail: keyID}
 	}
 	if found.Attestation.KeyUsage != keyUsage {
-		return api.ApplicationKeyAttestation{}, &ApplicationKeyError{Kind: ErrUsageMismatch, Detail: "expected " + keyUsage + ", got " + found.Attestation.KeyUsage}
+		return api.ApplicationKeyAttestation{}, &ApplicationKeyError{Kind: ErrUsageMismatch, Detail: "expected " + enumLabel(keyUsage) + ", got " + enumLabel(found.Attestation.KeyUsage)}
 	}
 	if found.Attestation.Algorithm != algorithm {
-		return api.ApplicationKeyAttestation{}, &ApplicationKeyError{Kind: ErrUsageMismatch, Detail: "expected " + algorithm + ", got " + found.Attestation.Algorithm}
+		return api.ApplicationKeyAttestation{}, &ApplicationKeyError{Kind: ErrUsageMismatch, Detail: "expected " + enumLabel(algorithm) + ", got " + enumLabel(found.Attestation.Algorithm)}
 	}
 	return found.Attestation, nil
 }
@@ -462,7 +473,7 @@ func (s VerifiedApplicationKeySet) KeyForUse(keyID, keyUsage, algorithm string) 
 // UsableKeys returns every currently usable key of one use. All such keys
 // are equal: a caller may pick any of them, and the returned order carries
 // no meaning (sorted by key id only for deterministic test output).
-func (s VerifiedApplicationKeySet) UsableKeys(keyUsage string) []api.ApplicationKeyAttestation {
+func (s VerifiedApplicationKeySet) UsableKeys(keyUsage api.KeyUsage) []api.ApplicationKeyAttestation {
 	var out []api.ApplicationKeyAttestation
 	for _, k := range s.Keys {
 		if k.IsUsable() && k.Attestation.KeyUsage == keyUsage {
@@ -474,29 +485,15 @@ func (s VerifiedApplicationKeySet) UsableKeys(keyUsage string) []api.Application
 }
 
 // ClassifyKey decides the status of one verified attestation at now.
-func ClassifyKey(attestation api.ApplicationKeyAttestation, revokedAt *string, now time.Time, skewSeconds int64) (KeyStatus, error) {
+func ClassifyKey(attestation api.ApplicationKeyAttestation, revokedAt *time.Time, now time.Time, skewSeconds int64) (KeyStatus, error) {
 	skew := time.Duration(skewSeconds) * time.Second
-	if revokedAt != nil {
-		effective, err := parseAppKeyTime(*revokedAt)
-		if err != nil {
-			return KeyStatus{}, &ApplicationKeyError{Kind: ErrBadTimestamp, Detail: err.Error()}
-		}
-		if !effective.After(now.Add(skew)) {
-			return KeyStatus{Kind: KeyStatusRevoked, RevokedAt: *revokedAt}, nil
-		}
+	if revokedAt != nil && !revokedAt.After(now.Add(skew)) {
+		return KeyStatus{Kind: KeyStatusRevoked, RevokedAt: *revokedAt}, nil
 	}
-	keyExpires, err := parseAppKeyTime(attestation.KeyExpiresAt)
-	if err != nil {
-		return KeyStatus{}, &ApplicationKeyError{Kind: ErrBadTimestamp, Detail: err.Error()}
-	}
-	if !keyExpires.Add(skew).After(now) {
+	if !attestation.KeyExpiresAt.Add(skew).After(now) {
 		return KeyStatus{Kind: KeyStatusKeyExpired}, nil
 	}
-	attestationExpires, err := parseAppKeyTime(attestation.AttestationExpiresAt)
-	if err != nil {
-		return KeyStatus{}, &ApplicationKeyError{Kind: ErrBadTimestamp, Detail: err.Error()}
-	}
-	if !attestationExpires.Add(skew).After(now) {
+	if !attestation.AttestationExpiresAt.Add(skew).After(now) {
 		return KeyStatus{Kind: KeyStatusAttestationExpired}, nil
 	}
 	return KeyStatus{Kind: KeyStatusUsable}, nil
@@ -512,9 +509,10 @@ func VerifyRevocation(rev api.ApplicationKeyRevocation, keys []ApplicationKeyRef
 	if err := checkIdentity(instance, rev.SubjectUserId, rev.SubjectDomain, rev.ApplicationId, rev.InstanceId); err != nil {
 		return err
 	}
-	effective, err := parseAppKeyTime(rev.RevokedAt)
+	effective := rev.RevokedAt
+	message, err := revocationPayloadOf(rev)
 	if err != nil {
-		return &ApplicationKeyError{Kind: ErrBadTimestamp, Detail: err.Error()}
+		return err
 	}
 
 	var target *ApplicationKeyRef
@@ -531,7 +529,6 @@ func VerifyRevocation(rev api.ApplicationKeyRevocation, keys []ApplicationKeyRef
 		return &ApplicationKeyError{Kind: ErrFingerprintMismatch}
 	}
 
-	message := revocationPayloadOf(rev)
 	accepted := countDistinctAppKeySigners(rev.Signatures, keys, message, rev.TargetKeyId, func(k ApplicationKeyRef) bool {
 		return k.WasValidAt(effective)
 	})
@@ -612,7 +609,7 @@ func VerifyApplicationKeySet(
 		keyRefs[i] = attestedKeyRef(a)
 	}
 
-	revoked := make(map[string]string) // key id -> earliest accepted revoked_at
+	revoked := make(map[string]time.Time) // key id -> earliest accepted revoked_at
 	for _, rev := range revocations {
 		if err := VerifyRevocation(rev, keyRefs, instance); err != nil {
 			set.Rejected = append(set.Rejected, RejectedRecord{What: "revocation of " + rev.TargetKeyId, Reason: err.Error()})
@@ -620,13 +617,13 @@ func VerifyApplicationKeySet(
 		}
 		// Revocation is permanent, so the earliest accepted effective
 		// time wins if several records name the same key.
-		if existing, ok := revoked[rev.TargetKeyId]; !ok || rev.RevokedAt < existing {
+		if existing, ok := revoked[rev.TargetKeyId]; !ok || rev.RevokedAt.Before(existing) {
 			revoked[rev.TargetKeyId] = rev.RevokedAt
 		}
 	}
 
 	for _, a := range attested {
-		var revokedAt *string
+		var revokedAt *time.Time
 		if r, ok := revoked[a.KeyId]; ok {
 			r := r
 			revokedAt = &r

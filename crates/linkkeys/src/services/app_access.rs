@@ -12,7 +12,8 @@ use crate::db::DbPool;
 use liblinkkeys::app_access::{self as aa, AccessDecision, AccessMode, ClaimOperator};
 use liblinkkeys::generated::services::ServiceError;
 use liblinkkeys::generated::types::{
-    AppAccessDenial, AppAccessPolicy, AppAccessTarget, EmptyRequest, ListAppAccessPoliciesResponse,
+    AppAccessDenial, AppAccessMode, AppAccessPolicy, AppAccessTarget, AppAccessTargetKind,
+    ClaimOperator as WireClaimOperator, EmptyRequest, ListAppAccessPoliciesResponse,
     PreviewAppAccessRequest, PreviewAppAccessResponse, RemoveAppAccessPolicyRequest,
     RemoveAppAccessPolicyResponse, SetAppAccessPolicyRequest, SetAppAccessPolicyResponse,
 };
@@ -229,18 +230,31 @@ fn to_wire(record: PolicyRecord) -> AppAccessPolicy {
     AppAccessPolicy {
         id: record.id,
         name: record.name,
-        mode: record.mode,
+        mode: crate::conversions::stored_label(
+            "app access mode",
+            &record.mode,
+            AppAccessMode::from_label,
+            AppAccessMode::Deny,
+        ),
         patterns: record.patterns,
         message: record.message,
         targets: record
             .targets
             .into_iter()
             .map(|t| AppAccessTarget {
-                kind: t.kind,
+                kind: crate::conversions::stored_label(
+                    "app access target kind",
+                    &t.kind,
+                    AppAccessTargetKind::from_label,
+                    AppAccessTargetKind::Everyone,
+                ),
                 user_id: t.user_id,
                 group_name: t.group_name,
                 claim_type: t.claim_type,
-                claim_operator: t.claim_operator,
+                claim_operator: t
+                    .claim_operator
+                    .as_deref()
+                    .and_then(WireClaimOperator::from_label),
                 claim_value: t.claim_value,
             })
             .collect(),
@@ -257,7 +271,7 @@ fn nonempty(value: Option<&str>) -> Option<String> {
 /// Validate one target and return its canonical stored form.
 fn canonical_target(pool: &DbPool, target: &AppAccessTarget) -> Result<TargetRecord, ServiceError> {
     let empty = TargetRecord {
-        kind: target.kind.trim().to_string(),
+        kind: target.kind.as_str().to_string(),
         user_id: None,
         group_name: None,
         claim_type: None,
@@ -294,9 +308,8 @@ fn canonical_target(pool: &DbPool, target: &AppAccessTarget) -> Result<TargetRec
                 .ok_or_else(|| invalid("A claim target needs a claim type"))?;
             let operator = target
                 .claim_operator
-                .as_deref()
-                .map(str::trim)
-                .and_then(ClaimOperator::parse)
+                .as_ref()
+                .and_then(|op| ClaimOperator::parse(op.as_str()))
                 .ok_or_else(|| {
                     invalid("The claim condition must be present, absent, equals, age_under, or age_at_least")
                 })?;
@@ -337,7 +350,7 @@ pub fn set_app_access_policy(
             "The policy name must have 1 to {MAX_NAME_LEN} characters"
         )));
     }
-    let mode = AccessMode::parse(req.mode.trim())
+    let mode = AccessMode::parse(req.mode.as_str())
         .ok_or_else(|| invalid("The mode must be allow or deny"))?;
 
     if req.patterns.len() > MAX_ENTRIES || req.targets.len() > MAX_ENTRIES {

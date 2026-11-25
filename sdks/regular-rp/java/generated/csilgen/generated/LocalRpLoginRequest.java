@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -15,8 +16,8 @@ public record LocalRpLoginRequest(
     List<String> requiredClaims /* wire: "required_claims" */,
     AuthenticationRequirements authenticationRequirements /* wire: "authentication_requirements" */,
     AuthFlowContext flowContext /* wire: "flow_context" */,
-    String issuedAt /* wire: "issued_at" */,
-    String expiresAt /* wire: "expires_at" */
+    Instant issuedAt /* wire: "issued_at" */,
+    Instant expiresAt /* wire: "expires_at" */
 ) {
     @Override
     public boolean equals(Object obj) {

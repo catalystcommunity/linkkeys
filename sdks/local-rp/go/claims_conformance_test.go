@@ -28,6 +28,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"testing"
+	"time"
 
 	localrp "github.com/catalystcommunity/linkkeys/sdks/local-rp/go"
 	api "github.com/catalystcommunity/linkkeys/sdks/local-rp/go/generated"
@@ -122,11 +123,11 @@ func claimDomainKeySets(t *testing.T, keys []claimDomainKeyFixture) []localrp.Do
 			KeyId:       k.KeyID,
 			PublicKey:   mustHex(t, k.PublicKey),
 			Fingerprint: k.Fingerprint,
-			Algorithm:   k.Algorithm,
-			KeyUsage:    k.KeyUsage,
-			CreatedAt:   k.CreatedAt,
-			ExpiresAt:   k.ExpiresAt,
-			RevokedAt:   k.RevokedAt,
+			Algorithm:   parseKeyAlgorithm(t, k.Algorithm),
+			KeyUsage:    parseKeyUsage(t, k.KeyUsage),
+			CreatedAt:   parseRFC3339(t, k.CreatedAt),
+			ExpiresAt:   parseRFC3339(t, k.ExpiresAt),
+			RevokedAt:   parseOptRFC3339(t, k.RevokedAt),
 		})
 	}
 	out := make([]localrp.DomainKeySet, 0, len(order))
@@ -165,18 +166,18 @@ func TestClaimsPositiveCasesRoundTripAndVerify(t *testing.T) {
 			if claim.ClaimId != c.Claim.ClaimID ||
 				claim.UserId != c.Claim.UserID ||
 				claim.ClaimType != c.Claim.ClaimType ||
-				claim.AttestedAt != c.Claim.AttestedAt ||
-				claim.CreatedAt != c.Claim.CreatedAt {
+				!claim.AttestedAt.Equal(parseRFC3339(t, c.Claim.AttestedAt)) ||
+				!claim.CreatedAt.Equal(parseRFC3339(t, c.Claim.CreatedAt)) {
 				t.Fatalf("decoded claim scalar fields do not match the case's expanded fields")
 			}
 			if hex.EncodeToString(claim.ClaimValue) != c.Claim.ClaimValue {
 				t.Fatalf("claim_value mismatch: got %x want %s (must be wired as bstr, not tstr)",
 					claim.ClaimValue, c.Claim.ClaimValue)
 			}
-			if !strPtrEqual(claim.ExpiresAt, c.Claim.ExpiresAt) {
+			if !timePtrEqual(t, claim.ExpiresAt, c.Claim.ExpiresAt) {
 				t.Fatalf("expires_at mismatch")
 			}
-			if !strPtrEqual(claim.RevokedAt, c.Claim.RevokedAt) {
+			if !timePtrEqual(t, claim.RevokedAt, c.Claim.RevokedAt) {
 				t.Fatalf("revoked_at mismatch")
 			}
 			if len(claim.Signatures) != len(c.Claim.Signatures) {
@@ -191,7 +192,7 @@ func TestClaimsPositiveCasesRoundTripAndVerify(t *testing.T) {
 			}
 
 			// Byte-exact round trip through the generated codec.
-			reencoded := api.EncodeClaim(claim)
+			reencoded := must[[]byte](t)(api.EncodeClaim(claim))
 			if hex.EncodeToString(reencoded) != c.ClaimCborHex {
 				t.Fatalf("re-encoded claim does not match claim_cbor_hex byte-exactly")
 			}
@@ -283,7 +284,7 @@ func TestClaimsTicketRedemptionResponseRoundTripAndVerify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode ticket_redemption_response: %v", err)
 	}
-	if resp.UserId != rr.UserID || resp.UserDomain != rr.UserDomain || resp.TicketExpiresAt != rr.TicketExpiresAt {
+	if resp.UserId != rr.UserID || resp.UserDomain != rr.UserDomain || !resp.TicketExpiresAt.Equal(parseRFC3339(t, rr.TicketExpiresAt)) {
 		t.Fatalf("ticket redemption response scalar fields mismatch: got %+v", resp)
 	}
 	if len(resp.Claims) != len(d.Cases) {
@@ -292,7 +293,7 @@ func TestClaimsTicketRedemptionResponseRoundTripAndVerify(t *testing.T) {
 
 	// Byte-exact round trip through the generated codec — this is the wire
 	// message CompleteLocalLogin actually consumes Claims from.
-	reencoded := api.EncodeLocalRpTicketRedemptionResponse(resp)
+	reencoded := must[[]byte](t)(api.EncodeLocalRpTicketRedemptionResponse(resp))
 	if hex.EncodeToString(reencoded) != rr.ResponseCborHex {
 		t.Fatalf("re-encoded ticket redemption response does not match response_cbor_hex byte-exactly")
 	}
@@ -305,11 +306,57 @@ func TestClaimsTicketRedemptionResponseRoundTripAndVerify(t *testing.T) {
 	keySets := claimDomainKeySets(t, d.DomainKeys)
 	for i, claim := range resp.Claims {
 		want := d.Cases[i]
-		if hex.EncodeToString(api.EncodeClaim(claim)) != want.ClaimCborHex {
+		if hex.EncodeToString(must[[]byte](t)(api.EncodeClaim(claim))) != want.ClaimCborHex {
 			t.Fatalf("embedded claim[%d] does not round-trip to case %s's claim_cbor_hex", i, want.Name)
 		}
 		if err := localrp.VerifyClaim(claim, rr.UserDomain, keySets); err != nil {
 			t.Fatalf("embedded claim[%d] (%s) failed verification: %v", i, want.Name, err)
 		}
+	}
+}
+
+// TestClaimsFractionalSignedTimeIsRejected checks that a claim whose signed
+// timestamp has a fraction of a second never verifies. A signed timestamp is
+// whole Unix seconds; the verifier must refuse the claim, not round the time
+// to a value that happens to verify.
+func TestClaimsFractionalSignedTimeIsRejected(t *testing.T) {
+	var d claimsFile
+	loadJSON(t, "claims.json", &d)
+	keySets := claimDomainKeySets(t, d.DomainKeys)
+
+	for _, mutate := range []func(*api.Claim){
+		func(c *api.Claim) { c.AttestedAt = c.AttestedAt.Add(time.Millisecond) },
+		func(c *api.Claim) {
+			if c.ExpiresAt == nil {
+				t.Fatal("first positive case must carry expires_at")
+			}
+			e := c.ExpiresAt.Add(time.Millisecond)
+			c.ExpiresAt = &e
+		},
+	} {
+		claim, err := api.DecodeClaim(mustHex(t, d.Cases[0].ClaimCborHex))
+		if err != nil {
+			t.Fatalf("decode claim: %v", err)
+		}
+		if err := localrp.VerifyClaim(claim, d.SubjectDomain, keySets); err != nil {
+			t.Fatalf("unmodified claim must verify: %v", err)
+		}
+		mutate(&claim)
+		err = localrp.VerifyClaim(claim, d.SubjectDomain, keySets)
+		var claimErr *localrp.ClaimError
+		if !errors.As(err, &claimErr) || claimErr.Kind != localrp.ClaimErrKindBadTimestamp {
+			t.Fatalf("got %v, want ClaimErrKindBadTimestamp", err)
+		}
+	}
+
+	_, err := localrp.SignClaim(localrp.ClaimSpec{
+		ClaimID:    "c",
+		ClaimType:  "handle",
+		UserID:     "u",
+		AttestedAt: time.Unix(1, 500),
+	}, []localrp.ClaimSigner{{Domain: "d.example", KeyID: "k"}})
+	var claimErr *localrp.ClaimError
+	if !errors.As(err, &claimErr) || claimErr.Kind != localrp.ClaimErrKindBadTimestamp {
+		t.Fatalf("SignClaim with a fractional attested_at: got %v, want ClaimErrKindBadTimestamp", err)
 	}
 }

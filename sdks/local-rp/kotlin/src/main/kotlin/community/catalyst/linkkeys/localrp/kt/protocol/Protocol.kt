@@ -13,8 +13,6 @@ import community.catalyst.linkkeys.localrp.wire.Types as JTypes
 import community.catalyst.linkkeys.localrp.kt.Claim
 import community.catalyst.linkkeys.localrp.kt.ClaimSignature
 import community.catalyst.linkkeys.localrp.kt.DomainPublicKey
-import community.catalyst.linkkeys.localrp.kt.formatRfc3339
-import community.catalyst.linkkeys.localrp.kt.parseRfc3339
 import community.catalyst.linkkeys.localrp.kt.runCatchingSdk
 import community.catalyst.linkkeys.localrp.kt.toJava
 import community.catalyst.linkkeys.localrp.kt.toKotlin
@@ -72,7 +70,7 @@ object Crypto {
 
 /** Bounded clock-skew tolerance check shared by descriptor/login-request/callback-payload freshness (`expirations.json`'s `check_timestamps`). */
 fun checkTimestamps(issuedAt: Instant, expiresAt: Instant, now: Instant, skewSeconds: Long) {
-    runCatchingSdk { JLocalRp.checkTimestamps(formatRfc3339(issuedAt), formatRfc3339(expiresAt), now, skewSeconds) }
+    runCatchingSdk { JLocalRp.checkTimestamps(issuedAt, expiresAt, now, skewSeconds) }
 }
 
 // -----------------------------------------------------------------------
@@ -81,7 +79,12 @@ fun checkTimestamps(issuedAt: Instant, expiresAt: Instant, now: Instant, skewSec
 // SDK never seals a callback in production, only test fixtures do).
 // -----------------------------------------------------------------------
 
-/** The cleartext routing/decryption metadata shipped alongside an encrypted callback (design doc: `LocalRpCallbackHeader`). */
+/**
+ * The cleartext routing/decryption metadata shipped alongside an encrypted
+ * callback (design doc: `LocalRpCallbackHeader`). [suite] is the suite's
+ * text id (`aes-256-gcm`, `chacha20-poly1305`); on the wire it is the CSIL
+ * number (1, 2).
+ */
 data class CallbackHeader(
     val fingerprint: String,
     val nonce: ByteArray,
@@ -89,8 +92,8 @@ data class CallbackHeader(
     val suite: String,
     val ephemeralPublicKey: ByteArray,
     val aeadNonce: ByteArray,
-    val issuedAt: String,
-    val expiresAt: String,
+    val issuedAt: Instant,
+    val expiresAt: Instant,
 ) {
     override fun equals(other: Any?): Boolean =
         other is CallbackHeader && fingerprint == other.fingerprint && suite == other.suite &&
@@ -168,21 +171,14 @@ object CallbackPayload {
  * A sibling-signed key revocation certificate (design doc: extension landing
  * alongside local-RP; `crates/liblinkkeys/src/revocation.rs`).
  *
- * [revokedAt] is kept as the raw RFC3339 wire string, not [Instant]: it is
- * one of the exact bytes the revocation payload's signature covers
- * (`CBOR([tag, target_key_id, target_fingerprint, revoked_at, signing_domain])`
- * -- conformance README, "revocations.json"), so parsing it to an [Instant]
- * and reformatting would silently change its byte representation (e.g.
- * `+00:00` -> `Z`) and break every signature in the certificate. Everywhere
- * else in this package, timestamps that are pure verification *inputs* (not
- * re-signed bytes) use [Instant] for an idiomatic surface; this is the one
- * exception, and it is an exception for a correctness reason, not a
- * convenience one.
+ * The signed revocation payload binds [revokedAt] as whole Unix seconds
+ * (a CBOR integer): a [revokedAt] with a fraction of a second was never
+ * signed, so verification counts no signers for it (it is not rounded).
  */
 data class RevocationCertificate(
     val targetKeyId: String,
     val targetFingerprint: String,
-    val revokedAt: String,
+    val revokedAt: Instant,
     val signatures: List<ClaimSignature>,
 )
 
@@ -305,14 +301,10 @@ private fun ClaimDomainKeySet.toJava(): JClaims.DomainKeySet = JClaims.DomainKey
  * [community.catalyst.linkkeys.localrp.kt.VerifiedLocalLogin.claims].
  *
  * Every function here takes/returns raw CBOR bytes rather than the friendly
- * [Claim] Kotlin type (which represents `attested_at`/`created_at`/
- * `expires_at`/`revoked_at` as [Instant]). A claim signature covers the
- * *exact* RFC3339 strings that were signed; reading them through [Instant]
- * and reformatting (e.g. `+00:00` -> `Z`, as [formatRfc3339] does) would
- * silently produce different bytes than what was signed, breaking
- * verification of an otherwise-valid signature and byte-exactness of an
- * otherwise-correct re-encode -- the same reasoning documented on
- * [RevocationCertificate.revokedAt].
+ * [Claim] Kotlin type, so a byte-exact round trip and a signature check
+ * always run on the exact bytes the IDP sent. The signature covers
+ * `attested_at` and `expires_at` as whole Unix seconds; a claim whose signed
+ * time has a fraction of a second fails verification (it is not rounded).
  */
 object Claims {
     /** Decode a claim's raw CBOR wire bytes into this package's own [Claim] type, for reading field values. Not for re-signing/re-verifying -- see class docs. */
@@ -362,7 +354,7 @@ object TicketRedemptionResponses {
             r.userId(),
             r.userDomain(),
             r.claims().map { it.toKotlin() },
-            parseRfc3339("ticket_expires_at", r.ticketExpiresAt()),
+            r.ticketExpiresAt(),
         )
     }
 
@@ -370,7 +362,7 @@ object TicketRedemptionResponses {
     fun reencodeCbor(data: ByteArray): ByteArray =
         JCodec.encodeLocalRpTicketRedemptionResponse(JCodec.decodeLocalRpTicketRedemptionResponse(data))
 
-    /** The embedded claims' own raw CBOR wire bytes, in order -- pass each to [Claims.verifyClaim]/[Claims.verifyClaimSignatures] without a lossy round-trip through [Claim]'s [Instant] fields. */
+    /** The embedded claims' own raw CBOR wire bytes, in order -- pass each to [Claims.verifyClaim]/[Claims.verifyClaimSignatures] without a round trip through [Claim]. */
     fun claimCborBytes(data: ByteArray): List<ByteArray> =
         JCodec.decodeLocalRpTicketRedemptionResponse(data).claims().map { JCodec.encodeClaim(it) }
 }

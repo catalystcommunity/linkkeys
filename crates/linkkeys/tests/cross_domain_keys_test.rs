@@ -10,7 +10,6 @@ mod common;
 use common::net::{net_with_rpc, CannedRpc, StaticDns};
 use liblinkkeys::crypto;
 use liblinkkeys::generated::types::{DomainPublicKey, GetDomainKeysResponse};
-use liblinkkeys::timestamp::Rfc3339 as _;
 
 const THIRD: &str = "third.example";
 
@@ -30,10 +29,10 @@ async fn fetch_domain_keys_resolves_via_dns_and_http_seam() {
         key_id: "third-1".to_string(),
         public_key: pk,
         fingerprint: fp.clone(),
-        algorithm: "ed25519".to_string(),
-        key_usage: "sign".to_string(),
-        created_at: time::OffsetDateTime::now_utc().to_rfc3339(),
-        expires_at: (time::OffsetDateTime::now_utc() + time::Duration::days(365)).to_rfc3339(),
+        algorithm: liblinkkeys::generated::types::KeyAlgorithm::Ed25519,
+        key_usage: liblinkkeys::generated::types::KeyUsage::Sign,
+        created_at: time::OffsetDateTime::now_utc(),
+        expires_at: time::OffsetDateTime::now_utc() + time::Duration::days(365),
         revoked_at: None,
         signed_by_key_id: None,
         key_signature: None,
@@ -43,7 +42,7 @@ async fn fetch_domain_keys_resolves_via_dns_and_http_seam() {
         keys: vec![key],
         recent_revocations_available: None,
     };
-    let body = liblinkkeys::generated::encode_get_domain_keys_response(&response);
+    let body = liblinkkeys::generated::encode_get_domain_keys_response(&response).unwrap();
 
     let dns = StaticDns::new()
         .with(

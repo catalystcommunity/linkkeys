@@ -32,14 +32,13 @@
 //! fail outright).
 
 use liblinkkeys::claims::{sign_claim, ClaimSigner, ClaimSpec};
-use liblinkkeys::crypto::{self, AeadSuite, ALGORITHM_ED25519};
+use liblinkkeys::crypto::{self, AeadSuite};
 use liblinkkeys::generated::types::{
-    Claim, DomainPublicKey, GetRevocationsResponse, LocalRpCallbackPayload,
+    Claim, DomainPublicKey, GetRevocationsResponse, KeyAlgorithm, KeyUsage, LocalRpCallbackPayload,
     LocalRpTicketRedemptionResponse, RevocationCertificate,
 };
 use liblinkkeys::local_rp;
 use liblinkkeys::revocation::{build_revocation_certificate, RevocationSpec};
-use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys_local_rp::transport::{ReadWrite, Transport, TransportError};
 use linkkeys_local_rp::{
     begin_local_login, complete_local_login, dns::DnsLookupError, dns::DnsResolver,
@@ -186,16 +185,16 @@ fn fixed_key_material(now: OffsetDateTime) -> LocalRpKeyMaterial {
     let enc_secret = x25519_dalek::StaticSecret::from(LOCAL_RP_ENCRYPTION_PRIVATE);
     let encryption_public_key = *x25519_dalek::PublicKey::from(&enc_secret).as_bytes();
 
-    let created_at = (now - Duration::days(1)).to_rfc3339();
-    let expires_at = (now + Duration::days(3650)).to_rfc3339();
+    let created_at = now - Duration::days(1);
+    let expires_at = now + Duration::days(3650);
     let descriptor = local_rp::build_local_rp_descriptor(
         "Flow Test App",
         None,
         &signing_public_key,
         &encryption_public_key,
-        vec!["aes-256-gcm".to_string(), "chacha20-poly1305".to_string()],
-        &created_at,
-        &expires_at,
+        vec![AeadSuite::Aes256Gcm, AeadSuite::Chacha20Poly1305],
+        created_at,
+        expires_at,
     );
     let fingerprint = descriptor.fingerprint.clone();
     let signed_descriptor =
@@ -221,12 +220,12 @@ fn keyed_domain_public_key(now: OffsetDateTime, seed: [u8; 32], key_id: &str) ->
         key_id: key_id.to_string(),
         public_key: pk.to_vec(),
         fingerprint: crypto::fingerprint(&pk),
-        algorithm: ALGORITHM_ED25519.to_string(),
-        key_usage: "sign".to_string(),
+        algorithm: KeyAlgorithm::Ed25519,
+        key_usage: KeyUsage::Sign,
         signed_by_key_id: None,
         key_signature: None,
-        created_at: (now - Duration::days(30)).to_rfc3339(),
-        expires_at: (now + Duration::days(365)).to_rfc3339(),
+        created_at: now - Duration::days(30),
+        expires_at: now + Duration::days(365),
         revoked_at: None,
     }
 }
@@ -280,7 +279,7 @@ impl Default for Scenario {
 }
 
 fn run_scenario(scenario: Scenario) -> Result<linkkeys_local_rp::VerifiedLocalLogin, Error> {
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     let key_material = fixed_key_material(now);
 
     // begin's `_linkkeys_apis` browser discovery gets a canned tcp-only
@@ -309,8 +308,8 @@ fn run_scenario(scenario: Scenario) -> Result<linkkeys_local_rp::VerifiedLocalLo
         CALLBACK_URL,
         pending.nonce.clone(),
         pending.state.clone(),
-        &now.to_rfc3339(),
-        &(now + Duration::minutes(5)).to_rfc3339(),
+        now,
+        now + Duration::minutes(5),
     );
     (scenario.mutate_payload)(&mut payload);
 
@@ -324,13 +323,13 @@ fn run_scenario(scenario: Scenario) -> Result<linkkeys_local_rp::VerifiedLocalLo
 
     let encrypted = local_rp::seal_local_rp_callback(
         &signed_payload,
-        AeadSuite::Aes256Gcm,
+        &AeadSuite::Aes256Gcm,
         &key_material.encryption_public_key,
         &payload.audience_fingerprint,
         payload.nonce.clone(),
         payload.state.clone(),
-        &payload.issued_at,
-        &payload.expires_at,
+        payload.issued_at,
+        payload.expires_at,
     )
     .unwrap();
     let encrypted_token =
@@ -345,7 +344,7 @@ fn run_scenario(scenario: Scenario) -> Result<linkkeys_local_rp::VerifiedLocalLo
             user_id: "user-1",
             subject_domain: USER_DOMAIN,
             expires_at: None,
-            attested_at: &now.to_rfc3339(),
+            attested_at: now,
         },
         &[ClaimSigner {
             domain: USER_DOMAIN,
@@ -357,7 +356,7 @@ fn run_scenario(scenario: Scenario) -> Result<linkkeys_local_rp::VerifiedLocalLo
     .unwrap();
     (scenario.mutate_claim)(&mut claim);
 
-    let ticket_expires_at = (now + Duration::hours(1)).to_rfc3339();
+    let ticket_expires_at = now + Duration::hours(1);
     let mut redemption_response = LocalRpTicketRedemptionResponse {
         user_id: "user-1".to_string(),
         user_domain: USER_DOMAIN.to_string(),
@@ -385,7 +384,7 @@ fn run_scenario(scenario: Scenario) -> Result<linkkeys_local_rp::VerifiedLocalLo
                 };
                 csilgen_transport::rpc::RpcResponse::ok(
                     "GetDomainKeysResponse",
-                    liblinkkeys::generated::encode_get_domain_keys_response(&resp),
+                    liblinkkeys::generated::encode_get_domain_keys_response(&resp).unwrap(),
                 )
             }
             ("DomainKeys", "get-revocations") => {
@@ -401,7 +400,8 @@ fn run_scenario(scenario: Scenario) -> Result<linkkeys_local_rp::VerifiedLocalLo
                             &GetRevocationsResponse {
                                 revocations: revocations_for_wire.clone(),
                             },
-                        ),
+                        )
+                        .unwrap(),
                     )
                 }
             }
@@ -409,7 +409,8 @@ fn run_scenario(scenario: Scenario) -> Result<linkkeys_local_rp::VerifiedLocalLo
                 "LocalRpTicketRedemptionResponse",
                 liblinkkeys::generated::encode_local_rp_ticket_redemption_response(
                     &redemption_for_wire,
-                ),
+                )
+                .unwrap(),
             ),
             _ => csilgen_transport::rpc::RpcResponse::transport_error(
                 csilgen_transport::Status::UnknownServiceOrOp,
@@ -505,8 +506,8 @@ fn expired_callback_payload_is_rejected() {
     let scenario = Scenario {
         mutate_payload: Box::new(|p| {
             let n = OffsetDateTime::now_utc();
-            p.issued_at = (n - Duration::hours(2)).to_rfc3339();
-            p.expires_at = (n - Duration::hours(1)).to_rfc3339();
+            p.issued_at = n - Duration::hours(2);
+            p.expires_at = n - Duration::hours(1);
         }),
         expected_requests: 2,
         ..Scenario::default()
@@ -534,7 +535,7 @@ fn dns_fingerprint_pin_mismatch_is_rejected() {
 fn revoked_signing_key_is_rejected() {
     let scenario = Scenario {
         mutate_domain_key: Box::new(|k| {
-            k.revoked_at = Some(OffsetDateTime::now_utc().to_rfc3339());
+            k.revoked_at = Some(OffsetDateTime::now_utc());
         }),
         expected_requests: 2,
         ..Scenario::default()
@@ -672,7 +673,7 @@ fn get_revocations_transport_error_fails_closed() {
 /// (now-revoked) signing key.
 #[test]
 fn revocation_certificate_drops_signing_key_and_login_fails_closed() {
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     let sibling_a = keyed_domain_public_key(now, SIBLING_A_SEED, SIBLING_A_KEY_ID);
     let sibling_b = keyed_domain_public_key(now, SIBLING_B_SEED, SIBLING_B_KEY_ID);
     let target_fingerprint = domain_public_key(now).fingerprint;
@@ -680,7 +681,7 @@ fn revocation_certificate_drops_signing_key_and_login_fails_closed() {
     let spec = RevocationSpec {
         target_key_id: DOMAIN_KEY_ID,
         target_fingerprint: &target_fingerprint,
-        revoked_at: &now.to_rfc3339(),
+        revoked_at: now,
     };
     let cert = build_revocation_certificate(
         &spec,

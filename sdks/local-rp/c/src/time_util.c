@@ -40,7 +40,8 @@ static int parse_uint_fixed(const char *s, size_t n, unsigned *out) {
     return 0;
 }
 
-int lrp_parse_rfc3339(const char *s, int64_t *out_unix, lrp_error *err) {
+static int parse_rfc3339(const char *s, int64_t *out_unix, int *out_has_fraction,
+                         lrp_error *err) {
     size_t len = strlen(s);
     /* Minimum: YYYY-MM-DDTHH:MM:SSZ = 20 chars */
     if (len < 20 || s[4] != '-' || s[7] != '-' || (s[10] != 'T' && s[10] != 't' && s[10] != ' ') ||
@@ -58,10 +59,19 @@ int lrp_parse_rfc3339(const char *s, int64_t *out_unix, lrp_error *err) {
     }
 
     size_t i = 19;
-    /* Optional fractional seconds: .digits (truncated, not used). */
+    /* Optional fractional seconds: .digits (truncated). A non-zero fraction
+     * is reported, so a signed timestamp can refuse it. */
+    int has_fraction = 0;
     if (i < len && s[i] == '.') {
         i++;
-        while (i < len && s[i] >= '0' && s[i] <= '9') i++;
+        size_t start = i;
+        while (i < len && s[i] >= '0' && s[i] <= '9') {
+            if (s[i] != '0') has_fraction = 1;
+            i++;
+        }
+        if (i == start) {
+            return lrp_fail(err, LRP_ERR_DECODE, "invalid timestamp: empty fraction");
+        }
     }
 
     int64_t offset_seconds = 0;
@@ -93,6 +103,21 @@ int lrp_parse_rfc3339(const char *s, int64_t *out_unix, lrp_error *err) {
     int64_t secs = days * 86400 + (int64_t)hour * 3600 + (int64_t)minute * 60 + (int64_t)second;
     secs -= offset_seconds;
     *out_unix = secs;
+    if (out_has_fraction != NULL) *out_has_fraction = has_fraction;
+    return 0;
+}
+
+int lrp_parse_rfc3339(const char *s, int64_t *out_unix, lrp_error *err) {
+    return parse_rfc3339(s, out_unix, NULL, err);
+}
+
+int lrp_signed_seconds(const char *s, int64_t *out_unix, lrp_error *err) {
+    int has_fraction = 0;
+    if (parse_rfc3339(s, out_unix, &has_fraction, err) != 0) return -1;
+    if (has_fraction) {
+        return lrp_fail(err, LRP_ERR_VERIFICATION,
+                         "a signed timestamp must be a whole number of seconds");
+    }
     return 0;
 }
 
@@ -109,6 +134,6 @@ void lrp_format_rfc3339(int64_t unix_seconds, char out[32]) {
     int64_t y;
     unsigned m, d;
     civil_from_days(days, &y, &m, &d);
-    snprintf(out, 32, "%04lld-%02u-%02uT%02u:%02u:%02u+00:00", (long long)y, m, d, hour, minute,
+    snprintf(out, 32, "%04lld-%02u-%02uT%02u:%02u:%02uZ", (long long)y, m, d, hour, minute,
              second);
 }

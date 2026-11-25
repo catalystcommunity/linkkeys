@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -10,10 +11,10 @@ public record ClaimApproval(
     String userId /* wire: "user_id" */,
     String claimType /* wire: "claim_type" */,
     byte[] claimValue /* wire: "claim_value" */,
-    String status /* wire: "status" */,
+    ClaimApprovalStatus status /* wire: "status" */,
     String resolvedBy /* wire: "resolved_by" */,
-    String resolvedAt /* wire: "resolved_at" */,
-    String createdAt /* wire: "created_at" */
+    Instant resolvedAt /* wire: "resolved_at" */,
+    Instant createdAt /* wire: "created_at" */
 ) {
     @Override
     public boolean equals(Object obj) {

@@ -12,7 +12,14 @@
 //!
 //! - claims about local users (`claim_signatures`), active only;
 //! - consent grants (`consent_grants.signed_grant`), active only;
-//! - issued key revocation certificates (`issued_revocations.cert`).
+//! - issued key revocation certificates (`issued_revocations.cert`);
+//! - application-key attestations (`application_key_attestations`), except
+//!   for a revoked key;
+//! - act-as grants (`act_as_grants`), which embed another party's signature:
+//!   one in an older encoding is removed.
+//!
+//! The format change that typed CSIL timestamps and enums made every record of
+//! these kinds stale (see `liblinkkeys::legacy_signatures`, "v1alpha text").
 //!
 //! Encryption-key vouches have their own repair,
 //! [`crate::services::domain_keys::revouch_encryption_keys`].
@@ -36,18 +43,22 @@
 //! verifies every signature of every active record, so start-up time grows
 //! with the number of claims.
 
-use liblinkkeys::timestamp::Rfc3339 as _;
 use std::fmt;
 
+use liblinkkeys::application_keys::sign_attestation;
 use liblinkkeys::claims::{verify_claim_signatures, ClaimSigner, ClaimSpec, DomainKeySet};
 use liblinkkeys::consent::{sign_consent, verify_consent, ConsentSpec};
 use liblinkkeys::generated::types::{
     ApplicationRef, Claim, ClaimSignature, DomainPublicKey, SignedConsentGrant,
 };
-use liblinkkeys::legacy_signatures::{claim_provenance, consent_provenance, revocation_provenance};
+use liblinkkeys::legacy_signatures::{
+    attestation_provenance, claim_provenance, consent_provenance, decode_stored_consent_grant,
+    decode_stored_revocation, revocation_provenance, Provenance,
+};
 use liblinkkeys::revocation::{
     build_revocation_certificate, verify_revocation_certificate, RevocationSpec, REVOCATION_QUORUM,
 };
+use liblinkkeys::timestamp::whole_seconds;
 
 use crate::claim_signing::{active_signers, sign_with_active, ActiveSigner};
 use crate::conversions::get_domain_name;
@@ -70,11 +81,16 @@ pub struct KindReport {
     /// Records that carry signatures of other domains. Those signatures are
     /// left as they are.
     pub foreign: Vec<String>,
-    /// Claims whose stored `attested_at` was not RFC3339, so the re-sign
-    /// recorded a new attestation time.
+    /// Claims whose stored `attested_at` or `expires_at` had a fraction of a
+    /// second, so the re-sign stored them at whole seconds.
     pub reattested: Vec<String>,
     /// Stale records that could not be re-signed, with the reason.
     pub failed: Vec<(String, String)>,
+    /// Records in an older format that this pass does not carry forward: an
+    /// attestation of a revoked key (left as it is; no verifier can read it,
+    /// so the key stays unusable), or an act-as grant (removed; it embeds
+    /// signatures of another party, so it cannot be re-signed here).
+    pub dropped: Vec<String>,
 }
 
 impl KindReport {
@@ -105,6 +121,9 @@ impl fmt::Display for KindReport {
         if !self.failed.is_empty() {
             write!(f, ", failed {}", self.failed.len())?;
         }
+        if !self.dropped.is_empty() {
+            write!(f, ", dropped {}", self.dropped.len())?;
+        }
         Ok(())
     }
 }
@@ -115,19 +134,23 @@ pub struct UpgradeReport {
     pub claims: KindReport,
     pub consent_grants: KindReport,
     pub revocations: KindReport,
+    pub attestations: KindReport,
+    pub act_as_grants: KindReport,
 }
 
 impl UpgradeReport {
     pub fn is_clean(&self) -> bool {
-        self.claims.is_clean() && self.consent_grants.is_clean() && self.revocations.is_clean()
+        self.kinds().iter().all(|(_, r)| r.is_clean())
     }
 
     /// `(name, report)` for each kind, in a fixed order.
-    pub fn kinds(&self) -> [(&'static str, &KindReport); 3] {
+    pub fn kinds(&self) -> [(&'static str, &KindReport); 5] {
         [
             ("claims", &self.claims),
             ("consent grants", &self.consent_grants),
             ("key revocations", &self.revocations),
+            ("application key attestations", &self.attestations),
+            ("act-as grants", &self.act_as_grants),
         ]
     }
 }
@@ -194,6 +217,8 @@ pub fn run(pool: &DbPool, passphrase: Option<&str>) -> Result<UpgradeReport, Str
         claims: upgrade_claims(pool, &domain, &keys, &mut signers)?,
         consent_grants: upgrade_consent_grants(pool, &domain, &keys, &mut signers)?,
         revocations: upgrade_revocations(pool, &domain, &keys, &mut signers)?,
+        attestations: upgrade_attestations(pool, &domain, &keys, &mut signers)?,
+        act_as_grants: upgrade_act_as_grants(pool, passphrase.is_some())?,
     })
 }
 
@@ -205,11 +230,11 @@ fn split_signatures(
     signatures.iter().cloned().partition(|s| s.domain == domain)
 }
 
-fn is_active(revoked_at: Option<&str>, expires_at: Option<&str>) -> bool {
-    revoked_at.is_none()
-        && expires_at
-            .and_then(|e| liblinkkeys::timestamp::parse_rfc3339(e).ok())
-            .is_none_or(|e| e > time::OffsetDateTime::now_utc())
+fn is_active(
+    revoked_at: Option<&time::OffsetDateTime>,
+    expires_at: Option<&time::OffsetDateTime>,
+) -> bool {
+    revoked_at.is_none() && expires_at.is_none_or(|e| *e > time::OffsetDateTime::now_utc())
 }
 
 fn upgrade_claims(
@@ -229,7 +254,7 @@ fn upgrade_claims(
 
     for row in rows
         .iter()
-        .filter(|r| is_active(r.revoked_at.as_deref(), r.expires_at.as_deref()))
+        .filter(|r| is_active(r.revoked_at.as_ref(), r.expires_at.as_ref()))
     {
         report.checked += 1;
         let claim: Claim = row.into();
@@ -259,19 +284,16 @@ fn upgrade_claims(
             continue;
         };
 
-        // `attested_at` is signed and is served exactly as stored. A value
-        // that is not RFC3339 (SQLite rows from before 2026-07-02 copied
-        // `created_at`, "YYYY-MM-DD HH:MM:SS") fails every verifier's key
-        // check, so the re-sign makes a new attestation at whole seconds.
-        let new_attested_at = liblinkkeys::timestamp::parse_rfc3339(&claim.attested_at)
-            .is_err()
-            .then(|| {
-                time::OffsetDateTime::now_utc()
-                    .replace_nanosecond(0)
-                    .expect("zeroing nanoseconds cannot fail")
-                    .to_rfc3339()
-            });
-        let attested_at = new_attested_at.as_deref().unwrap_or(&claim.attested_at);
+        // A signed time must be whole seconds. A stored time with a fraction
+        // (claims signed before typed timestamps could carry one) is cut to
+        // whole seconds; the instant moves back by less than a second, so the
+        // signing key's standing at that time does not change.
+        let attested_at = whole_seconds(claim.attested_at);
+        let expires_at = claim.expires_at.map(whole_seconds);
+        let new_attested_at = (attested_at != claim.attested_at).then_some(attested_at);
+        let new_expires_at = (expires_at != claim.expires_at)
+            .then_some(expires_at)
+            .flatten();
 
         let signed = match sign_with_active(
             &ClaimSpec {
@@ -280,7 +302,7 @@ fn upgrade_claims(
                 claim_value: &claim.claim_value,
                 user_id: &claim.user_id,
                 subject_domain: domain,
-                expires_at: claim.expires_at.as_deref(),
+                expires_at,
                 attested_at,
             },
             active,
@@ -301,18 +323,18 @@ fn upgrade_claims(
 
         let mut signatures = signed.signatures;
         signatures.extend(foreign);
-        if let Err(e) = pool.resign_claim(&row.id, new_attested_at.as_deref(), &signatures) {
+        if let Err(e) = pool.resign_claim(&row.id, new_attested_at, new_expires_at, &signatures) {
             report
                 .failed
                 .push((row.id.clone(), format!("could not store signatures: {e}")));
             continue;
         }
-        if new_attested_at.is_some() {
+        if new_attested_at.is_some() || new_expires_at.is_some() {
             let _ = pool.write_audit(
                 "claim.reattested",
                 Some(&row.id),
                 Some("signature-upgrade"),
-                Some("stored attested_at was not RFC3339; re-signed with a new attestation time"),
+                Some("a stored signed time had a fraction of a second; re-signed at whole seconds"),
             );
             report.reattested.push(row.id.clone());
         }
@@ -338,16 +360,11 @@ fn upgrade_consent_grants(
 
     for row in &rows {
         report.checked += 1;
-        let decoded = liblinkkeys::generated::decode_signed_consent_grant(&row.signed_grant)
-            .ok()
-            .and_then(|signed| {
-                let grant = liblinkkeys::generated::decode_consent_grant(&signed.grant).ok()?;
-                Some((signed, grant))
-            });
-        let Some((signed, grant)) = decoded else {
+        let Ok(stored) = decode_stored_consent_grant(&row.signed_grant) else {
             report.unverifiable.push(row.id.clone());
             continue;
         };
+        let grant = stored.grant.clone();
         let application = match (&row.app_subject_user_id, &row.app_application_id) {
             (Some(subject_user_id), Some(application_id)) => Some(ApplicationRef {
                 subject_user_id: subject_user_id.clone(),
@@ -366,30 +383,38 @@ fn upgrade_consent_grants(
             continue;
         }
 
-        let (local, foreign) = split_signatures(&signed.signatures, domain);
+        let (local, foreign) = split_signatures(&stored.signatures, domain);
         if !foreign.is_empty() {
             report.foreign.push(row.id.clone());
         }
         if local.is_empty() {
             continue;
         }
-        let local_signed = SignedConsentGrant {
-            grant: signed.grant.clone(),
-            signatures: local,
-        };
-        if verify_consent(
-            &local_signed,
-            domain,
-            &row.audience,
-            application.as_ref(),
-            &keysets,
-        )
-        .is_ok()
-        {
-            report.current += 1;
-            continue;
+        if stored.legacy_times.is_none() {
+            let signed = liblinkkeys::generated::decode_signed_consent_grant(&row.signed_grant)
+                .expect("decode_stored_consent_grant decoded it");
+            let local_signed = SignedConsentGrant {
+                grant: signed.grant,
+                signatures: local.clone(),
+            };
+            if verify_consent(
+                &local_signed,
+                domain,
+                &row.audience,
+                application.as_ref(),
+                &keysets,
+            )
+            .is_ok()
+            {
+                report.current += 1;
+                continue;
+            }
         }
-        if consent_provenance(&local_signed, &grant, domain, keys).is_none() {
+        let local_stored = liblinkkeys::legacy_signatures::StoredConsentGrant {
+            signatures: local,
+            ..stored
+        };
+        if consent_provenance(&local_stored, domain, keys).is_none() {
             report.unverifiable.push(row.id.clone());
             continue;
         }
@@ -405,8 +430,8 @@ fn upgrade_consent_grants(
                 subject_domain: domain,
                 audience: &grant.audience,
                 claim_types: &grant.claim_types,
-                issued_at: &grant.issued_at,
-                expires_at: &grant.expires_at,
+                issued_at: whole_seconds(grant.issued_at),
+                expires_at: whole_seconds(grant.expires_at),
                 application: application.as_ref(),
             },
             &claim_signers(domain, active),
@@ -431,7 +456,8 @@ fn upgrade_consent_grants(
             continue;
         }
         resigned.signatures.extend(foreign);
-        let bytes = liblinkkeys::generated::encode_signed_consent_grant(&resigned);
+        let bytes = liblinkkeys::generated::encode_signed_consent_grant(&resigned)
+            .map_err(|e| format!("re-encoding the re-signed record failed: {e}"))?;
         if let Err(e) = pool.update_consent_grant_signature(&row.id, &bytes) {
             report
                 .failed
@@ -456,10 +482,11 @@ fn upgrade_revocations(
 
     for row in &rows {
         report.checked += 1;
-        let Ok(cert) = liblinkkeys::generated::decode_revocation_certificate(&row.cert) else {
+        let Ok(stored) = decode_stored_revocation(&row.cert) else {
             report.unverifiable.push(row.id.clone());
             continue;
         };
+        let cert = stored.cert.clone();
         if cert.target_key_id != row.target_key_id
             || cert.target_fingerprint != row.target_fingerprint
         {
@@ -469,11 +496,13 @@ fn upgrade_revocations(
         if cert.signatures.iter().any(|s| s.domain != domain) {
             report.foreign.push(row.id.clone());
         }
-        if verify_revocation_certificate(&cert, keys, domain).is_ok() {
+        if stored.legacy_revoked_at.is_none()
+            && verify_revocation_certificate(&cert, keys, domain).is_ok()
+        {
             report.current += 1;
             continue;
         }
-        if revocation_provenance(&cert, domain, keys).is_none() {
+        if revocation_provenance(&stored, domain, keys).is_none() {
             report.unverifiable.push(row.id.clone());
             continue;
         }
@@ -501,7 +530,7 @@ fn upgrade_revocations(
             &RevocationSpec {
                 target_key_id: &cert.target_key_id,
                 target_fingerprint: &cert.target_fingerprint,
-                revoked_at: &cert.revoked_at,
+                revoked_at: whole_seconds(cert.revoked_at),
             },
             &siblings,
         ) {
@@ -518,7 +547,8 @@ fn upgrade_revocations(
             ));
             continue;
         }
-        let bytes = liblinkkeys::generated::encode_revocation_certificate(&resigned);
+        let bytes = liblinkkeys::generated::encode_revocation_certificate(&resigned)
+            .map_err(|e| format!("re-encoding the re-signed record failed: {e}"))?;
         if let Err(e) = pool.update_issued_revocation_cert(&row.id, &bytes) {
             report
                 .failed
@@ -526,6 +556,130 @@ fn upgrade_revocations(
             continue;
         }
         report.resigned.push(row.id.clone());
+    }
+    Ok(report)
+}
+
+fn upgrade_attestations(
+    pool: &DbPool,
+    domain: &str,
+    keys: &[DomainPublicKey],
+    signers: &mut Signers<'_>,
+) -> Result<KindReport, String> {
+    let rows = pool
+        .list_all_application_key_attestations()
+        .map_err(|e| format!("could not list application key attestations: {e}"))?;
+    let mut report = KindReport::default();
+
+    for row in &rows {
+        report.checked += 1;
+        let Some(stored) = attestation_provenance(&row.signed_attestation, domain, keys) else {
+            report.unverifiable.push(row.id.clone());
+            continue;
+        };
+        if stored.provenance == Provenance::Current {
+            report.current += 1;
+            continue;
+        }
+        // Never re-attest a revoked key. Its old attestation cannot be read by
+        // any current verifier, so the key stays unusable.
+        match pool.find_application_key_by_row_id(&row.application_key_row_id) {
+            Ok(Some(key)) if key.revoked_at.is_none() => {}
+            Ok(_) => {
+                report.dropped.push(row.id.clone());
+                continue;
+            }
+            Err(e) => {
+                report
+                    .failed
+                    .push((row.id.clone(), format!("could not read the key: {e}")));
+                continue;
+            }
+        }
+        report.stale.push(row.id.clone());
+
+        let Some(active) = signers.for_resign(&mut report, &row.id) else {
+            continue;
+        };
+        let signed = match sign_attestation(&stored.attestation, &claim_signers(domain, active)) {
+            Ok(s) => s,
+            Err(e) => {
+                report.failed.push((row.id.clone(), e.to_string()));
+                continue;
+            }
+        };
+        let bytes = liblinkkeys::generated::encode_signed_application_key_attestation(&signed)
+            .map_err(|e| format!("re-encoding the re-signed record failed: {e}"))?;
+        if attestation_provenance(&bytes, domain, keys)
+            .is_none_or(|a| a.provenance != Provenance::Current)
+        {
+            report.failed.push((
+                row.id.clone(),
+                "re-signed attestation does not verify".to_string(),
+            ));
+            continue;
+        }
+        if let Err(e) = pool.upsert_application_key_attestation(
+            &row.application_key_row_id,
+            &bytes,
+            stored.attestation.attested_at,
+            stored.attestation.attestation_expires_at,
+        ) {
+            report
+                .failed
+                .push((row.id.clone(), format!("could not store attestation: {e}")));
+            continue;
+        }
+        report.resigned.push(row.id.clone());
+    }
+    Ok(report)
+}
+
+/// True when a stored act-as grant decodes in the current encoding, embedded
+/// scope set included.
+fn act_as_grant_is_current(signed_grant: &[u8]) -> bool {
+    liblinkkeys::generated::decode_signed_act_as_grant(signed_grant)
+        .ok()
+        .and_then(|signed| liblinkkeys::generated::decode_act_as_grant(&signed.grant).ok())
+        .is_some_and(|grant| {
+            liblinkkeys::generated::decode_act_as_scope_set(&grant.scope_set.scope_set).is_ok()
+        })
+}
+
+/// An act-as grant embeds the audience application's signed scope set, so
+/// this domain cannot re-sign a grant made in an older encoding. Such a grant
+/// cannot be presented to any current verifier, so it is removed; the user
+/// grants access again. Only a pass with the passphrase (a real start-up)
+/// removes anything.
+fn upgrade_act_as_grants(pool: &DbPool, repair: bool) -> Result<KindReport, String> {
+    let rows = pool
+        .list_all_act_as_grants()
+        .map_err(|e| format!("could not list act-as grants: {e}"))?;
+    let mut report = KindReport::default();
+    for row in &rows {
+        report.checked += 1;
+        if act_as_grant_is_current(&row.signed_grant) {
+            report.current += 1;
+            continue;
+        }
+        if !repair {
+            report.stale.push(row.grant_id.clone());
+            continue;
+        }
+        match pool.delete_act_as_grant(&row.grant_id) {
+            Ok(_) => {
+                let _ = pool.write_audit(
+                    "act_as_grant.dropped",
+                    Some(&row.grant_id),
+                    Some("signature-upgrade"),
+                    Some("grant used an older encoding; removed, the user must grant again"),
+                );
+                report.dropped.push(row.grant_id.clone());
+            }
+            Err(e) => report
+                .failed
+                .push((row.grant_id.clone(), format!("could not remove grant: {e}"))),
+        }
     }
     Ok(report)
 }
@@ -556,12 +710,18 @@ pub fn upgrade_on_startup(pool: &DbPool) {
         }
         for id in &r.reattested {
             log::warn!(
-                "signature upgrade: {kind} {id}: stored attested_at was not RFC3339; \
-                 re-signed with a new attestation time"
+                "signature upgrade: {kind} {id}: a stored signed time had a fraction of a \
+                 second; re-signed at whole seconds"
             );
         }
         for (id, reason) in &r.failed {
             log::error!("signature upgrade: {kind} {id}: not re-signed: {reason}");
+        }
+        for id in &r.dropped {
+            log::warn!(
+                "signature upgrade: {kind} {id}: older format that cannot be re-signed here; \
+                 not carried forward"
+            );
         }
         let waiting = r.stale.len() - r.resigned.len();
         if passphrase.is_none() && waiting > 0 {

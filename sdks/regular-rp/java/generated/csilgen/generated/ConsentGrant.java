@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.List;
 
 public record ConsentGrant(
@@ -10,9 +11,9 @@ public record ConsentGrant(
     String subjectDomain /* wire: "subject_domain" */,
     String audience /* wire: "audience" */,
     List<String> claimTypes /* wire: "claim_types" */,
-    String issuedAt /* wire: "issued_at" */,
-    String expiresAt /* wire: "expires_at" */,
-    String revokedAt /* wire: "revoked_at" */,
+    Instant issuedAt /* wire: "issued_at" */,
+    Instant expiresAt /* wire: "expires_at" */,
+    Instant revokedAt /* wire: "revoked_at" */,
     ApplicationRef application /* wire: "application" */
 ) {
 }

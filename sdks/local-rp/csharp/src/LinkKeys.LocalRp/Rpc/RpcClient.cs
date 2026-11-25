@@ -150,7 +150,7 @@ public static class RpcClient
         // — matching `RedeemClaimTicket`'s own resolve-then-dial shape rather than
         // threading connection state across two logically separate calls.
         var revocationsEndpoint = DiscoverDomainEndpoint(dns, domain);
-        var since = DateTimeOffset.UtcNow.AddDays(-30).ToString("O");
+        var since = DateTimeOffset.UtcNow.AddDays(-30);
         var reqPayload = Codec.EncodeGetRevocationsRequest(new GetRevocationsRequest(since));
         GetRevocationsResponse revResp;
         try

@@ -26,7 +26,7 @@ pub fn revocationPayload(allocator: std.mem.Allocator, target_key_id: []const u8
         cbor.text(revocation_tag),
         cbor.text(target_key_id),
         cbor.text(target_fingerprint),
-        cbor.text(revoked_at),
+        try local_rp.signedTimeValue(revoked_at),
         cbor.text(signing_domain),
     };
     return cbor.encodeTuple(allocator, &items);

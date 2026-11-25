@@ -3,8 +3,8 @@
 package csilgen.generated;
 
 public record NotificationCapability(
-    String purpose /* wire: "purpose" */,
-    String channel /* wire: "channel" */,
-    String destinationKind /* wire: "destination_kind" */
+    NotificationPurpose purpose /* wire: "purpose" */,
+    NotificationChannel channel /* wire: "channel" */,
+    DestinationKind destinationKind /* wire: "destination_kind" */
 ) {
 }

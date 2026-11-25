@@ -240,7 +240,10 @@ func FetchDomainKeys(tr Transport, dns DnsResolver, domain string) ([]api.Domain
 		return nil, err
 	}
 
-	payload := api.EncodeEmptyRequest(api.EmptyRequest{})
+	payload, err := api.EncodeEmptyRequest(api.EmptyRequest{})
+	if err != nil {
+		return nil, encodeFailed("EmptyRequest", err)
+	}
 	respBytes, err := call(tr, endpoint, "DomainKeys", "get-domain-keys", payload)
 	if err != nil {
 		return nil, err
@@ -255,8 +258,11 @@ func FetchDomainKeys(tr Transport, dns DnsResolver, domain string) ([]api.Domain
 		return nil, &NoTrustedDomainKeysError{Domain: domain}
 	}
 
-	since := time.Now().Add(-30 * 24 * time.Hour).UTC().Format(time.RFC3339Nano)
-	revReqPayload := api.EncodeGetRevocationsRequest(api.GetRevocationsRequest{Since: &since})
+	since := time.Now().Add(-30 * 24 * time.Hour).UTC()
+	revReqPayload, err := api.EncodeGetRevocationsRequest(api.GetRevocationsRequest{Since: &since})
+	if err != nil {
+		return nil, encodeFailed("GetRevocationsRequest", err)
+	}
 	revRespBytes, err := call(tr, endpoint, "DomainKeys", "get-revocations", revReqPayload)
 	if err != nil {
 		return nil, err
@@ -297,7 +303,10 @@ func RedeemClaimTicket(tr Transport, dns DnsResolver, domain string, signedReque
 	if err != nil {
 		return nil, err
 	}
-	payload := api.EncodeSignedLocalRpTicketRedemptionRequest(signedRequest)
+	payload, err := api.EncodeSignedLocalRpTicketRedemptionRequest(signedRequest)
+	if err != nil {
+		return nil, encodeFailed("SignedLocalRpTicketRedemptionRequest", err)
+	}
 	respBytes, err := call(tr, endpoint, "LocalRp", "redeem-claim-ticket", payload)
 	if err != nil {
 		return nil, err

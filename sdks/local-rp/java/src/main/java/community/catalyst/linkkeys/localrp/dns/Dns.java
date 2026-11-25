@@ -154,8 +154,10 @@ public final class Dns {
 
     private static final String KEY_VOUCH_TAG = "linkkeys-key-vouch-v1alpha";
 
-    static byte[] keyVouchPayload(String encFingerprint, String encExpiresAt) {
-        return Cbor.encode(Cbor.tuple(Cbor.vtext(KEY_VOUCH_TAG), Cbor.vtext(encFingerprint), Cbor.vtext(encExpiresAt)));
+    /** {@code encExpiresAt} is signed as whole Unix seconds (a CBOR integer); a fraction throws. */
+    static byte[] keyVouchPayload(String encFingerprint, java.time.Instant encExpiresAt) {
+        return Cbor.encode(
+                Cbor.tuple(Cbor.vtext(KEY_VOUCH_TAG), Cbor.vtext(encFingerprint), Cbor.signedTime(encExpiresAt)));
     }
 
     /**
@@ -177,6 +179,10 @@ public final class Dns {
             return false;
         }
         if (!"ed25519".equals(signingKey.algorithm())) {
+            return false;
+        }
+        // An expiry with a fraction of a second was never signed.
+        if (encKey.expiresAt().getNano() != 0) {
             return false;
         }
         String recomputedFp = Crypto.fingerprint(encKey.publicKey());

@@ -36,6 +36,11 @@ function hex(s: string): Uint8Array {
   return new Uint8Array(Buffer.from(s, "hex"));
 }
 
+/** A vector's RFC 3339 text (or null) as epoch milliseconds, for comparing against a decoded `Date`. */
+function instant(v: string | null | undefined): number | undefined {
+  return v === null || v === undefined ? undefined : new Date(v).getTime();
+}
+
 function caseLabel(c: any): string {
   return c.name ?? c.structure ?? "<unnamed case>";
 }
@@ -124,12 +129,13 @@ test("callback_box: positive cases open via the SDK's sealed-box implementation"
 
     const { header, signedPayload } = localRp.openLocalRpCallback(encrypted, decryptKey, allowed as AeadSuite[]);
 
-    assert.equal(header.suite, c.suite);
+    assert.equal(crypto.aeadSuiteFromWire(header.suite), c.suite);
+    assert.equal(generated.AeadSuiteNumbers.numberFromEnum(header.suite), BigInt(c.suite_number));
     assert.equal(header.fingerprint, c.fingerprint);
     assert.deepEqual(Buffer.from(header.nonce), Buffer.from(hex(c.nonce_hex)));
     assert.deepEqual(Buffer.from(header.state), Buffer.from(hex(c.state_hex)));
-    assert.equal(header.issuedAt, c.issued_at);
-    assert.equal(header.expiresAt, c.expires_at);
+    assert.equal(header.issuedAt.getTime(), instant(c.issued_at));
+    assert.equal(header.expiresAt.getTime(), instant(c.expires_at));
 
     const plaintext = generated.toSignedLocalRpCallbackPayloadCbor(signedPayload);
     assert.deepEqual(Buffer.from(plaintext), Buffer.from(hex(c.plaintext_cbor_hex)));
@@ -283,8 +289,8 @@ test("expirations: check_expirations thresholds via the SDK wrapper", () => {
 
 test("expirations: check_timestamps skew boundaries are exact", () => {
   const d = load("expirations.json");
-  const issuedAt: string = d.check_timestamps.issued_at;
-  const expiresAt: string = d.check_timestamps.expires_at;
+  const issuedAt = new Date(d.check_timestamps.issued_at);
+  const expiresAt = new Date(d.check_timestamps.expires_at);
   const skew: number = d.check_timestamps.skew_seconds;
   const cases = d.check_timestamps.cases;
   assert.equal(cases.length, 4);
@@ -314,9 +320,9 @@ function revocationFixtureKey(k: any): DomainPublicKey {
     fingerprint: k.fingerprint_hex,
     algorithm: k.algorithm,
     keyUsage: k.key_usage,
-    createdAt: k.created_at,
-    expiresAt: k.expires_at,
-    revokedAt: k.revoked_at ?? undefined,
+    createdAt: new Date(k.created_at),
+    expiresAt: new Date(k.expires_at),
+    revokedAt: k.revoked_at ? new Date(k.revoked_at) : undefined,
     signedByKeyId: undefined,
     keySignature: undefined,
   };
@@ -337,7 +343,7 @@ test("revocations: constants and per-signature payload construction match", () =
     const recomputed = revocation.revocationPayload(
       valid.certificate.target_key_id,
       valid.certificate.target_fingerprint,
-      valid.certificate.revoked_at,
+      new Date(valid.certificate.revoked_at),
       sig.domain,
     );
     assert.deepEqual(
@@ -360,7 +366,7 @@ test("revocations: all certificate cases verify with exact counted signers", () 
     const cert = generated.fromRevocationCertificateCbor(hex(c.certificate_cbor_hex));
     assert.equal(cert.targetKeyId, c.certificate.target_key_id, caseLabel(c));
     assert.equal(cert.targetFingerprint, c.certificate.target_fingerprint, caseLabel(c));
-    assert.equal(cert.revokedAt, c.certificate.revoked_at, caseLabel(c));
+    assert.equal(cert.revokedAt.getTime(), instant(c.certificate.revoked_at), caseLabel(c));
     assert.equal(cert.signatures.length, c.certificate.signatures.length, caseLabel(c));
 
     const counted = revocation.countRevocationCertificateSigners(
@@ -428,9 +434,9 @@ function claimFixtureKey(k: any): DomainPublicKey {
     fingerprint: k.fingerprint_hex,
     algorithm: k.algorithm,
     keyUsage: k.key_usage,
-    createdAt: k.created_at,
-    expiresAt: k.expires_at,
-    revokedAt: k.revoked_at ?? undefined,
+    createdAt: new Date(k.created_at),
+    expiresAt: new Date(k.expires_at),
+    revokedAt: k.revoked_at ? new Date(k.revoked_at) : undefined,
     signedByKeyId: undefined,
     keySignature: undefined,
   };
@@ -473,10 +479,10 @@ test("claims: positive cases round-trip byte-exactly and verify via the SDK's ow
     assert.equal(decoded.claimId, c.claim.claim_id, caseLabel(c));
     assert.equal(decoded.userId, c.claim.user_id, caseLabel(c));
     assert.equal(decoded.claimType, c.claim.claim_type, caseLabel(c));
-    assert.equal(decoded.attestedAt, c.claim.attested_at, caseLabel(c));
-    assert.equal(decoded.createdAt, c.claim.created_at, caseLabel(c));
-    assert.equal(decoded.expiresAt, c.claim.expires_at ?? undefined, caseLabel(c));
-    assert.equal(decoded.revokedAt, c.claim.revoked_at ?? undefined, caseLabel(c));
+    assert.equal(decoded.attestedAt.getTime(), instant(c.claim.attested_at), caseLabel(c));
+    assert.equal(decoded.createdAt.getTime(), instant(c.claim.created_at), caseLabel(c));
+    assert.equal(decoded.expiresAt?.getTime(), instant(c.claim.expires_at), caseLabel(c));
+    assert.equal(decoded.revokedAt?.getTime(), instant(c.claim.revoked_at), caseLabel(c));
     assert.equal(decoded.signatures.length, c.claim.signatures.length, caseLabel(c));
 
     // Per-signature payload construction: byte-exact against the fixture's
@@ -576,7 +582,7 @@ test("claims: LocalRpTicketRedemptionResponse round-trips byte-exactly and every
 
   assert.equal(decoded.userId, r.user_id);
   assert.equal(decoded.userDomain, r.user_domain);
-  assert.equal(decoded.ticketExpiresAt, r.ticket_expires_at);
+  assert.equal(decoded.ticketExpiresAt.getTime(), instant(r.ticket_expires_at));
   assert.equal(decoded.claims.length, 3);
 
   // claims_ref: the three positive cases, in order.
@@ -595,4 +601,80 @@ test("claims: LocalRpTicketRedemptionResponse round-trips byte-exactly and every
   for (const claim of decoded.claims) {
     assert.doesNotThrow(() => claims.verifyClaim(claim, decoded.userDomain, domainKeys, CLAIMS_NOW));
   }
+});
+
+// ---------------------------------------------------------------------
+// Wire format: tag-0 timestamps, enum numbers, whole-second signed times
+// ---------------------------------------------------------------------
+
+test("wire: descriptor supported_suites and callback header suite are CSIL numbers", () => {
+  const identity = generateLocalRpIdentity({ appName: "Wire Test", now: new Date("2026-01-01T00:00:00Z") });
+  const raw = generated.decode(identity.descriptor.descriptor);
+  const suites = generated.asArray(generated.requireKey(raw, "supported_suites")).map(Number);
+  assert.deepEqual(suites, [1, 2]);
+  const createdAt = generated.requireKey(raw, "created_at") as { tag: number; value: unknown };
+  assert.equal(createdAt.tag, 0);
+  assert.equal(createdAt.value, "2026-01-01T00:00:00Z");
+
+  const d = load("callback_box.json");
+  for (const c of d.positive_cases) {
+    const header = generated.decode(hex(c.header_cbor_hex));
+    assert.equal(Number(generated.requireKey(header, "suite")), c.suite_number);
+  }
+});
+
+test("wire: a callback header timestamp without tag 0 is rejected", () => {
+  const d = load("callback_box.json");
+  const c = d.positive_cases[0];
+  const header = generated.decode(hex(c.header_cbor_hex)) as Map<generated.CborValue, generated.CborValue>;
+  header.set("issued_at", "2026-01-01T00:06:00Z");
+  const encrypted: LocalRpEncryptedCallback = {
+    header: generated.encodeValue(header),
+    ciphertext: hex(c.ciphertext_hex),
+  };
+  assert.throws(
+    () => localRp.openLocalRpCallback(encrypted, hex(c.decrypt_private_key_hex), c.allowed_suites as AeadSuite[]),
+    (e: unknown) => e instanceof localRp.LocalRpError && e.code === "decode",
+  );
+});
+
+test("wire: a signed claim time with a fraction of a second is refused, never rounded", () => {
+  const d = load("claims.json");
+  const c = d.cases[0];
+  const decoded = generated.fromClaimCbor(hex(c.claim_cbor_hex));
+  const isBadTimestamp = (e: unknown) => e instanceof claims.ClaimError && e.code === "bad-timestamp";
+
+  assert.throws(
+    () =>
+      claims.claimSignPayload(
+        decoded.claimId,
+        decoded.claimType,
+        decoded.claimValue,
+        decoded.userId,
+        c.subject_domain,
+        c.subject_domain,
+        decoded.expiresAt,
+        new Date(decoded.attestedAt.getTime() + 500),
+      ),
+    isBadTimestamp,
+  );
+
+  const fractional = { ...decoded, attestedAt: new Date(decoded.attestedAt.getTime() + 1) };
+  assert.throws(
+    () => claims.verifyClaim(fractional, c.subject_domain, claimsDefaultDomainKeys(d), CLAIMS_NOW),
+    isBadTimestamp,
+  );
+});
+
+test("wire: a revocation certificate with a fractional revoked_at counts no signers", () => {
+  const d = load("revocations.json");
+  const domainKeys: DomainPublicKey[] = d.domain_keys.map(revocationFixtureKey);
+  const valid = d.certificate_cases.find((c: any) => c.name === "valid_quorum_two_siblings");
+  const cert = generated.fromRevocationCertificateCbor(hex(valid.certificate_cbor_hex));
+  assert.equal(revocation.countRevocationCertificateSigners(cert, domainKeys, valid.verify_domain), 2);
+  const fractional = { ...cert, revokedAt: new Date(cert.revokedAt.getTime() + 250) };
+  assert.equal(revocation.countRevocationCertificateSigners(fractional, domainKeys, valid.verify_domain), 0);
+  assert.throws(() =>
+    revocation.revocationPayload(cert.targetKeyId, cert.targetFingerprint, fractional.revokedAt, valid.verify_domain),
+  );
 });

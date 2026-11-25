@@ -147,6 +147,22 @@ has) — see "The deprecated HTTP path" below.
    consented claims. Skip it if you only need proof of identity (no
    claims).
 
+Each of these four operations replies with status 0 and a `variant`. The
+variant is the success type (`RpSignResponse`, `RpDecryptResponse`,
+`RpVerifyResponse`, `UserInfo`) or `RpError {code, message}`. `code` is an
+`RpErrorCode` number: `not_application_account`=1,
+`application_mismatch`=2, `application_user_limit`=3, `bad_request`=4,
+`upstream_failed`=5, `internal`=6. `rc_rpc_call` below checks the variant
+and turns `RpError` into an `LRP_ERR_SERVER` error that names the code.
+The RP server gets the application from the API-key account, so
+`sign-request` has no `application_id` field. The assertion carries the
+application in its required `application` field
+(`{subject_user_id, subject_domain, application_id}`).
+
+On the wire, a CSIL `timestamp` (for example the assertion's `issued_at`
+and `expires_at`) is CBOR tag 0 that wraps RFC 3339 text in UTC. A CSIL
+enum is an unsigned integer, not the label text.
+
 ## API-key envelope auth (the raw-key trap)
 
 All five `Rp` operations are authenticated the same way: the API key rides
@@ -498,6 +514,9 @@ int rc_get_text(const rc_value *map, const char *key, lrp_str *out, lrp_error *e
 int rc_get_bytes(const rc_value *map, const char *key, lrp_bytes *out, lrp_error *err);
 int rc_get_uint(const rc_value *map, const char *key, uint64_t *out, lrp_error *err);
 int rc_get_array(const rc_value *map, const char *key, const rc_value **out, lrp_error *err);
+/* A CSIL `timestamp`: tag 0 that wraps RFC 3339 text. *out gets the text.
+ * A value without tag 0 is refused. */
+int rc_get_timestamp(const rc_value *map, const char *key, lrp_str *out, lrp_error *err);
 /* Optional-field accessors: leave *out unset and return without failing
  * when the key is absent or the wrong type. */
 void rc_get_text_opt(const rc_value *map, const char *key, lrp_str *out);
@@ -530,11 +549,12 @@ int rc_decode_rpc_response(const uint8_t *data, size_t len, rc_rpc_response *out
 /* One CSIL-RPC call over a fresh TLS connection pinned to `fingerprints`:
  * dial -> TLS-connect-and-pin -> send request frame -> read response frame
  * -> decode. Returns the decoded response's payload bytes on transport
- * status 0 (Ok); a non-zero status becomes LRP_ERR_SERVER. */
+ * status 0 (Ok) when `variant` equals `expected_variant`; a non-zero status,
+ * an `RpError` variant, or any other variant becomes LRP_ERR_SERVER. */
 int rc_rpc_call(lrp_transport *transport, const char *tcp_addr, const char *const *fingerprints,
                  size_t fingerprints_count, const char *service, const char *op, const char *auth,
-                 const uint8_t *payload, size_t payload_len, lrp_bytes *out_payload,
-                 lrp_error *err);
+                 const uint8_t *payload, size_t payload_len, const char *expected_variant,
+                 lrp_bytes *out_payload, lrp_error *err);
 
 /* --------------------------------------------------------------------- */
 /* Rp-service type encode/decode (csil/linkkeys.csil's Rp section)       */
@@ -560,6 +580,10 @@ typedef struct rc_identity_assertion {
     lrp_str issued_at;
     lrp_str expires_at;
     lrp_str display_name; /* .data == NULL if absent */
+    /* ApplicationRef: the application principal of the login. Required. */
+    lrp_str app_subject_user_id;
+    lrp_str app_subject_domain;
+    lrp_str app_application_id;
 } rc_identity_assertion;
 void rc_identity_assertion_free(rc_identity_assertion *a);
 
@@ -1010,6 +1034,14 @@ int rc_get_text(const rc_value *map, const char *key, lrp_str *out, lrp_error *e
     return rc_as_text(v, out, err);
 }
 
+int rc_get_timestamp(const rc_value *map, const char *key, lrp_str *out, lrp_error *err) {
+    const rc_value *v = rc_map_get(map, key);
+    if (v == NULL || v->type != RC_T_TAG || v->tag != 0 || v->tag_inner == NULL) {
+        return lrp_fail_ext(err, LRP_ERR_DECODE, "CBOR: field '%s' is not a tag 0 timestamp", key);
+    }
+    return rc_as_text(v->tag_inner, out, err);
+}
+
 int rc_get_bytes(const rc_value *map, const char *key, lrp_bytes *out, lrp_error *err) {
     const rc_value *v = rc_map_get(map, key);
     if (v == NULL) return lrp_fail_ext(err, LRP_ERR_DECODE, "CBOR: missing required field '%s'", key);
@@ -1370,8 +1402,8 @@ static int rc_read_frame(SSL *ssl, lrp_bytes *out, lrp_error *err) {
 
 int rc_rpc_call(lrp_transport *transport, const char *tcp_addr, const char *const *fingerprints,
                  size_t fingerprints_count, const char *service, const char *op, const char *auth,
-                 const uint8_t *payload, size_t payload_len, lrp_bytes *out_payload,
-                 lrp_error *err) {
+                 const uint8_t *payload, size_t payload_len, const char *expected_variant,
+                 lrp_bytes *out_payload, lrp_error *err) {
     rc_tls_conn conn;
     if (rc_tls_connect_pinned(transport, tcp_addr, fingerprints, fingerprints_count, &conn, err) !=
         0) {
@@ -1406,6 +1438,27 @@ int rc_rpc_call(lrp_transport *transport, const char *tcp_addr, const char *cons
                      (long long)resp.status,
                      resp.error_msg.data != NULL ? resp.error_msg.data : "unknown error");
         }
+        rc_rpc_response_free(&resp);
+        return -1;
+    }
+
+    /* The Rp ops reply with a typed arm: the success type or RpError. */
+    if (resp.variant.data != NULL && strcmp(resp.variant.data, "RpError") == 0) {
+        rc_value *rp_error = NULL;
+        uint64_t code = 0;
+        if (rc_decode(resp.payload.data, resp.payload.len, &rp_error, err) == 0 &&
+            rc_get_uint(rp_error, "code", &code, err) == 0) {
+            /* Do not log `message` without review: it is server text. */
+            lrp_fail_ext(err, LRP_ERR_SERVER, "Rp error code %llu", (unsigned long long)code);
+        }
+        rc_value_free(rp_error);
+        free(rp_error);
+        rc_rpc_response_free(&resp);
+        return -1;
+    }
+    if (expected_variant != NULL &&
+        (resp.variant.data == NULL || strcmp(resp.variant.data, expected_variant) != 0)) {
+        lrp_fail_ext(err, LRP_ERR_SERVER, "unexpected response variant");
         rc_rpc_response_free(&resp);
         return -1;
     }
@@ -1513,6 +1566,9 @@ void rc_identity_assertion_free(rc_identity_assertion *a) {
     lrp_str_free(&a->issued_at);
     lrp_str_free(&a->expires_at);
     lrp_str_free(&a->display_name);
+    lrp_str_free(&a->app_subject_user_id);
+    lrp_str_free(&a->app_subject_domain);
+    lrp_str_free(&a->app_application_id);
 }
 
 void rc_rp_verify_response_free(rc_rp_verify_response *v) { rc_identity_assertion_free(&v->assertion); }
@@ -1524,9 +1580,19 @@ static int rc_decode_identity_assertion(const rc_value *map, rc_identity_asserti
     if (rc_get_text(map, "domain", &out->domain, err) != 0) goto fail;
     if (rc_get_text(map, "audience", &out->audience, err) != 0) goto fail;
     if (rc_get_text(map, "nonce", &out->nonce, err) != 0) goto fail;
-    if (rc_get_text(map, "issued_at", &out->issued_at, err) != 0) goto fail;
-    if (rc_get_text(map, "expires_at", &out->expires_at, err) != 0) goto fail;
+    if (rc_get_timestamp(map, "issued_at", &out->issued_at, err) != 0) goto fail;
+    if (rc_get_timestamp(map, "expires_at", &out->expires_at, err) != 0) goto fail;
     rc_get_text_opt(map, "display_name", &out->display_name); /* optional */
+    {
+        const rc_value *app = rc_map_get(map, "application");
+        if (app == NULL || app->type != RC_T_MAP) {
+            lrp_fail_ext(err, LRP_ERR_DECODE, "assertion: missing required field 'application'");
+            goto fail;
+        }
+        if (rc_get_text(app, "subject_user_id", &out->app_subject_user_id, err) != 0) goto fail;
+        if (rc_get_text(app, "subject_domain", &out->app_subject_domain, err) != 0) goto fail;
+        if (rc_get_text(app, "application_id", &out->app_application_id, err) != 0) goto fail;
+    }
     return 0;
 fail:
     rc_identity_assertion_free(out);
@@ -1843,7 +1909,8 @@ int rrp_begin_login(const rrp_config *cfg, const char *user_domain, const char *
     }
     lrp_bytes resp_bytes = {0};
     int rc = rc_rpc_call(&transport, cfg->tcp_addr, cfg->fingerprints, cfg->fingerprints_count,
-                          "Rp", "sign-request", cfg->api_key, req.data, req.len, &resp_bytes, err);
+                          "Rp", "sign-request", cfg->api_key, req.data, req.len, "RpSignResponse",
+                          &resp_bytes, err);
     lrp_bytes_free(&req);
     if (rc != 0) {
         free(nonce);
@@ -1913,7 +1980,8 @@ int rrp_handle_callback(const rrp_config *cfg, const rrp_pending_login *pending,
     if (rc_encode_rp_decrypt_request(encrypted_token, &dreq, err) != 0) return -1;
     lrp_bytes dresp = {0};
     int rc = rc_rpc_call(&transport, cfg->tcp_addr, cfg->fingerprints, cfg->fingerprints_count,
-                          "Rp", "decrypt-token", cfg->api_key, dreq.data, dreq.len, &dresp, err);
+                          "Rp", "decrypt-token", cfg->api_key, dreq.data, dreq.len,
+                          "RpDecryptResponse", &dresp, err);
     lrp_bytes_free(&dreq);
     if (rc != 0) return -1;
     lrp_str signed_assertion = {0};
@@ -1930,7 +1998,8 @@ int rrp_handle_callback(const rrp_config *cfg, const rrp_pending_login *pending,
     }
     lrp_bytes vresp_bytes = {0};
     rc = rc_rpc_call(&transport, cfg->tcp_addr, cfg->fingerprints, cfg->fingerprints_count, "Rp",
-                      "verify-assertion", cfg->api_key, vreq.data, vreq.len, &vresp_bytes, err);
+                      "verify-assertion", cfg->api_key, vreq.data, vreq.len, "RpVerifyResponse",
+                      &vresp_bytes, err);
     lrp_bytes_free(&vreq);
     if (rc != 0) {
         lrp_str_free(&signed_assertion);
@@ -1993,7 +2062,7 @@ int rrp_handle_callback(const rrp_config *cfg, const rrp_pending_login *pending,
     if (rc != 0) return -1;
     lrp_bytes uresp = {0};
     rc = rc_rpc_call(&transport, cfg->tcp_addr, cfg->fingerprints, cfg->fingerprints_count, "Rp",
-                      "userinfo-fetch", cfg->api_key, ureq.data, ureq.len, &uresp, err);
+                      "userinfo-fetch", cfg->api_key, ureq.data, ureq.len, "UserInfo", &uresp, err);
     lrp_bytes_free(&ureq);
     if (rc != 0) return -1;
     rc = rc_decode_user_info(uresp.data, uresp.len, out, err);

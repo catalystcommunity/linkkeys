@@ -23,13 +23,14 @@
 
 import type { PendingLogin } from "./begin.ts";
 import { verifyClaim, type DomainKeySet } from "./claims.ts";
-import { parseAeadSuite } from "./crypto.ts";
+import { aeadSuiteFromWire } from "./crypto.ts";
 import type { DnsResolver } from "./dns.ts";
 import { defaultDnsResolver, defaultTransport } from "./defaults.ts";
 import { localRpEncryptedCallbackFromUrlParam } from "./encoding.ts";
 import * as generated from "./generated/codec.gen.ts";
 import type { Claim, DomainPublicKey } from "./generated/types.gen.ts";
 import type { LocalRpKeyMaterial } from "./identity.ts";
+import { isValidDate } from "./timestamp.ts";
 import {
   DEFAULT_CLOCK_SKEW_SECONDS,
   LocalRpError,
@@ -98,10 +99,9 @@ export interface VerifiedLocalLogin {
   ticketExpiresAt: Date;
 }
 
-function parseRfc3339(field: string, s: string): Date {
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) {
-    throw new Error(`${field}: invalid RFC3339 timestamp: ${s}`);
+function requireValidTime(field: string, d: Date): Date {
+  if (!isValidDate(d)) {
+    throw new LocalRpError("bad-timestamp", `${field}: invalid timestamp`);
   }
   return d;
 }
@@ -139,7 +139,7 @@ export async function completeLocalLogin(config: CompleteLocalLoginConfig): Prom
   // listed in its own descriptor").
   const ownDescriptor = generated.fromLocalRpDescriptorCbor(config.keyMaterial.descriptor.descriptor);
   const allowedSuites = ownDescriptor.supportedSuites
-    .map((s) => parseAeadSuite(s))
+    .map((s) => aeadSuiteFromWire(s))
     .filter((s): s is NonNullable<typeof s> => s !== undefined);
   const { header, signedPayload } = openLocalRpCallback(
     encrypted,
@@ -186,7 +186,7 @@ export async function completeLocalLogin(config: CompleteLocalLoginConfig): Prom
   const redemptionRequest = buildLocalRpTicketRedemptionRequest(
     payload.claimTicket,
     config.keyMaterial.fingerprint,
-    config.now.toISOString(),
+    new Date(config.now.getTime()),
   );
   const signedRedemption = signLocalRpTicketRedemptionRequest(
     redemptionRequest,
@@ -277,8 +277,8 @@ export async function completeLocalLogin(config: CompleteLocalLoginConfig): Prom
     claims: redemption.claims,
     domainPublicKeys: userDomainKeys,
     localRpFingerprint: config.keyMaterial.fingerprint,
-    issuedAt: parseRfc3339("callback issuedAt", payload.issuedAt),
-    expiresAt: parseRfc3339("callback expiresAt", payload.expiresAt),
-    ticketExpiresAt: parseRfc3339("ticketExpiresAt", redemption.ticketExpiresAt),
+    issuedAt: requireValidTime("callback issuedAt", payload.issuedAt),
+    expiresAt: requireValidTime("callback expiresAt", payload.expiresAt),
+    ticketExpiresAt: requireValidTime("ticketExpiresAt", redemption.ticketExpiresAt),
   };
 }

@@ -3,6 +3,7 @@ package localrp
 import (
 	"bytes"
 	"crypto/subtle"
+	"fmt"
 	"time"
 
 	api "github.com/catalystcommunity/linkkeys/sdks/local-rp/go/generated"
@@ -54,27 +55,11 @@ func EnvelopeSignatureInput(context string, payloadBytes []byte) []byte {
 	return cborTuple(cborText(context), cborBytesVal(payloadBytes))
 }
 
-func parseTimestamp(field, s string) (time.Time, error) {
-	t, err := time.Parse(time.RFC3339Nano, s)
-	if err != nil {
-		return time.Time{}, &LocalRpError{Kind: ErrKindBadTimestamp, Detail: field + ": " + err.Error()}
-	}
-	return t.UTC(), nil
-}
-
 // CheckTimestamps checks an (issued_at, expires_at) pair against now,
 // tolerant of skewSeconds of clock skew in either direction. Boundaries are
 // inclusive: exactly `now - skew == expires_at` still passes, and exactly
 // one second past either boundary fails.
-func CheckTimestamps(issuedAt, expiresAt string, now time.Time, skewSeconds int64) error {
-	issued, err := parseTimestamp("issued_at", issuedAt)
-	if err != nil {
-		return err
-	}
-	expires, err := parseTimestamp("expires_at", expiresAt)
-	if err != nil {
-		return err
-	}
+func CheckTimestamps(issued, expires time.Time, now time.Time, skewSeconds int64) error {
 	skew := time.Duration(skewSeconds) * time.Second
 	if now.Add(skew).Before(issued) {
 		return &LocalRpError{Kind: ErrKindNotYetValid}
@@ -112,11 +97,7 @@ type ExpirationStatus struct {
 // clock-skew tolerance (unlike CheckTimestamps): expiry warnings are
 // advisory, day-scale facts, not a replay/freshness security boundary. See
 // [CheckExpirations] for the identity-based SDK-shape wrapper.
-func CheckExpirationsAt(expiresAt string, now time.Time) (*ExpirationStatus, error) {
-	expires, err := parseTimestamp("expires_at", expiresAt)
-	if err != nil {
-		return nil, err
-	}
+func CheckExpirationsAt(expires time.Time, now time.Time) ExpirationStatus {
 	remaining := expires.Sub(now)
 	var level ExpirationLevel
 	switch {
@@ -131,7 +112,7 @@ func CheckExpirationsAt(expiresAt string, now time.Time) (*ExpirationStatus, err
 	default:
 		level = ExpirationOk
 	}
-	return &ExpirationStatus{Level: level, ExpiresAt: expires, Now: now}, nil
+	return ExpirationStatus{Level: level, ExpiresAt: expires, Now: now}
 }
 
 // VerifyNonceState verifies a nonce/state pair against the caller-supplied
@@ -193,18 +174,13 @@ const (
 	keyValidityValid keyValidity = iota
 	keyValidityRevoked
 	keyValidityExpired
-	keyValidityBadExpiry
 )
 
-func signingKeyValidity(expiresAt string, revokedAt *string) keyValidity {
+func signingKeyValidity(expiresAt time.Time, revokedAt *time.Time) keyValidity {
 	if revokedAt != nil {
 		return keyValidityRevoked
 	}
-	t, err := time.Parse(time.RFC3339Nano, expiresAt)
-	if err != nil {
-		return keyValidityBadExpiry
-	}
-	if time.Now().UTC().After(t.UTC()) {
+	if time.Now().UTC().After(expiresAt.UTC()) {
 		return keyValidityExpired
 	}
 	return keyValidityValid
@@ -214,7 +190,7 @@ func signingKeyValidity(expiresAt string, revokedAt *string) keyValidity {
 // signer: wrong key_usage, revoked, or expired. Shared by every verify path
 // that resolves a key by id.
 func checkSigningKeyValid(key api.DomainPublicKey) error {
-	if key.KeyUsage != "sign" {
+	if key.KeyUsage != api.KeyUsageSign {
 		return &LocalRpError{Kind: ErrKindSignatureInvalid}
 	}
 	switch signingKeyValidity(key.ExpiresAt, key.RevokedAt) {
@@ -231,27 +207,17 @@ func checkSigningKeyValid(key api.DomainPublicKey) error {
 // Descriptor
 // ---------------------------------------------------------------------
 
-// toAeadSuites converts wire suite-id strings to the generated api.AeadSuite
-// named-string type.
-func toAeadSuites(suites []string) []api.AeadSuite {
-	out := make([]api.AeadSuite, len(suites))
-	for i, s := range suites {
-		out[i] = api.AeadSuite(s)
-	}
-	return out
-}
-
 // BuildLocalRpDescriptor builds an unsigned LocalRpDescriptor. Fingerprint is
 // always derived from signingPublicKey via Fingerprint — callers cannot set
 // it directly, so it can never drift from the key it names.
-func BuildLocalRpDescriptor(appName string, localDomainHint *string, signingPublicKey, encryptionPublicKey [32]byte, supportedSuites []string, createdAt, expiresAt string) api.LocalRpDescriptor {
+func BuildLocalRpDescriptor(appName string, localDomainHint *string, signingPublicKey, encryptionPublicKey [32]byte, supportedSuites []AeadSuite, createdAt, expiresAt time.Time) api.LocalRpDescriptor {
 	return api.LocalRpDescriptor{
 		AppName:             appName,
 		LocalDomainHint:     localDomainHint,
 		SigningPublicKey:    append([]byte{}, signingPublicKey[:]...),
 		EncryptionPublicKey: append([]byte{}, encryptionPublicKey[:]...),
 		Fingerprint:         Fingerprint(signingPublicKey[:]),
-		SupportedSuites:     toAeadSuites(supportedSuites),
+		SupportedSuites:     append([]AeadSuite{}, supportedSuites...),
 		CreatedAt:           createdAt,
 		ExpiresAt:           expiresAt,
 	}
@@ -259,11 +225,14 @@ func BuildLocalRpDescriptor(appName string, localDomainHint *string, signingPubl
 
 // SignLocalRpDescriptor signs a LocalRpDescriptor with the local RP's own
 // signing key.
-func SignLocalRpDescriptor(descriptor api.LocalRpDescriptor, signingPrivateKeySeed [32]byte) api.SignedLocalRpDescriptor {
-	descriptorBytes := api.EncodeLocalRpDescriptor(descriptor)
+func SignLocalRpDescriptor(descriptor api.LocalRpDescriptor, signingPrivateKeySeed [32]byte) (api.SignedLocalRpDescriptor, error) {
+	descriptorBytes, err := api.EncodeLocalRpDescriptor(descriptor)
+	if err != nil {
+		return api.SignedLocalRpDescriptor{}, encodeFailed("LocalRpDescriptor", err)
+	}
 	sigInput := EnvelopeSignatureInput(CtxLocalRpDescriptor, descriptorBytes)
 	sig := signEd25519(signingPrivateKeySeed, sigInput)
-	return api.SignedLocalRpDescriptor{Descriptor: descriptorBytes, Signature: sig}
+	return api.SignedLocalRpDescriptor{Descriptor: descriptorBytes, Signature: sig}, nil
 }
 
 // VerifyLocalRpDescriptor verifies a signed local RP descriptor: decode it,
@@ -287,7 +256,7 @@ func VerifyLocalRpDescriptor(signed api.SignedLocalRpDescriptor, now time.Time, 
 	}
 
 	sigInput := EnvelopeSignatureInput(CtxLocalRpDescriptor, signed.Descriptor)
-	if err := resolveAndVerify("ed25519", sigInput, signed.Signature, descriptor.SigningPublicKey); err != nil {
+	if err := resolveAndVerify(api.KeyAlgorithmEd25519, sigInput, signed.Signature, descriptor.SigningPublicKey); err != nil {
 		return nil, err
 	}
 
@@ -304,7 +273,7 @@ func VerifyLocalRpDescriptor(signed api.SignedLocalRpDescriptor, now time.Time, 
 
 // BuildLocalRpLoginRequest builds an unsigned LocalRpLoginRequest around an
 // already-signed descriptor.
-func BuildLocalRpLoginRequest(descriptor api.SignedLocalRpDescriptor, callbackURL string, nonce, state []byte, requestedClaims, requiredClaims []string, issuedAt, expiresAt string) api.LocalRpLoginRequest {
+func BuildLocalRpLoginRequest(descriptor api.SignedLocalRpDescriptor, callbackURL string, nonce, state []byte, requestedClaims, requiredClaims []string, issuedAt, expiresAt time.Time) api.LocalRpLoginRequest {
 	return api.LocalRpLoginRequest{
 		Descriptor:      descriptor,
 		CallbackUrl:     callbackURL,
@@ -319,11 +288,14 @@ func BuildLocalRpLoginRequest(descriptor api.SignedLocalRpDescriptor, callbackUR
 
 // SignLocalRpLoginRequest signs a LocalRpLoginRequest with the local RP's
 // signing key (the same key embedded in the request's own descriptor).
-func SignLocalRpLoginRequest(request api.LocalRpLoginRequest, signingPrivateKeySeed [32]byte) api.SignedLocalRpLoginRequest {
-	requestBytes := api.EncodeLocalRpLoginRequest(request)
+func SignLocalRpLoginRequest(request api.LocalRpLoginRequest, signingPrivateKeySeed [32]byte) (api.SignedLocalRpLoginRequest, error) {
+	requestBytes, err := api.EncodeLocalRpLoginRequest(request)
+	if err != nil {
+		return api.SignedLocalRpLoginRequest{}, encodeFailed("LocalRpLoginRequest", err)
+	}
 	sigInput := EnvelopeSignatureInput(CtxLocalRpLoginRequest, requestBytes)
 	sig := signEd25519(signingPrivateKeySeed, sigInput)
-	return api.SignedLocalRpLoginRequest{Request: requestBytes, Signature: sig}
+	return api.SignedLocalRpLoginRequest{Request: requestBytes, Signature: sig}, nil
 }
 
 // VerifyLocalRpLoginRequest verifies a signed local RP login request end to
@@ -343,7 +315,7 @@ func VerifyLocalRpLoginRequest(signed api.SignedLocalRpLoginRequest, now time.Ti
 	}
 
 	sigInput := EnvelopeSignatureInput(CtxLocalRpLoginRequest, signed.Request)
-	if err := resolveAndVerify("ed25519", sigInput, signed.Signature, descriptor.SigningPublicKey); err != nil {
+	if err := resolveAndVerify(api.KeyAlgorithmEd25519, sigInput, signed.Signature, descriptor.SigningPublicKey); err != nil {
 		return nil, err
 	}
 
@@ -360,7 +332,7 @@ func VerifyLocalRpLoginRequest(signed api.SignedLocalRpLoginRequest, now time.Ti
 
 // BuildLocalRpTicketRedemptionRequest builds an unsigned
 // LocalRpTicketRedemptionRequest.
-func BuildLocalRpTicketRedemptionRequest(claimTicket []byte, fingerprint string, issuedAt string) api.LocalRpTicketRedemptionRequest {
+func BuildLocalRpTicketRedemptionRequest(claimTicket []byte, fingerprint string, issuedAt time.Time) api.LocalRpTicketRedemptionRequest {
 	return api.LocalRpTicketRedemptionRequest{
 		ClaimTicket: claimTicket,
 		Fingerprint: fingerprint,
@@ -371,11 +343,14 @@ func BuildLocalRpTicketRedemptionRequest(claimTicket []byte, fingerprint string,
 // SignLocalRpTicketRedemptionRequest signs a ticket redemption request with
 // the local RP's signing key, so a stolen ticket is useless without the
 // matching private key.
-func SignLocalRpTicketRedemptionRequest(request api.LocalRpTicketRedemptionRequest, signingPrivateKeySeed [32]byte) api.SignedLocalRpTicketRedemptionRequest {
-	requestBytes := api.EncodeLocalRpTicketRedemptionRequest(request)
+func SignLocalRpTicketRedemptionRequest(request api.LocalRpTicketRedemptionRequest, signingPrivateKeySeed [32]byte) (api.SignedLocalRpTicketRedemptionRequest, error) {
+	requestBytes, err := api.EncodeLocalRpTicketRedemptionRequest(request)
+	if err != nil {
+		return api.SignedLocalRpTicketRedemptionRequest{}, encodeFailed("LocalRpTicketRedemptionRequest", err)
+	}
 	sigInput := EnvelopeSignatureInput(CtxLocalRpTicketRedemption, requestBytes)
 	sig := signEd25519(signingPrivateKeySeed, sigInput)
-	return api.SignedLocalRpTicketRedemptionRequest{Request: requestBytes, Signature: sig}
+	return api.SignedLocalRpTicketRedemptionRequest{Request: requestBytes, Signature: sig}, nil
 }
 
 // VerifyLocalRpTicketRedemptionRequest verifies a ticket-redemption
@@ -385,7 +360,7 @@ func SignLocalRpTicketRedemptionRequest(request api.LocalRpTicketRedemptionReque
 // field must both equal expectedFingerprint.
 func VerifyLocalRpTicketRedemptionRequest(signed api.SignedLocalRpTicketRedemptionRequest, signingPublicKey []byte, expectedFingerprint string) (*api.LocalRpTicketRedemptionRequest, error) {
 	sigInput := EnvelopeSignatureInput(CtxLocalRpTicketRedemption, signed.Request)
-	if err := resolveAndVerify("ed25519", sigInput, signed.Signature, signingPublicKey); err != nil {
+	if err := resolveAndVerify(api.KeyAlgorithmEd25519, sigInput, signed.Signature, signingPublicKey); err != nil {
 		return nil, err
 	}
 
@@ -407,7 +382,7 @@ func VerifyLocalRpTicketRedemptionRequest(signed api.SignedLocalRpTicketRedempti
 // ---------------------------------------------------------------------
 
 // BuildLocalRpCallbackPayload builds an unsigned LocalRpCallbackPayload.
-func BuildLocalRpCallbackPayload(userID, userDomain string, claimTicket []byte, audienceFingerprint, callbackURL string, nonce, state []byte, issuedAt, expiresAt string) api.LocalRpCallbackPayload {
+func BuildLocalRpCallbackPayload(userID, userDomain string, claimTicket []byte, audienceFingerprint, callbackURL string, nonce, state []byte, issuedAt, expiresAt time.Time) api.LocalRpCallbackPayload {
 	return api.LocalRpCallbackPayload{
 		UserId:              userID,
 		UserDomain:          userDomain,
@@ -427,11 +402,14 @@ func BuildLocalRpCallbackPayload(userID, userDomain string, claimTicket []byte, 
 // only because it is a pure protocol helper, mirroring
 // liblinkkeys::local_rp; the local-RP SDK itself never calls it in
 // production — only test fixtures (fake IDPs) do.
-func SignLocalRpCallbackPayload(payload api.LocalRpCallbackPayload, keyID string, signingPrivateKeySeed [32]byte) api.SignedLocalRpCallbackPayload {
-	payloadBytes := api.EncodeLocalRpCallbackPayload(payload)
+func SignLocalRpCallbackPayload(payload api.LocalRpCallbackPayload, keyID string, signingPrivateKeySeed [32]byte) (api.SignedLocalRpCallbackPayload, error) {
+	payloadBytes, err := api.EncodeLocalRpCallbackPayload(payload)
+	if err != nil {
+		return api.SignedLocalRpCallbackPayload{}, encodeFailed("LocalRpCallbackPayload", err)
+	}
 	sigInput := EnvelopeSignatureInput(CtxLocalRpCallback, payloadBytes)
 	sig := signEd25519(signingPrivateKeySeed, sigInput)
-	return api.SignedLocalRpCallbackPayload{Payload: payloadBytes, SigningKeyId: keyID, Signature: sig}
+	return api.SignedLocalRpCallbackPayload{Payload: payloadBytes, SigningKeyId: keyID, Signature: sig}, nil
 }
 
 // VerifyLocalRpCallbackPayload verifies a domain-signed callback payload
@@ -487,10 +465,10 @@ func CheckCallbackHeaderMatchesPayload(header api.LocalRpCallbackHeader, payload
 	if !bytes.Equal(header.State, payload.State) {
 		return &LocalRpError{Kind: ErrKindHeaderPayloadMismatch, Detail: "state"}
 	}
-	if header.IssuedAt != payload.IssuedAt {
+	if !header.IssuedAt.Equal(payload.IssuedAt) {
 		return &LocalRpError{Kind: ErrKindHeaderPayloadMismatch, Detail: "issued_at"}
 	}
-	if header.ExpiresAt != payload.ExpiresAt {
+	if !header.ExpiresAt.Equal(payload.ExpiresAt) {
 		return &LocalRpError{Kind: ErrKindHeaderPayloadMismatch, Detail: "expires_at"}
 	}
 	return nil
@@ -505,7 +483,7 @@ func CheckCallbackHeaderMatchesPayload(header api.LocalRpCallbackHeader, payload
 // This is a server-side (IDP) operation exposed here as a pure protocol
 // helper (mirroring liblinkkeys::local_rp::seal_local_rp_callback); the
 // local-RP SDK itself never calls it in production, only test fixtures.
-func SealLocalRpCallback(signedPayload api.SignedLocalRpCallbackPayload, suite AeadSuite, recipientEncryptionPublicKey [32]byte, fingerprint string, nonce, state []byte, issuedAt, expiresAt string) (api.LocalRpEncryptedCallback, error) {
+func SealLocalRpCallback(signedPayload api.SignedLocalRpCallbackPayload, suite AeadSuite, recipientEncryptionPublicKey [32]byte, fingerprint string, nonce, state []byte, issuedAt, expiresAt time.Time) (api.LocalRpEncryptedCallback, error) {
 	ephemeralPriv, ephemeralPub, err := generateX25519Keypair()
 	if err != nil {
 		return api.LocalRpEncryptedCallback{}, &LocalRpError{Kind: ErrKindCrypto, Detail: err.Error()}
@@ -517,8 +495,11 @@ func SealLocalRpCallback(signedPayload api.SignedLocalRpCallbackPayload, suite A
 	return sealLocalRpCallbackInner(signedPayload, suite, recipientEncryptionPublicKey, fingerprint, nonce, state, issuedAt, expiresAt, ephemeralPriv, ephemeralPub, aeadNonce)
 }
 
-func sealLocalRpCallbackInner(signedPayload api.SignedLocalRpCallbackPayload, suite AeadSuite, recipientPub [32]byte, fingerprint string, nonce, state []byte, issuedAt, expiresAt string, ephemeralPriv, ephemeralPub [32]byte, aeadNonce [12]byte) (api.LocalRpEncryptedCallback, error) {
-	plaintext := api.EncodeSignedLocalRpCallbackPayload(signedPayload)
+func sealLocalRpCallbackInner(signedPayload api.SignedLocalRpCallbackPayload, suite AeadSuite, recipientPub [32]byte, fingerprint string, nonce, state []byte, issuedAt, expiresAt time.Time, ephemeralPriv, ephemeralPub [32]byte, aeadNonce [12]byte) (api.LocalRpEncryptedCallback, error) {
+	plaintext, err := api.EncodeSignedLocalRpCallbackPayload(signedPayload)
+	if err != nil {
+		return api.LocalRpEncryptedCallback{}, encodeFailed("SignedLocalRpCallbackPayload", err)
+	}
 
 	sharedSecret, err := x25519ECDH(ephemeralPriv, recipientPub)
 	if err != nil {
@@ -529,13 +510,16 @@ func sealLocalRpCallbackInner(signedPayload api.SignedLocalRpCallbackPayload, su
 		Fingerprint:        fingerprint,
 		Nonce:              nonce,
 		State:              state,
-		Suite:              api.AeadSuite(suite),
+		Suite:              suite,
 		EphemeralPublicKey: append([]byte{}, ephemeralPub[:]...),
 		AeadNonce:          append([]byte{}, aeadNonce[:]...),
 		IssuedAt:           issuedAt,
 		ExpiresAt:          expiresAt,
 	}
-	headerBytes := api.EncodeLocalRpCallbackHeader(header)
+	headerBytes, err := api.EncodeLocalRpCallbackHeader(header)
+	if err != nil {
+		return api.LocalRpEncryptedCallback{}, encodeFailed("LocalRpCallbackHeader", err)
+	}
 
 	aeadKey, kdfContext, err := localRpCallbackKDF(suite, ephemeralPub, recipientPub, sharedSecret)
 	if err != nil {
@@ -566,12 +550,15 @@ func OpenLocalRpCallback(encrypted api.LocalRpEncryptedCallback, recipientEncryp
 		return nil, nil, &LocalRpError{Kind: ErrKindDecode, Detail: err.Error()}
 	}
 
-	suite, ok := ParseAeadSuite(string(header.Suite))
+	// The generated decoder already rejects a suite number outside the
+	// registry, so header.Suite always has a KDF label here.
+	suite := header.Suite
+	suiteID, ok := AeadSuiteKDFLabel(suite)
 	if !ok {
-		return nil, nil, &LocalRpError{Kind: ErrKindUnsupportedSuite, Detail: string(header.Suite)}
+		return nil, nil, &LocalRpError{Kind: ErrKindUnsupportedSuite, Detail: fmt.Sprintf("%d", int64(suite))}
 	}
 	if !containsSuite(allowedSuites, suite) {
-		return nil, nil, &LocalRpError{Kind: ErrKindSuiteNotAdvertised, Detail: string(header.Suite)}
+		return nil, nil, &LocalRpError{Kind: ErrKindSuiteNotAdvertised, Detail: suiteID}
 	}
 
 	if len(header.EphemeralPublicKey) != 32 {

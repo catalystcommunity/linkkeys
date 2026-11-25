@@ -7,7 +7,7 @@ public record PreviewReleaseRow(
     boolean required /* wire: "required" */,
     boolean available /* wire: "available" */,
     boolean locked /* wire: "locked" */,
-    String policy /* wire: "policy" */,
+    ConsentRowPolicy policy /* wire: "policy" */,
     boolean defaultGranted /* wire: "default_granted" */
 ) {
 }

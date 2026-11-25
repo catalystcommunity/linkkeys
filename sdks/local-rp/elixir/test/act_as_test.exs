@@ -64,8 +64,8 @@ defmodule LinkkeysLocalRp.ActAsTest do
         requested_renewal_window_seconds: i["requested_renewal_window_seconds"],
         callback_url: i["callback_url"],
         nonce: i["nonce"],
-        requested_at: i["requested_at"],
-        expires_at: i["expires_at"]
+        requested_at: Vectors.ts(i["requested_at"]),
+        expires_at: Vectors.ts(i["expires_at"])
       }
 
       assert unhex(Types.act_as_grant_request_to_cbor(request)) == v["request_cbor_hex"]
@@ -90,8 +90,8 @@ defmodule LinkkeysLocalRp.ActAsTest do
           %ActAsRefreshRequest{
             grant_id: i["grant_id"],
             grantee: ActAs.grantee_ref(km),
-            requested_at: i["requested_at"],
-            expires_at: i["expires_at"],
+            requested_at: Vectors.ts(i["requested_at"]),
+            expires_at: Vectors.ts(i["expires_at"]),
             nonce: i["nonce"]
           },
           km
@@ -183,8 +183,8 @@ defmodule LinkkeysLocalRp.ActAsTest do
       assert Types.signed_act_as_scope_set_to_cbor(request.scope_set) == ctx.scope_set
       assert request.requested_lifetime_seconds == 600
       assert request.requested_renewal_window_seconds == nil
-      assert request.requested_at == "2026-10-06T11:59:00Z"
-      assert request.expires_at == "2026-10-06T12:04:00Z"
+      assert request.requested_at == ~U[2026-10-06 11:59:00Z]
+      assert request.expires_at == ~U[2026-10-06 12:04:00Z]
 
       assert signed.proof.local_rp_descriptor == ctx.material.descriptor
       assert signed.proof.signature.signed_by_key_id == ctx.material.fingerprint

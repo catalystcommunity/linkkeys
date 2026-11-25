@@ -35,6 +35,7 @@
 // `callback_box.json` (X25519 + HKDF + AES-256-GCM/ChaCha20-Poly1305).
 
 import * as nodeCrypto from "node:crypto";
+import { AeadSuite as WireAeadSuite } from "./generated/types.gen.ts";
 
 export class CryptoError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
@@ -252,6 +253,28 @@ const ALL_SUITES: readonly AeadSuite[] = [AEAD_SUITE_AES_256_GCM, AEAD_SUITE_CHA
 /** Parse a wire-format suite id string. Returns `undefined` for anything outside the registry — never "close enough". */
 export function parseAeadSuite(s: string): AeadSuite | undefined {
   return (ALL_SUITES as readonly string[]).includes(s) ? (s as AeadSuite) : undefined;
+}
+
+/**
+ * The CSIL wire enum member for a suite id. On the wire (descriptor
+ * `supported_suites`, callback header `suite`) a suite is a CBOR number
+ * (1 = aes-256-gcm, 2 = chacha20-poly1305). The KDF context and this SDK's
+ * public API keep the TEXT id.
+ */
+export function aeadSuiteToWire(suite: AeadSuite): WireAeadSuite {
+  return suite === AEAD_SUITE_AES_256_GCM ? WireAeadSuite.AES_256_GCM : WireAeadSuite.CHACHA20_POLY1305;
+}
+
+/** The suite id for a decoded CSIL wire enum member. Returns `undefined` for a member outside this registry. */
+export function aeadSuiteFromWire(suite: WireAeadSuite): AeadSuite | undefined {
+  switch (suite) {
+    case WireAeadSuite.AES_256_GCM:
+      return AEAD_SUITE_AES_256_GCM;
+    case WireAeadSuite.CHACHA20_POLY1305:
+      return AEAD_SUITE_CHACHA20_POLY1305;
+    default:
+      return undefined;
+  }
 }
 
 export function allSupportedAeadSuites(): readonly AeadSuite[] {

@@ -127,8 +127,8 @@ public static class Begin
         var requestedClaims = config.RequestedClaims ?? DefaultRequestedClaims;
         var requiredClaims = config.RequiredClaims ?? DefaultRequiredClaims;
         var lifetime = config.RequestLifetime ?? DefaultLoginRequestLifetime;
-        var issuedAt = Rfc3339.Format(config.Now);
-        var expiresAt = Rfc3339.Format(config.Now + lifetime);
+        var issuedAt = config.Now;
+        var expiresAt = config.Now + lifetime;
 
         LocalRpLoginRequest request = LocalRp.BuildLocalRpLoginRequest(
             config.KeyMaterial.Descriptor, config.CallbackUrl, nonce, state, requestedClaims, requiredClaims, issuedAt, expiresAt);

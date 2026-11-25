@@ -214,7 +214,7 @@ def fetch_domain_keys(transport: Transport, dns: dns_mod.DnsResolver, domain: st
     if not trusted:
         raise NoTrustedDomainKeys(domain)
 
-    since = (now - timedelta(days=30)).isoformat().replace("+00:00", "Z")
+    since = now - timedelta(days=30)
     req_payload = GetRevocationsRequest(since=since).to_cbor()
     # No try/except here: a get-revocations error/timeout/protocol failure
     # must propagate and abort the login, not be swallowed into "assume no

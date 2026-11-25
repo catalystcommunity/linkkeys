@@ -3,8 +3,9 @@
 // against per-signer-domain public keys. `sign_claim` is included too (small,
 // and useful for tests/fakes that need to mint a realistic `Claim`).
 
-import { encodeCborTuple, text, bytes as tupleBytes, textOrNull } from "./cborTuple.ts";
+import { encodeCborTuple, text, bytes as tupleBytes, int, intOrNull } from "./cborTuple.ts";
 import { signEd25519, verifyEd25519 } from "./crypto.ts";
+import { signedSeconds, SignedTimeError } from "./signedTime.ts";
 import type { Claim, ClaimSignature, DomainPublicKey } from "../generated/types.gen.ts";
 
 export type ClaimErrorCode =
@@ -15,6 +16,7 @@ export type ClaimErrorCode =
   | "revoked"
   | "expired"
   | "bad-expiry"
+  | "bad-timestamp"
   | "unsigned"
   | "domain-keys-unavailable"
   | "domain-unverified";
@@ -49,10 +51,19 @@ export function claimSignPayload(
   userId: string,
   subjectDomain: string,
   signingDomain: string,
-  expiresAt: string | undefined,
-  attestedAt: string,
+  expiresAt: Date | undefined,
+  attestedAt: Date,
 ): Uint8Array {
   const subject = `${userId}@${subjectDomain}`;
+  let expires: number | undefined;
+  let attested: number;
+  try {
+    expires = expiresAt === undefined ? undefined : signedSeconds(expiresAt);
+    attested = signedSeconds(attestedAt);
+  } catch (e) {
+    if (e instanceof SignedTimeError) throw new ClaimError("bad-timestamp", e.message);
+    throw e;
+  }
   return encodeCborTuple([
     text(CLAIM_PAYLOAD_TAG),
     text(claimId),
@@ -60,8 +71,8 @@ export function claimSignPayload(
     tupleBytes(claimValue),
     text(subject),
     text(signingDomain),
-    textOrNull(expiresAt),
-    text(attestedAt),
+    intOrNull(expires),
+    int(attested),
   ]);
 }
 
@@ -71,8 +82,10 @@ export interface ClaimSpec {
   claimValue: Uint8Array;
   userId: string;
   subjectDomain: string;
-  expiresAt?: string;
-  attestedAt: string;
+  /** Whole seconds (see `wholeSeconds` in `signedTime.ts`). */
+  expiresAt?: Date;
+  /** Whole seconds (see `nowWholeSeconds` in `signedTime.ts`). */
+  attestedAt: Date;
 }
 
 export interface ClaimSigner {
@@ -108,7 +121,7 @@ export function signClaim(spec: ClaimSpec, signers: readonly ClaimSigner[]): Cla
     claimValue: spec.claimValue,
     signatures,
     attestedAt: spec.attestedAt,
-    createdAt: new Date().toISOString(),
+    createdAt: new Date(),
     expiresAt: spec.expiresAt,
     revokedAt: undefined,
   };
@@ -120,18 +133,18 @@ export interface DomainKeySet {
   keys: readonly DomainPublicKey[];
 }
 
-function requireKeyValidAt(key: DomainPublicKey, attestedAt: string): void {
-  const attested = Date.parse(attestedAt);
+function requireKeyValidAt(key: DomainPublicKey, attestedAt: Date): void {
+  const attested = attestedAt.getTime();
   if (!Number.isFinite(attested)) throw new ClaimError("key-expired", key.keyId);
 
   if (key.revokedAt !== undefined) {
-    const revoked = Date.parse(key.revokedAt);
+    const revoked = key.revokedAt.getTime();
     if (!Number.isFinite(revoked) || attested >= revoked) {
       throw new ClaimError("key-revoked", key.keyId);
     }
   }
 
-  const expires = Date.parse(key.expiresAt);
+  const expires = key.expiresAt.getTime();
   if (!Number.isFinite(expires) || attested >= expires) {
     throw new ClaimError("key-expired", key.keyId);
   }
@@ -141,7 +154,7 @@ function verifyOneSignature(
   sig: ClaimSignature,
   payload: Uint8Array,
   keys: readonly DomainPublicKey[],
-  attestedAt: string,
+  attestedAt: Date,
 ): void {
   const key = keys.find((k) => k.keyId === sig.signedByKeyId);
   if (!key) {
@@ -171,7 +184,7 @@ function verifySignatureQuorum(
   signatures: readonly ClaimSignature[],
   domainKeys: readonly DomainKeySet[],
   payloadFor: (signingDomain: string) => Uint8Array,
-  attestedAt: string,
+  attestedAt: Date,
 ): void {
   if (signatures.length === 0) {
     throw new ClaimError("unsigned");
@@ -239,7 +252,7 @@ export function verifyClaim(
     throw new ClaimError("revoked");
   }
   if (claim.expiresAt !== undefined) {
-    const expires = new Date(claim.expiresAt);
+    const expires = claim.expiresAt;
     if (Number.isNaN(expires.getTime())) {
       throw new ClaimError("bad-expiry");
     }

@@ -39,6 +39,10 @@ defmodule LinkkeysLocalRp.Test.Vectors do
   @doc "Decode a lowercase (or mixed-case) hex string to raw bytes."
   def hex(s) when is_binary(s), do: Base.decode16!(s, case: :mixed)
 
+  @doc "Parse a vector's RFC 3339 text time into a `DateTime.t()` (`nil` stays `nil`). The JSON vectors keep times as text; the SDK structs hold `DateTime.t()`."
+  def ts(nil), do: nil
+  def ts(s) when is_binary(s), do: LinkkeysLocalRp.Timeutil.parse_rfc3339(s)
+
   @doc "Encode raw bytes to lowercase hex."
   def unhex(bin) when is_binary(bin), do: Base.encode16(bin, case: :lower)
 end

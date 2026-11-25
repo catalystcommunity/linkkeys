@@ -12,6 +12,6 @@ public record PreviewReleasePolicyRequest(
     List<String> userChoices /* wire: "user_choices" */,
     String tempAudience /* wire: "temp_audience" */,
     String tempClaimType /* wire: "temp_claim_type" */,
-    String tempDisposition /* wire: "temp_disposition" */
+    ReleaseDisposition tempDisposition /* wire: "temp_disposition" */
 ) {
 }

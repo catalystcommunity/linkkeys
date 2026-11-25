@@ -51,7 +51,7 @@ pub fn revouch_encryption_keys(
         .iter()
         .filter(|k| {
             k.key_usage == "sign"
-                && liblinkkeys::crypto::signing_key_validity(&k.expires_at, k.revoked_at.as_deref())
+                && liblinkkeys::crypto::signing_key_validity(&k.expires_at, k.revoked_at.as_ref())
                     == liblinkkeys::crypto::KeyValidity::Valid
         })
         .collect();
@@ -111,7 +111,7 @@ pub fn revouch_encryption_keys(
             passphrase.as_bytes(),
         )
         .map_err(|e| format!("could not decrypt signing key {}: {e}", signer.id))?;
-        let signer_alg = liblinkkeys::crypto::SigningAlgorithm::parse_str(&signer.algorithm)
+        let signer_alg = crate::conversions::stored_signing_algorithm(&signer.algorithm)
             .ok_or_else(|| {
                 format!(
                     "signing key {} has unsupported algorithm {}",
@@ -119,10 +119,13 @@ pub fn revouch_encryption_keys(
                 )
             })?;
         // Sign over the recomputed fingerprint, exactly as verifiers recompute it.
+        // The vouch signs the expiry, which must be whole seconds; an older key
+        // can have a fraction, which the re-vouch drops (less than a second).
         let fp = liblinkkeys::crypto::fingerprint(&enc.public_key);
-        let vouch = liblinkkeys::dns::sign_key_vouch(&fp, &enc.expires_at, signer_alg, &signer_sk)
+        let expires_at = liblinkkeys::timestamp::whole_seconds(enc.expires_at);
+        let vouch = liblinkkeys::dns::sign_key_vouch(&fp, &expires_at, signer_alg, &signer_sk)
             .map_err(|e| format!("could not sign vouch for key {}: {e}", enc.id))?;
-        pool.update_domain_key_vouch(&enc.id, &signer.id, &vouch)
+        pool.update_domain_key_vouch(&enc.id, &signer.id, &vouch, expires_at)
             .map_err(|e| format!("could not store new vouch for key {}: {e}", enc.id))?;
         results.push((
             enc.id.clone(),

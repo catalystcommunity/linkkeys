@@ -77,8 +77,10 @@ let pin_keys_to_fingerprints (keys : Types.Domain_public_key.t list) (pinned : s
 
 let key_vouch_tag = "linkkeys-key-vouch-v1alpha"
 
+(* [enc_expires_at] is signed as whole Unix seconds (a CBOR integer); a
+   fraction raises [Timeutil.Bad_timestamp]. *)
 let key_vouch_payload (enc_fingerprint : string) (enc_expires_at : string) : string =
-  Cbor.encode (Array [ Text key_vouch_tag; Text enc_fingerprint; Text enc_expires_at ])
+  Cbor.encode (Array [ Text key_vouch_tag; Text enc_fingerprint; Cbor.signed_time enc_expires_at ])
 
 (* Verify that [signing_key] vouches for [enc_key] (encryption keys are not
    published in DNS; they are trusted only via a DNS-pinned signing key's
@@ -91,7 +93,10 @@ let verify_key_vouch (enc_key : Types.Domain_public_key.t) (signing_key : Types.
     | None -> false
     | Some key_signature -> (
       let recomputed_fp = Crypto.fingerprint enc_key.public_key in
-      let payload = key_vouch_payload recomputed_fp enc_key.expires_at in
+      (* An expiry with a fraction of a second was never signed. *)
+      match key_vouch_payload recomputed_fp enc_key.expires_at with
+      | exception Timeutil.Bad_timestamp _ -> false
+      | payload ->
       try
         Crypto.resolve_and_verify signing_key.algorithm payload key_signature signing_key.public_key;
         true

@@ -21,6 +21,7 @@ use liblinkkeys::generated::types::{
     ApproveLocalRpRequest, DenyLocalRpRequest, GetLocalRpPolicyRequest, GetLocalRpRequest,
     ListLocalRpsRequest, PurgeLocalRpTicketsRequest, RevokeLocalRpRequest, SetLocalRpPolicyRequest,
 };
+use liblinkkeys::generated::types::{LocalRpPolicy, LocalRpStatus};
 use linkkeys::services::auth;
 use serde_json::Value;
 
@@ -61,7 +62,8 @@ fn list_local_rps_requires_admin() {
         offset: None,
         limit: None,
         status: None,
-    });
+    })
+    .unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -100,8 +102,9 @@ fn list_local_rps_filters_by_status() {
     let payload = liblinkkeys::generated::encode_list_local_rps_request(&ListLocalRpsRequest {
         offset: None,
         limit: None,
-        status: Some("pending".to_string()),
-    });
+        status: Some(LocalRpStatus::Pending),
+    })
+    .unwrap();
     let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "list-local-rps",
@@ -114,7 +117,10 @@ fn list_local_rps_filters_by_status() {
     let resp = liblinkkeys::generated::decode_list_local_rps_response(&body)
         .expect("decode ListLocalRpsResponse");
     assert_eq!(resp.local_rps.len(), 2);
-    assert!(resp.local_rps.iter().all(|rp| rp.status == "pending"));
+    assert!(resp
+        .local_rps
+        .iter()
+        .all(|rp| rp.status == LocalRpStatus::Pending));
 }
 
 #[test]
@@ -128,8 +134,9 @@ fn list_local_rps_paginates_with_offset_and_limit() {
     let payload = liblinkkeys::generated::encode_list_local_rps_request(&ListLocalRpsRequest {
         offset: Some(1),
         limit: Some(2),
-        status: Some("pending".to_string()),
-    });
+        status: Some(LocalRpStatus::Pending),
+    })
+    .unwrap();
     let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "list-local-rps",
@@ -154,7 +161,8 @@ fn get_local_rp_requires_admin() {
     let rp = create_local_rp(&pool, &status_map("pending"));
     let payload = liblinkkeys::generated::encode_get_local_rp_request(&GetLocalRpRequest {
         fingerprint: rp.fingerprint.clone(),
-    });
+    })
+    .unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -181,7 +189,7 @@ fn get_local_rp_requires_admin() {
         .expect("decode GetLocalRpResponse");
     assert_eq!(resp.local_rp.fingerprint, rp.fingerprint);
     assert_eq!(resp.local_rp.app_name, rp.app_name);
-    assert_eq!(resp.local_rp.status, "pending");
+    assert_eq!(resp.local_rp.status, LocalRpStatus::Pending);
     assert_eq!(resp.local_rp.created_at, rp.created_at);
 }
 
@@ -191,7 +199,8 @@ fn get_local_rp_unknown_fingerprint_errors() {
     let admin_key = make_caller(&pool, true);
     let payload = liblinkkeys::generated::encode_get_local_rp_request(&GetLocalRpRequest {
         fingerprint: "0000000000000000000000000000000000000000000000000000000000000".to_string(),
-    });
+    })
+    .unwrap();
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "get-local-rp",
@@ -214,7 +223,8 @@ fn approve_local_rp_requires_admin_and_transitions_pending_to_approved() {
     let payload = liblinkkeys::generated::encode_approve_local_rp_request(&ApproveLocalRpRequest {
         fingerprint: rp.fingerprint.clone(),
         admin_notes: Some("looks legit".to_string()),
-    });
+    })
+    .unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -239,7 +249,7 @@ fn approve_local_rp_requires_admin_and_transitions_pending_to_approved() {
     assert_eq!(status, 0);
     let resp = liblinkkeys::generated::decode_approve_local_rp_response(&body)
         .expect("decode ApproveLocalRpResponse");
-    assert_eq!(resp.local_rp.status, "approved");
+    assert_eq!(resp.local_rp.status, LocalRpStatus::Approved);
     assert_eq!(resp.local_rp.admin_notes.as_deref(), Some("looks legit"));
 }
 
@@ -254,7 +264,8 @@ fn deny_local_rp_requires_admin_and_transitions_pending_to_denied() {
     let payload = liblinkkeys::generated::encode_deny_local_rp_request(&DenyLocalRpRequest {
         fingerprint: rp.fingerprint.clone(),
         admin_notes: None,
-    });
+    })
+    .unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -279,7 +290,7 @@ fn deny_local_rp_requires_admin_and_transitions_pending_to_denied() {
     assert_eq!(status, 0);
     let resp = liblinkkeys::generated::decode_deny_local_rp_response(&body)
         .expect("decode DenyLocalRpResponse");
-    assert_eq!(resp.local_rp.status, "denied");
+    assert_eq!(resp.local_rp.status, LocalRpStatus::Denied);
 }
 
 #[test]
@@ -290,7 +301,8 @@ fn deny_local_rp_from_approved_fails_cleanly() {
     let payload = liblinkkeys::generated::encode_deny_local_rp_request(&DenyLocalRpRequest {
         fingerprint: rp.fingerprint.clone(),
         admin_notes: None,
-    });
+    })
+    .unwrap();
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "deny-local-rp",
@@ -322,7 +334,8 @@ fn revoke_local_rp_requires_admin_and_transitions_approved_to_revoked() {
     let payload = liblinkkeys::generated::encode_revoke_local_rp_request(&RevokeLocalRpRequest {
         fingerprint: rp.fingerprint.clone(),
         admin_notes: Some("compromised".to_string()),
-    });
+    })
+    .unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -347,7 +360,7 @@ fn revoke_local_rp_requires_admin_and_transitions_approved_to_revoked() {
     assert_eq!(status, 0);
     let resp = liblinkkeys::generated::decode_revoke_local_rp_response(&body)
         .expect("decode RevokeLocalRpResponse");
-    assert_eq!(resp.local_rp.status, "revoked");
+    assert_eq!(resp.local_rp.status, LocalRpStatus::Revoked);
     assert_eq!(resp.local_rp.admin_notes.as_deref(), Some("compromised"));
 }
 
@@ -359,7 +372,8 @@ fn revoke_local_rp_from_pending_fails_cleanly() {
     let payload = liblinkkeys::generated::encode_revoke_local_rp_request(&RevokeLocalRpRequest {
         fingerprint: rp.fingerprint.clone(),
         admin_notes: None,
-    });
+    })
+    .unwrap();
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "revoke-local-rp",
@@ -406,7 +420,8 @@ fn revoke_local_rp_deletes_outstanding_tickets() {
     let payload = liblinkkeys::generated::encode_revoke_local_rp_request(&RevokeLocalRpRequest {
         fingerprint: rp.fingerprint.clone(),
         admin_notes: None,
-    });
+    })
+    .unwrap();
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "revoke-local-rp",
@@ -432,7 +447,8 @@ fn revoke_local_rp_unknown_fingerprint_errors() {
     let payload = liblinkkeys::generated::encode_revoke_local_rp_request(&RevokeLocalRpRequest {
         fingerprint: "unknown-fingerprint".to_string(),
         admin_notes: None,
-    });
+    })
+    .unwrap();
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "revoke-local-rp",
@@ -453,13 +469,12 @@ fn revoke_local_rp_unknown_fingerprint_errors() {
 // ---------------------------------------------------------------------
 
 fn get_policy_payload() -> Vec<u8> {
-    liblinkkeys::generated::encode_get_local_rp_policy_request(&GetLocalRpPolicyRequest {})
+    liblinkkeys::generated::encode_get_local_rp_policy_request(&GetLocalRpPolicyRequest {}).unwrap()
 }
 
-fn set_policy_payload(policy: &str) -> Vec<u8> {
-    liblinkkeys::generated::encode_set_local_rp_policy_request(&SetLocalRpPolicyRequest {
-        policy: policy.to_string(),
-    })
+fn set_policy_payload(policy: LocalRpPolicy) -> Vec<u8> {
+    liblinkkeys::generated::encode_set_local_rp_policy_request(&SetLocalRpPolicyRequest { policy })
+        .unwrap()
 }
 
 #[test]
@@ -558,7 +573,7 @@ fn set_then_get_local_rp_policy_round_trips() {
             &pool,
             None,
         );
-        assert_eq!(status, 0, "set-local-rp-policy({}) must succeed", policy);
+        assert_eq!(status, 0, "set-local-rp-policy({:?}) must succeed", policy);
         let set_resp = liblinkkeys::generated::decode_set_local_rp_policy_response(&body)
             .expect("decode SetLocalRpPolicyResponse");
         assert_eq!(set_resp.policy, policy);
@@ -586,10 +601,26 @@ fn set_local_rp_policy_rejects_invalid_vocabulary() {
     let pool = setup();
     let admin_key = make_caller(&pool, true);
 
+    // The typed request cannot hold an unknown policy, so rewrite the
+    // policy number on the wire to one outside the vocabulary.
+    let mut value: ciborium::Value = ciborium::from_reader(
+        set_policy_payload(linkkeys::db::local_rp::POLICY_DISABLED).as_slice(),
+    )
+    .expect("decode request cbor");
+    let entry = value
+        .as_map_mut()
+        .expect("request is a CBOR map")
+        .iter_mut()
+        .find(|(k, _)| k.as_text() == Some("policy"))
+        .expect("policy entry");
+    entry.1 = ciborium::Value::Integer(99.into());
+    let mut bad_payload = Vec::new();
+    ciborium::into_writer(&value, &mut bad_payload).expect("encode request cbor");
+
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "set-local-rp-policy",
-        set_policy_payload("sure-why-not"),
+        bad_payload,
         Some(&admin_key),
         &pool,
         None,
@@ -621,6 +652,7 @@ fn set_local_rp_policy_rejects_invalid_vocabulary() {
 
 fn purge_tickets_payload() -> Vec<u8> {
     liblinkkeys::generated::encode_purge_local_rp_tickets_request(&PurgeLocalRpTicketsRequest {})
+        .unwrap()
 }
 
 #[test]

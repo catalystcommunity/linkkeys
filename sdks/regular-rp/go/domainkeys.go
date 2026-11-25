@@ -27,18 +27,13 @@ const (
 	domainKeyValidityValid domainKeyValidity = iota
 	domainKeyValidityRevoked
 	domainKeyValidityExpired
-	domainKeyValidityBadExpiry
 )
 
-func signingKeyValidity(expiresAt string, revokedAt *string) domainKeyValidity {
+func signingKeyValidity(expiresAt time.Time, revokedAt *time.Time) domainKeyValidity {
 	if revokedAt != nil {
 		return domainKeyValidityRevoked
 	}
-	t, err := time.Parse(time.RFC3339, expiresAt)
-	if err != nil {
-		return domainKeyValidityBadExpiry
-	}
-	if time.Now().UTC().After(t.UTC()) {
+	if time.Now().After(expiresAt) {
 		return domainKeyValidityExpired
 	}
 	return domainKeyValidityValid
@@ -49,7 +44,7 @@ func signingKeyValidity(expiresAt string, revokedAt *string) domainKeyValidity {
 // time — see the file doc comment). Mirrors
 // `liblinkkeys::assertions::check_signing_key_valid`.
 func checkSigningKeyValid(key api.DomainPublicKey) error {
-	if key.KeyUsage != "sign" {
+	if key.KeyUsage != api.KeyUsageSign {
 		return &ApplicationKeyError{Kind: ErrCrypto, Detail: "signature verification failed"}
 	}
 	switch signingKeyValidity(key.ExpiresAt, key.RevokedAt) {
@@ -70,13 +65,14 @@ const revocationCertTag = "linkkeys-key-revocation-v1alpha"
 // revocationCertPayload builds the canonical signed bytes: the tag, the
 // target key id + fingerprint, the revocation instant, and the signing
 // sibling's domain (bound per-signature to stop cross-domain reuse of a
-// signature). Mirrors `liblinkkeys::revocation::revocation_payload`.
-func revocationCertPayload(targetKeyID, targetFingerprint, revokedAt, signingDomain string) []byte {
+// signature). revoked_at is whole Unix seconds as a CBOR integer. Mirrors
+// `liblinkkeys::revocation::revocation_payload`.
+func revocationCertPayload(targetKeyID, targetFingerprint string, revokedAt cborItem, signingDomain string) []byte {
 	return cborTuple(
 		cborText(revocationCertTag),
 		cborText(targetKeyID),
 		cborText(targetFingerprint),
-		cborText(revokedAt),
+		revokedAt,
 		cborText(signingDomain),
 	)
 }
@@ -93,6 +89,11 @@ const revocationCertQuorum = 2
 // checked), and the signature must verify over the payload rebuilt from the
 // signature's own wire domain field.
 func countRevocationCertSigners(cert api.RevocationCertificate, domainKeys []api.DomainPublicKey, domain string) int {
+	// A revocation time with a fraction of a second was never signed.
+	revokedAt, err := cborSignedTime(cert.RevokedAt)
+	if err != nil {
+		return 0
+	}
 	validSigners := make(map[string]bool)
 	for _, sig := range cert.Signatures {
 		if sig.SignedByKeyId == cert.TargetKeyId {
@@ -111,7 +112,7 @@ func countRevocationCertSigners(cert api.RevocationCertificate, domainKeys []api
 		if key == nil || checkSigningKeyValid(*key) != nil {
 			continue
 		}
-		payload := revocationCertPayload(cert.TargetKeyId, cert.TargetFingerprint, cert.RevokedAt, sig.Domain)
+		payload := revocationCertPayload(cert.TargetKeyId, cert.TargetFingerprint, revokedAt, sig.Domain)
 		if resolveAndVerify(key.Algorithm, payload, sig.Signature, key.PublicKey) == nil {
 			validSigners[sig.SignedByKeyId] = true
 		}

@@ -505,4 +505,162 @@ public static class Cbor
     }
 
     private static string Describe(Value? v) => v is null ? "<absent>" : v.GetType().Name;
+
+    // -----------------------------------------------------------------
+    // CSIL `timestamp`: CBOR tag 0 wrapping RFC 3339 text, always UTC
+    // -----------------------------------------------------------------
+
+    private static readonly System.Text.RegularExpressions.Regex Rfc3339Pattern = new(
+        @"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d{1,9})?([Zz]|[+-]\d{2}:\d{2})$",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Encode a CSIL <c>timestamp</c>: tag 0 wrapping RFC 3339 text in UTC with a <c>Z</c>
+    /// offset. Fraction digits are written in groups of three (none, 3, 6 or 9), as the
+    /// Rust reference does, so a whole-second instant has no fraction.
+    /// </summary>
+    public static Value VTimestamp(DateTimeOffset instant) => VTagOf(0, VTextOf(FormatTimestamp(instant)));
+
+    public static string FormatTimestamp(DateTimeOffset instant)
+    {
+        var utc = instant.ToUniversalTime();
+        long subTicks = utc.Ticks % TimeSpan.TicksPerSecond;
+        string whole = utc.ToString("yyyy-MM-dd'T'HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+        string fraction;
+        if (subTicks == 0)
+        {
+            fraction = "";
+        }
+        else if (subTicks % TimeSpan.TicksPerMillisecond == 0)
+        {
+            fraction = "." + (subTicks / TimeSpan.TicksPerMillisecond).ToString("D3", System.Globalization.CultureInfo.InvariantCulture);
+        }
+        else if (subTicks % 10 == 0)
+        {
+            fraction = "." + (subTicks / 10).ToString("D6", System.Globalization.CultureInfo.InvariantCulture);
+        }
+        else
+        {
+            fraction = "." + (subTicks * 100).ToString("D9", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        return whole + fraction + "Z";
+    }
+
+    /// <summary>
+    /// Decode a CSIL <c>timestamp</c>. Requires tag 0 and strict RFC 3339 text with an
+    /// explicit offset; the result is normalized to UTC. Anything else is a decode error.
+    /// </summary>
+    public static DateTimeOffset AsTimestamp(Value v)
+    {
+        if (v is not VTag { Tag: 0, Value: VText t })
+        {
+            throw new CborDecodeException($"expected a CBOR tag-0 RFC 3339 timestamp, got {Describe(v)}");
+        }
+
+        return ParseRfc3339(t.Value) ?? throw new CborDecodeException($"invalid RFC 3339 timestamp '{t.Value}'");
+    }
+
+    /// <summary>Strict RFC 3339 parse to UTC; <c>null</c> when the text is not RFC 3339.</summary>
+    public static DateTimeOffset? ParseRfc3339(string s)
+    {
+        if (!Rfc3339Pattern.IsMatch(s))
+        {
+            return null;
+        }
+
+        // .NET keeps at most 7 fraction digits; drop digits 8 and 9 (sub-100ns) so the
+        // parser accepts a 9-digit fraction from a nanosecond-precision peer.
+        var normalized = System.Text.RegularExpressions.Regex.Replace(s, @"(\.\d{7})\d+", "$1");
+        return DateTimeOffset.TryParse(
+            normalized,
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None,
+            out var result)
+            ? result.ToUniversalTime()
+            : null;
+    }
+
+    public static DateTimeOffset RequireTimestamp(Value map, string key) => AsTimestamp(Require(map, key));
+
+    public static DateTimeOffset? OptTimestamp(Value map, string key)
+    {
+        var v = MapGet(map, key);
+        return v is null ? null : AsTimestamp(v);
+    }
+
+    public static void PutTimestamp(List<Entry> entries, string key, DateTimeOffset value) =>
+        entries.Add(EntryOf(key, VTimestamp(value)));
+
+    public static void PutOptTimestamp(List<Entry> entries, string key, DateTimeOffset? value)
+    {
+        if (value is not null)
+        {
+            entries.Add(EntryOf(key, VTimestamp(value.Value)));
+        }
+    }
+
+    /// <summary>
+    /// Whole Unix seconds for a signed tuple payload. A signed timestamp with a fraction of
+    /// a second cannot be signed, so this throws instead of rounding.
+    /// </summary>
+    public static long UnixSecondsForSigning(DateTimeOffset instant)
+    {
+        if (instant.UtcTicks % TimeSpan.TicksPerSecond != 0)
+        {
+            throw new ArgumentException("a signed timestamp must be a whole number of seconds", nameof(instant));
+        }
+
+        return instant.ToUnixTimeSeconds();
+    }
+
+    // -----------------------------------------------------------------
+    // CSIL named-number enums: an unsigned integer on the wire
+    // -----------------------------------------------------------------
+
+    /// <summary>
+    /// A closed CSIL vocabulary. The SDK keeps each value as its text label in memory and
+    /// writes the registered number on the wire. An unknown label or number is an error.
+    /// </summary>
+    public sealed class WireEnum(string name, params (string Label, long Number)[] members)
+    {
+        public Value Encode(string label)
+        {
+            foreach (var (l, n) in members)
+            {
+                if (l == label)
+                {
+                    return VInteger(n);
+                }
+            }
+
+            throw new ArgumentException($"{name}: unknown value '{label}'");
+        }
+
+        public string Decode(Value v)
+        {
+            long n = AsInt(v);
+            foreach (var (l, num) in members)
+            {
+                if (num == n)
+                {
+                    return l;
+                }
+            }
+
+            throw new CborDecodeException($"{name}: unknown enum number {n}");
+        }
+
+        public long Number(string label) => AsInt(Encode(label));
+    }
+
+    public static readonly WireEnum KeyAlgorithm = new("KeyAlgorithm", ("ed25519", 1), ("x25519", 2));
+
+    public static readonly WireEnum KeyUsage = new("KeyUsage", ("sign", 1), ("encrypt", 2), ("agree", 3));
+
+    /// <summary>
+    /// AEAD suites, labelled by their KDF text ids (<c>aes-256-gcm</c>, <c>chacha20-poly1305</c>):
+    /// the callback-box KDF context still binds this text; only the wire field is a number.
+    /// </summary>
+    public static readonly WireEnum AeadSuite = new("AeadSuite", ("aes-256-gcm", 1), ("chacha20-poly1305", 2));
 }

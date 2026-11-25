@@ -6,7 +6,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -73,9 +72,9 @@ public final class ActAs {
     // Pure building blocks
     // -----------------------------------------------------------------
 
-    /** Whole-second RFC3339 in UTC ending in {@code Z}, as the reference implementation formats act-as times. */
-    public static String formatTime(Instant t) {
-        return DateTimeFormatter.ISO_INSTANT.format(t.truncatedTo(ChronoUnit.SECONDS));
+    /** {@code t} without its fraction of a second, as the reference implementation writes act-as times. */
+    public static Instant wholeSeconds(Instant t) {
+        return t.truncatedTo(ChronoUnit.SECONDS);
     }
 
     /** SHA-256 of a grant's signed bytes ({@code SignedActAsGrant.grant}). A presentation binds this value. */
@@ -130,7 +129,7 @@ public final class ActAs {
             byte[] nonce,
             LocalRpKeyMaterial keyMaterial) {
         ActAsPresentation presentation =
-                new ActAsPresentation(grantHash(grant.grant()), audience, requestDigest, formatTime(now), nonce);
+                new ActAsPresentation(grantHash(grant.grant()), audience, requestDigest, wholeSeconds(now), nonce);
         byte[] bytes = Codec.encodeActAsPresentation(presentation);
         return new ActAsCredential(grant, new SignedActAsPresentation(bytes, prove(PRESENTATION_TAG, bytes, keyMaterial)));
     }
@@ -250,8 +249,8 @@ public final class ActAs {
                 config.requestedRenewalWindowSeconds,
                 config.callbackUrl,
                 nonce,
-                formatTime(config.now),
-                formatTime(config.now.plus(window)));
+                wholeSeconds(config.now),
+                wholeSeconds(config.now.plus(window)));
         SignedActAsGrantRequest signed = signGrantRequest(request, config.keyMaterial);
 
         DnsResolver dns = config.dns != null ? config.dns : LinkKeysLocalRp.defaultDnsResolver();
@@ -369,8 +368,8 @@ public final class ActAs {
         ActAsRefreshRequest request = new ActAsRefreshRequest(
                 config.grantId,
                 localRpGrantee(config.keyMaterial),
-                formatTime(config.now),
-                formatTime(config.now.plus(REFRESH_REQUEST_WINDOW)),
+                wholeSeconds(config.now),
+                wholeSeconds(config.now.plus(REFRESH_REQUEST_WINDOW)),
                 Encoding.encodeUrlParam(Crypto.randomBytes(32)));
         SignedActAsRefreshRequest signed = signRefreshRequest(request, config.keyMaterial);
         RefreshActAsGrantResponse response;

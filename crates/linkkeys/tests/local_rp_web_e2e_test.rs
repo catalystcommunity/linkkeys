@@ -19,6 +19,7 @@ use common::data_factory::{
 use csilgen_transport::rpc::{RpcRequest, RpcResponse};
 use csilgen_transport::Status as RpcStatus;
 use liblinkkeys::crypto::{self, AeadSuite};
+use liblinkkeys::generated::types::LocalRpAdmission;
 use liblinkkeys::generated::types::{
     BrowserLocalRpCompleteRequest, BrowserLocalRpInspectRequest, BrowserLocalRpInspectResponse,
     DomainPublicKey, SessionPasswordLoginRequest,
@@ -27,7 +28,6 @@ use liblinkkeys::local_rp::{
     build_local_rp_descriptor, build_local_rp_login_request, sign_local_rp_descriptor,
     sign_local_rp_login_request, DEFAULT_CLOCK_SKEW_SECONDS,
 };
-use liblinkkeys::timestamp::Rfc3339 as _;
 use rocket::http::{ContentType, Header, Status};
 use rocket::local::asynchronous::Client;
 use std::sync::atomic::AtomicBool;
@@ -55,7 +55,7 @@ struct LocalRpFixture {
 /// the callback URL, supported suites, and requested/required claims.
 fn build_fixture(
     callback_url: &str,
-    supported_suites: Vec<String>,
+    supported_suites: Vec<liblinkkeys::crypto::AeadSuite>,
     requested_claims: Vec<String>,
     required_claims: Vec<String>,
 ) -> LocalRpFixture {
@@ -67,15 +67,15 @@ fn build_fixture(
     let enc_sk: [u8; 32] = enc_sk_vec.as_slice().try_into().unwrap();
     let fingerprint = crypto::fingerprint(&pk_arr);
 
-    let now = time::OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     let descriptor = build_local_rp_descriptor(
         "Test Jukebox",
         Some("jukebox.local"),
         &pk_arr,
         &enc_pk,
         supported_suites,
-        &(now - time::Duration::minutes(1)).to_rfc3339(),
-        &(now + time::Duration::days(3650)).to_rfc3339(),
+        now - time::Duration::minutes(1),
+        now + time::Duration::days(3650),
     );
     let signed_descriptor = sign_local_rp_descriptor(&descriptor, &signing_sk).unwrap();
 
@@ -91,8 +91,8 @@ fn build_fixture(
         state.to_vec(),
         requested_claims,
         required_claims,
-        &now.to_rfc3339(),
-        &(now + time::Duration::minutes(5)).to_rfc3339(),
+        now,
+        now + time::Duration::minutes(5),
     );
     let signed_request = sign_local_rp_login_request(&request, &signing_sk).unwrap();
     let sr =
@@ -112,7 +112,7 @@ fn build_fixture(
 fn default_fixture(callback_url: &str) -> LocalRpFixture {
     build_fixture(
         callback_url,
-        vec!["aes-256-gcm".to_string()],
+        vec![liblinkkeys::crypto::AeadSuite::Aes256Gcm],
         vec![
             "display_name".to_string(),
             "email".to_string(),
@@ -224,7 +224,8 @@ async fn sign_in(client: &Client, user: &linkkeys::db::models::User) {
                 username: format!("{}@{TEST_DOMAIN}", user.username),
                 password: PASSWORD.to_string(),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_eq!(
@@ -244,7 +245,8 @@ async fn inspect(client: &Client, sr: &str) -> RpcResponse {
             &BrowserLocalRpInspectRequest {
                 signed_request: sr.to_string(),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await
 }
@@ -272,7 +274,8 @@ async fn complete(client: &Client, sr: &str, claims: &[&str], standing: bool) ->
                 claim_values_to_set: Vec::new(),
                 use_standing_grant: standing.then_some(true),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await
 }
@@ -327,11 +330,11 @@ fn resigned(
             .unwrap();
     let mut request =
         liblinkkeys::generated::decode_local_rp_login_request(&original.request).unwrap();
-    let now = time::OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     request.nonce = rand::random::<[u8; 16]>().to_vec();
     request.state = rand::random::<[u8; 16]>().to_vec();
-    request.issued_at = now.to_rfc3339();
-    request.expires_at = (now + time::Duration::minutes(5)).to_rfc3339();
+    request.issued_at = now;
+    request.expires_at = now + time::Duration::minutes(5);
     request.flow_context = flow_context;
     let signed = sign_local_rp_login_request(&request, &fx.signing_sk).unwrap();
     liblinkkeys::encoding::signed_local_rp_login_request_to_url_param(&signed).unwrap()
@@ -369,7 +372,7 @@ async fn approved_local_rp_happy_path_end_to_end() {
     //    identity and callback host. No standing grant yet.
     sign_in(&client, &user).await;
     let screen = inspected(&inspect(&client, &fx.signed_request).await);
-    assert_eq!(screen.admission, "consent");
+    assert_eq!(screen.admission, LocalRpAdmission::Consent);
     assert_eq!(screen.app_name, "Test Jukebox");
     assert_eq!(screen.fingerprint, fx.fingerprint);
     assert_eq!(screen.callback_host, "127.0.0.1:9999");
@@ -404,7 +407,7 @@ async fn approved_local_rp_happy_path_end_to_end() {
     .expect("open callback with the RP's encryption key");
     let domain_keys = pool.list_active_domain_keys().unwrap();
     let csil_keys: Vec<DomainPublicKey> = domain_keys.iter().map(Into::into).collect();
-    let now = time::OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     let payload = liblinkkeys::local_rp::verify_local_rp_callback_payload(
         &signed_payload,
         &csil_keys,
@@ -423,7 +426,7 @@ async fn approved_local_rp_happy_path_end_to_end() {
     let redemption_request = liblinkkeys::local_rp::build_local_rp_ticket_redemption_request(
         payload.claim_ticket.clone(),
         &fx.fingerprint,
-        &now.to_rfc3339(),
+        now,
     );
     let signed_redemption = liblinkkeys::local_rp::sign_local_rp_ticket_redemption_request(
         &redemption_request,
@@ -435,7 +438,8 @@ async fn approved_local_rp_happy_path_end_to_end() {
         "redeem-claim-ticket",
         liblinkkeys::generated::encode_signed_local_rp_ticket_redemption_request(
             &signed_redemption,
-        ),
+        )
+        .unwrap(),
         &pool,
         None,
     );
@@ -455,7 +459,7 @@ async fn approved_local_rp_happy_path_end_to_end() {
     let update = resigned(
         &fx,
         Some(liblinkkeys::generated::types::AuthFlowContext {
-            flow: "claims_update".to_string(),
+            flow: liblinkkeys::generated::types::AuthFlow::ClaimsUpdate,
             prior_session: Some("local-session-1".to_string()),
             request_reason: Some("update sharing".to_string()),
         }),
@@ -497,7 +501,7 @@ async fn unknown_local_rp_under_admin_approval_goes_pending() {
     );
     sign_in(&client, &user).await;
     let screen = inspected(&inspect(&client, &fx.signed_request).await);
-    assert_eq!(screen.admission, "pending");
+    assert_eq!(screen.admission, LocalRpAdmission::Pending);
     assert!(
         screen.claims.is_empty(),
         "a pending app is shown nothing else"
@@ -530,15 +534,15 @@ async fn assert_rejected_no_redirect(status: &str) {
     // (denied/revoked) row, so its fingerprint matches exactly.
     let signing_pk_arr: [u8; 32] = rp.signing_public_key.as_slice().try_into().unwrap();
     let enc_pk_arr: [u8; 32] = rp.encryption_public_key.as_slice().try_into().unwrap();
-    let now = time::OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     let descriptor = build_local_rp_descriptor(
         "Rejected App",
         None,
         &signing_pk_arr,
         &enc_pk_arr,
-        vec!["aes-256-gcm".to_string()],
-        &(now - time::Duration::minutes(1)).to_rfc3339(),
-        &(now + time::Duration::days(3650)).to_rfc3339(),
+        vec![liblinkkeys::crypto::AeadSuite::Aes256Gcm],
+        now - time::Duration::minutes(1),
+        now + time::Duration::days(3650),
     );
     let signed_descriptor = sign_local_rp_descriptor(&descriptor, &signing_sk).unwrap();
     let request = build_local_rp_login_request(
@@ -548,8 +552,8 @@ async fn assert_rejected_no_redirect(status: &str) {
         b"state".to_vec(),
         vec!["handle".to_string()],
         vec!["handle".to_string()],
-        &now.to_rfc3339(),
-        &(now + time::Duration::minutes(5)).to_rfc3339(),
+        now,
+        now + time::Duration::minutes(5),
     );
     let signed_request = sign_local_rp_login_request(&request, &signing_sk).unwrap();
     let sr =
@@ -592,7 +596,7 @@ async fn revoked_local_rp_rejected_no_redirect() {
 async fn disabled_policy_rejects_before_login() {
     let pool = setup();
     seed_idp_and_user(&pool);
-    pool.set_local_rp_domain_policy(linkkeys::db::local_rp::POLICY_DISABLED)
+    pool.set_local_rp_domain_policy(&linkkeys::db::local_rp::POLICY_DISABLED)
         .unwrap();
     let fx = default_fixture("http://127.0.0.1:9999/callback");
     let client = build_client(&pool).await;
@@ -616,9 +620,9 @@ async fn disabled_policy_between_consent_render_and_submit_rejected() {
     sign_in(&client, &user).await;
     assert_eq!(
         inspected(&inspect(&client, &fx.signed_request).await).admission,
-        "consent"
+        LocalRpAdmission::Consent
     );
-    pool.set_local_rp_domain_policy(linkkeys::db::local_rp::POLICY_DISABLED)
+    pool.set_local_rp_domain_policy(&linkkeys::db::local_rp::POLICY_DISABLED)
         .unwrap();
     assert_refused(
         &complete(
@@ -651,7 +655,7 @@ async fn allow_list_policy_blocks_local_apps_but_deny_list_does_not() {
     create_app_access_policy(&pool, &deny_all);
     assert_eq!(
         inspected(&inspect(&client, &fx.signed_request).await).admission,
-        "consent"
+        LocalRpAdmission::Consent
     );
 
     // An allow list blocks it: no allow pattern can match it.
@@ -665,7 +669,7 @@ async fn allow_list_policy_blocks_local_apps_but_deny_list_does_not() {
     );
     create_app_access_policy(&pool, &allow_only);
     let screen = inspected(&inspect(&client, &fx.signed_request).await);
-    assert_eq!(screen.admission, "blocked");
+    assert_eq!(screen.admission, LocalRpAdmission::Blocked);
     let denial = screen.access_denied.expect("the denial");
     assert_eq!(denial.domain, None);
     assert_eq!(denial.messages, vec!["Demo account.".to_string()]);
@@ -692,7 +696,7 @@ async fn allow_list_policy_blocks_local_apps_but_deny_list_does_not() {
     // A blocked account does not register an unknown app.
     let unknown = default_fixture("http://127.0.0.1:9998/callback");
     let screen = inspected(&inspect(&client, &unknown.signed_request).await);
-    assert_eq!(screen.admission, "blocked");
+    assert_eq!(screen.admission, LocalRpAdmission::Blocked);
     assert!(pool.find_local_rp(&unknown.fingerprint).unwrap().is_none());
 }
 
@@ -732,7 +736,9 @@ async fn no_common_suite_rejected() {
     seed_idp_and_user(&pool);
     let fx = build_fixture(
         "http://127.0.0.1:9999/callback",
-        vec!["made-up-suite-nobody-supports".to_string()],
+        // Every suite the wire can name is one this server supports, so
+        // "nothing in common" is an empty offer.
+        vec![],
         vec!["handle".to_string()],
         vec!["handle".to_string()],
     );
@@ -770,7 +776,7 @@ async fn declined_required_claim_is_a_hard_error() {
     // "ssn" is required but the user has no such claim and will not grant it.
     let fx = build_fixture(
         "http://127.0.0.1:9999/callback",
-        vec!["aes-256-gcm".to_string()],
+        vec![liblinkkeys::crypto::AeadSuite::Aes256Gcm],
         vec!["ssn".to_string()],
         vec!["ssn".to_string()],
     );
@@ -779,7 +785,7 @@ async fn declined_required_claim_is_a_hard_error() {
     sign_in(&client, &user).await;
     assert_eq!(
         inspected(&inspect(&client, &fx.signed_request).await).admission,
-        "consent"
+        LocalRpAdmission::Consent
     );
     assert_refused(
         &complete(&client, &fx.signed_request, &[], false).await,
@@ -799,11 +805,11 @@ fn resigned_with_claims(fx: &LocalRpFixture, requested_claims: &[&str]) -> Strin
             .unwrap();
     let mut request =
         liblinkkeys::generated::decode_local_rp_login_request(&original.request).unwrap();
-    let now = time::OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     request.nonce = rand::random::<[u8; 16]>().to_vec();
     request.state = rand::random::<[u8; 16]>().to_vec();
-    request.issued_at = now.to_rfc3339();
-    request.expires_at = (now + time::Duration::minutes(5)).to_rfc3339();
+    request.issued_at = now;
+    request.expires_at = now + time::Duration::minutes(5);
     request.requested_claims = requested_claims.iter().map(|c| c.to_string()).collect();
     let signed = sign_local_rp_login_request(&request, &fx.signing_sk).unwrap();
     liblinkkeys::encoding::signed_local_rp_login_request_to_url_param(&signed).unwrap()
@@ -817,7 +823,7 @@ async fn new_optional_claim_reopens_local_rp_consent_once() {
     let user = seed_idp_and_user(&pool);
     let fx = build_fixture(
         "http://127.0.0.1:9999/callback",
-        vec!["aes-256-gcm".to_string()],
+        vec![liblinkkeys::crypto::AeadSuite::Aes256Gcm],
         vec!["handle".to_string()],
         vec!["handle".to_string()],
     );

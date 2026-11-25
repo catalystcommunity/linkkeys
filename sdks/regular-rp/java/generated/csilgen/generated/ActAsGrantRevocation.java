@@ -2,10 +2,12 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
+
 public record ActAsGrantRevocation(
     String grantId /* wire: "grant_id" */,
     String userId /* wire: "user_id" */,
     String subjectDomain /* wire: "subject_domain" */,
-    String revokedAt /* wire: "revoked_at" */
+    Instant revokedAt /* wire: "revoked_at" */
 ) {
 }

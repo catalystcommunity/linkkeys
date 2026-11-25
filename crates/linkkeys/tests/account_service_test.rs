@@ -132,7 +132,7 @@ fn test_service_get_my_info() {
     let sk_bytes =
         liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, b"test-passphrase")
             .unwrap();
-    let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm).unwrap();
+    let algorithm = linkkeys::conversions::stored_signing_algorithm(&dk.algorithm).unwrap();
     let claim_id = uuid::Uuid::now_v7().to_string();
     let signed = liblinkkeys::claims::sign_claim(
         &liblinkkeys::claims::ClaimSpec {
@@ -142,7 +142,8 @@ fn test_service_get_my_info() {
             user_id: &user.id,
             subject_domain: "test.com",
             expires_at: None,
-            attested_at: "2026-07-01T00:00:00+00:00",
+            attested_at: liblinkkeys::timestamp::parse_rfc3339("2026-07-01T00:00:00+00:00")
+                .unwrap(),
         },
         &[liblinkkeys::claims::ClaimSigner {
             domain: "test.com",

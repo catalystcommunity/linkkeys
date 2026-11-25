@@ -3,6 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { defineControls } from "@catalystcommunity/controls";
 import { defineElements } from "@catalystcommunity/base-components";
 import { DateTimePicker } from "@catalystcommunity/date-time-picker";
+import { AppAccessMode, AppAccessTargetKind, ClaimOperator, ClaimValueType, IssuedClaimOutcome, SetRule, SigningRule } from "../generated/types.gen";
 import type { PageProps } from "../shared";
 import { t } from "../i18n";
 
@@ -37,10 +38,10 @@ vi.mock("../transport", async (original) => ({ ...(await original<typeof import(
 const { adminAreaPage } = await import("./admin");
 const { CsilStatus, CsilTransportError } = await import("../transport");
 
-const alice = { id: "u1", username: "alice", displayName: "Alice", isActive: true, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" };
-const bob = { id: "u2", username: "bob", displayName: "Bob", isActive: true, createdAt: "2026-02-01T00:00:00Z", updatedAt: "2026-02-01T00:00:00Z", passwordLocked: false };
-const carol = { id: "u3", username: "carol", displayName: "Carol", isActive: false, createdAt: "2026-03-01T00:00:00Z", updatedAt: "2026-03-01T00:00:00Z" };
-const pronouns = { claimType: "pronouns", label: "Pronouns", description: "How to refer to you", valueType: "text", maxBytes: 64, setRule: "admin_only", signingRule: "verified", userSettable: true, defaultAutoSign: false, requiresApproval: true, suggested: false };
+const alice = { id: "u1", username: "alice", displayName: "Alice", isActive: true, createdAt: new Date("2026-01-01T00:00:00Z"), updatedAt: new Date("2026-01-01T00:00:00Z") };
+const bob = { id: "u2", username: "bob", displayName: "Bob", isActive: true, createdAt: new Date("2026-02-01T00:00:00Z"), updatedAt: new Date("2026-02-01T00:00:00Z"), passwordLocked: false };
+const carol = { id: "u3", username: "carol", displayName: "Carol", isActive: false, createdAt: new Date("2026-03-01T00:00:00Z"), updatedAt: new Date("2026-03-01T00:00:00Z") };
+const pronouns = { claimType: "pronouns", label: "Pronouns", description: "How to refer to you", valueType: ClaimValueType.TEXT, maxBytes: 64, setRule: SetRule.ADMIN_ONLY, signingRule: SigningRule.VERIFIED, userSettable: true, defaultAutoSign: false, requiresApproval: true, suggested: false };
 
 function context(path: string, overrides: Partial<PageProps> = {}): PageProps & { path: string } {
   return {
@@ -188,7 +189,7 @@ describe("one account", () => {
     page.querySelector<ZestDateTimePicker>("date-time-picker")!.value = "2027-05-01";
     submit(page.querySelectorAll("form.account-form")[1]);
     await settle();
-    expect(admin.setClaim).toHaveBeenCalledWith({ userId: "u2", claimType: "pronouns", claimValue: "they/them", expiresAt: "2027-05-01T00:00:00Z" });
+    expect(admin.setClaim).toHaveBeenCalledWith({ userId: "u2", claimType: "pronouns", claimValue: "they/them", expiresAt: new Date("2027-05-01T00:00:00Z") });
     expect(page.querySelector<ZestDateTimePicker>("date-time-picker")!.value).toBe("");
   });
 
@@ -286,7 +287,7 @@ describe("app access", () => {
     page.querySelector<ZestTextArea>(`text-area[label="${t("app.access.col_patterns")}"]`)!.value = "*.example";
     submit(page.querySelector("#access-policy-form form")!);
     await settle();
-    expect(admin.setAppAccessPolicy).toHaveBeenCalledWith({ id: undefined, name: "Adults", mode: "deny", patterns: ["*.example"], message: undefined, targets: [{ kind: "claim", claimType: "pronouns", claimOperator: "age_under", claimValue: "18" }] });
+    expect(admin.setAppAccessPolicy).toHaveBeenCalledWith({ id: undefined, name: "Adults", mode: AppAccessMode.DENY, patterns: ["*.example"], message: undefined, targets: [{ kind: AppAccessTargetKind.CLAIM, claimType: "pronouns", claimOperator: ClaimOperator.AGE_UNDER, claimValue: "18" }] });
     expect(page.querySelector('[role="status"].notice')?.textContent).toBe(t("app.access.saved", { name: "Adults" }));
   });
 });
@@ -294,8 +295,8 @@ describe("app access", () => {
 describe("approvals", () => {
   it("approves a claim and turns off only its buttons while it runs", async () => {
     const approvals = [
-      { id: "a1", userId: "u2", claimType: "pronouns", claimValue: new TextEncoder().encode("they"), createdAt: "2026-04-01T00:00:00Z" },
-      { id: "a2", userId: "u3", claimType: "pronouns", claimValue: new TextEncoder().encode("she"), createdAt: "2026-04-01T00:00:00Z" },
+      { id: "a1", userId: "u2", claimType: "pronouns", claimValue: new TextEncoder().encode("they"), createdAt: new Date("2026-04-01T00:00:00Z") },
+      { id: "a2", userId: "u3", claimType: "pronouns", claimValue: new TextEncoder().encode("she"), createdAt: new Date("2026-04-01T00:00:00Z") },
     ];
     admin.listPendingClaimApprovals.mockResolvedValueOnce({ approvals }).mockResolvedValue({ approvals: [] });
     let finish = () => {};
@@ -314,8 +315,8 @@ describe("approvals", () => {
 
 describe("issue", () => {
   it("checks a request, then signs only the filled values", async () => {
-    browserIssuer.inspectSigningRequest.mockResolvedValue({ subjectUserId: "sam", subjectDomain: "other.test", requestedClaimTypes: ["pronouns", "email"], issuableClaimTypes: ["pronouns"], expiresAt: "2026-12-01T00:00:00Z" });
-    browserIssuer.issueForSigningRequest.mockResolvedValue({ results: [{ claimType: "pronouns", outcome: "deposited" }] });
+    browserIssuer.inspectSigningRequest.mockResolvedValue({ subjectUserId: "sam", subjectDomain: "other.test", requestedClaimTypes: ["pronouns", "email"], issuableClaimTypes: ["pronouns"], expiresAt: new Date("2026-12-01T00:00:00Z") });
+    browserIssuer.issueForSigningRequest.mockResolvedValue({ results: [{ claimType: "pronouns", outcome: IssuedClaimOutcome.DEPOSITED }] });
     const page = await mount("/app/admin/issue");
     page.querySelector<ZestTextArea>("text-area")!.value = " signed ";
     submit(page.querySelector("form")!);

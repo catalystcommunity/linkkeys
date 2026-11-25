@@ -46,11 +46,10 @@ use liblinkkeys::generated::services::ServiceError;
 use liblinkkeys::generated::types::{
     ApplicationKeyAttestation, ApplicationKeyRevocation, DomainPublicKey,
     GetApplicationKeysRequest, GetApplicationKeysResponse, GetRevocationsRequest,
-    GetRevocationsResponse, RevocationCertificate, RpResolveApplicationKeysRequest,
+    GetRevocationsResponse, RevocationCertificate, RpCacheStatus, RpResolveApplicationKeysRequest,
     RpResolveApplicationKeysResponse, RpResolveDomainKeysRequest, RpResolveDomainKeysResponse,
     SignedApplicationKeyAttestation,
 };
-use liblinkkeys::timestamp::Rfc3339 as _;
 use std::collections::HashMap;
 use std::sync::{Arc, Condvar, LazyLock, Mutex};
 use time::{Duration, OffsetDateTime};
@@ -122,18 +121,9 @@ fn internal(context: &str, cause: impl std::fmt::Display) -> ServiceError {
     }
 }
 
-fn parse_rfc3339(s: &str) -> Option<OffsetDateTime> {
-    liblinkkeys::timestamp::parse_rfc3339(s).ok()
-}
-
-/// Seconds since `then`. An unparseable timestamp (only reachable via DB
-/// corruption) is treated as maximally stale — fail toward a refetch, never
-/// toward silently trusting garbage as fresh.
-fn age_seconds(now: OffsetDateTime, then: &str) -> i64 {
-    match parse_rfc3339(then) {
-        Some(t) => (now - t).whole_seconds().max(0),
-        None => i64::MAX,
-    }
+/// Seconds since `then`, never negative.
+fn age_seconds(now: OffsetDateTime, then: &OffsetDateTime) -> i64 {
+    (now - *then).whole_seconds().max(0)
 }
 
 /// `requested` can only make the effective age stricter (smaller) than
@@ -146,22 +136,22 @@ fn clamp_max_age(policy: i64, requested: Option<i64>) -> i64 {
     }
 }
 
-fn status_rank(status: &str) -> u8 {
+fn status_rank(status: &RpCacheStatus) -> u8 {
     match status {
-        "refreshed" => 2,
-        "fresh" => 1,
-        _ => 0, // "stale" and anything unrecognized
+        RpCacheStatus::Refreshed => 2,
+        RpCacheStatus::Fresh => 1,
+        RpCacheStatus::Stale => 0,
     }
 }
 
 /// The combined freshness of two composed answers is never better than the
 /// worse of the two — never silently present a part backed by stale data as
 /// an overall "fresh" or "refreshed" result.
-fn combine_status(a: &str, b: &str) -> String {
-    if status_rank(a) <= status_rank(b) {
-        a.to_string()
+fn combine_status(a: RpCacheStatus, b: &RpCacheStatus) -> RpCacheStatus {
+    if status_rank(&a) <= status_rank(b) {
+        a
     } else {
-        b.to_string()
+        *b
     }
 }
 
@@ -335,9 +325,9 @@ fn resolve_domain_keys_at(
                 domain: domain.to_string(),
                 keys,
                 revocations: Vec::new(),
-                fetched_at: m.fetched_at.clone(),
-                revocations_checked_at: m.revocations_checked_at.clone(),
-                cache_status: "fresh".to_string(),
+                fetched_at: m.fetched_at,
+                revocations_checked_at: m.revocations_checked_at,
+                cache_status: RpCacheStatus::Fresh,
             });
         }
     }
@@ -348,9 +338,9 @@ fn resolve_domain_keys_at(
                 domain: domain.to_string(),
                 keys,
                 revocations,
-                fetched_at: now.to_rfc3339(),
-                revocations_checked_at: now.to_rfc3339(),
-                cache_status: "refreshed".to_string(),
+                fetched_at: now,
+                revocations_checked_at: now,
+                cache_status: RpCacheStatus::Refreshed,
             }),
             Err(fetch_err) => {
                 if let Some(m) = &meta {
@@ -362,9 +352,9 @@ fn resolve_domain_keys_at(
                         domain: domain.to_string(),
                         keys,
                         revocations: Vec::new(),
-                        fetched_at: m.fetched_at.clone(),
-                        revocations_checked_at: m.revocations_checked_at.clone(),
-                        cache_status: "stale".to_string(),
+                        fetched_at: m.fetched_at,
+                        revocations_checked_at: m.revocations_checked_at,
+                        cache_status: RpCacheStatus::Stale,
                     })
                 } else {
                     Err(ServiceError {
@@ -399,9 +389,9 @@ fn domain_part_or_empty(
             domain: domain.to_string(),
             keys: Vec::new(),
             revocations: Vec::new(),
-            fetched_at: String::new(),
-            revocations_checked_at: String::new(),
-            cache_status: "stale".to_string(),
+            fetched_at: OffsetDateTime::UNIX_EPOCH,
+            revocations_checked_at: OffsetDateTime::UNIX_EPOCH,
+            cache_status: RpCacheStatus::Stale,
         }
     })
 }
@@ -428,7 +418,7 @@ fn load_domain_keys_from_cache(
 
 /// `peer_keys` does not retain the remote key's own creation time (only
 /// `first_seen`, which is not exposed on the domain-agnostic `PeerKey`), so
-/// `created_at` is left empty here. This is safe: every validity check
+/// `created_at` is the Unix epoch here. This is safe: every validity check
 /// (`check_signing_key_valid`, `signing_key_validity`) consults only
 /// `expires_at`/`revoked_at`, never `created_at`.
 fn peer_key_to_domain_public_key(k: &PeerKey) -> DomainPublicKey {
@@ -436,11 +426,11 @@ fn peer_key_to_domain_public_key(k: &PeerKey) -> DomainPublicKey {
         key_id: k.key_id.clone(),
         public_key: k.public_key.clone(),
         fingerprint: k.fingerprint.clone(),
-        algorithm: k.algorithm.clone(),
-        key_usage: k.key_usage.clone(),
-        created_at: String::new(),
-        expires_at: k.expires_at.clone(),
-        revoked_at: k.revoked_at.clone(),
+        algorithm: crate::conversions::stored_key_algorithm(&k.algorithm),
+        key_usage: crate::conversions::stored_key_usage(&k.key_usage),
+        created_at: OffsetDateTime::UNIX_EPOCH,
+        expires_at: k.expires_at,
+        revoked_at: k.revoked_at,
         signed_by_key_id: None,
         key_signature: None,
     }
@@ -493,11 +483,11 @@ fn persist_domain_keys(pool: &DbPool, domain: &str, keys: &[DomainPublicKey]) {
             domain: domain.to_string(),
             key_id: key.key_id.clone(),
             public_key: key.public_key.clone(),
-            algorithm: key.algorithm.clone(),
+            algorithm: key.algorithm.as_str().to_string(),
             fingerprint: key.fingerprint.clone(),
-            key_usage: key.key_usage.clone(),
-            expires_at: key.expires_at.clone(),
-            revoked_at: key.revoked_at.clone(),
+            key_usage: key.key_usage.as_str().to_string(),
+            expires_at: key.expires_at,
+            revoked_at: key.revoked_at,
         };
         if let Err(e) = pool.cache_peer_key(&peer) {
             log::warn!(
@@ -532,12 +522,12 @@ async fn fetch_remote_revocations_inner(
     trusted_keys: &[DomainPublicKey],
 ) -> Result<Vec<RevocationCertificate>, String> {
     let (addr, hostname, fingerprints) = discover(net, domain).await?;
-    let since = (OffsetDateTime::now_utc()
-        - Duration::days(crate::services::revocations::fetch_default_days()))
-    .to_rfc3339();
+    let since = OffsetDateTime::now_utc()
+        - Duration::days(crate::services::revocations::fetch_default_days());
     let payload = liblinkkeys::generated::encode_get_revocations_request(&GetRevocationsRequest {
         since: Some(since),
-    });
+    })
+    .map_err(|e| format!("encoding get-revocations request: {e}"))?;
     let resp_bytes = net
         .rpc
         .call(
@@ -660,9 +650,16 @@ pub fn resolve_application_keys(
     if let Some(e) = &entry {
         let fetch_remaining = effective_max_age - age_seconds(now, &e.fetched_at);
         let rev_remaining = rev_interval - age_seconds(now, &e.revocations_checked_at);
-        if fetch_remaining > ahead && rev_remaining > ahead {
+        // An entry with a record that does not decode (for example one cached
+        // in an older encoding) is not fresh: fetch it again.
+        let cached = load_cached_records(pool, &e.id)?;
+        if fetch_remaining > ahead && rev_remaining > ahead && cached.complete {
             let _ = pool.touch_rp_application_key_cache_entry(&e.id, now);
-            let (attestations, revocations) = load_cached_records(pool, &e.id)?;
+            let CachedRecords {
+                attestations,
+                revocations,
+                ..
+            } = cached;
             let domain_part = resolve_domain_keys_at(pool, net, rt, subject_domain, None, now)?;
             return Ok(build_app_response(
                 subject_user_id,
@@ -673,9 +670,9 @@ pub fn resolve_application_keys(
                 revocations,
                 domain_part.keys,
                 domain_part.revocations,
-                e.fetched_at.clone(),
-                e.revocations_checked_at.clone(),
-                combine_status("fresh", &domain_part.cache_status),
+                e.fetched_at,
+                e.revocations_checked_at,
+                combine_status(RpCacheStatus::Fresh, &domain_part.cache_status),
             ));
         }
     }
@@ -722,9 +719,9 @@ pub fn resolve_application_keys(
                     fetched.revocations,
                     fetched.domain_keys,
                     fetched.domain_revocations,
-                    now.to_rfc3339(),
-                    now.to_rfc3339(),
-                    combine_status("refreshed", &fetched.domain_status),
+                    now,
+                    now,
+                    combine_status(RpCacheStatus::Refreshed, &fetched.domain_status),
                 ))
             }
             Err(fetch_err) => {
@@ -733,7 +730,11 @@ pub fn resolve_application_keys(
                         "resolve-application-keys: {subject_domain} unreachable, serving stale \
                          cache for {application_id}/{instance_id}: {fetch_err}"
                     );
-                    let (attestations, revocations) = load_cached_records(pool, &e.id)?;
+                    let CachedRecords {
+                        attestations,
+                        revocations,
+                        ..
+                    } = load_cached_records(pool, &e.id)?;
                     let domain_part = domain_part_or_empty(pool, net, rt, subject_domain, now);
                     Ok(build_app_response(
                         subject_user_id,
@@ -744,9 +745,9 @@ pub fn resolve_application_keys(
                         revocations,
                         domain_part.keys,
                         domain_part.revocations,
-                        e.fetched_at.clone(),
-                        e.revocations_checked_at.clone(),
-                        "stale".to_string(),
+                        e.fetched_at,
+                        e.revocations_checked_at,
+                        RpCacheStatus::Stale,
                     ))
                 } else {
                     Err(ServiceError {
@@ -765,7 +766,7 @@ pub fn resolve_application_keys(
 struct VerifiedAttestationRecord {
     key_id: String,
     signed: SignedApplicationKeyAttestation,
-    attestation_expires_at: String,
+    attestation_expires_at: OffsetDateTime,
     verified_by_key_ids: String,
 }
 
@@ -778,7 +779,7 @@ struct FetchedApplicationKeys {
     /// fetch); kept as a field rather than a literal so a future push-update
     /// path (design: "must update the same cache records") can report
     /// something other than "refreshed" without changing every call site.
-    domain_status: String,
+    domain_status: RpCacheStatus,
 }
 
 /// Fetch, verify, and classify one remote application instance's keys.
@@ -871,7 +872,7 @@ async fn fetch_and_verify_application_keys(
         attestations.push(VerifiedAttestationRecord {
             key_id: vk.attestation.key_id.clone(),
             signed: (*signed).clone(),
-            attestation_expires_at: vk.attestation.attestation_expires_at.clone(),
+            attestation_expires_at: vk.attestation.attestation_expires_at,
             verified_by_key_ids: verifying_domain_key_ids(signed, &domain_keys, subject_domain),
         });
     }
@@ -896,19 +897,19 @@ async fn fetch_and_verify_application_keys(
         revocations,
         domain_keys,
         domain_revocations,
-        domain_status: "refreshed".to_string(),
+        domain_status: RpCacheStatus::Refreshed,
     })
 }
 
 fn attested_key_ref(a: &ApplicationKeyAttestation) -> ApplicationKeyRef {
     ApplicationKeyRef {
         key_id: a.key_id.clone(),
-        key_usage: a.key_usage.clone(),
-        algorithm: a.algorithm.clone(),
+        key_usage: a.key_usage,
+        algorithm: a.algorithm,
         public_key: a.public_key.clone(),
         fingerprint: a.fingerprint.clone(),
-        created_at: a.key_created_at.clone(),
-        expires_at: a.key_expires_at.clone(),
+        created_at: a.key_created_at,
+        expires_at: a.key_expires_at,
         revoked_at: None,
     }
 }
@@ -967,7 +968,8 @@ async fn fetch_remote_application_keys(
             subject_user_id: subject_user_id.to_string(),
             application_id: application_id.to_string(),
             instance_id: instance_id.to_string(),
-        });
+        })
+        .map_err(|e| format!("encoding get-application-keys request: {e}"))?;
     let resp_bytes = net
         .rpc
         .call(
@@ -1019,8 +1021,15 @@ fn persist_application_keys(
     };
 
     for rec in &fetched.attestations {
-        let expires = parse_rfc3339(&rec.attestation_expires_at).unwrap_or(now);
-        let bytes = liblinkkeys::generated::encode_signed_application_key_attestation(&rec.signed);
+        let expires = rec.attestation_expires_at;
+        let bytes =
+            match liblinkkeys::generated::encode_signed_application_key_attestation(&rec.signed) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    log::warn!("rp cache: encoding attestation {} failed: {e}", rec.key_id);
+                    continue;
+                }
+            };
         if let Err(e) = pool.upsert_rp_application_key_attestation(
             &entry.id,
             &rec.key_id,
@@ -1034,8 +1043,17 @@ fn persist_application_keys(
     }
 
     for rev in &fetched.revocations {
-        let revoked_at = parse_rfc3339(&rev.revoked_at).unwrap_or(now);
-        let bytes = liblinkkeys::generated::encode_application_key_revocation(rev);
+        let revoked_at = rev.revoked_at;
+        let bytes = match liblinkkeys::generated::encode_application_key_revocation(rev) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                log::warn!(
+                    "rp cache: encoding revocation of {} failed: {e}",
+                    rev.target_key_id
+                );
+                continue;
+            }
+        };
         if let Err(e) = pool.upsert_rp_application_key_revocation(
             &entry.id,
             &rev.target_key_id,
@@ -1054,16 +1072,16 @@ fn persist_application_keys(
     }
 }
 
-fn load_cached_records(
-    pool: &DbPool,
-    entry_id: &str,
-) -> Result<
-    (
-        Vec<SignedApplicationKeyAttestation>,
-        Vec<ApplicationKeyRevocation>,
-    ),
-    ServiceError,
-> {
+/// The records of one cache entry that decode. `complete` is false when a
+/// stored record did not decode.
+struct CachedRecords {
+    attestations: Vec<SignedApplicationKeyAttestation>,
+    revocations: Vec<ApplicationKeyRevocation>,
+    complete: bool,
+}
+
+fn load_cached_records(pool: &DbPool, entry_id: &str) -> Result<CachedRecords, ServiceError> {
+    let mut complete = true;
     let att_rows = pool
         .list_rp_application_key_attestations(entry_id)
         .map_err(|e| internal("reading cached attestations", e))?;
@@ -1073,7 +1091,13 @@ fn load_cached_records(
             &row.signed_attestation,
         ) {
             Ok(a) => attestations.push(a),
-            Err(e) => log::error!("rp cache: corrupt cached attestation {}: {e}", row.key_id),
+            Err(e) => {
+                complete = false;
+                log::warn!(
+                    "rp cache: cached attestation {} does not decode: {e}",
+                    row.key_id
+                )
+            }
         }
     }
 
@@ -1084,14 +1108,21 @@ fn load_cached_records(
     for row in &rev_rows {
         match liblinkkeys::generated::decode_application_key_revocation(&row.revocation) {
             Ok(r) => revocations.push(r),
-            Err(e) => log::error!(
-                "rp cache: corrupt cached revocation {}: {e}",
-                row.target_key_id
-            ),
+            Err(e) => {
+                complete = false;
+                log::warn!(
+                    "rp cache: cached revocation {} does not decode: {e}",
+                    row.target_key_id
+                )
+            }
         }
     }
 
-    Ok((attestations, revocations))
+    Ok(CachedRecords {
+        attestations,
+        revocations,
+        complete,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1104,9 +1135,9 @@ fn build_app_response(
     application_key_revocations: Vec<ApplicationKeyRevocation>,
     home_domain_keys: Vec<DomainPublicKey>,
     home_domain_key_revocations: Vec<RevocationCertificate>,
-    fetched_at: String,
-    revocations_checked_at: String,
-    cache_status: String,
+    fetched_at: OffsetDateTime,
+    revocations_checked_at: OffsetDateTime,
+    cache_status: RpCacheStatus,
 ) -> RpResolveApplicationKeysResponse {
     RpResolveApplicationKeysResponse {
         subject_user_id: subject_user_id.to_string(),

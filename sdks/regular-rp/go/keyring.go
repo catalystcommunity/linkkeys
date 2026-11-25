@@ -1,6 +1,9 @@
 package regularrp
 
 import (
+	"fmt"
+	"time"
+
 	api "github.com/catalystcommunity/linkkeys/sdks/regular-rp/go/generated"
 )
 
@@ -46,7 +49,10 @@ func NewAgreementKeyPair() (publicKey [32]byte, privateKey [32]byte, fingerprint
 // proves possession by returning the sealed-challenge plaintext in
 // addition.Challenge instead).
 func SignAddition(addition api.ApplicationKeyAddition, quorumSigners []ApplicationSigner, newKeySigner *ApplicationSigner) (api.SignedApplicationKeyAddition, error) {
-	bytes := api.EncodeApplicationKeyAddition(addition)
+	bytes, err := api.EncodeApplicationKeyAddition(addition)
+	if err != nil {
+		return api.SignedApplicationKeyAddition{}, encodeFailed("ApplicationKeyAddition", err)
+	}
 	quorumMessage := AdditionSignatureInput(bytes)
 
 	signatures := make([]api.ApplicationKeySignature, 0, len(quorumSigners))
@@ -80,7 +86,10 @@ func SignAddition(addition api.ApplicationKeyAddition, quorumSigners []Applicati
 // empty). For an X25519 target, pass sibling siblingSigners — it cannot sign
 // for itself (leave targetSigner nil).
 func SignRenewal(renewal api.ApplicationKeyRenewal, siblingSigners []ApplicationSigner, targetSigner *ApplicationSigner) (api.SignedApplicationKeyRenewal, error) {
-	bytes := api.EncodeApplicationKeyRenewal(renewal)
+	bytes, err := api.EncodeApplicationKeyRenewal(renewal)
+	if err != nil {
+		return api.SignedApplicationKeyRenewal{}, encodeFailed("ApplicationKeyRenewal", err)
+	}
 	message := RenewalSignatureInput(bytes)
 
 	signatures := make([]api.ApplicationKeySignature, 0, len(siblingSigners))
@@ -111,8 +120,14 @@ func SignRenewal(renewal api.ApplicationKeyRenewal, siblingSigners []Application
 // SignRevocation builds a revocation co-signed by sibling keys. The caller
 // must not include the target among signers — the target never signs its
 // own revocation, and the home domain rejects it regardless.
-func SignRevocation(instance InstanceRef, targetKeyID, targetFingerprint, revokedAt string, signers []ApplicationSigner) (api.ApplicationKeyRevocation, error) {
-	message := RevocationPayload(instance.SubjectUserID, instance.SubjectDomain, instance.ApplicationID, instance.InstanceID, targetKeyID, targetFingerprint, revokedAt)
+// revokedAt must be whole seconds: a signed timestamp with a fraction of a
+// second is refused (use time.Truncate(time.Second)).
+func SignRevocation(instance InstanceRef, targetKeyID, targetFingerprint string, revokedAt time.Time, signers []ApplicationSigner) (api.ApplicationKeyRevocation, error) {
+	revokedAt = revokedAt.UTC()
+	message, err := RevocationPayload(instance.SubjectUserID, instance.SubjectDomain, instance.ApplicationID, instance.InstanceID, targetKeyID, targetFingerprint, revokedAt)
+	if err != nil {
+		return api.ApplicationKeyRevocation{}, err
+	}
 
 	signatures := make([]api.ApplicationKeySignature, 0, len(signers))
 	for _, signer := range signers {
@@ -148,9 +163,15 @@ func OpenChallenge(sealed []byte, recipientX25519Private [32]byte) ([]byte, erro
 	if count != 4 {
 		return nil, &ApplicationKeyError{Kind: ErrDecode, Detail: "sealed challenge is not a 4-element array"}
 	}
-	suiteID, rest, err := cborReadText(rest)
+	// The first element is the AeadSuite NUMBER. The box KDF binds the
+	// suite TEXT id, so map the number to its text id here.
+	suiteNumber, rest, err := cborReadUint(rest)
 	if err != nil {
 		return nil, &ApplicationKeyError{Kind: ErrDecode, Detail: err.Error()}
+	}
+	suiteID, ok := aeadSuiteTextID(suiteNumber)
+	if !ok {
+		return nil, &ApplicationKeyError{Kind: ErrCrypto, Detail: fmt.Sprintf("unknown sealed challenge suite %d", suiteNumber)}
 	}
 	ephemeral, rest, err := cborReadBytes(rest)
 	if err != nil {

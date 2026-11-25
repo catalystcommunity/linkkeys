@@ -19,10 +19,14 @@ use liblinkkeys::dns::{self, DnsParseError};
 use liblinkkeys::encoding;
 use liblinkkeys::generated::{
     self,
-    types::{DomainPublicKey, LocalRpEncryptedCallback, SignedLocalRpCallbackPayload},
+    types::{
+        DomainPublicKey, KeyAlgorithm, KeyUsage, LocalRpEncryptedCallback,
+        SignedLocalRpCallbackPayload,
+    },
 };
 use liblinkkeys::local_rp;
 use liblinkkeys::revocation::{self, RevocationError};
+use liblinkkeys::timestamp::SignedTime;
 use serde_json::Value;
 use std::path::PathBuf;
 use time::OffsetDateTime;
@@ -198,8 +202,16 @@ fn parse_allowed_suites(case: &Value) -> Vec<AeadSuite> {
         .as_array()
         .unwrap()
         .iter()
-        .map(|v| AeadSuite::parse_str(v.as_str().unwrap()).expect("registered suite id"))
+        .map(|v| suite_from_id(v.as_str().unwrap()))
         .collect()
+}
+
+/// The suite whose text id (the KDF-context label, e.g. "aes-256-gcm") is `id`.
+fn suite_from_id(id: &str) -> AeadSuite {
+    AeadSuite::all_supported()
+        .into_iter()
+        .find(|s| s.kdf_label() == id)
+        .unwrap_or_else(|| panic!("unregistered suite id {id:?}"))
 }
 
 #[test]
@@ -225,7 +237,11 @@ fn callback_box_positive_cases_open_and_match() {
                 |e| panic!("positive case {:?} failed to open: {e:?}", case["suite"]),
             );
 
-        assert_eq!(header.suite, case["suite"].as_str().unwrap());
+        assert_eq!(header.suite, suite_from_id(case["suite"].as_str().unwrap()));
+        assert_eq!(
+            header.suite.to_number(),
+            case["suite_number"].as_i64().unwrap()
+        );
         assert_eq!(header.fingerprint, case["fingerprint"].as_str().unwrap());
         assert_eq!(
             header.nonce,
@@ -235,10 +251,17 @@ fn callback_box_positive_cases_open_and_match() {
             header.state,
             hex_decode(case["state_hex"].as_str().unwrap())
         );
-        assert_eq!(header.issued_at, case["issued_at"].as_str().unwrap());
-        assert_eq!(header.expires_at, case["expires_at"].as_str().unwrap());
+        assert_eq!(
+            header.issued_at,
+            parse_rfc3339(case["issued_at"].as_str().unwrap())
+        );
+        assert_eq!(
+            header.expires_at,
+            parse_rfc3339(case["expires_at"].as_str().unwrap())
+        );
 
-        let plaintext = generated::encode_signed_local_rp_callback_payload(&signed_payload);
+        let plaintext =
+            generated::encode_signed_local_rp_callback_payload(&signed_payload).unwrap();
         assert_eq!(
             plaintext,
             hex_decode(case["plaintext_cbor_hex"].as_str().unwrap())
@@ -447,31 +470,37 @@ fn parse_rfc3339(s: &str) -> OffsetDateTime {
     liblinkkeys::timestamp::parse_rfc3339(s).unwrap_or_else(|e| panic!("bad rfc3339 {s:?}: {e}"))
 }
 
+/// The signed-payload form of a fixture timestamp (whole Unix seconds).
+fn signed_time(s: &str) -> SignedTime {
+    SignedTime::new(&parse_rfc3339(s)).unwrap_or_else(|e| panic!("unsignable {s:?}: {e}"))
+}
+
 #[test]
 fn expirations_check_expirations_thresholds_are_exact() {
     let d = load("expirations.json");
-    let expires_at = d["check_expirations"]["expires_at"].as_str().unwrap();
+    let expires_at = parse_rfc3339(d["check_expirations"]["expires_at"].as_str().unwrap());
     let cases = d["check_expirations"]["cases"].as_array().unwrap();
     assert_eq!(cases.len(), 11);
 
     for case in cases {
         let now_str = case["now"].as_str().unwrap();
         let now = parse_rfc3339(now_str);
-        let status = local_rp::check_expirations(expires_at, now).unwrap();
+        let status = local_rp::check_expirations(expires_at, now);
         assert_eq!(
             status.level.as_str(),
             case["expected_level"].as_str().unwrap(),
             "now={now_str}"
         );
         assert_eq!(status.now, now);
+        assert_eq!(status.expires_at, expires_at);
     }
 }
 
 #[test]
 fn expirations_check_timestamps_skew_boundaries_are_exact() {
     let d = load("expirations.json");
-    let issued_at = d["check_timestamps"]["issued_at"].as_str().unwrap();
-    let expires_at = d["check_timestamps"]["expires_at"].as_str().unwrap();
+    let issued_at = parse_rfc3339(d["check_timestamps"]["issued_at"].as_str().unwrap());
+    let expires_at = parse_rfc3339(d["check_timestamps"]["expires_at"].as_str().unwrap());
     let skew = d["check_timestamps"]["skew_seconds"].as_i64().unwrap();
     let cases = d["check_timestamps"]["cases"].as_array().unwrap();
     assert_eq!(cases.len(), 4);
@@ -504,11 +533,13 @@ fn parse_key_array(v: &Value) -> Vec<DomainPublicKey> {
             key_id: k["key_id"].as_str().unwrap().to_string(),
             public_key: hex_decode(k["public_key_hex"].as_str().unwrap()),
             fingerprint: k["fingerprint_hex"].as_str().unwrap().to_string(),
-            algorithm: k["algorithm"].as_str().unwrap().to_string(),
-            key_usage: k["key_usage"].as_str().unwrap().to_string(),
-            created_at: k["created_at"].as_str().unwrap().to_string(),
-            expires_at: k["expires_at"].as_str().unwrap().to_string(),
-            revoked_at: k["revoked_at"].as_str().map(|s| s.to_string()),
+            algorithm: KeyAlgorithm::from_label(k["algorithm"].as_str().unwrap())
+                .expect("known key algorithm"),
+            key_usage: KeyUsage::from_label(k["key_usage"].as_str().unwrap())
+                .expect("known key usage"),
+            created_at: parse_rfc3339(k["created_at"].as_str().unwrap()),
+            expires_at: parse_rfc3339(k["expires_at"].as_str().unwrap()),
+            revoked_at: k["revoked_at"].as_str().map(parse_rfc3339),
             signed_by_key_id: None,
             key_signature: None,
         })
@@ -570,7 +601,10 @@ fn revocations_certificate_cases() {
             cert.target_fingerprint,
             jc["target_fingerprint"].as_str().unwrap()
         );
-        assert_eq!(cert.revoked_at, jc["revoked_at"].as_str().unwrap());
+        assert_eq!(
+            cert.revoked_at,
+            parse_rfc3339(jc["revoked_at"].as_str().unwrap())
+        );
         let jsigs = jc["signatures"].as_array().unwrap();
         assert_eq!(cert.signatures.len(), jsigs.len(), "{name}");
         for (sig, jsig) in cert.signatures.iter().zip(jsigs) {
@@ -622,7 +656,7 @@ fn revocations_positive_case_payload_bytes_are_exact() {
         let recomputed = revocation::revocation_payload(
             jc["target_key_id"].as_str().unwrap(),
             jc["target_fingerprint"].as_str().unwrap(),
-            jc["revoked_at"].as_str().unwrap(),
+            signed_time(jc["revoked_at"].as_str().unwrap()),
             jsig["domain"].as_str().unwrap(),
         );
         assert_eq!(
@@ -687,7 +721,7 @@ fn revocations_application_case_flips_key_validity() {
     let mut applied = false;
     for k in &mut revoked_keys {
         if k.key_id == cert.target_key_id {
-            k.revoked_at = Some(cert.revoked_at.clone());
+            k.revoked_at = Some(cert.revoked_at);
             applied = true;
         }
     }
@@ -782,22 +816,22 @@ fn claims_wire_round_trip_is_byte_exact() {
         );
         assert_eq!(
             claim.attested_at,
-            jc["attested_at"].as_str().unwrap(),
+            parse_rfc3339(jc["attested_at"].as_str().unwrap()),
             "{name}"
         );
         assert_eq!(
             claim.created_at,
-            jc["created_at"].as_str().unwrap(),
+            parse_rfc3339(jc["created_at"].as_str().unwrap()),
             "{name}"
         );
         assert_eq!(
-            claim.expires_at.as_deref(),
-            jc["expires_at"].as_str(),
+            claim.expires_at,
+            jc["expires_at"].as_str().map(parse_rfc3339),
             "{name}"
         );
         assert_eq!(
-            claim.revoked_at.as_deref(),
-            jc["revoked_at"].as_str(),
+            claim.revoked_at,
+            jc["revoked_at"].as_str().map(parse_rfc3339),
             "{name}"
         );
         let jsigs = jc["signatures"].as_array().unwrap();
@@ -817,7 +851,11 @@ fn claims_wire_round_trip_is_byte_exact() {
         }
 
         // Re-encode: byte-identical.
-        assert_eq!(generated::encode_claim(&claim), cbor, "{name}: re-encode");
+        assert_eq!(
+            generated::encode_claim(&claim).unwrap(),
+            cbor,
+            "{name}: re-encode"
+        );
     }
 }
 
@@ -839,8 +877,8 @@ fn claims_signature_payload_bytes_are_exact() {
                 jc["user_id"].as_str().unwrap(),
                 subject_domain,
                 jsig["domain"].as_str().unwrap(),
-                jc["expires_at"].as_str(),
-                jc["attested_at"].as_str().unwrap(),
+                jc["expires_at"].as_str().map(signed_time),
+                signed_time(jc["attested_at"].as_str().unwrap()),
             );
             assert_eq!(
                 published, recomputed,
@@ -920,7 +958,7 @@ fn claims_ticket_redemption_response_round_trips() {
     assert_eq!(response.user_domain, r["user_domain"].as_str().unwrap());
     assert_eq!(
         response.ticket_expires_at,
-        r["ticket_expires_at"].as_str().unwrap()
+        parse_rfc3339(r["ticket_expires_at"].as_str().unwrap())
     );
 
     // The embedded claims must be byte-for-byte the positive cases, in order.
@@ -934,7 +972,7 @@ fn claims_ticket_redemption_response_round_trips() {
 
     // Re-encode: byte-identical.
     assert_eq!(
-        generated::encode_local_rp_ticket_redemption_response(&response),
+        generated::encode_local_rp_ticket_redemption_response(&response).unwrap(),
         cbor
     );
 

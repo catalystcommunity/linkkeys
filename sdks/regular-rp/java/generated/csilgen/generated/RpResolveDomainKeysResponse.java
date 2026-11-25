@@ -2,14 +2,15 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.List;
 
 public record RpResolveDomainKeysResponse(
     String domain /* wire: "domain" */,
     List<DomainPublicKey> keys /* wire: "keys" */,
     List<RevocationCertificate> revocations /* wire: "revocations" */,
-    String fetchedAt /* wire: "fetched_at" */,
-    String revocationsCheckedAt /* wire: "revocations_checked_at" */,
-    String cacheStatus /* wire: "cache_status" */
+    Instant fetchedAt /* wire: "fetched_at" */,
+    Instant revocationsCheckedAt /* wire: "revocations_checked_at" */,
+    RpCacheStatus cacheStatus /* wire: "cache_status" */
 ) {
 }

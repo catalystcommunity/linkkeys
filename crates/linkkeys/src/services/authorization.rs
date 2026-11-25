@@ -115,6 +115,17 @@ pub fn required_relation_for_op(service: &str, op: &str) -> Option<&'static str>
             | "set-app-access-policy"
             | "remove-app-access-policy"
             | "preview-app-access" => RELATION_ADMIN,
+            // Application accounts on a relying party. Creating or revoking
+            // an API key, renaming an account, and changing an application
+            // id can take over an application, so they need full admin
+            // authority; limits and usage are account management.
+            "rename-user" | "set-application-id" | "create-api-key" | "revoke-api-key" => {
+                RELATION_ADMIN
+            }
+            "list-api-keys"
+            | "get-account-limits"
+            | "set-account-limits"
+            | "get-application-usage" => RELATION_MANAGE_USERS,
             // Read-only policy previews (the policy page's test panels).
             "preview-release-policy" | "preview-issuer-policy" => RELATION_MANAGE_CLAIMS,
             // Claim-type registry admin (the browser app's policy page and

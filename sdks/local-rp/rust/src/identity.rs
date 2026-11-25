@@ -18,7 +18,6 @@ use crate::Error;
 use liblinkkeys::crypto::{self, AeadSuite};
 use liblinkkeys::generated::types::SignedLocalRpDescriptor;
 use liblinkkeys::local_rp;
-use liblinkkeys::timestamp::Rfc3339 as _;
 use time::{Duration, OffsetDateTime};
 
 /// Default local RP key lifetime: 10 years (design doc, "One Signing Key and
@@ -39,9 +38,9 @@ pub struct GenerateLocalRpIdentityConfig {
     /// display/audit metadata, never an identity input.
     pub local_domain_hint: Option<String>,
     /// AEAD suites this app can decrypt callbacks with, in preference order.
-    /// Defaults to both registry suites (`aes-256-gcm` first, mandatory
-    /// baseline; `chacha20-poly1305` second, optional) when `None`.
-    pub supported_suites: Option<Vec<String>>,
+    /// Defaults to both registry suites (`Aes256Gcm` first, mandatory
+    /// baseline; `Chacha20Poly1305` second, optional) when `None`.
+    pub supported_suites: Option<Vec<AeadSuite>>,
     /// Key/descriptor lifetime from `now`. Defaults to [`DEFAULT_LIFETIME`]
     /// (10 years) when `None`.
     pub lifetime: Option<Duration>,
@@ -117,12 +116,9 @@ pub fn generate_local_rp_identity(
         Error::InvalidInput("generated encryption private key was not 32 bytes".to_string())
     })?;
 
-    let suites = config.supported_suites.unwrap_or_else(|| {
-        AeadSuite::all_supported()
-            .iter()
-            .map(|s| s.to_string())
-            .collect()
-    });
+    let suites = config
+        .supported_suites
+        .unwrap_or_else(AeadSuite::all_supported);
     if suites.is_empty() {
         return Err(Error::InvalidInput(
             "supported_suites must not be empty".to_string(),
@@ -130,8 +126,8 @@ pub fn generate_local_rp_identity(
     }
 
     let lifetime = config.lifetime.unwrap_or(DEFAULT_LIFETIME);
-    let created_at = config.now.to_rfc3339();
-    let expires_at = (config.now + lifetime).to_rfc3339();
+    let created_at = config.now;
+    let expires_at = config.now + lifetime;
 
     let descriptor = local_rp::build_local_rp_descriptor(
         &config.app_name,
@@ -139,8 +135,8 @@ pub fn generate_local_rp_identity(
         &signing_public_key,
         &encryption_public_key,
         suites,
-        &created_at,
-        &expires_at,
+        created_at,
+        expires_at,
     );
     let fingerprint = descriptor.fingerprint.clone();
     let signed_descriptor = local_rp::sign_local_rp_descriptor(&descriptor, &signing_private_key)
@@ -226,16 +222,16 @@ const IDENTITY_BUNDLE_MAGIC: &[u8; 4] = b"LKI1";
 /// created/expires timestamps) into one opaque blob an app can store as a
 /// single secret/config value. Layout: `MAGIC(4) || signing_private_key(32)
 /// || encryption_private_key(32) || descriptor_len(4, BE) || descriptor_cbor`.
-pub fn local_rp_identity_to_bytes(identity: &LocalRpKeyMaterial) -> Vec<u8> {
+pub fn local_rp_identity_to_bytes(identity: &LocalRpKeyMaterial) -> Result<Vec<u8>, Error> {
     let descriptor_bytes =
-        liblinkkeys::generated::encode_signed_local_rp_descriptor(&identity.descriptor);
+        liblinkkeys::generated::encode_signed_local_rp_descriptor(&identity.descriptor)?;
     let mut out = Vec::with_capacity(4 + 32 + 32 + 4 + descriptor_bytes.len());
     out.extend_from_slice(IDENTITY_BUNDLE_MAGIC);
     out.extend_from_slice(&identity.signing_private_key);
     out.extend_from_slice(&identity.encryption_private_key);
     out.extend_from_slice(&(descriptor_bytes.len() as u32).to_be_bytes());
     out.extend_from_slice(&descriptor_bytes);
-    out
+    Ok(out)
 }
 
 /// `local_rp_identity_from_bytes(bytes) -> LocalRpIdentity` — the inverse of
@@ -325,11 +321,7 @@ mod tests {
             liblinkkeys::generated::decode_local_rp_descriptor(&material.descriptor.descriptor)
                 .unwrap();
         assert_eq!(descriptor.app_name, "Test App");
-        let expected_suites: Vec<String> = AeadSuite::all_supported()
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        assert_eq!(descriptor.supported_suites, expected_suites);
+        assert_eq!(descriptor.supported_suites, AeadSuite::all_supported());
     }
 
     #[test]
@@ -381,7 +373,7 @@ mod tests {
         let material =
             generate_local_rp_identity(GenerateLocalRpIdentityConfig::new("Test App", now()))
                 .unwrap();
-        let bytes = local_rp_identity_to_bytes(&material);
+        let bytes = local_rp_identity_to_bytes(&material).unwrap();
         let round_tripped = local_rp_identity_from_bytes(&bytes).unwrap();
         assert_eq!(
             round_tripped.signing_private_key,
@@ -415,11 +407,11 @@ mod tests {
         let material =
             generate_local_rp_identity(GenerateLocalRpIdentityConfig::new("Test App", now()))
                 .unwrap();
-        let mut bytes = local_rp_identity_to_bytes(&material);
+        let mut bytes = local_rp_identity_to_bytes(&material).unwrap();
         bytes[0] ^= 0xff;
         assert!(local_rp_identity_from_bytes(&bytes).is_err());
 
-        let short = local_rp_identity_to_bytes(&material);
+        let short = local_rp_identity_to_bytes(&material).unwrap();
         assert!(local_rp_identity_from_bytes(&short[..10]).is_err());
     }
 }

@@ -15,15 +15,14 @@ mod common;
 use liblinkkeys::application_keys as ak;
 use liblinkkeys::crypto::{fingerprint, generate_ed25519_keypair, generate_x25519_keypair};
 use liblinkkeys::generated::types::{
-    AddApplicationKeyRequest, ApplicationKeyAddition, ApplicationKeyRenewal,
-    EnrollApplicationInstanceRequest, GetApplicationKeysRequest,
-    RenewApplicationKeyAttestationRequest, RevokeApplicationKeyRequest,
+    AddApplicationKeyRequest, ApplicationKeyAddition, ApplicationKeyChallengePurpose,
+    ApplicationKeyRenewal, EnrollApplicationInstanceRequest, GetApplicationKeysRequest,
+    KeyAlgorithm, KeyUsage, RenewApplicationKeyAttestationRequest, RevokeApplicationKeyRequest,
 };
-use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::db::DbPool;
 use linkkeys::services::application_keys as svc;
 use std::sync::{Mutex, MutexGuard};
-use time::{Duration, OffsetDateTime};
+use time::Duration;
 
 const APP: &str = "tinku";
 
@@ -50,8 +49,8 @@ struct AppKey {
     key_id: String,
     public_key: Vec<u8>,
     private_key: Vec<u8>,
-    usage: &'static str,
-    algorithm: &'static str,
+    usage: KeyUsage,
+    algorithm: KeyAlgorithm,
 }
 
 fn signing_key(id: &str) -> AppKey {
@@ -61,7 +60,7 @@ fn signing_key(id: &str) -> AppKey {
         public_key: vk.as_bytes().to_vec(),
         private_key: sk.to_bytes().to_vec(),
         usage: ak::KEY_USAGE_SIGN,
-        algorithm: "ed25519",
+        algorithm: KeyAlgorithm::Ed25519,
     }
 }
 
@@ -72,7 +71,7 @@ fn agreement_key(id: &str) -> AppKey {
         public_key,
         private_key,
         usage: ak::KEY_USAGE_AGREE,
-        algorithm: "x25519",
+        algorithm: KeyAlgorithm::X25519,
     }
 }
 
@@ -92,7 +91,7 @@ fn challenge_for(
     pool: &DbPool,
     subject: &str,
     instance_id: &str,
-    purpose: &str,
+    purpose: ApplicationKeyChallengePurpose,
     key: &AppKey,
     now: time::OffsetDateTime,
 ) -> (String, Vec<u8>) {
@@ -102,9 +101,9 @@ fn challenge_for(
             subject_user_id: subject.to_string(),
             application_id: APP.to_string(),
             instance_id: instance_id.to_string(),
-            purpose: purpose.to_string(),
-            key_usage: key.usage.to_string(),
-            algorithm: key.algorithm.to_string(),
+            purpose,
+            key_usage: key.usage,
+            algorithm: key.algorithm,
             public_key: key.public_key.clone(),
         },
         now,
@@ -139,15 +138,15 @@ fn addition_for(
         application_id: APP.to_string(),
         instance_id: instance_id.to_string(),
         key_id: key.key_id.clone(),
-        key_usage: key.usage.to_string(),
-        algorithm: key.algorithm.to_string(),
+        key_usage: key.usage,
+        algorithm: key.algorithm,
         public_key: key.public_key.clone(),
         fingerprint: fingerprint(&key.public_key),
         requested_key_lifetime_seconds: 90 * 86_400,
         challenge_id,
         challenge,
-        requested_at: (now - Duration::seconds(30)).to_rfc3339(),
-        expires_at: (now + Duration::seconds(120)).to_rfc3339(),
+        requested_at: now - Duration::seconds(30),
+        expires_at: now + Duration::seconds(120),
     }
 }
 
@@ -243,7 +242,7 @@ fn an_instance_enrolls_rotates_renews_and_revokes() {
     let _guard = signing_guard();
     let pool = common::create_test_pool();
     let subject = seed(&pool);
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     let instance_id = "instance-a";
 
     // --- initial enrollment: three signing keys, each proving possession ---
@@ -254,10 +253,12 @@ fn an_instance_enrolls_rotates_renews_and_revokes() {
 
     // A peer can verify all of it with nothing but our published domain keys.
     let set = read_and_verify(&pool, &subject, instance_id, now);
-    assert_eq!(set.usable_keys(ak::KEY_USAGE_SIGN).len(), 3);
+    assert_eq!(set.usable_keys(&ak::KEY_USAGE_SIGN).len(), 3);
     // All valid keys of one use are equal: any of them is selectable.
     for id in ["a", "b", "c"] {
-        assert!(set.key_for_use(id, ak::KEY_USAGE_SIGN, "ed25519").is_ok());
+        assert!(set
+            .key_for_use(id, &ak::KEY_USAGE_SIGN, &KeyAlgorithm::Ed25519)
+            .is_ok());
     }
 
     // --- rotation: two existing keys authorize a fourth ---
@@ -271,7 +272,7 @@ fn an_instance_enrolls_rotates_renews_and_revokes() {
 
     let set = read_and_verify(&pool, &subject, instance_id, now);
     assert_eq!(
-        set.usable_keys(ak::KEY_USAGE_SIGN).len(),
+        set.usable_keys(&ak::KEY_USAGE_SIGN).len(),
         4,
         "old and new keys overlap during a rotation"
     );
@@ -297,7 +298,6 @@ fn an_instance_enrolls_rotates_renews_and_revokes() {
     assert_eq!(reattested.key_id, "a", "renewal never makes a new key");
 
     // --- revocation: two siblings revoke a third; the target cannot help ---
-    let revoked_at = now.to_rfc3339();
     let revocation = ak::sign_revocation(
         &ak::InstanceRef {
             subject_user_id: &subject,
@@ -307,7 +307,7 @@ fn an_instance_enrolls_rotates_renews_and_revokes() {
         },
         "c",
         &fingerprint(&c.public_key),
-        &revoked_at,
+        &now,
         &[signer(&a), signer(&b)],
     )
     .expect("revocation signs");
@@ -316,11 +316,13 @@ fn an_instance_enrolls_rotates_renews_and_revokes() {
     let after = now + Duration::seconds(1);
     let set = read_and_verify(&pool, &subject, instance_id, after);
     assert!(
-        set.key_for_use("c", ak::KEY_USAGE_SIGN, "ed25519").is_err(),
+        set.key_for_use("c", &ak::KEY_USAGE_SIGN, &KeyAlgorithm::Ed25519)
+            .is_err(),
         "a revoked key must fail after its effective time"
     );
     assert!(
-        set.key_for_use("a", ak::KEY_USAGE_SIGN, "ed25519").is_ok(),
+        set.key_for_use("a", &ak::KEY_USAGE_SIGN, &KeyAlgorithm::Ed25519)
+            .is_ok(),
         "revoking one key must not touch its siblings"
     );
 
@@ -381,8 +383,8 @@ fn renew_result(
         key_id: key.key_id.clone(),
         challenge_id,
         challenge,
-        requested_at: (now - Duration::seconds(30)).to_rfc3339(),
-        expires_at: (now + Duration::seconds(120)).to_rfc3339(),
+        requested_at: now - Duration::seconds(30),
+        expires_at: now + Duration::seconds(120),
     };
     let self_signer = (key.usage == ak::KEY_USAGE_SIGN).then(|| signer(key));
     let signed = ak::sign_renewal(&renewal, &[], self_signer.as_ref()).expect("renewal signs");
@@ -399,7 +401,7 @@ fn a_key_agreement_key_enrolls_only_by_opening_its_sealed_challenge() {
     let _guard = signing_guard();
     let pool = common::create_test_pool();
     let subject = seed(&pool);
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     let instance_id = "instance-agree";
 
     let (a, b) = (signing_key("a"), signing_key("b"));
@@ -424,9 +426,11 @@ fn a_key_agreement_key_enrolls_only_by_opening_its_sealed_challenge() {
         .expect("adds the key-agreement key");
 
     let set = read_and_verify(&pool, &subject, instance_id, now);
-    assert!(set.key_for_use("x", ak::KEY_USAGE_AGREE, "x25519").is_ok());
+    assert!(set
+        .key_for_use("x", &ak::KEY_USAGE_AGREE, &KeyAlgorithm::X25519)
+        .is_ok());
     assert_eq!(
-        set.usable_keys(ak::KEY_USAGE_SIGN).len(),
+        set.usable_keys(&ak::KEY_USAGE_SIGN).len(),
         2,
         "a key-agreement key is not a signing key"
     );
@@ -461,7 +465,7 @@ fn a_challenge_is_single_use() {
     let _guard = signing_guard();
     let pool = common::create_test_pool();
     let subject = seed(&pool);
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     let instance_id = "instance-replay";
 
     let (a, b) = (signing_key("a"), signing_key("b"));
@@ -505,7 +509,7 @@ fn one_key_cannot_authorize_an_addition_by_itself() {
     let _guard = signing_guard();
     let pool = common::create_test_pool();
     let subject = seed(&pool);
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     let instance_id = "instance-quorum";
 
     let (a, b) = (signing_key("a"), signing_key("b"));
@@ -533,7 +537,7 @@ fn enrollment_refuses_a_single_signing_key() {
     let _guard = signing_guard();
     let pool = common::create_test_pool();
     let subject = seed(&pool);
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
 
     let a = signing_key("a");
     let err = enroll(&pool, &subject, "instance-thin", &[&a], now)
@@ -547,7 +551,7 @@ fn an_instance_of_one_subject_is_invisible_to_another() {
     let pool = common::create_test_pool();
     let one = seed(&pool);
     let two = common::data_factory::create_user(&pool, &Default::default()).id;
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
 
     let (a, b) = (signing_key("a"), signing_key("b"));
     enroll(&pool, &one, "shared-instance-id", &[&a, &b], now).expect("enrolls");
@@ -571,7 +575,7 @@ fn an_instance_of_one_subject_is_invisible_to_another() {
 #[test]
 fn the_public_read_refuses_an_unknown_instance() {
     let pool = common::create_test_pool();
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     let err = svc::get_application_keys(
         &pool,
         GetApplicationKeysRequest {
@@ -591,7 +595,7 @@ fn a_challenge_answers_the_same_for_a_known_and_an_unknown_instance() {
     // instance-existence oracle, which is exactly the reconnaissance surface
     // the design refuses to add.
     let pool = common::create_test_pool();
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     let key = signing_key("probe");
 
     let known = challenge_for(
@@ -651,7 +655,7 @@ fn a_forged_request_cannot_drain_a_victims_quota() {
     let _guard = signing_guard();
     let pool = common::create_test_pool();
     let subject = seed(&pool);
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     let instance_id = "instance-quota";
 
     let (a, b) = (signing_key("a"), signing_key("b"));

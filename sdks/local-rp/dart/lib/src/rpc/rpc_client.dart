@@ -11,6 +11,7 @@ import '../dns/dns.dart' as dnsproto;
 import '../dns/dns_resolver.dart';
 import '../errors.dart';
 import '../revocation.dart' as revocation;
+import '../rfc3339.dart';
 import '../wire/codec.dart';
 import '../wire/types.dart';
 import 'rpc_envelope.dart';
@@ -179,10 +180,8 @@ Future<List<DomainPublicKey>> fetchDomainKeys(
   // Always fetch revocations -- never gated on `recentRevocationsAvailable`
   // (see this function's doc comment). A failure here propagates, i.e. is
   // FATAL: it must never be swallowed to "just proceed unfiltered".
-  final since = DateTime.now()
-      .toUtc()
-      .subtract(const Duration(days: 30))
-      .toIso8601String();
+  final since = Rfc3339.wholeSeconds(
+      DateTime.now().toUtc().subtract(const Duration(days: 30)));
   final reqPayload =
       Codec.encodeGetRevocationsRequest(GetRevocationsRequest(since: since));
   final revRespBytes = await doCall(

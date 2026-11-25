@@ -41,9 +41,12 @@ defmodule LinkkeysLocalRp.Revocation do
 
   @revocation_tag "linkkeys-key-revocation-v1alpha"
 
-  @doc "The canonical signed bytes: `CBOR([tag, target_key_id, target_fingerprint, revoked_at, signing_domain])` — the signing sibling's domain is bound per-signature to stop cross-domain reuse."
-  def revocation_payload(target_key_id, target_fingerprint, revoked_at, signing_domain) do
-    Cbor.encode([@revocation_tag, target_key_id, target_fingerprint, revoked_at, signing_domain])
+  @doc "The canonical signed bytes: `CBOR([tag, target_key_id, target_fingerprint, revoked_at, signing_domain])` — the signing sibling's domain is bound per-signature to stop cross-domain reuse. `revoked_at` is whole Unix seconds as a CBOR integer; returns `:error` when it has a fraction of a second (such a time cannot be signed)."
+  @spec revocation_payload(String.t(), String.t(), DateTime.t(), String.t()) :: {:ok, binary} | :error
+  def revocation_payload(target_key_id, target_fingerprint, %DateTime{} = revoked_at, signing_domain) do
+    with {:ok, seconds} <- Timeutil.signed_seconds(revoked_at) do
+      {:ok, Cbor.encode([@revocation_tag, target_key_id, target_fingerprint, seconds, signing_domain])}
+    end
   end
 
   @doc """
@@ -89,25 +92,18 @@ defmodule LinkkeysLocalRp.Revocation do
   end
 
   defp verifies_revocation_signature?(sig, cert, key) do
-    payload = revocation_payload(cert.target_key_id, cert.target_fingerprint, cert.revoked_at, sig.domain)
-    Crypto.ed25519_verify(payload, sig.signature, key.public_key)
+    case revocation_payload(cert.target_key_id, cert.target_fingerprint, cert.revoked_at, sig.domain) do
+      {:ok, payload} -> Crypto.ed25519_verify(payload, sig.signature, key.public_key)
+      :error -> false
+    end
   end
 
   defp key_currently_valid?(key, now) do
     if key.revoked_at != nil do
       false
     else
-      case safe_parse(key.expires_at) do
-        {:ok, expires} -> DateTime.compare(now, expires) != :gt
-        {:error, _} -> false
-      end
+      DateTime.compare(now, key.expires_at) != :gt
     end
-  end
-
-  defp safe_parse(s) do
-    {:ok, Timeutil.parse_rfc3339(s)}
-  rescue
-    _ -> {:error, :bad_timestamp}
   end
 
   @doc "Verify a revocation certificate against a domain's public key set. Requires at least `revocation_quorum/0` DISTINCT signing keys of `domain`, each currently valid and NOT the target key, to have signed the canonical payload."

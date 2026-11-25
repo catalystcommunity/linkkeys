@@ -131,7 +131,7 @@ pub const key_vouch_tag = "linkkeys-key-vouch-v1alpha";
 
 pub fn keyVouchPayload(allocator: std.mem.Allocator, enc_fingerprint: []const u8, enc_expires_at: []const u8) ![]u8 {
     const cbor = @import("cbor.zig");
-    const items = [_]cbor.Value{ cbor.text(key_vouch_tag), cbor.text(enc_fingerprint), cbor.text(enc_expires_at) };
+    const items = [_]cbor.Value{ cbor.text(key_vouch_tag), cbor.text(enc_fingerprint), try local_rp.signedTimeValue(enc_expires_at) };
     return cbor.encodeTuple(allocator, &items);
 }
 

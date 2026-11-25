@@ -401,10 +401,10 @@ final class LocalRp
         if ($header->state !== $payload->state) {
             throw new LocalRpError(LocalRpError::HEADER_PAYLOAD_MISMATCH, 'state');
         }
-        if ($header->issuedAt !== $payload->issuedAt) {
+        if (!Time::sameInstant($header->issuedAt, $payload->issuedAt)) {
             throw new LocalRpError(LocalRpError::HEADER_PAYLOAD_MISMATCH, 'issued_at');
         }
-        if ($header->expiresAt !== $payload->expiresAt) {
+        if (!Time::sameInstant($header->expiresAt, $payload->expiresAt)) {
             throw new LocalRpError(LocalRpError::HEADER_PAYLOAD_MISMATCH, 'expires_at');
         }
     }

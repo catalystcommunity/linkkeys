@@ -1,10 +1,16 @@
-//! RFC 3339 timestamp text: the one place that writes and reads it.
+//! Timestamps: RFC 3339 text, and the form a signed payload carries.
 //!
 //! LINKKEYS-TRUST-CRITICAL: expiry, revocation, and freshness checks in the
-//! signed-structure verifiers parse timestamps here, and signed payloads carry
-//! the text written here.
+//! signed-structure verifiers use these timestamps, and signed payloads carry
+//! [`SignedTime`].
 //!
-//! The text format is fixed. It is the format that `chrono` wrote before the
+//! On the wire, a timestamp is a CSIL `timestamp` (CBOR tag 0), which the
+//! generated codec writes. A signed tuple payload carries [`SignedTime`]: whole
+//! Unix seconds as a CBOR integer. Every language writes an integer the same
+//! way, so a verifier rebuilds the exact signed bytes from decoded fields. A
+//! signed timestamp must be whole seconds; [`whole_seconds`] makes one.
+//!
+//! The text below is for storage and logs. Its format is fixed. It is the format that `chrono` wrote before the
 //! switch to `time`, so signed payloads, test vectors, and stored SQLite text
 //! stay byte-identical, and SQLite text comparisons keep their order:
 //!
@@ -41,6 +47,42 @@ const TOO_SHORT: TimestampError = TimestampError("timestamp is too short");
 const TOO_LONG: TimestampError = TimestampError("timestamp has trailing characters");
 const INVALID: TimestampError = TimestampError("timestamp is not RFC 3339");
 const OUT_OF_RANGE: TimestampError = TimestampError("timestamp field is out of range");
+const FRACTION: TimestampError =
+    TimestampError("a signed timestamp must be a whole number of seconds");
+
+/// A timestamp inside a signed payload: whole Unix seconds. Serializes as a
+/// CBOR integer. Build it with [`SignedTime::new`], which refuses a fraction
+/// of a second, so the signer and every verifier sign the same instant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[serde(transparent)]
+pub struct SignedTime(i64);
+
+impl SignedTime {
+    /// The signed form of `t`. Fails when `t` has a fraction of a second.
+    pub fn new(t: &OffsetDateTime) -> Result<Self, TimestampError> {
+        if t.nanosecond() != 0 {
+            return Err(FRACTION);
+        }
+        Ok(SignedTime(t.unix_timestamp()))
+    }
+
+    /// The Unix time in seconds.
+    pub fn seconds(self) -> i64 {
+        self.0
+    }
+}
+
+/// `t` without its fraction of a second (rounded down), in UTC.
+pub fn whole_seconds(t: OffsetDateTime) -> OffsetDateTime {
+    t.to_offset(UtcOffset::UTC)
+        .replace_nanosecond(0)
+        .expect("zero is a valid nanosecond")
+}
+
+/// The current time in whole seconds, for a timestamp that will be signed.
+pub fn now_whole_seconds() -> OffsetDateTime {
+    whole_seconds(OffsetDateTime::now_utc())
+}
 
 /// The LinkKeys RFC 3339 text forms of an [`OffsetDateTime`].
 pub trait Rfc3339 {
@@ -257,6 +299,22 @@ pub fn parse_date_ymd(s: &str) -> Result<Date, TimestampError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signed_time_is_whole_unix_seconds() {
+        let t = parse_rfc3339("2026-11-22T10:00:00+00:00").unwrap();
+        assert_eq!(SignedTime::new(&t).unwrap().seconds(), 1_795_341_600);
+        let mut cbor = Vec::new();
+        ciborium::ser::into_writer(&SignedTime::new(&t).unwrap(), &mut cbor).unwrap();
+        assert_eq!(cbor, [0x1a, 0x6b, 0x02, 0xbd, 0x20]);
+
+        let fractional = parse_rfc3339("2026-11-22T10:00:00.5+00:00").unwrap();
+        assert_eq!(SignedTime::new(&fractional), Err(FRACTION));
+        assert_eq!(
+            SignedTime::new(&whole_seconds(fractional)).unwrap(),
+            SignedTime::new(&t).unwrap()
+        );
+    }
 
     fn at(s: &str) -> OffsetDateTime {
         parse_rfc3339(s).unwrap()

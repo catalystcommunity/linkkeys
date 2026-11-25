@@ -2,17 +2,17 @@
 import { api } from "../../transport";
 import { claimTypeLabel, t } from "../../i18n";
 import { button, fill, form, formatted, h, textArea, textButton, textField, type Child } from "../../dom";
-import type { InspectSigningRequestResponse, IssuedClaimResult } from "../../generated/types.gen";
+import { IssuedClaimOutcome, type InspectSigningRequestResponse, type IssuedClaimResult } from "../../generated/types.gen";
 import { authenticationFailed } from "../../ui-logic";
 import { AdminPage, Slot, adminHeader } from "./common";
 
 function issueResult(result: IssuedClaimResult, domain: string): HTMLElement {
   const name = claimTypeLabel(result.claimType);
   const reason = result.message ?? "";
-  if (result.outcome === "deposited") return h("div", { class: "consent-claim" }, h("p", { class: "notice good" }, t("app.issue.deposited", { label: name, domain })));
-  if (result.outcome === "skipped") return h("div", { class: "consent-claim" }, h("p", { class: "notice" }, t("app.issue.skipped", { label: name, reason })));
-  if (result.outcome === "failed") return h("div", { class: "consent-claim" }, h("p", { class: "notice bad" }, t("app.issue.failed", { label: name, reason })));
-  if (result.outcome !== "handoff") return h("div", { class: "consent-claim" });
+  if (result.outcome === IssuedClaimOutcome.DEPOSITED) return h("div", { class: "consent-claim" }, h("p", { class: "notice good" }, t("app.issue.deposited", { label: name, domain })));
+  if (result.outcome === IssuedClaimOutcome.SKIPPED) return h("div", { class: "consent-claim" }, h("p", { class: "notice" }, t("app.issue.skipped", { label: name, reason })));
+  if (result.outcome === IssuedClaimOutcome.FAILED) return h("div", { class: "consent-claim" }, h("p", { class: "notice bad" }, t("app.issue.failed", { label: name, reason })));
+  if (result.outcome !== IssuedClaimOutcome.HANDOFF) return h("div", { class: "consent-claim" });
   const copied = new Slot();
   const code = textArea("", { readonly: true, rows: 3, value: result.claimCode ?? "", "aria-label": t("app.issue.code_label", { label: name }), on: { focusin: () => code.select() } });
   const copy = async () => {
@@ -73,7 +73,7 @@ export class AdminIssuePage extends AdminPage {
     if (!request) { this.content.set(this.inspectForm); return; }
     const intro = [
       h("p", null, formatted("app.issue.request_from", { subject: h("code", null, `${request.subjectUserId}@${request.subjectDomain}`) })),
-      h("p", null, h("small", null, t("app.issue.request_until", { until: new Date(request.expiresAt).toLocaleString() }))),
+      h("p", null, h("small", null, t("app.issue.request_until", { until: request.expiresAt.toLocaleString() }))),
     ];
     if (this.results.length) {
       this.content.set(...intro, ...this.results.map((result) => issueResult(result, request.subjectDomain)), button(t("app.issue.another"), { onClick: () => this.restart() }));

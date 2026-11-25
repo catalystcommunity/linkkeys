@@ -31,8 +31,8 @@ defmodule LinkkeysLocalRp.ConformanceCallbackBoxTest do
       assert header.fingerprint == case_["fingerprint"]
       assert header.nonce == Vectors.hex(case_["nonce_hex"])
       assert header.state == Vectors.hex(case_["state_hex"])
-      assert header.issued_at == case_["issued_at"]
-      assert header.expires_at == case_["expires_at"]
+      assert DateTime.compare(header.issued_at, Vectors.ts(case_["issued_at"])) == :eq
+      assert DateTime.compare(header.expires_at, Vectors.ts(case_["expires_at"])) == :eq
 
       plaintext = Types.signed_local_rp_callback_payload_to_cbor(signed_payload)
       assert plaintext == Vectors.hex(case_["plaintext_cbor_hex"])

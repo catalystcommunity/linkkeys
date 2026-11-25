@@ -86,7 +86,7 @@ TestKit::test('revocations.certificate_cbor_roundtrip', function () use ($vector
     $decoded = Wire::decodeRevocationCertificate($bytes);
     TestKit::assertEquals($cert->targetKeyId, $decoded->targetKeyId);
     TestKit::assertEquals($cert->targetFingerprint, $decoded->targetFingerprint);
-    TestKit::assertEquals($cert->revokedAt, $decoded->revokedAt);
+    TestKit::assertSameInstant($cert->revokedAt, $decoded->revokedAt);
     TestKit::assertEquals(count($cert->signatures), count($decoded->signatures));
 });
 

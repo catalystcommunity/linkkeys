@@ -34,7 +34,8 @@ sdks/local-rp/php/
                           # codec is broken)
     Crypto.php              # Ed25519/X25519/AEAD/HKDF/fingerprint over
                           # ext-sodium + ext-openssl + hash_hkdf()
-    Time.php                 # RFC3339 parse/format shared by every module
+    Time.php                 # RFC 3339 parse/format, tag-0 wire form, and
+                          # whole-second signed form, for every module
     LocalRp.php                # pure protocol helpers (envelope sign/verify,
                           # callback seal/open, timestamp/expiration checks)
                           # -- mirrors crates/liblinkkeys/src/local_rp.rs

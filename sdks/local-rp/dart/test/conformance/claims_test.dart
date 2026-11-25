@@ -5,7 +5,8 @@
 // is CBOR bytes (bstr, major type 2), never text (tstr) -- both on the wire
 // and inside the eight-element signed payload
 // `CBOR([tag, claim_id, claim_type, claim_value, "user_id@subject_domain",
-// signing_domain, expires_at_or_null, attested_at])`. A codec that is
+// signing_domain, expires_at_or_null, attested_at])` (both times are whole
+// Unix seconds as CBOR integers). A codec that is
 // internally self-consistent (sign-wrong/verify-wrong) passes its own tests
 // either way, so every case here is checked against the fixture's
 // independently-computed bytes/signatures, not merely round-tripped through
@@ -26,11 +27,11 @@ DomainPublicKey _parseDomainKey(Map<String, dynamic> k) {
     keyId: k['key_id'] as String,
     publicKey: hex(k['public_key_hex'] as String),
     fingerprint: k['fingerprint_hex'] as String,
-    algorithm: k['algorithm'] as String,
-    keyUsage: k['key_usage'] as String,
-    createdAt: k['created_at'] as String,
-    expiresAt: k['expires_at'] as String,
-    revokedAt: k['revoked_at'] as String?,
+    algorithm: alg(k['algorithm'] as String),
+    keyUsage: usage(k['key_usage'] as String),
+    createdAt: ts(k['created_at'] as String),
+    expiresAt: ts(k['expires_at'] as String),
+    revokedAt: tsOpt(k['revoked_at'] as String?),
   );
 }
 
@@ -53,10 +54,10 @@ Claim _parseClaim(Map<String, dynamic> c) {
         .cast<Map<String, dynamic>>()
         .map(_parseClaimSignature)
         .toList(),
-    attestedAt: c['attested_at'] as String,
-    createdAt: c['created_at'] as String,
-    expiresAt: c['expires_at'] as String?,
-    revokedAt: c['revoked_at'] as String?,
+    attestedAt: ts(c['attested_at'] as String),
+    createdAt: ts(c['created_at'] as String),
+    expiresAt: tsOpt(c['expires_at'] as String?),
+    revokedAt: tsOpt(c['revoked_at'] as String?),
   );
 }
 
@@ -79,7 +80,7 @@ void main() {
       expect(
         d['payload_layout'],
         equals(
-          "CBOR([tag, claim_id, claim_type, claim_value(bstr), 'user_id@subject_domain', signing_domain, expires_at_or_null, attested_at])",
+          "CBOR([tag, claim_id, claim_type, claim_value(bstr), 'user_id@subject_domain', signing_domain, expires_at_unix_seconds_or_null, attested_at_unix_seconds])",
         ),
       );
     });
@@ -219,7 +220,8 @@ void main() {
       final decoded = Codec.decodeLocalRpTicketRedemptionResponse(expectedWire);
       expect(decoded.userId, equals(node['user_id']));
       expect(decoded.userDomain, equals(node['user_domain']));
-      expect(decoded.ticketExpiresAt, equals(node['ticket_expires_at']));
+      expect(decoded.ticketExpiresAt,
+          equals(ts(node['ticket_expires_at'] as String)));
 
       final cases = (d['cases'] as List).cast<Map<String, dynamic>>();
       expect(decoded.claims.length, equals(cases.length));

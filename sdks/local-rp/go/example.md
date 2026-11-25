@@ -63,11 +63,18 @@ CSIL-RPC and asks it to do the crypto.
    `resp.AsTransportError()` until it's granted, and nothing provisions it
    automatically (no startup/Helm bootstrap step does this for you).
 
-   One command does both (mint the key and grant the relation together):
+   The account must also be an **application account**. The RP server takes
+   the application from the account, so `Rp/sign-request` has no
+   `application_id` field. A call from a key that is not an application
+   account gets an `RpError` reply with code `not_application_account`.
+
+   One command does all of this (it makes the application account, mints the
+   key, and grants the relation):
 
    ```sh
    kubectl exec -n <rp-namespace> deploy/<rp-deployment> -- \
-     linkkeys user create my-webapp "My Web Application" --api-key --relation api_access
+     linkkeys user create my-webapp "My Web Application" \
+       --application-id my-webapp --relation api_access
    # Save the printed API key — it is shown exactly once.
    ```
 
@@ -184,8 +191,10 @@ exported** and safe for an external app to depend on:
   depends on the same way.
 - **`github.com/catalystcommunity/linkkeys/sdks/local-rp/go/generated`**
   (package `api`) — the CSIL-generated `Rp*Request`/`Rp*Response` structs and
-  their `Encode*`/`Decode*` functions. This subpackage is generic generated
-  types + codec for the *whole* `linkkeys.csil`, not local-RP-specific; it
+  their `Encode*`/`Decode*` functions. Each `Encode*` function returns the
+  bytes and an error. An error means that the value has no wire form (for
+  example, a timestamp outside UTC years 0001-9999). This subpackage is
+  generic generated types + codec for the *whole* `linkkeys.csil`, not local-RP-specific; it
   happens to live under this SDK's module because that's where it's checked
   in, but it has no dependency on anything local-RP-specific.
 
@@ -222,7 +231,7 @@ module example.com/regularrp
 go 1.26.4
 
 require (
-	github.com/catalystcommunity/csilgen/transports/go v0.0.0-20260713013116-a661c8727022
+	github.com/catalystcommunity/csilgen/transports/go v0.0.0-20260926220402-baec1dad191c
 	github.com/catalystcommunity/linkkeys/sdks/local-rp/go v0.0.0-00010101000000-000000000000
 )
 
@@ -363,14 +372,23 @@ func dialPinnedTLS(cfg rpConfig) (*tls.Conn, error) {
 // authenticate_tcp_request, which reads exactly that field, and
 // services/authorization.rs's required_relation_for_op("Rp", op), which then
 // requires the caller's key to hold the `api_access` relation (SEC-06).
-func rpCall(cfg rpConfig, op string, payload []byte) ([]byte, error) {
+//
+// The `sign-request`, `decrypt-token`, `verify-assertion`, and
+// `userinfo-fetch` operations reply with typed arms. A successful reply has
+// status 0 and a `variant` that names the arm: wantVariant (for example
+// "RpSignResponse") or "RpError". rpCall decodes an "RpError" arm into an
+// *rpError and returns it as the error. It rejects any other variant.
+func rpCall(cfg rpConfig, op string, payload []byte, wantVariant string) ([]byte, error) {
 	conn, err := dialPinnedTLS(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("dial RP: %w", err)
 	}
 	defer conn.Close()
 
-	carrier := rpctransport.NewStreamCarrierWithMaxFrame(conn, maxFrameSize)
+	carrier, err := rpctransport.NewStreamCarrierWithMaxFrame(conn, maxFrameSize)
+	if err != nil {
+		return nil, fmt.Errorf("max frame: %w", err)
+	}
 
 	req := rpctransport.NewRpcRequest("Rp", op, payload).WithAuth(cfg.apiKey)
 	frame, err := req.Encode()
@@ -396,18 +414,54 @@ func rpCall(cfg rpConfig, op string, payload []byte) ([]byte, error) {
 	if err := resp.AsTransportError(); err != nil {
 		return nil, fmt.Errorf("Rp/%s: %w", op, err)
 	}
-	return resp.Payload, nil
+	if resp.Variant == nil {
+		return nil, fmt.Errorf("Rp/%s: reply has no variant", op)
+	}
+	switch *resp.Variant {
+	case wantVariant:
+		return resp.Payload, nil
+	case "RpError":
+		rpErr, err := api.DecodeRpError(resp.Payload)
+		if err != nil {
+			return nil, fmt.Errorf("Rp/%s: decode RpError: %w", op, err)
+		}
+		return nil, &rpError{Op: op, Code: rpErr.Code, Message: rpErr.Message}
+	default:
+		return nil, fmt.Errorf("Rp/%s: unexpected reply variant %q", op, *resp.Variant)
+	}
+}
+
+// rpError is a typed error that the RP server returned. Code is the
+// api.RpErrorCode (for example api.RpErrorCodeNotApplicationAccount when the
+// API key does not belong to an application account). Use errors.As to read
+// it.
+type rpError struct {
+	Op      string
+	Code    api.RpErrorCode
+	Message string
+}
+
+func (e *rpError) Error() string {
+	label, err := e.Code.MarshalText()
+	if err != nil {
+		label = []byte(fmt.Sprintf("code %d", int64(e.Code)))
+	}
+	return fmt.Sprintf("Rp/%s: %s: %s", e.Op, label, e.Message)
 }
 
 // signRequest is step 1 of the login flow: sign an auth request addressed to
 // the user's chosen LinkKeys domain, naming this app's callback URL and a
-// fresh single-use nonce.
+// fresh single-use nonce. The request has no application id: the RP server
+// takes the application from the API key's application account.
 func signRequest(cfg rpConfig, callbackURL, nonce string) (string, error) {
-	payload := api.EncodeRpSignRequest(api.RpSignRequest{
+	payload, err := api.EncodeRpSignRequest(api.RpSignRequest{
 		CallbackUrl: callbackURL,
 		Nonce:       nonce,
 	})
-	respBytes, err := rpCall(cfg, "sign-request", payload)
+	if err != nil {
+		return "", fmt.Errorf("encode sign-request: %w", err)
+	}
+	respBytes, err := rpCall(cfg, "sign-request", payload, "RpSignResponse")
 	if err != nil {
 		return "", err
 	}
@@ -425,8 +479,11 @@ func signRequest(cfg rpConfig, callbackURL, nonce string) (string, error) {
 // consume — verify-assertion and userinfo-fetch both take it, never the raw
 // encrypted_token.
 func decryptToken(cfg rpConfig, encryptedToken string) (string, error) {
-	payload := api.EncodeRpDecryptRequest(api.RpDecryptRequest{EncryptedToken: encryptedToken})
-	respBytes, err := rpCall(cfg, "decrypt-token", payload)
+	payload, err := api.EncodeRpDecryptRequest(api.RpDecryptRequest{EncryptedToken: encryptedToken})
+	if err != nil {
+		return "", fmt.Errorf("encode decrypt-token: %w", err)
+	}
+	respBytes, err := rpCall(cfg, "decrypt-token", payload, "RpDecryptResponse")
 	if err != nil {
 		return "", err
 	}
@@ -442,11 +499,14 @@ func decryptToken(cfg rpConfig, encryptedToken string) (string, error) {
 // flag — a non-nil error only covers transport/decode failures, not signature
 // or trust-chain rejection.
 func verifyAssertion(cfg rpConfig, signedAssertion, expectedDomain string) (api.IdentityAssertion, bool, error) {
-	payload := api.EncodeRpVerifyRequest(api.RpVerifyRequest{
+	payload, err := api.EncodeRpVerifyRequest(api.RpVerifyRequest{
 		SignedAssertion: signedAssertion,
 		ExpectedDomain:  expectedDomain,
 	})
-	respBytes, err := rpCall(cfg, "verify-assertion", payload)
+	if err != nil {
+		return api.IdentityAssertion{}, false, fmt.Errorf("encode verify-assertion: %w", err)
+	}
+	respBytes, err := rpCall(cfg, "verify-assertion", payload, "RpVerifyResponse")
 	if err != nil {
 		return api.IdentityAssertion{}, false, err
 	}
@@ -467,12 +527,15 @@ func verifyAssertion(cfg rpConfig, signedAssertion, expectedDomain string) (api.
 // apiBase is the issuing domain's browser-facing HTTPS API base — see
 // resolveAPIBase.
 func userInfoFetch(cfg rpConfig, signedAssertion, apiBase, domain string) (api.UserInfo, error) {
-	payload := api.EncodeRpUserInfoRequest(api.RpUserInfoRequest{
+	payload, err := api.EncodeRpUserInfoRequest(api.RpUserInfoRequest{
 		Token:   signedAssertion,
 		ApiBase: apiBase,
 		Domain:  domain,
 	})
-	respBytes, err := rpCall(cfg, "userinfo-fetch", payload)
+	if err != nil {
+		return api.UserInfo{}, fmt.Errorf("encode userinfo-fetch: %w", err)
+	}
+	respBytes, err := rpCall(cfg, "userinfo-fetch", payload, "UserInfo")
 	if err != nil {
 		return api.UserInfo{}, err
 	}

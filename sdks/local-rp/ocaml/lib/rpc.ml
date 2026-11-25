@@ -63,14 +63,30 @@ let encode_request (service : string) (op : string) (payload : string) : string 
        ])
 
 (* Returns (status, error, payload). *)
-let decode_response (data : string) : int * string option * string =
+(* Decode a response envelope into (status, error, variant, payload).
+   [variant] names the payload's type when an op has more than one reply
+   arm -- for example the [Rp] ops reply with their result type or with
+   [RpError], both with status 0. A caller of such an op must check
+   [variant] before it decodes [payload]. *)
+let decode_response_with_variant (data : string) : int * string option * string option * string =
   let m =
     try Cbor.as_map (Cbor.decode data)
     with Cbor.Decode_error msg -> Error.raise_ (Error.Protocol_error (Printf.sprintf "RPC response envelope is malformed: %s" msg))
   in
   let status = try Cbor.as_int (Cbor.field_exn m "status") with Cbor.Decode_error _ -> Error.raise_ (Error.Protocol_error "RPC response missing integer 'status'") in
-  let error = Cbor.field_text_opt m "error" in
+  let text_opt name =
+    try Cbor.field_text_opt m name
+    with Cbor.Decode_error _ -> Error.raise_ (Error.Protocol_error (Printf.sprintf "RPC response '%s' is not text" name))
+  in
+  let error = text_opt "error" in
+  let variant = text_opt "variant" in
   let payload = match Cbor.field m "payload" with Some (Cbor.Tag (t, Cbor.Bytes b)) when t = tag_encoded_cbor -> b | _ -> "" in
+  (status, error, variant, payload)
+
+(* [decode_response_with_variant] without the variant, for ops that have
+   one reply type. *)
+let decode_response (data : string) : int * string option * string =
+  let status, error, _variant, payload = decode_response_with_variant data in
   (status, error, payload)
 
 (* ------------------------------------------------------------------ *)

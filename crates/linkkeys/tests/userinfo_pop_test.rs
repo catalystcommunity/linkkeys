@@ -33,6 +33,7 @@ fn make_token(
         Some("Test User"),
         300,
         vec![],
+        common::test_app_ref(),
     );
     let signed = assertions::sign_assertion(
         &assertion,

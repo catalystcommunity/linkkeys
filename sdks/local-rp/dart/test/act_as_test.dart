@@ -128,8 +128,8 @@ void main() {
             inputs['requested_renewal_window_seconds'] as int?,
         callbackUrl: inputs['callback_url'] as String,
         nonce: inputs['nonce'] as String,
-        requestedAt: inputs['requested_at'] as String,
-        expiresAt: inputs['expires_at'] as String,
+        requestedAt: ts(inputs['requested_at'] as String),
+        expiresAt: ts(inputs['expires_at'] as String),
       );
       final signed = await ActAs.signGrantRequest(request, km);
       expect(Hex.encode(signed.request), equals(gr['request_cbor_hex']));
@@ -154,8 +154,8 @@ void main() {
           ActAsRefreshRequest(
             grantId: inputs['grant_id'] as String,
             grantee: ActAs.granteeFor(km),
-            requestedAt: inputs['requested_at'] as String,
-            expiresAt: inputs['expires_at'] as String,
+            requestedAt: ts(inputs['requested_at'] as String),
+            expiresAt: ts(inputs['expires_at'] as String),
             nonce: inputs['nonce'] as String,
           ),
           km);
@@ -235,8 +235,8 @@ void main() {
       expect(req.grantee.application, isNull);
       expect(req.nonce, equals(r.pending.nonce));
       expect(decodeUrlParam(req.nonce).length, equals(32));
-      expect(req.requestedAt, equals('2026-10-06T11:59:00Z'));
-      expect(req.expiresAt, equals('2026-10-06T12:04:00Z'));
+      expect(req.requestedAt, equals(ts('2026-10-06T11:59:00Z')));
+      expect(req.expiresAt, equals(ts('2026-10-06T12:04:00Z')));
       expect(req.requestedLifetimeSeconds, equals(1800));
       expect(req.requestedRenewalWindowSeconds, isNull);
       expect(req.callbackUrl, equals(_callbackUrl));
@@ -359,8 +359,8 @@ void main() {
       final req = ActAsCodec.decodeActAsRefreshRequest(signed.request);
       expect(req.grantId, equals('grant-1'));
       expect(req.grantee.localRpDescriptorFingerprint, equals(km.fingerprint));
-      expect(req.requestedAt, equals('2026-10-06T12:40:00Z'));
-      expect(req.expiresAt, equals('2026-10-06T12:45:00Z'));
+      expect(req.requestedAt, equals(ts('2026-10-06T12:40:00Z')));
+      expect(req.expiresAt, equals(ts('2026-10-06T12:45:00Z')));
       expect(decodeUrlParam(req.nonce).length, equals(32));
 
       expect(resp.signed, isTrue);

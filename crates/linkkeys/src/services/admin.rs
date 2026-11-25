@@ -1,4 +1,4 @@
-use liblinkkeys::timestamp::Rfc3339 as _;
+use liblinkkeys::claim_policy::{SetRule, SigningRule, ValueType};
 use std::env;
 
 use liblinkkeys::generated::services::ServiceError;
@@ -7,20 +7,21 @@ use liblinkkeys::generated::types::{
     AdminIssueAttestationRequest, AdminIssueAttestationResponse, AdminLocalRp, AdminUser,
     AdminUserClaimsRequest, AdminUserClaimsResponse, ApproveClaimRequest, ApproveClaimResponse,
     ApproveLocalRpRequest, ApproveLocalRpResponse, AuthenticateRequest, AuthenticateResponse,
-    CheckPermissionRequest, CheckPermissionResponse, Claim, ClaimApproval, ClaimRequest,
-    ClaimTypeLabel, ClaimTypePolicy, CreateUserRequest, CreateUserResponse, DeactivateUserRequest,
-    DeactivateUserResponse, DenyLocalRpRequest, DenyLocalRpResponse, EmptyRequest,
-    GetLocalRpPolicyRequest, GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse,
-    GetUserAuthenticationActivityRequest, GetUserAuthenticationActivityResponse, GetUserRequest,
-    GetUserResponse, GrantRelationRequest, GrantRelationResponse, ListClaimTypeLabelsResponse,
-    ListClaimTypesResponse, ListLocalRpsRequest, ListLocalRpsResponse,
-    ListPendingClaimApprovalsResponse, ListRelationsRequest, ListRelationsResponse,
-    ListReleaseRulesResponse, ListSettablePoliciesResponse, ListTrustedIssuersResponse,
-    ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest, ListUsersResponse,
+    CheckPermissionRequest, CheckPermissionResponse, Claim, ClaimApproval, ClaimApprovalStatus,
+    ClaimRequest, ClaimTypeLabel, ClaimTypePolicy, ConsentRowPolicy, CreateUserRequest,
+    CreateUserResponse, DeactivateUserRequest, DeactivateUserResponse, DenyLocalRpRequest,
+    DenyLocalRpResponse, EmptyRequest, GetLocalRpPolicyRequest, GetLocalRpPolicyResponse,
+    GetLocalRpRequest, GetLocalRpResponse, GetUserAuthenticationActivityRequest,
+    GetUserAuthenticationActivityResponse, GetUserRequest, GetUserResponse, GrantRelationRequest,
+    GrantRelationResponse, ListClaimTypeLabelsResponse, ListClaimTypesResponse,
+    ListLocalRpsRequest, ListLocalRpsResponse, ListPendingClaimApprovalsResponse,
+    ListRelationsRequest, ListRelationsResponse, ListReleaseRulesResponse,
+    ListSettablePoliciesResponse, ListTrustedIssuersResponse, ListUserClaimsRequest,
+    ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, LocalRpStatus,
     PreviewIssuerPolicyRequest, PreviewIssuerPolicyResponse, PreviewReleasePolicyRequest,
     PreviewReleasePolicyResponse, PreviewReleaseRow, PurgeLocalRpTicketsRequest,
     PurgeLocalRpTicketsResponse, PurgeUserRequest, PurgeUserResponse, RejectClaimRequest,
-    RejectClaimResponse, ReleaseRule, RemoveClaimRequest, RemoveClaimResponse,
+    RejectClaimResponse, ReleaseDisposition, ReleaseRule, RemoveClaimRequest, RemoveClaimResponse,
     RemoveClaimTypeLabelRequest, RemoveClaimTypeLabelResponse, RemoveClaimTypeRequest,
     RemoveClaimTypeResponse, RemoveCredentialRequest, RemoveCredentialResponse,
     RemoveRelationRequest, RemoveRelationResponse, RemoveReleaseRuleRequest,
@@ -69,10 +70,16 @@ pub(crate) fn user_to_admin_user(user: &models::User) -> AdminUser {
         id: user.id.clone(),
         username: user.username.clone(),
         display_name: user.display_name.clone(),
+        kind: if user.is_application() {
+            liblinkkeys::generated::types::AccountKind::Application
+        } else {
+            liblinkkeys::generated::types::AccountKind::Human
+        },
+        application_id: user.application_id.clone(),
         is_active: user.is_active,
-        created_at: user.created_at.clone(),
-        updated_at: user.updated_at.clone(),
-        purged_at: user.purged_at.clone(),
+        created_at: user.created_at,
+        updated_at: user.updated_at,
+        purged_at: user.purged_at,
         purge_reason: user.purge_reason.clone(),
         password_locked: user.password_locked.then_some(true),
     }
@@ -91,8 +98,8 @@ fn relation_to_csil(rel: &models::Relation) -> liblinkkeys::generated::types::Re
         relation: rel.relation.clone(),
         object_type: rel.object_type.clone(),
         object_id: rel.object_id.clone(),
-        created_at: rel.created_at.clone(),
-        removed_at: rel.removed_at.clone(),
+        created_at: rel.created_at,
+        removed_at: rel.removed_at,
     }
 }
 
@@ -151,10 +158,8 @@ pub fn get_user_authentication_activity(
     Ok(GetUserAuthenticationActivityResponse {
         activity: UserAuthenticationActivity {
             user_id: req.user_id,
-            last_authenticated_at: stored
-                .as_ref()
-                .map(|value| value.last_authenticated_at.clone()),
-            last_seen_at: stored.as_ref().map(|value| value.last_seen_at.clone()),
+            last_authenticated_at: stored.as_ref().map(|value| value.last_authenticated_at),
+            last_seen_at: stored.as_ref().map(|value| value.last_seen_at),
             successful_authentication_count: stored
                 .as_ref()
                 .map_or(0, |value| value.successful_authentication_count),
@@ -207,11 +212,21 @@ pub fn create_user(
     if let Some(ref value) = req.password {
         password::validate(value)?;
     }
+    validate_username(&req.username)?;
+    if let Some(ref application_id) = req.application_id {
+        crate::services::applications::validate_application_id(application_id)?;
+        if req.password.is_some() {
+            return Err(ServiceError {
+                code: 400,
+                message: "an application account has no password".to_string(),
+            });
+        }
+    }
     let display_name = clean_display_name(&req.display_name)?;
     let passphrase =
         env::var("DOMAIN_KEY_PASSPHRASE").map_err(|_| svc_err("DOMAIN_KEY_PASSPHRASE not set"))?;
     let user = pool
-        .create_user(&req.username, &display_name)
+        .create_account(&req.username, &display_name, req.application_id.as_deref())
         .map_err(db_err)?;
 
     let api_key = if let Some(ref pw) = req.password {
@@ -221,10 +236,8 @@ pub fn create_user(
             .map_err(db_err)?;
         None
     } else {
-        // Generate API key
-        let (key, hash) = auth::generate_api_key(&user.id);
-        pool.create_auth_credential(&user.id, auth::CREDENTIAL_TYPE_API_KEY, &hash)
-            .map_err(db_err)?;
+        // The first API key, named "default".
+        let (_, key) = crate::services::applications::issue_api_key(pool, &user.id, "default")?;
         Some(key)
     };
 
@@ -245,6 +258,24 @@ pub fn create_user(
         user: user_to_admin_user(&user),
         api_key,
     })
+}
+
+/// A username is 1-128 characters with no white space, control character,
+/// `@`, or `/`. It is a sign-in name, not an identifier; the account id is.
+pub(crate) fn validate_username(username: &str) -> Result<(), ServiceError> {
+    let ok = !username.is_empty()
+        && username.chars().count() <= 128
+        && !username
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || c == '@' || c == '/');
+    if ok {
+        Ok(())
+    } else {
+        Err(ServiceError {
+            code: 400,
+            message: "a username has 1 to 128 characters and no spaces, '@', or '/'".to_string(),
+        })
+    }
 }
 
 pub fn update_user(
@@ -406,7 +437,11 @@ pub fn revoke_domain_key(
                 .unwrap_or_default();
         if active_signers.len() >= REVOCATION_QUORUM {
             let domain = crate::conversions::get_domain_name();
-            let revoked_at = revoked.revoked_at.clone().unwrap_or_default();
+            let revoked_at = liblinkkeys::timestamp::whole_seconds(
+                revoked
+                    .revoked_at
+                    .unwrap_or_else(time::OffsetDateTime::now_utc),
+            );
             let signers: Vec<ClaimSigner> = active_signers
                 .iter()
                 .map(|s| ClaimSigner {
@@ -419,11 +454,14 @@ pub fn revoke_domain_key(
             let spec = RevocationSpec {
                 target_key_id: &revoked.id,
                 target_fingerprint: &revoked.fingerprint,
-                revoked_at: &revoked_at,
+                revoked_at,
             };
-            if let Ok(cert) = build_revocation_certificate(&spec, &signers) {
-                let cbor = liblinkkeys::generated::encode_revocation_certificate(&cert);
-                if let Ok(when) = liblinkkeys::timestamp::parse_rfc3339(&revoked_at) {
+            if let Some(cbor) = build_revocation_certificate(&spec, &signers)
+                .ok()
+                .and_then(|cert| liblinkkeys::generated::encode_revocation_certificate(&cert).ok())
+            {
+                {
+                    let when = revoked_at;
                     if pool
                         .insert_issued_revocation(&revoked.id, &revoked.fingerprint, when, &cbor)
                         .is_ok()
@@ -547,26 +585,13 @@ pub fn set_claim(pool: &DbPool, req: SetClaimRequest) -> Result<SetClaimResponse
     let signers = crate::claim_signing::active_signers(&domain_keys, passphrase.as_bytes())
         .map_err(|e| svc_err(&e.to_string()))?;
 
-    let expires_time = req
-        .expires_at
-        .as_deref()
-        .map(liblinkkeys::timestamp::parse_rfc3339)
-        .transpose()
-        .map_err(|e| svc_err(&format!("invalid expires_at: {}", e)))?
-        // Normalize to whole seconds: the expires_at is part of the claim's
-        // signed payload, so it must round-trip byte-identically through both
-        // Postgres (timestamptz, microsecond) and SQLite (RFC3339 text) storage.
-        .map(|dt| dt.replace_nanosecond(0).unwrap_or(dt));
+    // Whole seconds: expires_at is part of the claim's signed payload.
+    let expires_time = req.expires_at.map(liblinkkeys::timestamp::whole_seconds);
 
     let claim_id = uuid::Uuid::now_v7().to_string();
     let claim_value_bytes = req.claim_value.as_bytes();
-    let expires_str = expires_time.as_ref().map(|e| e.to_rfc3339());
-    // Attestation time: signed, so normalize to whole seconds for the same
-    // byte-identical round-trip as expires_at.
-    let attested_time = time::OffsetDateTime::now_utc()
-        .replace_nanosecond(0)
-        .unwrap();
-    let attested_str = attested_time.to_rfc3339();
+    // Attestation time: signed, so whole seconds like expires_at.
+    let attested_time = liblinkkeys::timestamp::now_whole_seconds();
     // The subject is a local user, so the subject's home domain is our own.
     let subject_domain = crate::conversions::get_domain_name();
 
@@ -577,8 +602,8 @@ pub fn set_claim(pool: &DbPool, req: SetClaimRequest) -> Result<SetClaimResponse
             claim_value: claim_value_bytes,
             user_id: &req.user_id,
             subject_domain: &subject_domain,
-            expires_at: expires_str.as_deref(),
-            attested_at: &attested_str,
+            expires_at: expires_time,
+            attested_at: attested_time,
         },
         &signers,
     )
@@ -606,10 +631,15 @@ fn claim_approval_to_csil(a: &models::ClaimApproval) -> ClaimApproval {
         user_id: a.user_id.clone(),
         claim_type: a.claim_type.clone(),
         claim_value: a.claim_value.clone(),
-        status: a.status.clone(),
+        status: crate::conversions::stored_label(
+            "claim approval status",
+            &a.status,
+            ClaimApprovalStatus::from_label,
+            ClaimApprovalStatus::Pending,
+        ),
         resolved_by: a.resolved_by.clone(),
-        resolved_at: a.resolved_at.clone(),
-        created_at: a.created_at.clone(),
+        resolved_at: a.resolved_at,
+        created_at: a.created_at,
     }
 }
 
@@ -752,13 +782,7 @@ pub fn set_user_claim(
         | crate::services::self_service::SetOutcome::Queued => None,
     };
 
-    let outcome = match outcome {
-        crate::services::self_service::SetOutcome::Signed => "signed",
-        crate::services::self_service::SetOutcome::StoredUnsigned => "stored_unsigned",
-        crate::services::self_service::SetOutcome::VerificationRequired => "verification_required",
-        crate::services::self_service::SetOutcome::Queued => "queued",
-    }
-    .to_string();
+    let outcome = outcome.csil();
 
     Ok(SetUserClaimResponse { outcome, claim })
 }
@@ -779,11 +803,11 @@ pub fn list_settable_policies(
                     claim_type: p.claim_type,
                     label,
                     description,
-                    datatype: p.value_type,
+                    datatype: stored_value_type(&p.value_type),
                     max_bytes: p.max_bytes,
-                    set_rule: p.set_rule,
+                    set_rule: stored_set_rule(&p.set_rule),
                     requires_approval: p.requires_approval,
-                    signing_rule: p.signing_rule,
+                    signing_rule: stored_signing_rule(&p.signing_rule),
                 }
             })
             .collect();
@@ -912,11 +936,16 @@ fn local_rp_to_admin(rp: &crate::db::models::LocalRp) -> AdminLocalRp {
         encryption_public_key: rp.encryption_public_key.clone(),
         app_name: rp.app_name.clone(),
         local_domain_hint: rp.local_domain_hint.clone(),
-        status: rp.status.clone(),
-        created_at: rp.created_at.clone(),
-        updated_at: rp.updated_at.clone(),
-        expires_at: rp.expires_at.clone(),
-        last_seen_at: rp.last_seen_at.clone(),
+        status: crate::conversions::stored_label(
+            "local RP status",
+            &rp.status,
+            LocalRpStatus::from_label,
+            LocalRpStatus::Denied,
+        ),
+        created_at: rp.created_at,
+        updated_at: rp.updated_at,
+        expires_at: rp.expires_at,
+        last_seen_at: rp.last_seen_at,
         admin_notes: rp.admin_notes.clone(),
     }
 }
@@ -931,7 +960,9 @@ pub fn list_local_rps(
     pool: &DbPool,
     req: ListLocalRpsRequest,
 ) -> Result<ListLocalRpsResponse, ServiceError> {
-    let all = pool.list_local_rps(req.status.as_deref()).map_err(db_err)?;
+    let all = pool
+        .list_local_rps(req.status.as_ref().map(LocalRpStatus::as_str))
+        .map_err(db_err)?;
     let offset = req.offset.unwrap_or(0).max(0) as usize;
     let limit = req
         .limit
@@ -1045,7 +1076,7 @@ pub fn revoke_local_rp(
 /// mode"). Like every other Admin op this acts on the caller's own domain —
 /// there is no domain parameter. Returns the *effective* policy: the stored
 /// value, or `crate::db::local_rp::DEFAULT_POLICY`
-/// ("admin-approval-required") when the domain has never set one explicitly.
+/// (admin approval required) when the domain has never set one explicitly.
 pub fn get_local_rp_policy(
     pool: &DbPool,
     _req: GetLocalRpPolicyRequest,
@@ -1054,11 +1085,8 @@ pub fn get_local_rp_policy(
     Ok(GetLocalRpPolicyResponse { policy })
 }
 
-/// Set this domain's local-RP admission policy. `DbPool::
-/// set_local_rp_domain_policy` validates `req.policy` against the recognised
-/// vocabulary (`disabled` / `admin-approval-required` / `allow-by-default`,
-/// see `crate::db::local_rp::is_valid_policy`) and rejects anything else with
-/// an error string, mapped here to a 400 rather than an internal error.
+/// Set this domain's local-RP admission policy. An unknown policy number
+/// already failed to decode.
 pub fn set_local_rp_policy(
     pool: &DbPool,
     req: SetLocalRpPolicyRequest,
@@ -1093,13 +1121,15 @@ pub fn preview_release_policy(
     let temp_claim_type = req.temp_claim_type.as_deref().unwrap_or("").trim();
     if !temp_audience.is_empty() && !temp_claim_type.is_empty() {
         let applies = temp_audience == "*" || temp_audience == audience;
-        match req.temp_disposition.as_deref() {
-            Some("forced_allow") if applies => {
+        match req.temp_disposition {
+            Some(ReleaseDisposition::ForcedAllow) if applies => {
                 policy.forced_allow.push(temp_claim_type.to_string())
             }
-            Some("forced_deny") if applies => policy.forced_deny.push(temp_claim_type.to_string()),
-            Some("forced_allow") | Some("forced_deny") => {}
-            _ => {
+            Some(ReleaseDisposition::ForcedDeny) if applies => {
+                policy.forced_deny.push(temp_claim_type.to_string())
+            }
+            Some(_) => {}
+            None => {
                 return Err(ServiceError {
                     code: 400,
                     message: "temp_disposition must be forced_allow or forced_deny".to_string(),
@@ -1112,7 +1142,7 @@ pub fn preview_release_policy(
             .iter()
             .map(|claim_type| RequestedClaim {
                 claim_type: claim_type.clone(),
-                datatype: "string".to_string(),
+                datatype: ValueType::Text,
             })
             .collect()
     };
@@ -1137,8 +1167,8 @@ pub fn preview_release_policy(
             claim_type: claim_type.clone(),
             claim_value: b"preview".to_vec(),
             signatures: Vec::new(),
-            attested_at: String::new(),
-            created_at: String::new(),
+            attested_at: time::OffsetDateTime::UNIX_EPOCH,
+            created_at: time::OffsetDateTime::UNIX_EPOCH,
             expires_at: None,
             revoked_at: None,
         })
@@ -1154,11 +1184,10 @@ pub fn preview_release_policy(
             available: row.available,
             locked: row.locked,
             policy: match row.policy {
-                PolicyDisposition::User => "user",
-                PolicyDisposition::ForcedAllow => "forced_allow",
-                PolicyDisposition::ForcedDeny => "forced_deny",
-            }
-            .to_string(),
+                PolicyDisposition::User => ConsentRowPolicy::User,
+                PolicyDisposition::ForcedAllow => ConsentRowPolicy::ForcedAllow,
+                PolicyDisposition::ForcedDeny => ConsentRowPolicy::ForcedDeny,
+            },
             default_granted: row.default_granted(),
         })
         .collect();
@@ -1255,15 +1284,41 @@ pub fn purge_local_rp_tickets(
 // browser carrier. A controller that holds an admin-relation API key calls
 // the same ops over TCP. Each fn validates its input before the DB call.
 
+/// A stored claim value type. Unknown reads as `opaque`, which the IDP never
+/// validates and so never self-signs.
+fn stored_value_type(label: &str) -> ValueType {
+    crate::conversions::stored_label(
+        "claim value type",
+        label,
+        ValueType::from_label,
+        ValueType::Opaque,
+    )
+}
+
+/// A stored set rule. Unknown reads as `deny`: no one may set the claim.
+fn stored_set_rule(label: &str) -> SetRule {
+    crate::conversions::stored_label("claim set rule", label, SetRule::from_label, SetRule::Deny)
+}
+
+/// A stored signing rule. Unknown reads as `unsigned`.
+fn stored_signing_rule(label: &str) -> SigningRule {
+    crate::conversions::stored_label(
+        "claim signing rule",
+        label,
+        SigningRule::from_label,
+        SigningRule::Unsigned,
+    )
+}
+
 fn claim_policy_to_csil(p: &models::ClaimTypePolicy) -> ClaimTypePolicy {
     ClaimTypePolicy {
         claim_type: p.claim_type.clone(),
         label: p.label.clone(),
         description: p.description.clone(),
-        value_type: p.value_type.clone(),
+        value_type: stored_value_type(&p.value_type),
         max_bytes: p.max_bytes,
-        set_rule: p.set_rule.clone(),
-        signing_rule: p.signing_rule.clone(),
+        set_rule: stored_set_rule(&p.set_rule),
+        signing_rule: stored_signing_rule(&p.signing_rule),
         requires_approval: p.requires_approval,
         user_settable: p.user_settable,
         default_auto_sign: p.default_auto_sign,
@@ -1302,8 +1357,6 @@ pub fn set_claim_type(
     pool: &DbPool,
     req: SetClaimTypeRequest,
 ) -> Result<SetClaimTypeResponse, ServiceError> {
-    use liblinkkeys::claim_policy::{SetRule, SigningRule, ValueType};
-
     let claim_type = req.claim_type.trim();
     if claim_type.is_empty() {
         return Err(ServiceError {
@@ -1317,33 +1370,15 @@ pub fn set_claim_type(
             message: "max_bytes must be a positive number".to_string(),
         });
     }
-    if ValueType::parse(&req.value_type).is_none() {
-        return Err(ServiceError {
-            code: 400,
-            message: "invalid value type".to_string(),
-        });
-    }
-    if SetRule::parse(&req.set_rule).is_none() {
-        return Err(ServiceError {
-            code: 400,
-            message: "invalid set rule".to_string(),
-        });
-    }
-    if SigningRule::parse(&req.signing_rule).is_none() {
-        return Err(ServiceError {
-            code: 400,
-            message: "invalid signing rule".to_string(),
-        });
-    }
 
     let policy = models::ClaimTypePolicy {
         claim_type: claim_type.to_string(),
         label: req.label.trim().to_string(),
         description: req.description.clone().unwrap_or_default(),
-        value_type: req.value_type,
+        value_type: req.value_type.as_str().to_string(),
         max_bytes: req.max_bytes,
-        set_rule: req.set_rule,
-        signing_rule: req.signing_rule,
+        set_rule: req.set_rule.as_str().to_string(),
+        signing_rule: req.signing_rule.as_str().to_string(),
         requires_approval: req.requires_approval,
         user_settable: req.user_settable,
         default_auto_sign: req.default_auto_sign,
@@ -1459,7 +1494,12 @@ fn release_policy_to_csil(r: &models::ReleasePolicy) -> ReleaseRule {
     ReleaseRule {
         audience: r.audience.clone(),
         claim_type: r.claim_type.clone(),
-        disposition: r.disposition.clone(),
+        disposition: crate::conversions::stored_label(
+            "release disposition",
+            &r.disposition,
+            ReleaseDisposition::from_label,
+            ReleaseDisposition::ForcedDeny,
+        ),
     }
 }
 
@@ -1518,22 +1558,15 @@ pub fn list_release_rules(
     })
 }
 
-/// Create-or-update a release rule. Validates `disposition` on the server
-/// (an unparseable disposition would otherwise be stored and misapplied at
-/// consent time), then calls `DbPool::upsert_release_policy`.
+/// Create-or-update a release rule with `DbPool::upsert_release_policy`. An
+/// unknown disposition number already failed to decode.
 pub fn set_release_rule(
     pool: &DbPool,
     req: SetReleaseRuleRequest,
 ) -> Result<SetReleaseRuleResponse, ServiceError> {
-    if req.disposition != "forced_allow" && req.disposition != "forced_deny" {
-        return Err(ServiceError {
-            code: 400,
-            message: "invalid disposition".to_string(),
-        });
-    }
     let audience = req.audience.trim();
     let claim_type = req.claim_type.trim();
-    pool.upsert_release_policy(audience, claim_type, &req.disposition)
+    pool.upsert_release_policy(audience, claim_type, req.disposition.as_str())
         .map_err(db_err)?;
     Ok(SetReleaseRuleResponse {
         release_rule: ReleaseRule {
@@ -1593,14 +1626,8 @@ pub fn admin_issue_attestation(
         &req.claim_value,
     )?;
 
-    let expires = signed
-        .expires_at
-        .as_deref()
-        .map(liblinkkeys::timestamp::parse_rfc3339)
-        .transpose()
-        .map_err(|_| svc_err("invalid expires_at"))?;
-    let attested = liblinkkeys::timestamp::parse_rfc3339(&signed.attested_at)
-        .map_err(|_| svc_err("invalid attested_at"))?;
+    let expires = signed.expires_at;
+    let attested = signed.attested_at;
 
     let stored = pool
         .create_claim(

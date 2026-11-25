@@ -397,8 +397,16 @@ module LinkkeysLocalRp
       raise HeaderPayloadMismatch, 'fingerprint' unless header.fingerprint == payload.audience_fingerprint
       raise HeaderPayloadMismatch, 'nonce' unless header.nonce == payload.nonce
       raise HeaderPayloadMismatch, 'state' unless header.state == payload.state
-      raise HeaderPayloadMismatch, 'issued_at' unless header.issued_at == payload.issued_at
-      raise HeaderPayloadMismatch, 'expires_at' unless header.expires_at == payload.expires_at
+      raise HeaderPayloadMismatch, 'issued_at' unless same_instant?(header.issued_at, payload.issued_at)
+      raise HeaderPayloadMismatch, 'expires_at' unless same_instant?(header.expires_at, payload.expires_at)
+    end
+
+    # Compare two wire timestamps by instant, not by text: the same instant
+    # can have more than one RFC 3339 spelling.
+    def same_instant?(a, b)
+      Timeutil.parse_rfc3339(a) == Timeutil.parse_rfc3339(b)
+    rescue ArgumentError
+      false
     end
 
     # ---------------------------------------------------------------

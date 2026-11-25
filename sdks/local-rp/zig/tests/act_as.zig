@@ -139,7 +139,7 @@ test "act_as_grantee_signing.json local_rp_grantee: grant request, refresh reque
     });
     const presentation = try act_as.decodeActAsPresentation(a, presented.credential.presentation.presentation);
     try std.testing.expectEqualSlices(u8, try hex(a, p, "grant_hash_hex"), presentation.grant_hash);
-    try std.testing.expectEqualStrings(str(pi, "presented_at"), presentation.presented_at);
+    try expectSameInstant(str(pi, "presented_at"), presentation.presented_at);
     try std.testing.expectEqualSlices(u8, try hex(a, p, "presentation_cbor_hex"), presented.credential.presentation.presentation);
     try std.testing.expectEqualSlices(u8, try hex(a, p, "credential_cbor_hex"), presented.credential_cbor);
 }
@@ -468,4 +468,10 @@ test "refreshActAsGrant fails closed without a pinned-TLS dialer" {
         .transport = std_transport.transport(),
         .dns = dns.resolver(),
     }));
+}
+
+/// The vectors write times as RFC 3339 text with a `+00:00` offset; the wire
+/// form is UTC text with `Z`. Compare the instants, not the text.
+fn expectSameInstant(expected: []const u8, actual: []const u8) !void {
+    try std.testing.expectEqual(try lrp.local_rp.parseTimestamp(expected), try lrp.local_rp.parseTimestamp(actual));
 }

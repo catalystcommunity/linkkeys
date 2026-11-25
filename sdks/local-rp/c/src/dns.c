@@ -10,6 +10,7 @@
 
 #include "crypto.h"
 #include "error.h"
+#include "time_util.h"
 #include "local_rp.h"
 
 const char *lrp_dns_parse_error_name(lrp_dns_parse_error e) {
@@ -184,13 +185,16 @@ static const char KEY_VOUCH_TAG[] = "linkkeys-key-vouch-v1alpha";
 
 static int key_vouch_payload(const char *enc_fingerprint, const char *enc_expires_at,
                               lrp_bytes *out, lrp_error *err) {
+    /* enc_expires_at is whole Unix seconds; a fraction cannot be signed. */
+    int64_t expires_secs;
+    if (lrp_signed_seconds(enc_expires_at, &expires_secs, err) != 0) return -1;
     cbor_buf b;
     cbor_buf_init(&b);
     int rc = 0;
     rc |= cbor_write_array_header(&b, 3);
     rc |= cbor_write_text_cstr(&b, KEY_VOUCH_TAG);
     rc |= cbor_write_text_cstr(&b, enc_fingerprint);
-    rc |= cbor_write_text_cstr(&b, enc_expires_at);
+    rc |= cbor_write_int(&b, expires_secs);
     if (rc != 0) {
         cbor_buf_free(&b);
         return lrp_fail(err, LRP_ERR_OUT_OF_MEMORY, "key vouch payload: out of memory");

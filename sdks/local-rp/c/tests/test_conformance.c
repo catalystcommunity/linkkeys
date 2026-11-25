@@ -634,6 +634,29 @@ static void run_claims_positive_case(const json_value *c, const json_value *sign
         lrp_bytes_free(&sig);
     }
 
+    /* A signed timestamp must be whole seconds. The same instant with a
+     * fraction of a second cannot be signed, so verification fails (it is
+     * never rounded down to the signed value). */
+    {
+        const char *orig = claim.attested_at.data;
+        size_t olen = strlen(orig);
+        char *fractional = (char *)malloc(olen + 3);
+        T_CHECK(fractional != NULL && olen >= 20, "claims: attested_at has room for a fraction");
+        if (fractional != NULL && olen >= 20) {
+            memcpy(fractional, orig, 19);
+            memcpy(fractional + 19, ".5", 2);
+            memcpy(fractional + 21, orig + 19, olen - 19 + 1);
+            char *saved = claim.attested_at.data;
+            claim.attested_at.data = fractional;
+            lrp_error ferr = {0};
+            T_CHECK(lrp_verify_claim(&claim, subject_domain, default_sets, default_sets_count,
+                                     &ferr) != 0,
+                    "claims: attested_at with a fraction of a second fails verification");
+            claim.attested_at.data = saved;
+        }
+        free(fractional);
+    }
+
     lrp_claim_free_fields(&claim);
     lrp_bytes_free(&claim_cbor);
     lrp_bytes_free(&reencoded);
@@ -843,6 +866,101 @@ static void test_cbor_oversized_count_rejected(void) {
 
 /* ======================================================================= */
 
+/* CSIL timestamps are tag 0 that wraps RFC3339 text, and enums are
+ * unsigned integers. Untagged text, a wrong tag, invalid text, and an
+ * unknown enum number are rejected. */
+static void test_wire_timestamps_and_enums(void) {
+    static const char ts[] = "2026-01-01T00:00:00Z";
+    struct {
+        const char *name;
+        int tag; /* -1 = no tag */
+        const char *text;
+        int expected_ok;
+    } cases[] = {
+        {"tag 0 RFC3339 text decodes", 0, ts, 1},
+        {"untagged RFC3339 text is rejected", -1, ts, 0},
+        {"tag 1 is rejected", 1, ts, 0},
+        {"tag 0 with non-RFC3339 text is rejected", 0, "yesterday", 0},
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        cbor_buf b;
+        cbor_buf_init(&b);
+        cbor_write_map_header(&b, 1);
+        cbor_write_text_cstr(&b, "t");
+        if (cases[i].tag >= 0) cbor_write_tag_head(&b, (uint64_t)cases[i].tag);
+        cbor_write_text_cstr(&b, cases[i].text);
+        cbor_value *root = NULL;
+        lrp_error err = {0};
+        lrp_str out = {0};
+        int ok = cbor_decode(b.data, b.len, &root, &err) == 0 &&
+                 cbor_get_timestamp(root, "t", &out, &err) == 0;
+        T_CHECK(ok == cases[i].expected_ok, cases[i].name);
+        if (ok) T_CHECK(strcmp(out.data, ts) == 0, "timestamp text is kept unchanged");
+        lrp_str_free(&out);
+        cbor_value_free(root);
+        free(root);
+        cbor_buf_free(&b);
+    }
+
+    cbor_buf b;
+    cbor_buf_init(&b);
+    T_CHECK(cbor_write_timestamp(&b, ts) == 0 && b.len == 2 + strlen(ts) && b.data[0] == 0xc0 &&
+                b.data[1] == 0x60 + strlen(ts),
+            "cbor_write_timestamp writes tag 0 + text");
+    cbor_buf_free(&b);
+
+    for (uint64_t n = 0; n <= 4; n++) {
+        cbor_value v = {0};
+        v.type = CBOR_T_UINT;
+        v.uint_val = n;
+        lrp_str label = {0};
+        lrp_error err = {0};
+        int ok = cbor_as_enum(&v, &CBOR_ENUM_KEY_USAGE, &label, &err) == 0;
+        T_CHECK(ok == (n >= 1 && n <= 3), "KeyUsage accepts only 1..3");
+        lrp_str_free(&label);
+    }
+    cbor_value text_value = {0};
+    text_value.type = CBOR_T_TEXT;
+    text_value.bytes = (uint8_t *)"sign";
+    text_value.bytes_len = 4;
+    lrp_str label = {0};
+    lrp_error err = {0};
+    T_CHECK(cbor_as_enum(&text_value, &CBOR_ENUM_KEY_USAGE, &label, &err) != 0,
+            "an enum as text is rejected");
+    T_CHECK(cbor_enum_number(&CBOR_ENUM_AEAD_SUITE, "chacha20-poly1305") == 2,
+            "AeadSuite chacha20-poly1305 is number 2");
+
+    int64_t secs = 0;
+    T_CHECK(lrp_signed_seconds("2026-01-01T00:00:00.000Z", &secs, &err) == 0,
+            "a zero fraction is a whole second");
+    T_CHECK(lrp_signed_seconds("2026-01-01T00:00:00.001Z", &secs, &err) != 0,
+            "a non-zero fraction cannot be signed");
+
+    /* A generated identity's descriptor carries tag 0 times and suite
+     * numbers; lrp_check_expirations reads its expires_at back. */
+    lrp_generate_identity_config gen_cfg;
+    memset(&gen_cfg, 0, sizeof(gen_cfg));
+    gen_cfg.app_name = "Wire Test App";
+    gen_cfg.now_unix = 1767225600; /* 2026-01-01T00:00:00Z */
+    gen_cfg.lifetime_seconds = 3600;
+    lrp_identity identity = {0};
+    lrp_expiration_status status = {0};
+    T_CHECK(lrp_generate_local_rp_identity(&gen_cfg, &identity, &err) == 0 &&
+                lrp_check_expirations(&identity, gen_cfg.now_unix, &status, &err) == 0 &&
+                status.expires_at_unix == gen_cfg.now_unix + 3600,
+            "identity: descriptor expires_at reads back as a tag 0 timestamp");
+    lrp_identity_free(&identity);
+
+    const char *bad_suites[] = {"aes-128-gcm"};
+    gen_cfg.supported_suites = bad_suites;
+    gen_cfg.supported_suites_count = 1;
+    lrp_identity bad = {0};
+    lrp_error bad_err = {0};
+    T_CHECK(lrp_generate_local_rp_identity(&gen_cfg, &bad, &bad_err) != 0 &&
+                bad_err.code == LRP_ERR_INVALID_INPUT,
+            "identity: a suite outside the AeadSuite registry is refused");
+}
+
 int run_conformance_tests(void) {
     test_keys();
     test_envelopes();
@@ -854,5 +972,6 @@ int run_conformance_tests(void) {
     test_revocations();
     test_claims();
     test_cbor_oversized_count_rejected();
+    test_wire_timestamps_and_enums();
     return 0;
 }

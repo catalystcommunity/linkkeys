@@ -13,6 +13,8 @@ public class ClaimError extends RuntimeException {
         DOMAIN_UNVERIFIED,
         REVOKED,
         BAD_EXPIRY,
+        /** A signed time (attested_at or expires_at) has a fraction of a second, so it was never signed. */
+        BAD_TIMESTAMP,
         EXPIRED,
     }
 

@@ -98,8 +98,11 @@ module LinkkeysLocalRp
 
     KEY_VOUCH_TAG = 'linkkeys-key-vouch-v1alpha'
 
+    # CBOR([tag, enc_fingerprint, enc_expires_at]); the expiry is signed as
+    # whole Unix seconds (a CBOR integer). Raises ArgumentError when
+    # `enc_expires_at` has a fraction of a second.
     def key_vouch_payload(enc_fingerprint, enc_expires_at)
-      Cbor.encode([KEY_VOUCH_TAG, enc_fingerprint, enc_expires_at])
+      Cbor.encode([KEY_VOUCH_TAG, enc_fingerprint, Timeutil.signed_seconds(enc_expires_at)])
     end
 
     # Verify that `signing_key` vouches for `enc_key` (encryption keys are
@@ -111,7 +114,11 @@ module LinkkeysLocalRp
       return false if enc_key.key_signature.nil?
 
       recomputed_fp = Crypto.fingerprint(enc_key.public_key)
-      payload = key_vouch_payload(recomputed_fp, enc_key.expires_at)
+      begin
+        payload = key_vouch_payload(recomputed_fp, enc_key.expires_at)
+      rescue ArgumentError
+        return false
+      end
       begin
         Crypto.resolve_and_verify(signing_key.algorithm, payload, enc_key.key_signature, signing_key.public_key)
         true

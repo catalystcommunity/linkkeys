@@ -2,6 +2,14 @@
 // Source: <csil spec>
 // Target: typescript-typesonly
 
+export function isCalendarDate(value: unknown): value is string {
+  if (typeof value !== "string" || value.length !== 10 || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1];
+}
+
 export interface ServiceError {
   code: number;
   message: string;
@@ -35,6 +43,336 @@ export interface CheckResult {
   entries: CheckEntries;
 }
 
+export const KeyAlgorithm = {
+  ED25519: "ed25519",
+  X25519: "x25519",
+} as const;
+export type KeyAlgorithm = (typeof KeyAlgorithm)[keyof typeof KeyAlgorithm];
+export const KeyAlgorithmNumbers = makeEnumNumbers<KeyAlgorithm>([
+  [KeyAlgorithm.ED25519, 1n],
+  [KeyAlgorithm.X25519, 2n],
+]);
+
+export const KeyUsage = {
+  SIGN: "sign",
+  ENCRYPT: "encrypt",
+  AGREE: "agree",
+} as const;
+export type KeyUsage = (typeof KeyUsage)[keyof typeof KeyUsage];
+export const KeyUsageNumbers = makeEnumNumbers<KeyUsage>([
+  [KeyUsage.SIGN, 1n],
+  [KeyUsage.ENCRYPT, 2n],
+  [KeyUsage.AGREE, 3n],
+]);
+
+export const AeadSuite = {
+  AES_256_GCM: "aes_256_gcm",
+  CHACHA20_POLY1305: "chacha20_poly1305",
+} as const;
+export type AeadSuite = (typeof AeadSuite)[keyof typeof AeadSuite];
+export const AeadSuiteNumbers = makeEnumNumbers<AeadSuite>([
+  [AeadSuite.AES_256_GCM, 1n],
+  [AeadSuite.CHACHA20_POLY1305, 2n],
+]);
+
+export const ClaimValueType = {
+  TEXT: "text",
+  URL: "url",
+  EMAIL: "email",
+  BOOL: "bool",
+  INT: "int",
+  FLOAT: "float",
+  DECIMAL: "decimal",
+  DATE: "date",
+  TIMESTAMP: "timestamp",
+  OPAQUE: "opaque",
+} as const;
+export type ClaimValueType = (typeof ClaimValueType)[keyof typeof ClaimValueType];
+export const ClaimValueTypeNumbers = makeEnumNumbers<ClaimValueType>([
+  [ClaimValueType.TEXT, 1n],
+  [ClaimValueType.URL, 2n],
+  [ClaimValueType.EMAIL, 3n],
+  [ClaimValueType.BOOL, 4n],
+  [ClaimValueType.INT, 5n],
+  [ClaimValueType.FLOAT, 6n],
+  [ClaimValueType.DECIMAL, 7n],
+  [ClaimValueType.DATE, 8n],
+  [ClaimValueType.TIMESTAMP, 9n],
+  [ClaimValueType.OPAQUE, 10n],
+]);
+
+export const SetRule = {
+  USER_SELF: "user_self",
+  IDP_ON_REQUEST: "idp_on_request",
+  TRUSTED_ISSUER_ONLY: "trusted_issuer_only",
+  ADMIN_ONLY: "admin_only",
+  DENY: "deny",
+} as const;
+export type SetRule = (typeof SetRule)[keyof typeof SetRule];
+export const SetRuleNumbers = makeEnumNumbers<SetRule>([
+  [SetRule.USER_SELF, 1n],
+  [SetRule.IDP_ON_REQUEST, 2n],
+  [SetRule.TRUSTED_ISSUER_ONLY, 3n],
+  [SetRule.ADMIN_ONLY, 4n],
+  [SetRule.DENY, 5n],
+]);
+
+export const SigningRule = {
+  SELF_SIGNED: "self_signed",
+  VERIFIED: "verified",
+  ATTESTED: "attested",
+  UNSIGNED: "unsigned",
+} as const;
+export type SigningRule = (typeof SigningRule)[keyof typeof SigningRule];
+export const SigningRuleNumbers = makeEnumNumbers<SigningRule>([
+  [SigningRule.SELF_SIGNED, 1n],
+  [SigningRule.VERIFIED, 2n],
+  [SigningRule.ATTESTED, 3n],
+  [SigningRule.UNSIGNED, 4n],
+]);
+
+export const SetClaimOutcome = {
+  SIGNED: "signed",
+  STORED_UNSIGNED: "stored_unsigned",
+  VERIFICATION_REQUIRED: "verification_required",
+  QUEUED: "queued",
+} as const;
+export type SetClaimOutcome = (typeof SetClaimOutcome)[keyof typeof SetClaimOutcome];
+export const SetClaimOutcomeNumbers = makeEnumNumbers<SetClaimOutcome>([
+  [SetClaimOutcome.SIGNED, 1n],
+  [SetClaimOutcome.STORED_UNSIGNED, 2n],
+  [SetClaimOutcome.VERIFICATION_REQUIRED, 3n],
+  [SetClaimOutcome.QUEUED, 4n],
+]);
+
+export const ReleaseDisposition = {
+  FORCED_ALLOW: "forced_allow",
+  FORCED_DENY: "forced_deny",
+} as const;
+export type ReleaseDisposition = (typeof ReleaseDisposition)[keyof typeof ReleaseDisposition];
+export const ReleaseDispositionNumbers = makeEnumNumbers<ReleaseDisposition>([
+  [ReleaseDisposition.FORCED_ALLOW, 1n],
+  [ReleaseDisposition.FORCED_DENY, 2n],
+]);
+
+export const ConsentRowPolicy = {
+  USER: "user",
+  FORCED_ALLOW: "forced_allow",
+  FORCED_DENY: "forced_deny",
+} as const;
+export type ConsentRowPolicy = (typeof ConsentRowPolicy)[keyof typeof ConsentRowPolicy];
+export const ConsentRowPolicyNumbers = makeEnumNumbers<ConsentRowPolicy>([
+  [ConsentRowPolicy.USER, 1n],
+  [ConsentRowPolicy.FORCED_ALLOW, 2n],
+  [ConsentRowPolicy.FORCED_DENY, 3n],
+]);
+
+export const ClaimApprovalStatus = {
+  PENDING: "pending",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+} as const;
+export type ClaimApprovalStatus = (typeof ClaimApprovalStatus)[keyof typeof ClaimApprovalStatus];
+export const ClaimApprovalStatusNumbers = makeEnumNumbers<ClaimApprovalStatus>([
+  [ClaimApprovalStatus.PENDING, 1n],
+  [ClaimApprovalStatus.APPROVED, 2n],
+  [ClaimApprovalStatus.REJECTED, 3n],
+]);
+
+export const PinRecheckOutcome = {
+  FIRST_SEEN: "first_seen",
+  UNCHANGED: "unchanged",
+  ROTATED: "rotated",
+  MISMATCH: "mismatch",
+  ERROR: "error",
+} as const;
+export type PinRecheckOutcome = (typeof PinRecheckOutcome)[keyof typeof PinRecheckOutcome];
+export const PinRecheckOutcomeNumbers = makeEnumNumbers<PinRecheckOutcome>([
+  [PinRecheckOutcome.FIRST_SEEN, 1n],
+  [PinRecheckOutcome.UNCHANGED, 2n],
+  [PinRecheckOutcome.ROTATED, 3n],
+  [PinRecheckOutcome.MISMATCH, 4n],
+  [PinRecheckOutcome.ERROR, 5n],
+]);
+
+export const NotificationPurpose = {
+  VERIFY_CONTACT: "verify_contact",
+  RESET_PASSWORD: "reset_password",
+} as const;
+export type NotificationPurpose = (typeof NotificationPurpose)[keyof typeof NotificationPurpose];
+export const NotificationPurposeNumbers = makeEnumNumbers<NotificationPurpose>([
+  [NotificationPurpose.VERIFY_CONTACT, 1n],
+  [NotificationPurpose.RESET_PASSWORD, 2n],
+]);
+
+export const NotificationChannel = {
+  EMAIL: "email",
+} as const;
+export type NotificationChannel = (typeof NotificationChannel)[keyof typeof NotificationChannel];
+export const NotificationChannelNumbers = makeEnumNumbers<NotificationChannel>([
+  [NotificationChannel.EMAIL, 1n],
+]);
+
+export const DestinationKind = {
+  EMAIL: "email",
+} as const;
+export type DestinationKind = (typeof DestinationKind)[keyof typeof DestinationKind];
+export const DestinationKindNumbers = makeEnumNumbers<DestinationKind>([
+  [DestinationKind.EMAIL, 1n],
+]);
+
+export const LocalRpPolicy = {
+  DISABLED: "disabled",
+  ADMIN_APPROVAL_REQUIRED: "admin_approval_required",
+  ALLOW_BY_DEFAULT: "allow_by_default",
+} as const;
+export type LocalRpPolicy = (typeof LocalRpPolicy)[keyof typeof LocalRpPolicy];
+export const LocalRpPolicyNumbers = makeEnumNumbers<LocalRpPolicy>([
+  [LocalRpPolicy.DISABLED, 1n],
+  [LocalRpPolicy.ADMIN_APPROVAL_REQUIRED, 2n],
+  [LocalRpPolicy.ALLOW_BY_DEFAULT, 3n],
+]);
+
+export const LocalRpStatus = {
+  PENDING: "pending",
+  APPROVED: "approved",
+  DENIED: "denied",
+  REVOKED: "revoked",
+} as const;
+export type LocalRpStatus = (typeof LocalRpStatus)[keyof typeof LocalRpStatus];
+export const LocalRpStatusNumbers = makeEnumNumbers<LocalRpStatus>([
+  [LocalRpStatus.PENDING, 1n],
+  [LocalRpStatus.APPROVED, 2n],
+  [LocalRpStatus.DENIED, 3n],
+  [LocalRpStatus.REVOKED, 4n],
+]);
+
+export const LocalRpAdmission = {
+  CONSENT: "consent",
+  PENDING: "pending",
+  BLOCKED: "blocked",
+} as const;
+export type LocalRpAdmission = (typeof LocalRpAdmission)[keyof typeof LocalRpAdmission];
+export const LocalRpAdmissionNumbers = makeEnumNumbers<LocalRpAdmission>([
+  [LocalRpAdmission.CONSENT, 1n],
+  [LocalRpAdmission.PENDING, 2n],
+  [LocalRpAdmission.BLOCKED, 3n],
+]);
+
+export const AppAccessMode = {
+  ALLOW: "allow",
+  DENY: "deny",
+} as const;
+export type AppAccessMode = (typeof AppAccessMode)[keyof typeof AppAccessMode];
+export const AppAccessModeNumbers = makeEnumNumbers<AppAccessMode>([
+  [AppAccessMode.ALLOW, 1n],
+  [AppAccessMode.DENY, 2n],
+]);
+
+export const AppAccessTargetKind = {
+  EVERYONE: "everyone",
+  USER: "user",
+  GROUP: "group",
+  CLAIM: "claim",
+} as const;
+export type AppAccessTargetKind = (typeof AppAccessTargetKind)[keyof typeof AppAccessTargetKind];
+export const AppAccessTargetKindNumbers = makeEnumNumbers<AppAccessTargetKind>([
+  [AppAccessTargetKind.EVERYONE, 1n],
+  [AppAccessTargetKind.USER, 2n],
+  [AppAccessTargetKind.GROUP, 3n],
+  [AppAccessTargetKind.CLAIM, 4n],
+]);
+
+export const ClaimOperator = {
+  PRESENT: "present",
+  ABSENT: "absent",
+  EQUALS: "equals",
+  AGE_UNDER: "age_under",
+  AGE_AT_LEAST: "age_at_least",
+} as const;
+export type ClaimOperator = (typeof ClaimOperator)[keyof typeof ClaimOperator];
+export const ClaimOperatorNumbers = makeEnumNumbers<ClaimOperator>([
+  [ClaimOperator.PRESENT, 1n],
+  [ClaimOperator.ABSENT, 2n],
+  [ClaimOperator.EQUALS, 3n],
+  [ClaimOperator.AGE_UNDER, 4n],
+  [ClaimOperator.AGE_AT_LEAST, 5n],
+]);
+
+export const ApplicationKeyChallengePurpose = {
+  ADD: "add",
+  RENEW: "renew",
+} as const;
+export type ApplicationKeyChallengePurpose = (typeof ApplicationKeyChallengePurpose)[keyof typeof ApplicationKeyChallengePurpose];
+export const ApplicationKeyChallengePurposeNumbers = makeEnumNumbers<ApplicationKeyChallengePurpose>([
+  [ApplicationKeyChallengePurpose.ADD, 1n],
+  [ApplicationKeyChallengePurpose.RENEW, 2n],
+]);
+
+export const AuthFlow = {
+  LOGIN: "login",
+  CLAIMS_UPDATE: "claims_update",
+} as const;
+export type AuthFlow = (typeof AuthFlow)[keyof typeof AuthFlow];
+export const AuthFlowNumbers = makeEnumNumbers<AuthFlow>([
+  [AuthFlow.LOGIN, 1n],
+  [AuthFlow.CLAIMS_UPDATE, 2n],
+]);
+
+export const RpCacheStatus = {
+  FRESH: "fresh",
+  REFRESHED: "refreshed",
+  STALE: "stale",
+} as const;
+export type RpCacheStatus = (typeof RpCacheStatus)[keyof typeof RpCacheStatus];
+export const RpCacheStatusNumbers = makeEnumNumbers<RpCacheStatus>([
+  [RpCacheStatus.FRESH, 1n],
+  [RpCacheStatus.REFRESHED, 2n],
+  [RpCacheStatus.STALE, 3n],
+]);
+
+export const AccountKind = {
+  HUMAN: "human",
+  APPLICATION: "application",
+} as const;
+export type AccountKind = (typeof AccountKind)[keyof typeof AccountKind];
+export const AccountKindNumbers = makeEnumNumbers<AccountKind>([
+  [AccountKind.HUMAN, 1n],
+  [AccountKind.APPLICATION, 2n],
+]);
+
+export const RpErrorCode = {
+  NOT_APPLICATION_ACCOUNT: "not_application_account",
+  APPLICATION_MISMATCH: "application_mismatch",
+  APPLICATION_USER_LIMIT: "application_user_limit",
+  BAD_REQUEST: "bad_request",
+  UPSTREAM_FAILED: "upstream_failed",
+  INTERNAL: "internal",
+} as const;
+export type RpErrorCode = (typeof RpErrorCode)[keyof typeof RpErrorCode];
+export const RpErrorCodeNumbers = makeEnumNumbers<RpErrorCode>([
+  [RpErrorCode.NOT_APPLICATION_ACCOUNT, 1n],
+  [RpErrorCode.APPLICATION_MISMATCH, 2n],
+  [RpErrorCode.APPLICATION_USER_LIMIT, 3n],
+  [RpErrorCode.BAD_REQUEST, 4n],
+  [RpErrorCode.UPSTREAM_FAILED, 5n],
+  [RpErrorCode.INTERNAL, 6n],
+]);
+
+export const IssuedClaimOutcome = {
+  DEPOSITED: "deposited",
+  HANDOFF: "handoff",
+  SKIPPED: "skipped",
+  FAILED: "failed",
+} as const;
+export type IssuedClaimOutcome = (typeof IssuedClaimOutcome)[keyof typeof IssuedClaimOutcome];
+export const IssuedClaimOutcomeNumbers = makeEnumNumbers<IssuedClaimOutcome>([
+  [IssuedClaimOutcome.DEPOSITED, 1n],
+  [IssuedClaimOutcome.HANDOFF, 2n],
+  [IssuedClaimOutcome.SKIPPED, 3n],
+  [IssuedClaimOutcome.FAILED, 4n],
+]);
+
 export interface HelloRequest {
   name?: string;
 }
@@ -46,8 +384,8 @@ export interface HelloResponse {
 export interface GuestbookEntry {
   id: string;
   name: string;
-  createdAt: string;
-  updatedAt: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface CreateGuestbookRequest {
@@ -83,11 +421,11 @@ export interface DomainPublicKey {
   keyId: string;
   publicKey: Uint8Array;
   fingerprint: string;
-  algorithm: string;
-  keyUsage: string;
-  createdAt: string;
-  expiresAt: string;
-  revokedAt?: string;
+  algorithm: KeyAlgorithm;
+  keyUsage: KeyUsage;
+  createdAt: Date;
+  expiresAt: Date;
+  revokedAt?: Date;
   signedByKeyId?: string;
   keySignature?: Uint8Array;
 }
@@ -99,7 +437,7 @@ export interface GetDomainKeysResponse {
 }
 
 export interface GetRevocationsRequest {
-  since?: string;
+  since?: Date;
 }
 
 export interface GetRevocationsResponse {
@@ -112,7 +450,8 @@ export interface RecheckPinsRequest {
 
 export interface PinRecheckResult {
   domain: string;
-  outcome: string;
+  outcome: PinRecheckOutcome;
+  message?: string;
 }
 
 export interface RecheckPinsResponse {
@@ -124,11 +463,11 @@ export interface UserPublicKey {
   userId: string;
   publicKey: Uint8Array;
   fingerprint: string;
-  algorithm: string;
-  keyUsage: string;
-  createdAt: string;
-  expiresAt: string;
-  revokedAt?: string;
+  algorithm: KeyAlgorithm;
+  keyUsage: KeyUsage;
+  createdAt: Date;
+  expiresAt: Date;
+  revokedAt?: Date;
   signedByKeyId?: string;
   keySignature?: Uint8Array;
 }
@@ -152,7 +491,7 @@ export interface ClaimSignature {
 export interface RevocationCertificate {
   targetKeyId: string;
   targetFingerprint: string;
-  revokedAt: string;
+  revokedAt: Date;
   signatures: ClaimSignature[];
 }
 
@@ -162,10 +501,10 @@ export interface Claim {
   claimType: string;
   claimValue: Uint8Array;
   signatures: ClaimSignature[];
-  attestedAt: string;
-  createdAt: string;
-  expiresAt?: string;
-  revokedAt?: string;
+  attestedAt: Date;
+  createdAt: Date;
+  expiresAt?: Date;
+  revokedAt?: Date;
 }
 
 export interface GetUserClaimsRequest {
@@ -181,7 +520,7 @@ export interface GetUserClaimsResponse {
 
 export interface RequestedClaim {
   claimType: string;
-  datatype: string;
+  datatype: ClaimValueType;
 }
 
 export interface ClaimRequest {
@@ -194,7 +533,7 @@ export interface AuthenticationRequirements {
 }
 
 export interface AuthFlowContext {
-  flow: string;
+  flow: AuthFlow;
   priorSession?: string;
   requestReason?: string;
 }
@@ -205,9 +544,9 @@ export interface ConsentGrant {
   subjectDomain: string;
   audience: string;
   claimTypes: string[];
-  issuedAt: string;
-  expiresAt: string;
-  revokedAt?: string;
+  issuedAt: Date;
+  expiresAt: Date;
+  revokedAt?: Date;
   application?: ApplicationRef;
 }
 
@@ -220,8 +559,8 @@ export interface DomainClaim {
   claimType: string;
   claimValue: Uint8Array;
   signatures: ClaimSignature[];
-  attestedAt: string;
-  expiresAt?: string;
+  attestedAt: Date;
+  expiresAt?: Date;
 }
 
 export interface SigningRequest {
@@ -231,8 +570,8 @@ export interface SigningRequest {
   issuerDomain: string;
   requestedClaimTypes: string[];
   nonce: string;
-  issuedAt: string;
-  expiresAt: string;
+  issuedAt: Date;
+  expiresAt: Date;
   callback?: string;
 }
 
@@ -254,10 +593,11 @@ export interface IdentityAssertion {
   domain: string;
   audience: string;
   nonce: string;
-  issuedAt: string;
-  expiresAt: string;
+  issuedAt: Date;
+  expiresAt: Date;
   authorizedClaims: string[];
   displayName?: string;
+  application: ApplicationRef;
 }
 
 export interface SignedIdentityAssertion {
@@ -273,7 +613,7 @@ export interface GetUserInfoRequest {
 export interface UserInfoRequest {
   token: Uint8Array;
   relyingParty: string;
-  timestamp: string;
+  timestamp: Date;
   nonce: string;
 }
 
@@ -300,13 +640,13 @@ export interface AuthRequest {
   relyingParty: string;
   callbackUrl: string;
   nonce: string;
-  timestamp: string;
+  timestamp: Date;
   signingKeyId: string;
   requestedClaims?: ClaimRequest;
   authenticationRequirements?: AuthenticationRequirements;
   flowContext?: AuthFlowContext;
   relyingPartyClaims?: DomainClaim[];
-  application?: RelyingPartyApplication;
+  application: RelyingPartyApplication;
 }
 
 export interface SignedAuthRequest {
@@ -323,8 +663,8 @@ export interface EncryptedToken {
 }
 
 export interface AlgorithmSupport {
-  signing: string[];
-  encryption?: string[];
+  signing: KeyAlgorithm[];
+  encryption?: AeadSuite[];
 }
 
 export interface HandshakeRequest {
@@ -344,18 +684,20 @@ export interface Relation {
   relation: string;
   objectType: string;
   objectId: string;
-  createdAt: string;
-  removedAt?: string;
+  createdAt: Date;
+  removedAt?: Date;
 }
 
 export interface AdminUser {
   id: string;
   username: string;
   displayName: string;
+  kind: AccountKind;
+  applicationId?: string;
   isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
-  purgedAt?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  purgedAt?: Date;
   purgeReason?: string;
   passwordLocked?: boolean;
 }
@@ -380,8 +722,8 @@ export interface GetUserResponse {
 
 export interface UserAuthenticationActivity {
   userId: string;
-  lastAuthenticatedAt?: string;
-  lastSeenAt?: string;
+  lastAuthenticatedAt?: Date;
+  lastSeenAt?: Date;
   successfulAuthenticationCount: number;
   activeBrowserSessionCount: number;
 }
@@ -398,11 +740,110 @@ export interface CreateUserRequest {
   username: string;
   displayName: string;
   password?: string;
+  applicationId?: string;
 }
 
 export interface CreateUserResponse {
   user: AdminUser;
   apiKey?: string;
+}
+
+export interface RenameUserRequest {
+  userId: string;
+  username: string;
+}
+
+export interface RenameUserResponse {
+  user: AdminUser;
+}
+
+export interface SetApplicationIdRequest {
+  userId: string;
+  applicationId: string;
+}
+
+export interface SetApplicationIdResponse {
+  user: AdminUser;
+}
+
+export interface ApiKeyInfo {
+  keyId: string;
+  name: string;
+  hint: string;
+  createdAt: Date;
+  lastUsedAt?: Date;
+}
+
+export interface CreateApiKeyRequest {
+  userId: string;
+  name: string;
+}
+
+export interface CreateApiKeyResponse {
+  key: ApiKeyInfo;
+  apiKey: string;
+}
+
+export interface ListApiKeysRequest {
+  userId: string;
+}
+
+export interface ListApiKeysResponse {
+  keys: ApiKeyInfo[];
+}
+
+export interface RevokeApiKeyRequest {
+  userId: string;
+  keyId: string;
+}
+
+export interface RevokeApiKeyResponse {
+  revoked: boolean;
+}
+
+export interface AccountLimits {
+  maxApiKeys?: number;
+  maxDistinctUsers?: number;
+  distinctUserWindowDays: number;
+  requestsPerMinute?: number;
+  requestBurst?: number;
+}
+
+export interface GetAccountLimitsRequest {
+  userId: string;
+}
+
+export interface GetAccountLimitsResponse {
+  limits: AccountLimits;
+}
+
+export interface SetAccountLimitsRequest {
+  userId: string;
+  limits: AccountLimits;
+}
+
+export interface SetAccountLimitsResponse {
+  limits: AccountLimits;
+}
+
+export interface RpUsageDay {
+  day: string;
+  operation: string;
+  succeeded: number;
+  failed: number;
+}
+
+export interface GetApplicationUsageRequest {
+  userId: string;
+  firstDay: string;
+  lastDay: string;
+}
+
+export interface GetApplicationUsageResponse {
+  distinctUsers: number;
+  distinctUserWindowDays: number;
+  maxDistinctUsers?: number;
+  days: RpUsageDay[];
 }
 
 export interface UpdateUserRequest {
@@ -489,7 +930,7 @@ export interface SetClaimRequest {
   userId: string;
   claimType: string;
   claimValue: string;
-  expiresAt?: string;
+  expiresAt?: Date;
 }
 
 export interface SetClaimResponse {
@@ -527,7 +968,7 @@ export interface SetUserClaimRequest {
 }
 
 export interface SetUserClaimResponse {
-  outcome: string;
+  outcome: SetClaimOutcome;
   claim?: Claim;
 }
 
@@ -535,11 +976,11 @@ export interface SettableClaimPolicy {
   claimType: string;
   label: string;
   description: string;
-  datatype: string;
+  datatype: ClaimValueType;
   maxBytes: number;
-  setRule: string;
+  setRule: SetRule;
   requiresApproval: boolean;
-  signingRule: string;
+  signingRule: SigningRule;
 }
 
 export interface ListSettablePoliciesResponse {
@@ -550,10 +991,10 @@ export interface ClaimTypePolicy {
   claimType: string;
   label: string;
   description: string;
-  valueType: string;
+  valueType: ClaimValueType;
   maxBytes: number;
-  setRule: string;
-  signingRule: string;
+  setRule: SetRule;
+  signingRule: SigningRule;
   requiresApproval: boolean;
   userSettable: boolean;
   defaultAutoSign: boolean;
@@ -568,10 +1009,10 @@ export interface SetClaimTypeRequest {
   claimType: string;
   label: string;
   description?: string;
-  valueType: string;
+  valueType: ClaimValueType;
   maxBytes: number;
-  setRule: string;
-  signingRule: string;
+  setRule: SetRule;
+  signingRule: SigningRule;
   userSettable: boolean;
   defaultAutoSign: boolean;
   requiresApproval: boolean;
@@ -651,7 +1092,7 @@ export interface RemoveTrustedIssuerResponse {
 export interface ReleaseRule {
   audience: string;
   claimType: string;
-  disposition: string;
+  disposition: ReleaseDisposition;
 }
 
 export interface ListReleaseRulesResponse {
@@ -661,7 +1102,7 @@ export interface ListReleaseRulesResponse {
 export interface SetReleaseRuleRequest {
   audience: string;
   claimType: string;
-  disposition: string;
+  disposition: ReleaseDisposition;
 }
 
 export interface SetReleaseRuleResponse {
@@ -682,10 +1123,10 @@ export interface ClaimApproval {
   userId: string;
   claimType: string;
   claimValue: Uint8Array;
-  status: string;
+  status: ClaimApprovalStatus;
   resolvedBy?: string;
-  resolvedAt?: string;
-  createdAt: string;
+  resolvedAt?: Date;
+  createdAt: Date;
 }
 
 export interface ListPendingClaimApprovalsResponse {
@@ -781,7 +1222,7 @@ export interface SetMyClaimRequest {
 }
 
 export interface SetMyClaimResponse {
-  outcome: string;
+  outcome: SetClaimOutcome;
   claim?: Claim;
 }
 
@@ -853,9 +1294,9 @@ export interface PasswordPolicy {
 
 export interface BrowserSessionInfo {
   user: AdminUser;
-  issuedAt: string;
-  authenticatedAt: string;
-  expiresAt: string;
+  issuedAt: Date;
+  authenticatedAt: Date;
+  expiresAt: Date;
   authenticationMethods: string[];
 }
 
@@ -883,15 +1324,15 @@ export interface IntrospectBrowserSessionRequest {
 export interface IntrospectBrowserSessionResponse {
   userId: string;
   userDomain: string;
-  authenticatedAt: string;
-  expiresAt: string;
+  authenticatedAt: Date;
+  expiresAt: Date;
   authenticationMethods: string[];
 }
 
 export interface NotificationCapability {
-  purpose: string;
-  channel: string;
-  destinationKind: string;
+  purpose: NotificationPurpose;
+  channel: NotificationChannel;
+  destinationKind: DestinationKind;
 }
 
 export interface GetNotificationCapabilitiesResponse {
@@ -900,11 +1341,11 @@ export interface GetNotificationCapabilitiesResponse {
 
 export interface VerifiedContactMethod {
   id: string;
-  channel: string;
+  channel: NotificationChannel;
   destination: string;
-  verifiedAt: string;
-  purposes: string[];
-  revokedAt?: string;
+  verifiedAt: Date;
+  purposes: NotificationPurpose[];
+  revokedAt?: Date;
 }
 
 export interface ListVerifiedContactMethodsResponse {
@@ -921,13 +1362,13 @@ export interface RevokeVerifiedContactMethodResponse {
 }
 
 export interface RequestContactVerificationRequest {
-  channel: string;
+  channel: NotificationChannel;
   destination: string;
   currentPassword: string;
 }
 
 export interface RequestContactVerificationResponse {
-  expiresAt: string;
+  expiresAt: Date;
 }
 
 export interface ConfirmContactVerificationRequest {
@@ -951,7 +1392,7 @@ export interface ValidatePasswordRecoveryRequest {
 }
 
 export interface ValidatePasswordRecoveryResponse {
-  expiresAt: string;
+  expiresAt: Date;
   passwordPolicy: PasswordPolicy;
 }
 
@@ -971,11 +1412,11 @@ export interface BrowserAuthorizationInspectRequest {
 export interface BrowserConsentClaim {
   claimType: string;
   label: string;
-  datatype: string;
+  datatype: ClaimValueType;
   required: boolean;
   available: boolean;
   defaultGranted: boolean;
-  policy: string;
+  policy: ConsentRowPolicy;
   userSettable: boolean;
   maxBytes: number;
   requiresApproval: boolean;
@@ -1011,11 +1452,11 @@ export interface BrowserLocalRpInspectRequest {
 }
 
 export interface BrowserLocalRpInspectResponse {
-  admission: string;
+  admission: LocalRpAdmission;
   appName: string;
   fingerprint: string;
   callbackHost: string;
-  firstSeenAt?: string;
+  firstSeenAt?: Date;
   claims: BrowserConsentClaim[];
   requestReason?: string;
   alreadyConsented?: boolean;
@@ -1067,7 +1508,6 @@ export interface GetUiConfigurationResponse {
 export interface RpSignRequest {
   callbackUrl: string;
   nonce: string;
-  applicationId?: string;
   requestedClaims?: ClaimRequest;
   authenticationRequirements?: AuthenticationRequirements;
   flowContext?: AuthFlowContext;
@@ -1099,6 +1539,11 @@ export interface RpUserInfoRequest {
   token: string;
   apiBase: string;
   domain: string;
+}
+
+export interface RpError {
+  code: RpErrorCode;
+  message: string;
 }
 
 export interface RpIssueAttestationRequest {
@@ -1169,10 +1614,6 @@ export interface ApiError {
   message: string;
 }
 
-export type AeadSuite = string;
-
-export type LocalRpPolicy = string;
-
 export interface LocalRpDescriptor {
   appName: string;
   localDomainHint?: string;
@@ -1180,8 +1621,8 @@ export interface LocalRpDescriptor {
   encryptionPublicKey: Uint8Array;
   fingerprint: string;
   supportedSuites: AeadSuite[];
-  createdAt: string;
-  expiresAt: string;
+  createdAt: Date;
+  expiresAt: Date;
 }
 
 export interface SignedLocalRpDescriptor {
@@ -1198,8 +1639,8 @@ export interface LocalRpLoginRequest {
   requiredClaims: string[];
   authenticationRequirements?: AuthenticationRequirements;
   flowContext?: AuthFlowContext;
-  issuedAt: string;
-  expiresAt: string;
+  issuedAt: Date;
+  expiresAt: Date;
 }
 
 export interface SignedLocalRpLoginRequest {
@@ -1214,8 +1655,8 @@ export interface LocalRpCallbackHeader {
   suite: AeadSuite;
   ephemeralPublicKey: Uint8Array;
   aeadNonce: Uint8Array;
-  issuedAt: string;
-  expiresAt: string;
+  issuedAt: Date;
+  expiresAt: Date;
 }
 
 export interface LocalRpEncryptedCallback {
@@ -1231,8 +1672,8 @@ export interface LocalRpCallbackPayload {
   callbackUrl: string;
   nonce: Uint8Array;
   state: Uint8Array;
-  issuedAt: string;
-  expiresAt: string;
+  issuedAt: Date;
+  expiresAt: Date;
 }
 
 export interface SignedLocalRpCallbackPayload {
@@ -1244,7 +1685,7 @@ export interface SignedLocalRpCallbackPayload {
 export interface LocalRpTicketRedemptionRequest {
   claimTicket: Uint8Array;
   fingerprint: string;
-  issuedAt: string;
+  issuedAt: Date;
 }
 
 export interface SignedLocalRpTicketRedemptionRequest {
@@ -1256,7 +1697,7 @@ export interface LocalRpTicketRedemptionResponse {
   userId: string;
   userDomain: string;
   claims: Claim[];
-  ticketExpiresAt: string;
+  ticketExpiresAt: Date;
 }
 
 export interface AdminLocalRp {
@@ -1265,18 +1706,18 @@ export interface AdminLocalRp {
   encryptionPublicKey: Uint8Array;
   appName: string;
   localDomainHint?: string;
-  status: string;
-  createdAt: string;
-  updatedAt: string;
-  expiresAt?: string;
-  lastSeenAt?: string;
+  status: LocalRpStatus;
+  createdAt: Date;
+  updatedAt: Date;
+  expiresAt?: Date;
+  lastSeenAt?: Date;
   adminNotes?: string;
 }
 
 export interface ListLocalRpsRequest {
   offset?: number;
   limit?: number;
-  status?: string;
+  status?: LocalRpStatus;
 }
 
 export interface ListLocalRpsResponse {
@@ -1354,18 +1795,18 @@ export interface SetUserPasswordLockResponse {
 }
 
 export interface AppAccessTarget {
-  kind: string;
+  kind: AppAccessTargetKind;
   userId?: string;
   groupName?: string;
   claimType?: string;
-  claimOperator?: string;
+  claimOperator?: ClaimOperator;
   claimValue?: string;
 }
 
 export interface AppAccessPolicy {
   id: string;
   name: string;
-  mode: string;
+  mode: AppAccessMode;
   patterns: string[];
   message?: string;
   targets: AppAccessTarget[];
@@ -1378,7 +1819,7 @@ export interface ListAppAccessPoliciesResponse {
 export interface SetAppAccessPolicyRequest {
   id?: string;
   name: string;
-  mode: string;
+  mode: AppAccessMode;
   patterns: string[];
   message?: string;
   targets: AppAccessTarget[];
@@ -1448,14 +1889,14 @@ export interface ApplicationKeyAttestation {
   applicationId: string;
   instanceId: string;
   keyId: string;
-  keyUsage: string;
-  algorithm: string;
+  keyUsage: KeyUsage;
+  algorithm: KeyAlgorithm;
   publicKey: Uint8Array;
   fingerprint: string;
-  keyCreatedAt: string;
-  keyExpiresAt: string;
-  attestedAt: string;
-  attestationExpiresAt: string;
+  keyCreatedAt: Date;
+  keyExpiresAt: Date;
+  attestedAt: Date;
+  attestationExpiresAt: Date;
 }
 
 export interface SignedApplicationKeyAttestation {
@@ -1469,15 +1910,15 @@ export interface ApplicationKeyAddition {
   applicationId: string;
   instanceId: string;
   keyId: string;
-  keyUsage: string;
-  algorithm: string;
+  keyUsage: KeyUsage;
+  algorithm: KeyAlgorithm;
   publicKey: Uint8Array;
   fingerprint: string;
   requestedKeyLifetimeSeconds: number;
   challengeId: string;
   challenge: Uint8Array;
-  requestedAt: string;
-  expiresAt: string;
+  requestedAt: Date;
+  expiresAt: Date;
 }
 
 export interface SignedApplicationKeyAddition {
@@ -1494,8 +1935,8 @@ export interface ApplicationKeyRenewal {
   keyId: string;
   challengeId: string;
   challenge: Uint8Array;
-  requestedAt: string;
-  expiresAt: string;
+  requestedAt: Date;
+  expiresAt: Date;
 }
 
 export interface SignedApplicationKeyRenewal {
@@ -1511,7 +1952,7 @@ export interface ApplicationKeyRevocation {
   instanceId: string;
   targetKeyId: string;
   targetFingerprint: string;
-  revokedAt: string;
+  revokedAt: Date;
   signatures: ApplicationKeySignature[];
 }
 
@@ -1519,9 +1960,9 @@ export interface StartApplicationKeyChallengeRequest {
   subjectUserId: string;
   applicationId: string;
   instanceId: string;
-  purpose: string;
-  keyUsage: string;
-  algorithm: string;
+  purpose: ApplicationKeyChallengePurpose;
+  keyUsage: KeyUsage;
+  algorithm: KeyAlgorithm;
   publicKey: Uint8Array;
 }
 
@@ -1529,7 +1970,7 @@ export interface StartApplicationKeyChallengeResponse {
   challengeId: string;
   challenge?: Uint8Array;
   sealedChallenge?: Uint8Array;
-  expiresAt: string;
+  expiresAt: Date;
 }
 
 export interface AddApplicationKeyRequest {
@@ -1554,7 +1995,7 @@ export interface RevokeApplicationKeyRequest {
 }
 
 export interface RevokeApplicationKeyResponse {
-  revokedAt: string;
+  revokedAt: Date;
 }
 
 export interface EnrollApplicationInstanceRequest {
@@ -1595,9 +2036,9 @@ export interface RpResolveDomainKeysResponse {
   domain: string;
   keys: DomainPublicKey[];
   revocations: RevocationCertificate[];
-  fetchedAt: string;
-  revocationsCheckedAt: string;
-  cacheStatus: string;
+  fetchedAt: Date;
+  revocationsCheckedAt: Date;
+  cacheStatus: RpCacheStatus;
 }
 
 export interface RpResolveApplicationKeysRequest {
@@ -1617,9 +2058,9 @@ export interface RpResolveApplicationKeysResponse {
   applicationKeyRevocations: ApplicationKeyRevocation[];
   homeDomainKeys: DomainPublicKey[];
   homeDomainKeyRevocations: RevocationCertificate[];
-  fetchedAt: string;
-  revocationsCheckedAt: string;
-  cacheStatus: string;
+  fetchedAt: Date;
+  revocationsCheckedAt: Date;
+  cacheStatus: RpCacheStatus;
 }
 
 export interface ApplicationRef {
@@ -1650,8 +2091,8 @@ export interface ActAsScopeSet {
   entries: ActAsScopeEntry[];
   language?: string;
   audienceHandleClaim?: Claim;
-  issuedAt: string;
-  expiresAt: string;
+  issuedAt: Date;
+  expiresAt: Date;
 }
 
 export interface SignedActAsScopeSet {
@@ -1674,10 +2115,10 @@ export interface ActAsGrant {
   audience: ApplicationRef;
   scopeSet: SignedActAsScopeSet;
   approvedScope: string[];
-  issuedAt: string;
-  expiresAt: string;
-  seriesIssuedAt: string;
-  renewableUntil: string;
+  issuedAt: Date;
+  expiresAt: Date;
+  seriesIssuedAt: Date;
+  renewableUntil: Date;
   deviceFingerprint?: string;
 }
 
@@ -1694,8 +2135,8 @@ export interface ActAsGrantRequest {
   granteeHandleClaim?: Claim;
   callbackUrl: string;
   nonce: string;
-  requestedAt: string;
-  expiresAt: string;
+  requestedAt: Date;
+  expiresAt: Date;
 }
 
 export interface SignedActAsGrantRequest {
@@ -1706,8 +2147,8 @@ export interface SignedActAsGrantRequest {
 export interface ActAsRefreshRequest {
   grantId: string;
   grantee: GranteeRef;
-  requestedAt: string;
-  expiresAt: string;
+  requestedAt: Date;
+  expiresAt: Date;
   nonce: string;
 }
 
@@ -1729,7 +2170,7 @@ export interface ActAsPresentation {
   grantHash: Uint8Array;
   audience: ApplicationRef;
   requestDigest: Uint8Array;
-  presentedAt: string;
+  presentedAt: Date;
   nonce: Uint8Array;
 }
 
@@ -1747,7 +2188,7 @@ export interface ActAsGrantRevocation {
   grantId: string;
   userId: string;
   subjectDomain: string;
-  revokedAt: string;
+  revokedAt: Date;
 }
 
 export interface SignedActAsGrantRevocation {
@@ -1826,10 +2267,10 @@ export interface ActAsGrantSummary {
   grantee: GranteeRef;
   audience: ApplicationRef;
   approvedScope: string[];
-  issuedAt: string;
-  expiresAt: string;
-  renewableUntil: string;
-  revokedAt?: string;
+  issuedAt: Date;
+  expiresAt: Date;
+  renewableUntil: Date;
+  revokedAt?: Date;
 }
 
 export interface ListActAsGrantsResponse {
@@ -1841,7 +2282,7 @@ export interface RevokeActAsGrantRequest {
 }
 
 export interface RevokeActAsGrantResponse {
-  revokedAt: string;
+  revokedAt: Date;
 }
 
 export interface PreviewReleasePolicyRequest {
@@ -1852,7 +2293,7 @@ export interface PreviewReleasePolicyRequest {
   userChoices: string[];
   tempAudience?: string;
   tempClaimType?: string;
-  tempDisposition?: string;
+  tempDisposition?: ReleaseDisposition;
 }
 
 export interface PreviewReleaseRow {
@@ -1860,7 +2301,7 @@ export interface PreviewReleaseRow {
   required: boolean;
   available: boolean;
   locked: boolean;
-  policy: string;
+  policy: ConsentRowPolicy;
   defaultGranted: boolean;
 }
 
@@ -1896,7 +2337,7 @@ export interface InspectSigningRequestResponse {
   subjectUserId: string;
   subjectDomain: string;
   requestedClaimTypes: string[];
-  expiresAt: string;
+  expiresAt: Date;
   issuableClaimTypes: string[];
 }
 
@@ -1908,13 +2349,26 @@ export interface IssueForSigningRequestRequest {
 
 export interface IssuedClaimResult {
   claimType: string;
-  outcome: string;
+  outcome: IssuedClaimOutcome;
   message?: string;
   claimCode?: string;
 }
 
 export interface IssueForSigningRequestResponse {
   results: IssuedClaimResult[];
+}
+
+export function validateRpUsageDay(value: RpUsageDay): string[] {
+  const errors: string[] = [];
+  if (!isCalendarDate(value.day)) errors.push("day: expected YYYY-MM-DD");
+  return errors;
+}
+
+export function validateGetApplicationUsageRequest(value: GetApplicationUsageRequest): string[] {
+  const errors: string[] = [];
+  if (!isCalendarDate(value.firstDay)) errors.push("firstDay: expected YYYY-MM-DD");
+  if (!isCalendarDate(value.lastDay)) errors.push("lastDay: expected YYYY-MM-DD");
+  return errors;
 }
 
 export function validateLocalRpDescriptor(value: LocalRpDescriptor): string[] {

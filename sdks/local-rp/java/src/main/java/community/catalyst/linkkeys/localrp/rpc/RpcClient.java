@@ -149,7 +149,7 @@ public final class RpcClient {
             throw new SdkException(SdkException.Kind.NO_TRUSTED_DOMAIN_KEYS, domain);
         }
 
-        String since = Instant.now().minus(Duration.ofDays(30)).toString();
+        Instant since = Instant.now().minus(Duration.ofDays(30));
         byte[] reqPayload = Codec.encodeGetRevocationsRequest(new GetRevocationsRequest(since));
         GetRevocationsResponse revResp;
         try {

@@ -269,8 +269,8 @@ static void test_begin_act_as(void) {
                  cbor_get_bytes(root, "request", &request, &err) == 0 &&
                  cbor_decode(request.data, request.len, &req, &err) == 0 &&
                  cbor_get_text(req, "nonce", &nonce, &err) == 0 &&
-                 cbor_get_text(req, "requested_at", &requested_at, &err) == 0 &&
-                 cbor_get_text(req, "expires_at", &expires_at, &err) == 0;
+                 cbor_get_timestamp(req, "requested_at", &requested_at, &err) == 0 &&
+                 cbor_get_timestamp(req, "expires_at", &expires_at, &err) == 0;
         T_CHECK(ok && strcmp(nonce.data, pending.nonce.data) == 0,
                 "begin act-as: request nonce equals pending nonce");
         int64_t ra = 0, ea = 0;

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineControls } from "@catalystcommunity/controls";
+import { ClaimValueType, SetClaimOutcome, SigningRule } from "../generated/types.gen";
 import type { PageProps } from "../shared";
 
 const account = vi.hoisted(() => ({
@@ -27,11 +28,11 @@ const { accountPage } = await import("./account");
 const { CsilStatus, CsilTransportError } = await import("../transport");
 
 const policies = [
-  { claimType: "nickname", label: "Nickname", datatype: "string", maxBytes: 32, signingRule: "self_signed", description: "What friends call you" },
-  { claimType: "adult", label: "Adult", datatype: "bool", maxBytes: 5, signingRule: "unsigned" },
-  { claimType: "age", label: "Age", datatype: "int", maxBytes: 3, signingRule: "unsigned" },
-  { claimType: "born", label: "Born", datatype: "date", maxBytes: 10, signingRule: "unsigned" },
-  { claimType: "passport", label: "Passport", datatype: "string", maxBytes: 32, signingRule: "verified" },
+  { claimType: "nickname", label: "Nickname", datatype: ClaimValueType.TEXT, maxBytes: 32, signingRule: SigningRule.SELF_SIGNED, description: "What friends call you" },
+  { claimType: "adult", label: "Adult", datatype: ClaimValueType.BOOL, maxBytes: 5, signingRule: SigningRule.UNSIGNED },
+  { claimType: "age", label: "Age", datatype: ClaimValueType.INT, maxBytes: 3, signingRule: SigningRule.UNSIGNED },
+  { claimType: "born", label: "Born", datatype: ClaimValueType.DATE, maxBytes: 10, signingRule: SigningRule.UNSIGNED },
+  { claimType: "passport", label: "Passport", datatype: ClaimValueType.TEXT, maxBytes: 32, signingRule: SigningRule.VERIFIED },
 ];
 
 function context(overrides: Partial<PageProps> = {}): PageProps {
@@ -134,7 +135,7 @@ describe("account page", () => {
   });
 
   it("saves a detail and shows the status under the details", async () => {
-    account.setMyClaim.mockResolvedValue({ outcome: "saved" });
+    account.setMyClaim.mockResolvedValue({ outcome: SetClaimOutcome.SIGNED });
     const page = await mount();
     const form = page.querySelector<HTMLFormElement>("form.inline-form")!;
     form.querySelector<ZestTextField>(":scope > text-field")!.value = "Ally";

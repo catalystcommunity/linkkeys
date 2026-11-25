@@ -83,9 +83,7 @@ public final class LocalRp {
     // Timestamps / expirations
     // -----------------------------------------------------------------
 
-    public static void checkTimestamps(String issuedAt, String expiresAt, Instant now, long skewSeconds) {
-        Instant issued = Rfc3339.parse("issued_at", issuedAt);
-        Instant expires = Rfc3339.parse("expires_at", expiresAt);
+    public static void checkTimestamps(Instant issued, Instant expires, Instant now, long skewSeconds) {
         Duration skew = Duration.ofSeconds(skewSeconds);
         if (now.plus(skew).isBefore(issued)) {
             throw new LocalRpError(LocalRpError.Kind.NOT_YET_VALID, null);
@@ -115,8 +113,7 @@ public final class LocalRp {
      * {@link #checkTimestamps}): expiry warnings are advisory, day-scale
      * facts, not a replay/freshness security boundary.
      */
-    public static ExpirationStatus checkExpirations(String expiresAt, Instant now) {
-        Instant expires = Rfc3339.parse("expires_at", expiresAt);
+    public static ExpirationStatus checkExpirations(Instant expires, Instant now) {
         Duration remaining = Duration.between(now, expires);
         ExpirationLevel level;
         if (!now.isBefore(expires)) {
@@ -183,13 +180,7 @@ public final class LocalRp {
         if (key.revokedAt() != null) {
             throw new LocalRpError(LocalRpError.Kind.KEY_REVOKED, key.keyId());
         }
-        Instant expires;
-        try {
-            expires = Rfc3339.parse("expires_at", key.expiresAt());
-        } catch (LocalRpError e) {
-            throw new LocalRpError(LocalRpError.Kind.KEY_EXPIRED, key.keyId());
-        }
-        if (Instant.now().isAfter(expires)) {
+        if (Instant.now().isAfter(key.expiresAt())) {
             throw new LocalRpError(LocalRpError.Kind.KEY_EXPIRED, key.keyId());
         }
     }
@@ -204,8 +195,8 @@ public final class LocalRp {
             byte[] signingPublicKey,
             byte[] encryptionPublicKey,
             List<String> supportedSuites,
-            String createdAt,
-            String expiresAt) {
+            Instant createdAt,
+            Instant expiresAt) {
         return new LocalRpDescriptor(
                 appName,
                 localDomainHint,
@@ -258,8 +249,8 @@ public final class LocalRp {
             byte[] state,
             List<String> requestedClaims,
             List<String> requiredClaims,
-            String issuedAt,
-            String expiresAt) {
+            Instant issuedAt,
+            Instant expiresAt) {
         return new LocalRpLoginRequest(
                 descriptor, callbackUrl, nonce, state, requestedClaims, requiredClaims, issuedAt, expiresAt);
     }
@@ -295,7 +286,7 @@ public final class LocalRp {
     // -----------------------------------------------------------------
 
     public static LocalRpTicketRedemptionRequest buildLocalRpTicketRedemptionRequest(
-            byte[] claimTicket, String fingerprint, String issuedAt) {
+            byte[] claimTicket, String fingerprint, Instant issuedAt) {
         return new LocalRpTicketRedemptionRequest(claimTicket, fingerprint, issuedAt);
     }
 
@@ -345,8 +336,8 @@ public final class LocalRp {
             String callbackUrl,
             byte[] nonce,
             byte[] state,
-            String issuedAt,
-            String expiresAt) {
+            Instant issuedAt,
+            Instant expiresAt) {
         return new LocalRpCallbackPayload(
                 userId, userDomain, claimTicket, audienceFingerprint, callbackUrl, nonce, state, issuedAt, expiresAt);
     }
@@ -519,8 +510,8 @@ public final class LocalRp {
             String fingerprint,
             byte[] nonce,
             byte[] state,
-            String issuedAt,
-            String expiresAt) {
+            Instant issuedAt,
+            Instant expiresAt) {
         Crypto.X25519KeyPair ephemeral = Crypto.generateX25519KeyPair();
         byte[] aeadNonce = Crypto.randomBytes(12);
         return sealLocalRpCallbackInner(
@@ -551,8 +542,8 @@ public final class LocalRp {
             String fingerprint,
             byte[] nonce,
             byte[] state,
-            String issuedAt,
-            String expiresAt,
+            Instant issuedAt,
+            Instant expiresAt,
             byte[] ephemeralPrivateKey,
             byte[] aeadNonce) {
         byte[] ephemeralPublic = Crypto.derivePublicFromX25519Private(ephemeralPrivateKey);
@@ -577,8 +568,8 @@ public final class LocalRp {
             String fingerprint,
             byte[] nonce,
             byte[] state,
-            String issuedAt,
-            String expiresAt,
+            Instant issuedAt,
+            Instant expiresAt,
             byte[] ephemeralPrivateKey,
             byte[] ephemeralPublicKey,
             byte[] aeadNonce) {

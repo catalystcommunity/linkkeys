@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.List;
 
 public record RpResolveApplicationKeysResponse(
@@ -13,8 +14,8 @@ public record RpResolveApplicationKeysResponse(
     List<ApplicationKeyRevocation> applicationKeyRevocations /* wire: "application_key_revocations" */,
     List<DomainPublicKey> homeDomainKeys /* wire: "home_domain_keys" */,
     List<RevocationCertificate> homeDomainKeyRevocations /* wire: "home_domain_key_revocations" */,
-    String fetchedAt /* wire: "fetched_at" */,
-    String revocationsCheckedAt /* wire: "revocations_checked_at" */,
-    String cacheStatus /* wire: "cache_status" */
+    Instant fetchedAt /* wire: "fetched_at" */,
+    Instant revocationsCheckedAt /* wire: "revocations_checked_at" */,
+    RpCacheStatus cacheStatus /* wire: "cache_status" */
 ) {
 }

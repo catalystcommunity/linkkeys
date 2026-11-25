@@ -34,12 +34,12 @@ int lrp_encode_descriptor(const char *app_name, const char *local_domain_hint,
     rc |= cbor_write_text_cstr(&b, "supported_suites");
     rc |= cbor_write_array_header(&b, supported_suites_count);
     for (size_t i = 0; i < supported_suites_count && rc == 0; i++) {
-        rc |= cbor_write_text_cstr(&b, supported_suites[i]);
+        rc |= cbor_write_enum(&b, &CBOR_ENUM_AEAD_SUITE, supported_suites[i]);
     }
     rc |= cbor_write_text_cstr(&b, "created_at");
-    rc |= cbor_write_text_cstr(&b, created_at);
+    rc |= cbor_write_timestamp(&b, created_at);
     rc |= cbor_write_text_cstr(&b, "expires_at");
-    rc |= cbor_write_text_cstr(&b, expires_at);
+    rc |= cbor_write_timestamp(&b, expires_at);
     if (rc != 0) {
         cbor_buf_free(&b);
         return lrp_fail(err, LRP_ERR_OUT_OF_MEMORY, "encode descriptor: out of memory");
@@ -87,9 +87,9 @@ int lrp_encode_login_request(const uint8_t *descriptor_cbor, size_t descriptor_c
     }
 
     rc |= cbor_write_text_cstr(&b, "issued_at");
-    rc |= cbor_write_text_cstr(&b, issued_at);
+    rc |= cbor_write_timestamp(&b, issued_at);
     rc |= cbor_write_text_cstr(&b, "expires_at");
-    rc |= cbor_write_text_cstr(&b, expires_at);
+    rc |= cbor_write_timestamp(&b, expires_at);
 
     if (rc != 0) {
         cbor_buf_free(&b);
@@ -111,7 +111,7 @@ int lrp_encode_ticket_redemption_request(const uint8_t *claim_ticket, size_t cla
     rc |= cbor_write_text_cstr(&b, "fingerprint");
     rc |= cbor_write_text_cstr(&b, fingerprint);
     rc |= cbor_write_text_cstr(&b, "issued_at");
-    rc |= cbor_write_text_cstr(&b, issued_at);
+    rc |= cbor_write_timestamp(&b, issued_at);
     if (rc != 0) {
         cbor_buf_free(&b);
         return lrp_fail(err, LRP_ERR_OUT_OF_MEMORY, "encode ticket redemption request: out of memory");
@@ -138,7 +138,7 @@ int lrp_encode_get_revocations_request(const char *since, lrp_bytes *out, lrp_er
     rc |= cbor_write_map_header(&b, since != NULL ? 1 : 0);
     if (since != NULL) {
         rc |= cbor_write_text_cstr(&b, "since");
-        rc |= cbor_write_text_cstr(&b, since);
+        rc |= cbor_write_timestamp(&b, since);
     }
     if (rc != 0) {
         cbor_buf_free(&b);
@@ -211,13 +211,13 @@ int lrp_decode_callback_header(const uint8_t *data, size_t len, lrp_w_callback_h
     if (cbor_get_text(root, "fingerprint", &out->fingerprint, err) != 0) goto done;
     if (cbor_get_bytes(root, "nonce", &out->nonce, err) != 0) goto done;
     if (cbor_get_bytes(root, "state", &out->state, err) != 0) goto done;
-    if (cbor_get_text(root, "suite", &out->suite, err) != 0) goto done;
+    if (cbor_get_enum(root, "suite", &CBOR_ENUM_AEAD_SUITE, &out->suite, err) != 0) goto done;
     if (get_fixed_bytes(root, "ephemeral_public_key", out->ephemeral_public_key, 32, err) != 0) {
         goto done;
     }
     if (get_fixed_bytes(root, "aead_nonce", out->aead_nonce, 12, err) != 0) goto done;
-    if (cbor_get_text(root, "issued_at", &out->issued_at, err) != 0) goto done;
-    if (cbor_get_text(root, "expires_at", &out->expires_at, err) != 0) goto done;
+    if (cbor_get_timestamp(root, "issued_at", &out->issued_at, err) != 0) goto done;
+    if (cbor_get_timestamp(root, "expires_at", &out->expires_at, err) != 0) goto done;
     rc = 0;
 done:
     cbor_value_free(root);
@@ -241,15 +241,15 @@ int lrp_encode_callback_header(const lrp_w_callback_header *h, lrp_bytes *out, l
     rc |= cbor_write_text_cstr(&b, "state");
     rc |= cbor_write_bytes(&b, h->state.data, h->state.len);
     rc |= cbor_write_text_cstr(&b, "suite");
-    rc |= cbor_write_text_cstr(&b, h->suite.data);
+    rc |= cbor_write_enum(&b, &CBOR_ENUM_AEAD_SUITE, h->suite.data);
     rc |= cbor_write_text_cstr(&b, "ephemeral_public_key");
     rc |= cbor_write_bytes(&b, h->ephemeral_public_key, 32);
     rc |= cbor_write_text_cstr(&b, "aead_nonce");
     rc |= cbor_write_bytes(&b, h->aead_nonce, 12);
     rc |= cbor_write_text_cstr(&b, "issued_at");
-    rc |= cbor_write_text_cstr(&b, h->issued_at.data);
+    rc |= cbor_write_timestamp(&b, h->issued_at.data);
     rc |= cbor_write_text_cstr(&b, "expires_at");
-    rc |= cbor_write_text_cstr(&b, h->expires_at.data);
+    rc |= cbor_write_timestamp(&b, h->expires_at.data);
     if (rc != 0) {
         cbor_buf_free(&b);
         return lrp_fail(err, LRP_ERR_OUT_OF_MEMORY, "encode callback header: out of memory");
@@ -315,8 +315,8 @@ int lrp_decode_callback_payload(const uint8_t *data, size_t len, lrp_w_callback_
     if (cbor_get_text(root, "callback_url", &out->callback_url, err) != 0) goto done;
     if (cbor_get_bytes(root, "nonce", &out->nonce, err) != 0) goto done;
     if (cbor_get_bytes(root, "state", &out->state, err) != 0) goto done;
-    if (cbor_get_text(root, "issued_at", &out->issued_at, err) != 0) goto done;
-    if (cbor_get_text(root, "expires_at", &out->expires_at, err) != 0) goto done;
+    if (cbor_get_timestamp(root, "issued_at", &out->issued_at, err) != 0) goto done;
+    if (cbor_get_timestamp(root, "expires_at", &out->expires_at, err) != 0) goto done;
     rc = 0;
 done:
     cbor_value_free(root);
@@ -401,10 +401,10 @@ static int decode_claim_from_value(const cbor_value *v, lrp_claim *out, lrp_erro
     if (decode_claim_signature_array(sig_arr, &out->signatures, &out->signatures_count, err) != 0) {
         goto fail;
     }
-    if (cbor_get_text(v, "attested_at", &out->attested_at, err) != 0) goto fail;
-    if (cbor_get_text(v, "created_at", &out->created_at, err) != 0) goto fail;
-    cbor_get_text_opt(v, "expires_at", &out->expires_at);
-    cbor_get_text_opt(v, "revoked_at", &out->revoked_at);
+    if (cbor_get_timestamp(v, "attested_at", &out->attested_at, err) != 0) goto fail;
+    if (cbor_get_timestamp(v, "created_at", &out->created_at, err) != 0) goto fail;
+    if (cbor_get_timestamp_opt(v, "expires_at", &out->expires_at, err) != 0) goto fail;
+    if (cbor_get_timestamp_opt(v, "revoked_at", &out->revoked_at, err) != 0) goto fail;
     return 0;
 fail:
     lrp_claim_free_fields(out);
@@ -499,10 +499,10 @@ int lrp_encode_claim(const lrp_claim *claim, lrp_bytes *out, lrp_error *err) {
     rc |= cbor_write_text_cstr(&claim_id_b, claim->claim_id.data);
     rc |= cbor_write_text_cstr(&claim_type_b, claim->claim_type.data);
     rc |= cbor_write_bytes(&claim_value_b, claim->claim_value.data, claim->claim_value.len);
-    rc |= cbor_write_text_cstr(&attested_b, claim->attested_at.data);
-    rc |= cbor_write_text_cstr(&created_b, claim->created_at.data);
-    if (has_expires) rc |= cbor_write_text_cstr(&expires_b, claim->expires_at.data);
-    if (has_revoked) rc |= cbor_write_text_cstr(&revoked_b, claim->revoked_at.data);
+    rc |= cbor_write_timestamp(&attested_b, claim->attested_at.data);
+    rc |= cbor_write_timestamp(&created_b, claim->created_at.data);
+    if (has_expires) rc |= cbor_write_timestamp(&expires_b, claim->expires_at.data);
+    if (has_revoked) rc |= cbor_write_timestamp(&revoked_b, claim->revoked_at.data);
 
     cbor_map_entry entries[9];
     size_t n = 0;
@@ -565,11 +565,11 @@ static int decode_domain_public_key_from_value(const cbor_value *v, lrp_domain_p
     if (cbor_get_text(v, "key_id", &out->key_id, err) != 0) goto fail;
     if (cbor_get_bytes(v, "public_key", &out->public_key, err) != 0) goto fail;
     if (cbor_get_text(v, "fingerprint", &out->fingerprint, err) != 0) goto fail;
-    if (cbor_get_text(v, "algorithm", &out->algorithm, err) != 0) goto fail;
-    if (cbor_get_text(v, "key_usage", &out->key_usage, err) != 0) goto fail;
-    if (cbor_get_text(v, "created_at", &out->created_at, err) != 0) goto fail;
-    if (cbor_get_text(v, "expires_at", &out->expires_at, err) != 0) goto fail;
-    cbor_get_text_opt(v, "revoked_at", &out->revoked_at);
+    if (cbor_get_enum(v, "algorithm", &CBOR_ENUM_KEY_ALGORITHM, &out->algorithm, err) != 0) goto fail;
+    if (cbor_get_enum(v, "key_usage", &CBOR_ENUM_KEY_USAGE, &out->key_usage, err) != 0) goto fail;
+    if (cbor_get_timestamp(v, "created_at", &out->created_at, err) != 0) goto fail;
+    if (cbor_get_timestamp(v, "expires_at", &out->expires_at, err) != 0) goto fail;
+    if (cbor_get_timestamp_opt(v, "revoked_at", &out->revoked_at, err) != 0) goto fail;
     cbor_get_text_opt(v, "signed_by_key_id", &out->signed_by_key_id);
     cbor_get_bytes_opt(v, "key_signature", &out->key_signature);
     return 0;
@@ -615,7 +615,7 @@ int lrp_decode_ticket_redemption_response(const uint8_t *data, size_t len,
         }
         out->claims_count = claims_arr->items_len;
     }
-    if (cbor_get_text(root, "ticket_expires_at", &out->ticket_expires_at, err) != 0) goto done;
+    if (cbor_get_timestamp(root, "ticket_expires_at", &out->ticket_expires_at, err) != 0) goto done;
     rc = 0;
 done:
     cbor_value_free(root);
@@ -668,7 +668,7 @@ int lrp_encode_ticket_redemption_response(const lrp_w_ticket_redemption_response
     int rc = 0;
     rc |= cbor_write_text_cstr(&user_id_b, resp->user_id.data);
     rc |= cbor_write_text_cstr(&user_domain_b, resp->user_domain.data);
-    rc |= cbor_write_text_cstr(&ticket_expires_b, resp->ticket_expires_at.data);
+    rc |= cbor_write_timestamp(&ticket_expires_b, resp->ticket_expires_at.data);
 
     cbor_map_entry entries[4] = {
         {"claims", claims_bytes.data, claims_bytes.len},
@@ -761,7 +761,7 @@ static int decode_revocation_certificate_from_value(const cbor_value *v,
     const cbor_value *sig_arr;
     if (cbor_get_text(v, "target_key_id", &out->target_key_id, err) != 0) goto fail;
     if (cbor_get_text(v, "target_fingerprint", &out->target_fingerprint, err) != 0) goto fail;
-    if (cbor_get_text(v, "revoked_at", &out->revoked_at, err) != 0) goto fail;
+    if (cbor_get_timestamp(v, "revoked_at", &out->revoked_at, err) != 0) goto fail;
     if (cbor_get_array(v, "signatures", &sig_arr, err) != 0) goto fail;
     if (decode_claim_signature_array(sig_arr, &out->signatures, &out->signatures_count, err) != 0) {
         goto fail;

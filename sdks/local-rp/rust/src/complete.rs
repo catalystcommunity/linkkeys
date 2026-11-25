@@ -28,7 +28,6 @@ use crate::{begin::PendingLogin, Error};
 use liblinkkeys::claims::{self, DomainKeySet};
 use liblinkkeys::crypto::AeadSuite;
 use liblinkkeys::generated::types::{Claim, DomainPublicKey};
-use liblinkkeys::timestamp::Rfc3339 as _;
 use liblinkkeys::{encoding, local_rp};
 use time::OffsetDateTime;
 
@@ -114,10 +113,6 @@ pub struct VerifiedLocalLogin {
     pub ticket_expires_at: OffsetDateTime,
 }
 
-fn parse_rfc3339(field: &'static str, s: &str) -> Result<OffsetDateTime, Error> {
-    liblinkkeys::timestamp::parse_rfc3339(s).map_err(|e| Error::Decode(format!("{field}: {e}")))
-}
-
 /// Undo the exact `?`/`&` + `encrypted_token=` suffix construction
 /// `crates/linkkeys/src/web/local_rp_browser.rs` (and `web/mod.rs`) uses to
 /// deliver the callback, so the recovered value can be compared against the
@@ -156,11 +151,7 @@ pub fn complete_local_login(
         &config.key_material.descriptor.descriptor,
     )
     .map_err(|e| Error::Decode(format!("own descriptor: {e}")))?;
-    let allowed_suites: Vec<AeadSuite> = own_descriptor
-        .supported_suites
-        .iter()
-        .filter_map(|s| AeadSuite::parse_str(s))
-        .collect();
+    let allowed_suites: Vec<AeadSuite> = own_descriptor.supported_suites.to_vec();
     let (header, signed_payload) = local_rp::open_local_rp_callback(
         &encrypted,
         &config.key_material.encryption_private_key,
@@ -232,7 +223,7 @@ pub fn complete_local_login(
     let redemption_request = local_rp::build_local_rp_ticket_redemption_request(
         payload.claim_ticket.clone(),
         &config.key_material.fingerprint,
-        &config.now.to_rfc3339(),
+        config.now,
     );
     let signed_redemption = local_rp::sign_local_rp_ticket_redemption_request(
         &redemption_request,
@@ -348,9 +339,9 @@ pub fn complete_local_login(
         claims: redemption.claims,
         domain_public_keys: user_domain_keys,
         local_rp_fingerprint: config.key_material.fingerprint.clone(),
-        issued_at: parse_rfc3339("callback issued_at", &payload.issued_at)?,
-        expires_at: parse_rfc3339("callback expires_at", &payload.expires_at)?,
-        ticket_expires_at: parse_rfc3339("ticket_expires_at", &redemption.ticket_expires_at)?,
+        issued_at: payload.issued_at,
+        expires_at: payload.expires_at,
+        ticket_expires_at: redemption.ticket_expires_at,
     })
 }
 

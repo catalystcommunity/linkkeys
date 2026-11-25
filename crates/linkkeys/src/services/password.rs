@@ -14,7 +14,8 @@ pub const MAX_USERNAME_LENGTH: usize = 254;
 
 /// Return whether password authentication is available on this server.
 pub fn authentication_enabled() -> bool {
-    std::env::var("ENABLE_PASSWORD_AUTH").map_or(true, |value| value == "true")
+    !crate::config::headless()
+        && std::env::var("ENABLE_PASSWORD_AUTH").map_or(true, |value| value == "true")
 }
 
 pub fn valid_login_shape(username: &str, password: &str) -> bool {

@@ -149,6 +149,11 @@ pub enum UserCommands {
         /// Generate an API key instead of prompting for a password
         #[arg(long)]
         api_key: bool,
+        /// Make an application account with this application id (1-128 of
+        /// A-Z a-z 0-9 - _ .). An application account has API keys only, and
+        /// an application on this relying party calls `Rp/*` with it.
+        #[arg(long)]
+        application_id: Option<String>,
         /// Grant admin relation on this domain (bootstrap)
         #[arg(long)]
         admin: bool,

@@ -13,7 +13,7 @@ use std::fmt;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret as X25519StaticSecret};
 use zeroize::Zeroizing;
 
-pub const ALGORITHM_ED25519: &str = "ed25519";
+pub use crate::generated::types::{AeadSuite, KeyAlgorithm};
 
 /// Supported signing algorithms. New algorithms are added as enum variants.
 /// The protocol negotiates which algorithms both sides support before
@@ -24,72 +24,52 @@ pub enum SigningAlgorithm {
 }
 
 impl SigningAlgorithm {
-    /// Parse a wire-format algorithm string (e.g. "ed25519") into the
-    /// enum. Returns None for unsupported algorithms. Named `parse_str`
-    /// rather than `from_str` to avoid confusion with `std::str::FromStr`,
-    /// whose contract differs (returns `Result`, takes ownership of the
-    /// error type).
-    pub fn parse_str(s: &str) -> Option<SigningAlgorithm> {
-        match s {
-            "ed25519" => Some(SigningAlgorithm::Ed25519),
-            _ => None,
+    /// The signing algorithm for a key algorithm, or None when the key
+    /// algorithm cannot sign (X25519).
+    pub fn from_key_algorithm(algorithm: &KeyAlgorithm) -> Option<SigningAlgorithm> {
+        match algorithm {
+            KeyAlgorithm::Ed25519 => Some(SigningAlgorithm::Ed25519),
+            KeyAlgorithm::X25519 => None,
         }
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub fn key_algorithm(self) -> KeyAlgorithm {
         match self {
-            SigningAlgorithm::Ed25519 => "ed25519",
+            SigningAlgorithm::Ed25519 => KeyAlgorithm::Ed25519,
         }
     }
 
-    pub fn all_supported() -> &'static [&'static str] {
-        &["ed25519"]
+    /// The key algorithms this implementation can verify, in preference
+    /// order.
+    pub fn all_supported() -> Vec<KeyAlgorithm> {
+        vec![KeyAlgorithm::Ed25519]
     }
 }
 
 impl fmt::Display for SigningAlgorithm {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
+        f.write_str(self.key_algorithm().as_str())
     }
 }
 
-pub const AEAD_SUITE_AES_256_GCM: &str = "aes-256-gcm";
-pub const AEAD_SUITE_CHACHA20_POLY1305: &str = "chacha20-poly1305";
-
-/// Registry of negotiated AEAD suites for encrypted-payload constructions:
-/// the local-RP callback sealed box (`local_rp::seal_local_rp_callback` /
-/// `open_local_rp_callback`) and, after the S2S retrofit, the
-/// `AlgorithmSupport.encryption` list exchanged via the `Handshake` service.
-/// One registry, two advertisement surfaces (see dns-less-local-rp-design.md,
-/// "Wire Precision: AEAD suite registry"). `aes-256-gcm` is
-/// mandatory-to-implement; `chacha20-poly1305` is optional. Same
-/// parse_str/as_str/all_supported shape as [`SigningAlgorithm`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AeadSuite {
-    Aes256Gcm,
-    ChaCha20Poly1305,
-}
-
+/// The AEAD suite registry for encrypted-payload constructions: the local-RP
+/// callback sealed box (`local_rp::seal_local_rp_callback` /
+/// `open_local_rp_callback`) and the `AlgorithmSupport.encryption` list of the
+/// `Handshake` service. `Aes256Gcm` is mandatory to implement;
+/// `Chacha20Poly1305` is optional. The wire carries the CSIL number.
 impl AeadSuite {
-    /// Parse a wire-format suite id string. Returns None for an id outside
-    /// the registry — never "close enough".
-    pub fn parse_str(s: &str) -> Option<AeadSuite> {
-        match s {
-            AEAD_SUITE_AES_256_GCM => Some(AeadSuite::Aes256Gcm),
-            AEAD_SUITE_CHACHA20_POLY1305 => Some(AeadSuite::ChaCha20Poly1305),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
+    /// The suite id text that the local-RP callback box binds into its KDF
+    /// context. This text is part of the derived key, so it never changes.
+    pub fn kdf_label(&self) -> &'static str {
         match self {
-            AeadSuite::Aes256Gcm => AEAD_SUITE_AES_256_GCM,
-            AeadSuite::ChaCha20Poly1305 => AEAD_SUITE_CHACHA20_POLY1305,
+            AeadSuite::Aes256Gcm => "aes-256-gcm",
+            AeadSuite::Chacha20Poly1305 => "chacha20-poly1305",
         }
     }
 
-    pub fn all_supported() -> &'static [&'static str] {
-        &[AEAD_SUITE_AES_256_GCM, AEAD_SUITE_CHACHA20_POLY1305]
+    /// Every suite this implementation supports, in preference order.
+    pub fn all_supported() -> Vec<AeadSuite> {
+        vec![AeadSuite::Aes256Gcm, AeadSuite::Chacha20Poly1305]
     }
 
     /// Pick the first suite in `advertised` (preference order) that this
@@ -97,14 +77,8 @@ impl AeadSuite {
     /// advertised list (the IDP picking from a local RP descriptor's
     /// `supported_suites`, or a `Handshake` responder) so a suite outside the
     /// advertised list can never be selected.
-    pub fn select_supported(advertised: &[String]) -> Option<AeadSuite> {
-        advertised.iter().find_map(|s| AeadSuite::parse_str(s))
-    }
-}
-
-impl fmt::Display for AeadSuite {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
+    pub fn select_supported(advertised: &[AeadSuite]) -> Option<AeadSuite> {
+        advertised.first().cloned()
     }
 }
 
@@ -116,6 +90,9 @@ pub enum CryptoError {
     EncryptionFailed(String),
     DecryptionFailed(String),
     InvalidKeyLength,
+    /// A value to sign or seal has no CBOR wire form (for example, a
+    /// timestamp outside UTC years 0001 to 9999).
+    EncodeFailed(String),
 }
 
 impl fmt::Display for CryptoError {
@@ -129,11 +106,18 @@ impl fmt::Display for CryptoError {
             CryptoError::EncryptionFailed(msg) => write!(f, "encryption failed: {}", msg),
             CryptoError::DecryptionFailed(msg) => write!(f, "decryption failed: {}", msg),
             CryptoError::InvalidKeyLength => write!(f, "invalid key length"),
+            CryptoError::EncodeFailed(msg) => write!(f, "CBOR encode failed: {}", msg),
         }
     }
 }
 
 impl std::error::Error for CryptoError {}
+
+impl From<crate::generated::CsilCborError> for CryptoError {
+    fn from(e: crate::generated::CsilCborError) -> Self {
+        CryptoError::EncodeFailed(e.to_string())
+    }
+}
 
 pub fn generate_ed25519_keypair() -> (VerifyingKey, SigningKey) {
     let signing_key = SigningKey::generate(&mut OsRng);
@@ -223,13 +207,13 @@ pub fn generate_x25519_keypair() -> (Vec<u8>, Vec<u8>) {
 /// This is the entry point for assertions and claims verification — it validates
 /// the algorithm is supported before attempting verification.
 pub fn resolve_and_verify(
-    algorithm: &str,
+    algorithm: &KeyAlgorithm,
     message: &[u8],
     signature_bytes: &[u8],
     public_key_bytes: &[u8],
 ) -> Result<(), CryptoError> {
-    let alg = SigningAlgorithm::parse_str(algorithm)
-        .ok_or_else(|| CryptoError::UnsupportedAlgorithm(algorithm.to_string()))?;
+    let alg = SigningAlgorithm::from_key_algorithm(algorithm)
+        .ok_or_else(|| CryptoError::UnsupportedAlgorithm(algorithm.as_str().to_string()))?;
     verify_with_algorithm(alg, message, signature_bytes, public_key_bytes)
 }
 
@@ -246,22 +230,19 @@ pub enum KeyValidity {
     Valid,
     Revoked,
     Expired,
-    BadExpiry,
 }
 
-pub fn signing_key_validity(expires_at: &str, revoked_at: Option<&str>) -> KeyValidity {
+pub fn signing_key_validity(
+    expires_at: &time::OffsetDateTime,
+    revoked_at: Option<&time::OffsetDateTime>,
+) -> KeyValidity {
     if revoked_at.is_some() {
         return KeyValidity::Revoked;
     }
-    match crate::timestamp::parse_rfc3339(expires_at) {
-        Ok(exp) => {
-            if time::OffsetDateTime::now_utc() > exp {
-                KeyValidity::Expired
-            } else {
-                KeyValidity::Valid
-            }
-        }
-        Err(_) => KeyValidity::BadExpiry,
+    if time::OffsetDateTime::now_utc() > *expires_at {
+        KeyValidity::Expired
+    } else {
+        KeyValidity::Valid
     }
 }
 
@@ -474,12 +455,12 @@ const SEALED_BOX_TAG: &[u8] = b"linkkeys-sealed-box-v1alpha";
 /// — same pattern as `local_rp::local_rp_callback_kdf`, with the suite id
 /// inserted after the tag (Wire Precision, "Callback sealed box").
 fn sealed_box_kdf(
-    suite: AeadSuite,
+    suite: &AeadSuite,
     ephemeral_public: &[u8; 32],
     recipient_public: &[u8; 32],
     shared_secret: &[u8],
 ) -> Result<([u8; 32], Vec<u8>), CryptoError> {
-    let suite_id = suite.as_str().as_bytes();
+    let suite_id = suite.kdf_label().as_bytes();
     let mut context = Vec::with_capacity(SEALED_BOX_TAG.len() + suite_id.len() + 64);
     context.extend_from_slice(SEALED_BOX_TAG);
     context.extend_from_slice(suite_id);
@@ -499,7 +480,7 @@ fn sealed_box_kdf(
 /// every negotiated-suite AEAD use in this crate, so a new suite is added in
 /// exactly one place.
 pub(crate) fn aead_encrypt(
-    suite: AeadSuite,
+    suite: &AeadSuite,
     key: &[u8; 32],
     nonce: &[u8; 12],
     aad: &[u8],
@@ -519,7 +500,7 @@ pub(crate) fn aead_encrypt(
                 )
                 .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))
         }
-        AeadSuite::ChaCha20Poly1305 => {
+        AeadSuite::Chacha20Poly1305 => {
             let cipher = ChaCha20Poly1305::new_from_slice(key)
                 .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
             cipher
@@ -537,7 +518,7 @@ pub(crate) fn aead_encrypt(
 
 /// Decrypt `ciphertext` under `suite`. See [`aead_encrypt`].
 pub(crate) fn aead_decrypt(
-    suite: AeadSuite,
+    suite: &AeadSuite,
     key: &[u8; 32],
     nonce: &[u8; 12],
     aad: &[u8],
@@ -557,7 +538,7 @@ pub(crate) fn aead_decrypt(
                 )
                 .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
         }
-        AeadSuite::ChaCha20Poly1305 => {
+        AeadSuite::Chacha20Poly1305 => {
             let cipher = ChaCha20Poly1305::new_from_slice(key)
                 .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))?;
             cipher
@@ -573,21 +554,11 @@ pub(crate) fn aead_decrypt(
     }
 }
 
-/// Resolve a wire-format optional suite id (e.g. `EncryptedToken.suite`) into
-/// a concrete [`AeadSuite`], defaulting to the mandatory-to-implement baseline
-/// when absent (`aes-256-gcm` — see Wire Precision, "AEAD suite registry": the
-/// hard-cutover retrofit makes every existing encrypted-payload use
-/// "negotiated, with aes-256-gcm as the baseline"). Returns
-/// [`CryptoError::UnsupportedAlgorithm`] for a present-but-unrecognized id —
-/// this never silently falls back to the baseline for a wire value the
-/// producer actually claimed.
-pub fn resolve_aead_suite(wire_suite: Option<&str>) -> Result<AeadSuite, CryptoError> {
-    match wire_suite {
-        None => Ok(AeadSuite::Aes256Gcm),
-        Some(s) => {
-            AeadSuite::parse_str(s).ok_or_else(|| CryptoError::UnsupportedAlgorithm(s.to_string()))
-        }
-    }
+/// The AEAD suite of an optional wire field (e.g. `EncryptedToken.suite`):
+/// the mandatory-to-implement baseline `aes-256-gcm` when absent. An unknown
+/// suite number already failed to decode.
+pub fn resolve_aead_suite(wire_suite: Option<&AeadSuite>) -> AeadSuite {
+    wire_suite.cloned().unwrap_or(AeadSuite::Aes256Gcm)
 }
 
 /// Reject a non-contributory / low-order ECDH result (an all-zero shared
@@ -620,7 +591,7 @@ pub(crate) fn reject_low_order(shared_secret: &[u8; 32]) -> Result<(), CryptoErr
 pub fn sealed_box_encrypt(
     plaintext: &[u8],
     recipient_x25519_public: &[u8; 32],
-    suite: AeadSuite,
+    suite: &AeadSuite,
 ) -> Result<SealedBox, CryptoError> {
     let ephemeral_secret = X25519StaticSecret::random_from_rng(OsRng);
     let nonce_bytes: [u8; 12] = rand::random();
@@ -643,7 +614,7 @@ pub fn sealed_box_encrypt(
 pub(crate) fn sealed_box_encrypt_with_randomness(
     plaintext: &[u8],
     recipient_x25519_public: &[u8; 32],
-    suite: AeadSuite,
+    suite: &AeadSuite,
     ephemeral_secret: X25519StaticSecret,
     nonce_bytes: [u8; 12],
 ) -> Result<SealedBox, CryptoError> {
@@ -695,7 +666,7 @@ pub fn sealed_box_decrypt(
     nonce: &[u8],
     ciphertext: &[u8],
     recipient_x25519_private: &[u8; 32],
-    suite: AeadSuite,
+    suite: &AeadSuite,
 ) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
     let ephemeral_pk_bytes: [u8; 32] = ephemeral_public_key
         .try_into()
@@ -898,19 +869,23 @@ mod tests {
 
     #[test]
     fn test_sealed_box_encrypt_decrypt_roundtrip() {
-        for suite in [AeadSuite::Aes256Gcm, AeadSuite::ChaCha20Poly1305] {
+        for suite in [AeadSuite::Aes256Gcm, AeadSuite::Chacha20Poly1305] {
             let (x_pub, x_priv) = x25519_pair();
             let plaintext = b"hello sealed box";
-            let sealed = sealed_box_encrypt(plaintext, &x_pub, suite).unwrap();
+            let sealed = sealed_box_encrypt(plaintext, &x_pub, &suite).unwrap();
             let decrypted = sealed_box_decrypt(
                 &sealed.ephemeral_public_key,
                 &sealed.nonce,
                 &sealed.ciphertext,
                 &x_priv,
-                suite,
+                &suite,
             )
             .unwrap();
-            assert_eq!(plaintext.as_slice(), decrypted.as_slice(), "suite {suite}");
+            assert_eq!(
+                plaintext.as_slice(),
+                decrypted.as_slice(),
+                "suite {suite:?}"
+            );
         }
     }
 
@@ -919,13 +894,13 @@ mod tests {
         let (x_pub, _) = x25519_pair();
         let (_, x_priv_wrong) = x25519_pair();
         let plaintext = b"secret message";
-        let sealed = sealed_box_encrypt(plaintext, &x_pub, AeadSuite::Aes256Gcm).unwrap();
+        let sealed = sealed_box_encrypt(plaintext, &x_pub, &AeadSuite::Aes256Gcm).unwrap();
         assert!(sealed_box_decrypt(
             &sealed.ephemeral_public_key,
             &sealed.nonce,
             &sealed.ciphertext,
             &x_priv_wrong,
-            AeadSuite::Aes256Gcm,
+            &AeadSuite::Aes256Gcm,
         )
         .is_err());
     }
@@ -936,14 +911,14 @@ mod tests {
         // shared secret, which must be rejected rather than used as a key.
         let (x_pub, x_priv) = x25519_pair();
         let plaintext = b"secret";
-        let sealed = sealed_box_encrypt(plaintext, &x_pub, AeadSuite::Aes256Gcm).unwrap();
+        let sealed = sealed_box_encrypt(plaintext, &x_pub, &AeadSuite::Aes256Gcm).unwrap();
         // Replace the ephemeral public key with an all-zero (low-order) point.
         let result = sealed_box_decrypt(
             &[0u8; 32],
             &sealed.nonce,
             &sealed.ciphertext,
             &x_priv,
-            AeadSuite::Aes256Gcm,
+            &AeadSuite::Aes256Gcm,
         );
         assert!(result.is_err());
     }
@@ -952,7 +927,7 @@ mod tests {
     fn test_sealed_box_decrypt_tampered_ciphertext_fails() {
         let (x_pub, x_priv) = x25519_pair();
         let plaintext = b"secret message";
-        let mut sealed = sealed_box_encrypt(plaintext, &x_pub, AeadSuite::Aes256Gcm).unwrap();
+        let mut sealed = sealed_box_encrypt(plaintext, &x_pub, &AeadSuite::Aes256Gcm).unwrap();
         // Tamper with ciphertext
         if let Some(byte) = sealed.ciphertext.first_mut() {
             *byte ^= 0xff;
@@ -962,7 +937,7 @@ mod tests {
             &sealed.nonce,
             &sealed.ciphertext,
             &x_priv,
-            AeadSuite::Aes256Gcm,
+            &AeadSuite::Aes256Gcm,
         )
         .is_err());
     }
@@ -974,40 +949,24 @@ mod tests {
         // suite is indistinguishable from tampering.
         let (x_pub, x_priv) = x25519_pair();
         let plaintext = b"secret message";
-        let sealed = sealed_box_encrypt(plaintext, &x_pub, AeadSuite::Aes256Gcm).unwrap();
+        let sealed = sealed_box_encrypt(plaintext, &x_pub, &AeadSuite::Aes256Gcm).unwrap();
         assert!(sealed_box_decrypt(
             &sealed.ephemeral_public_key,
             &sealed.nonce,
             &sealed.ciphertext,
             &x_priv,
-            AeadSuite::ChaCha20Poly1305,
+            &AeadSuite::Chacha20Poly1305,
         )
         .is_err());
     }
 
     #[test]
-    fn test_resolve_aead_suite_absent_defaults_to_baseline() {
-        assert_eq!(resolve_aead_suite(None).unwrap(), AeadSuite::Aes256Gcm);
-    }
-
-    #[test]
-    fn test_resolve_aead_suite_present_parses() {
+    fn test_resolve_aead_suite_defaults_to_baseline() {
+        assert_eq!(resolve_aead_suite(None), AeadSuite::Aes256Gcm);
         assert_eq!(
-            resolve_aead_suite(Some("chacha20-poly1305")).unwrap(),
-            AeadSuite::ChaCha20Poly1305
+            resolve_aead_suite(Some(&AeadSuite::Chacha20Poly1305)),
+            AeadSuite::Chacha20Poly1305
         );
-        assert_eq!(
-            resolve_aead_suite(Some("aes-256-gcm")).unwrap(),
-            AeadSuite::Aes256Gcm
-        );
-    }
-
-    #[test]
-    fn test_resolve_aead_suite_rejects_unknown() {
-        assert!(matches!(
-            resolve_aead_suite(Some("made-up-suite")),
-            Err(CryptoError::UnsupportedAlgorithm(_))
-        ));
     }
 
     #[test]
@@ -1041,44 +1000,18 @@ mod tests {
     }
 
     #[test]
-    fn test_aead_suite_parse_and_as_str_roundtrip() {
-        for id in AeadSuite::all_supported() {
-            let suite = AeadSuite::parse_str(id).expect("registered id must parse");
-            assert_eq!(suite.as_str(), *id);
-        }
+    fn test_aead_suite_kdf_labels_are_fixed() {
+        assert_eq!(AeadSuite::Aes256Gcm.kdf_label(), "aes-256-gcm");
+        assert_eq!(AeadSuite::Chacha20Poly1305.kdf_label(), "chacha20-poly1305");
     }
 
     #[test]
-    fn test_aead_suite_parse_rejects_unknown() {
-        assert!(AeadSuite::parse_str("made-up-suite").is_none());
-        assert!(AeadSuite::parse_str("").is_none());
-        assert!(AeadSuite::parse_str("AES-256-GCM").is_none()); // exact-string registry, no case folding
-    }
-
-    #[test]
-    fn test_aead_suite_select_supported_prefers_first_match() {
-        let advertised = vec!["chacha20-poly1305".to_string(), "aes-256-gcm".to_string()];
+    fn test_aead_suite_select_supported_prefers_first() {
+        let advertised = vec![AeadSuite::Chacha20Poly1305, AeadSuite::Aes256Gcm];
         assert_eq!(
             AeadSuite::select_supported(&advertised),
-            Some(AeadSuite::ChaCha20Poly1305)
+            Some(AeadSuite::Chacha20Poly1305)
         );
-    }
-
-    #[test]
-    fn test_aead_suite_select_supported_skips_unknown_entries() {
-        let advertised = vec!["made-up-suite".to_string(), "aes-256-gcm".to_string()];
-        assert_eq!(
-            AeadSuite::select_supported(&advertised),
-            Some(AeadSuite::Aes256Gcm)
-        );
-    }
-
-    #[test]
-    fn test_aead_suite_select_supported_never_picks_outside_advertised() {
-        // Never selects a suite this implementation supports if it wasn't
-        // actually advertised.
-        let advertised = vec!["made-up-suite".to_string()];
-        assert_eq!(AeadSuite::select_supported(&advertised), None);
         assert_eq!(AeadSuite::select_supported(&[]), None);
     }
 

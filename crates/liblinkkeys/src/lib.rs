@@ -26,3 +26,26 @@ pub mod revocation;
 pub mod signing_request;
 pub mod timestamp;
 pub mod userinfo;
+
+/// Values shared by unit tests.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use crate::generated::types::{ApplicationRef, RelyingPartyApplication};
+
+    /// An application of the relying party `rp.example`.
+    pub fn app_ref() -> ApplicationRef {
+        ApplicationRef {
+            subject_user_id: "app-account".to_string(),
+            subject_domain: "rp.example".to_string(),
+            application_id: "app".to_string(),
+        }
+    }
+
+    /// [`app_ref`] with its display name.
+    pub fn rp_app() -> RelyingPartyApplication {
+        RelyingPartyApplication {
+            application: app_ref(),
+            display_name: "App".to_string(),
+        }
+    }
+}

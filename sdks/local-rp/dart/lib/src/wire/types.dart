@@ -11,6 +11,47 @@ library;
 
 import 'dart:typed_data';
 
+import '../crypto/aead_suite.dart';
+
+/// CSIL `KeyAlgorithm`. On the wire: a CBOR unsigned integer.
+enum KeyAlgorithm {
+  ed25519(1, 'ed25519'),
+  x25519(2, 'x25519');
+
+  final int number;
+
+  /// The CSIL label.
+  final String label;
+  const KeyAlgorithm(this.number, this.label);
+
+  static KeyAlgorithm? fromNumber(int n) {
+    for (final v in values) {
+      if (v.number == n) return v;
+    }
+    return null;
+  }
+}
+
+/// CSIL `KeyUsage`. On the wire: a CBOR unsigned integer.
+enum KeyUsage {
+  sign(1, 'sign'),
+  encrypt(2, 'encrypt'),
+  agree(3, 'agree');
+
+  final int number;
+
+  /// The CSIL label.
+  final String label;
+  const KeyUsage(this.number, this.label);
+
+  static KeyUsage? fromNumber(int n) {
+    for (final v in values) {
+      if (v.number == n) return v;
+    }
+    return null;
+  }
+}
+
 class EmptyRequest {
   const EmptyRequest();
 }
@@ -19,11 +60,11 @@ class DomainPublicKey {
   final String keyId;
   final Uint8List publicKey;
   final String fingerprint;
-  final String algorithm;
-  final String keyUsage;
-  final String createdAt;
-  final String expiresAt;
-  final String? revokedAt;
+  final KeyAlgorithm algorithm;
+  final KeyUsage keyUsage;
+  final DateTime createdAt;
+  final DateTime expiresAt;
+  final DateTime? revokedAt;
   final String? signedByKeyId;
   final Uint8List? keySignature;
 
@@ -44,10 +85,10 @@ class DomainPublicKey {
     String? keyId,
     Uint8List? publicKey,
     String? fingerprint,
-    String? algorithm,
-    String? keyUsage,
-    String? createdAt,
-    String? expiresAt,
+    KeyAlgorithm? algorithm,
+    KeyUsage? keyUsage,
+    DateTime? createdAt,
+    DateTime? expiresAt,
     Object? revokedAt = _sentinel,
     Object? signedByKeyId = _sentinel,
     Object? keySignature = _sentinel,
@@ -62,7 +103,7 @@ class DomainPublicKey {
       expiresAt: expiresAt ?? this.expiresAt,
       revokedAt: identical(revokedAt, _sentinel)
           ? this.revokedAt
-          : revokedAt as String?,
+          : revokedAt as DateTime?,
       signedByKeyId: identical(signedByKeyId, _sentinel)
           ? this.signedByKeyId
           : signedByKeyId as String?,
@@ -88,7 +129,7 @@ class GetDomainKeysResponse {
 }
 
 class GetRevocationsRequest {
-  final String? since;
+  final DateTime? since;
   const GetRevocationsRequest({this.since});
 }
 
@@ -107,7 +148,7 @@ class ClaimSignature {
 class RevocationCertificate {
   final String targetKeyId;
   final String targetFingerprint;
-  final String revokedAt;
+  final DateTime revokedAt;
   final List<ClaimSignature> signatures;
 
   const RevocationCertificate({
@@ -129,10 +170,10 @@ class Claim {
   final String claimType;
   final Uint8List claimValue;
   final List<ClaimSignature> signatures;
-  final String attestedAt;
-  final String createdAt;
-  final String? expiresAt;
-  final String? revokedAt;
+  final DateTime attestedAt;
+  final DateTime createdAt;
+  final DateTime? expiresAt;
+  final DateTime? revokedAt;
 
   const Claim({
     required this.claimId,
@@ -152,8 +193,8 @@ class Claim {
     String? claimType,
     Uint8List? claimValue,
     List<ClaimSignature>? signatures,
-    String? attestedAt,
-    String? createdAt,
+    DateTime? attestedAt,
+    DateTime? createdAt,
     Object? expiresAt = _sentinel,
     Object? revokedAt = _sentinel,
   }) {
@@ -167,10 +208,10 @@ class Claim {
       createdAt: createdAt ?? this.createdAt,
       expiresAt: identical(expiresAt, _sentinel)
           ? this.expiresAt
-          : expiresAt as String?,
+          : expiresAt as DateTime?,
       revokedAt: identical(revokedAt, _sentinel)
           ? this.revokedAt
-          : revokedAt as String?,
+          : revokedAt as DateTime?,
     );
   }
 }
@@ -181,9 +222,9 @@ class LocalRpDescriptor {
   final Uint8List signingPublicKey;
   final Uint8List encryptionPublicKey;
   final String fingerprint;
-  final List<String> supportedSuites;
-  final String createdAt;
-  final String expiresAt;
+  final List<AeadSuite> supportedSuites;
+  final DateTime createdAt;
+  final DateTime expiresAt;
 
   const LocalRpDescriptor({
     required this.appName,
@@ -211,8 +252,8 @@ class LocalRpLoginRequest {
   final Uint8List state;
   final List<String> requestedClaims;
   final List<String> requiredClaims;
-  final String issuedAt;
-  final String expiresAt;
+  final DateTime issuedAt;
+  final DateTime expiresAt;
 
   const LocalRpLoginRequest({
     required this.descriptor,
@@ -237,11 +278,11 @@ class LocalRpCallbackHeader {
   final String fingerprint;
   final Uint8List nonce;
   final Uint8List state;
-  final String suite;
+  final AeadSuite suite;
   final Uint8List ephemeralPublicKey;
   final Uint8List aeadNonce;
-  final String issuedAt;
-  final String expiresAt;
+  final DateTime issuedAt;
+  final DateTime expiresAt;
 
   const LocalRpCallbackHeader({
     required this.fingerprint,
@@ -270,8 +311,8 @@ class LocalRpCallbackPayload {
   final String callbackUrl;
   final Uint8List nonce;
   final Uint8List state;
-  final String issuedAt;
-  final String expiresAt;
+  final DateTime issuedAt;
+  final DateTime expiresAt;
 
   const LocalRpCallbackPayload({
     required this.userId,
@@ -301,7 +342,7 @@ class SignedLocalRpCallbackPayload {
 class LocalRpTicketRedemptionRequest {
   final Uint8List claimTicket;
   final String fingerprint;
-  final String issuedAt;
+  final DateTime issuedAt;
 
   const LocalRpTicketRedemptionRequest({
     required this.claimTicket,
@@ -321,7 +362,7 @@ class LocalRpTicketRedemptionResponse {
   final String userId;
   final String userDomain;
   final List<Claim> claims;
-  final String ticketExpiresAt;
+  final DateTime ticketExpiresAt;
 
   const LocalRpTicketRedemptionResponse({
     required this.userId,

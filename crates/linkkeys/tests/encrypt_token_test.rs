@@ -6,7 +6,6 @@
 
 mod common;
 
-use liblinkkeys::timestamp::Rfc3339 as _;
 use liblinkkeys::{assertions, crypto, encoding};
 
 const TEST_DOMAIN: &str = "selfrp.test";
@@ -25,7 +24,7 @@ async fn encrypt_token_for_rp_self_rp_round_trips() {
     let sk_bytes = sk.to_bytes();
     let encrypted_sk = crypto::encrypt_private_key(&sk_bytes, TEST_PASSPHRASE).unwrap();
     let fingerprint = crypto::fingerprint(&pk_bytes);
-    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
+    let expires = liblinkkeys::timestamp::now_whole_seconds() + time::Duration::days(365);
     let domain_key = pool
         .create_domain_key(&pk_bytes, &encrypted_sk, &fingerprint, "ed25519", expires)
         .expect("create_domain_key");
@@ -36,10 +35,9 @@ async fn encrypt_token_for_rp_self_rp_round_trips() {
     let (enc_pub, enc_priv) = crypto::generate_x25519_keypair();
     let enc_fp = crypto::fingerprint(&enc_pub);
     let enc_priv_encrypted = crypto::encrypt_private_key(&enc_priv, TEST_PASSPHRASE).unwrap();
-    let enc_expires_str = expires.to_rfc3339();
     let vouch = liblinkkeys::dns::sign_key_vouch(
         &enc_fp,
-        &enc_expires_str,
+        &expires,
         crypto::SigningAlgorithm::Ed25519,
         &sk_bytes,
     )
@@ -66,6 +64,11 @@ async fn encrypt_token_for_rp_self_rp_round_trips() {
         Some("Test User"),
         300,
         vec![],
+        liblinkkeys::generated::types::ApplicationRef {
+            subject_user_id: "rp-app-account".to_string(),
+            subject_domain: "app.example.com".to_string(),
+            application_id: "test-app".to_string(),
+        },
     );
     let signed = assertions::sign_assertion(
         &assertion,
@@ -92,14 +95,14 @@ async fn encrypt_token_for_rp_self_rp_round_trips() {
     let x25519_priv: [u8; 32] = enc_priv.as_slice().try_into().unwrap();
     // Absent `suite` on the wire means the mandatory-to-implement baseline.
     assert_eq!(token.suite, None);
-    let suite = crypto::resolve_aead_suite(token.suite.as_deref()).unwrap();
+    let suite = crypto::resolve_aead_suite(token.suite.as_ref());
     assert_eq!(suite, crypto::AeadSuite::Aes256Gcm);
     let plaintext = crypto::sealed_box_decrypt(
         &token.ephemeral_public_key,
         &token.nonce,
         &token.ciphertext,
         &x25519_priv,
-        suite,
+        &suite,
     )
     .expect("sealed_box_decrypt with the domain's own X25519 encryption private key");
 

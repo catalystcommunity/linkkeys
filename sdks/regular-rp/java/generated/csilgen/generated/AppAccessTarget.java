@@ -3,11 +3,11 @@
 package csilgen.generated;
 
 public record AppAccessTarget(
-    String kind /* wire: "kind" */,
+    AppAccessTargetKind kind /* wire: "kind" */,
     String userId /* wire: "user_id" */,
     String groupName /* wire: "group_name" */,
     String claimType /* wire: "claim_type" */,
-    String claimOperator /* wire: "claim_operator" */,
+    ClaimOperator claimOperator /* wire: "claim_operator" */,
     String claimValue /* wire: "claim_value" */
 ) {
 }

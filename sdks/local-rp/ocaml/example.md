@@ -151,7 +151,8 @@ a claim on the RP's behalf — a separate feature from the login flow, out of
 scope here):
 
 1. **`Rp/sign-request`** — `{callback_url, nonce, ?requested_claims,
-   ?flow_context}` → `{signed_request}`.
+   ?flow_context}` → `{signed_request}`. The request has no
+   `application_id`: the RP server finds the application from your API key.
 2. Redirect the browser to
    `https://<user_domain>/auth/authorize?signed_request=<signed_request>`
    (optionally `&username=<hint>`). `user_domain` is whatever LinkKeys
@@ -162,9 +163,26 @@ scope here):
 5. **`Rp/verify-assertion`** — `{signed_assertion, expected_domain}` →
    `{assertion, verified}`, plus your own explicit nonce and domain equality
    checks against the returned `assertion` (see "App responsibilities").
-   Nonce single-use is your app's job — this call does not enforce it.
+   Nonce single-use is your app's job — this call does not enforce it. The
+   assertion always has an `application` (`subject_user_id`,
+   `subject_domain`, `application_id`).
 6. **`Rp/userinfo-fetch`** (optional) — `{token, api_base, domain}` →
    `UserInfo{user_id, domain, display_name, claims}`.
+
+Each of the four operations sends status 0 with one of two `variant` values:
+the result type (`RpSignResponse`, `RpDecryptResponse`, `RpVerifyResponse`, or
+`UserInfo`), or `RpError`. An `RpError` payload is `{code, message}`, where
+`code` is an `RpErrorCode` number. Always read the `variant` before you decode
+the payload. `Rp_client.call` below uses `Rpc.decode_response_with_variant`
+for this, and returns `Rp_refused` for an `RpError`.
+
+Wire rules (see `docs/UPGRADING.md`, "Wire format: timestamps and enums"): a
+CSIL `timestamp` is CBOR tag 0 that holds RFC 3339 text in UTC, and a closed
+vocabulary (for example `ClaimValueType` or `RpErrorCode`) is an unsigned
+integer. The SDK's `Cbor.timestamp` / `Cbor.field_timestamp` and
+`Cbor.enum_value` / `Cbor.field_enum` (with a `Cbor.wire_enum` table) do these
+conversions. The OCaml types keep RFC 3339 strings
+and text labels, as the generated OCaml bindings do.
 
 Two wire-level traps worth calling out explicitly, because getting either one
 wrong fails silently as an opaque auth error, not a type error:
@@ -208,8 +226,9 @@ implementation detail):
 - **`Tls_client.connect`/`extract_hostname`/`write`/`read_exact`/`close`** —
   the SPKI-Ed25519-pin TLS client, unchanged. See "TLS caveat carried
   forward" below.
-- **`Rpc.send_frame`/`Rpc.read_frame`/`Rpc.decode_response`** — the 4-byte
-  length-prefix framing and response-envelope decoder. Reused as-is:
+- **`Rpc.send_frame`/`Rpc.read_frame`/`Rpc.decode_response_with_variant`** — the 4-byte
+  length-prefix framing and response-envelope decoder (with the reply
+  `variant`). Reused as-is:
   response envelopes (`status`/`error`/`payload`) have no `auth` field, so
   nothing about `Rp`'s auth requirement affects the decode side.
 - **`Types.Claim_signature`** — matches CSIL `ClaimSignature`
@@ -322,18 +341,40 @@ let opt_field name = function
   | None -> []
   | Some v -> [ (Cbor.Text name, v) ]
 
+(* Closed CSIL vocabularies are numbers on the wire. In memory this app
+   keeps the text label (for example "text" or "login"). *)
+let claim_value_type : Cbor.wire_enum =
+  {
+    enum_name = "ClaimValueType";
+    members =
+      [ ("text", 1); ("url", 2); ("email", 3); ("bool", 4); ("int", 5); ("float", 6); ("decimal", 7); ("date", 8); ("timestamp", 9); ("opaque", 10) ];
+  }
+
+let auth_flow : Cbor.wire_enum = { enum_name = "AuthFlow"; members = [ ("login", 1); ("claims_update", 2) ] }
+
+let rp_error_code : Cbor.wire_enum =
+  {
+    enum_name = "RpErrorCode";
+    members =
+      [
+        ("not_application_account", 1); ("application_mismatch", 2); ("application_user_limit", 3);
+        ("bad_request", 4); ("upstream_failed", 5); ("internal", 6);
+      ];
+  }
+
 (* ------------------------------------------------------------------ *)
 (* Claim request / consent shaping                                     *)
 (* ------------------------------------------------------------------ *)
 
 module Requested_claim = struct
+  (* [datatype] is a [claim_value_type] label, for example "text". *)
   type t = { claim_type : string; datatype : string }
 
   let to_value (v : t) : Cbor.value =
-    Cbor.Map [ (Text "claim_type", Text v.claim_type); (Text "datatype", Text v.datatype) ]
+    Cbor.Map [ (Text "claim_type", Text v.claim_type); (Text "datatype", Cbor.enum_value claim_value_type v.datatype) ]
 
   let of_map (m : (Cbor.value * Cbor.value) list) : t =
-    { claim_type = Cbor.field_text m "claim_type"; datatype = Cbor.field_text m "datatype" }
+    { claim_type = Cbor.field_text m "claim_type"; datatype = Cbor.field_enum claim_value_type m "datatype" }
 end
 
 module Claim_request = struct
@@ -358,13 +399,13 @@ module Auth_flow_context = struct
 
   let to_value (v : t) : Cbor.value =
     Cbor.Map
-      ([ (Text "flow", Text v.flow) ]
+      ([ (Text "flow", Cbor.enum_value auth_flow v.flow) ]
       @ opt_field "prior_session" (Option.map (fun s -> Cbor.Text s) v.prior_session)
       @ opt_field "request_reason" (Option.map (fun s -> Cbor.Text s) v.request_reason))
 
   let of_map (m : (Cbor.value * Cbor.value) list) : t =
     {
-      flow = Cbor.field_text m "flow";
+      flow = Cbor.field_enum auth_flow m "flow";
       prior_session = Cbor.field_text_opt m "prior_session";
       request_reason = Cbor.field_text_opt m "request_reason";
     }
@@ -374,6 +415,8 @@ end
 (* Rp/sign-request                                                      *)
 (* ------------------------------------------------------------------ *)
 
+(* The RP server finds the application from the API key that calls it, so
+   there is no [application_id] field. *)
 module Rp_sign_request = struct
   type t = {
     callback_url : string;
@@ -454,10 +497,11 @@ module Identity_assertion = struct
     domain : string;
     audience : string;
     nonce : string;
-    issued_at : string;
+    issued_at : string; (* RFC 3339, UTC; tag 0 on the wire *)
     expires_at : string;
     authorized_claims : string list;
     display_name : string option;
+    application : Types.Application_ref.t;
   }
 
   let of_map (m : (Cbor.value * Cbor.value) list) : t =
@@ -466,10 +510,11 @@ module Identity_assertion = struct
       domain = Cbor.field_text m "domain";
       audience = Cbor.field_text m "audience";
       nonce = Cbor.field_text m "nonce";
-      issued_at = Cbor.field_text m "issued_at";
-      expires_at = Cbor.field_text m "expires_at";
+      issued_at = Cbor.field_timestamp m "issued_at";
+      expires_at = Cbor.field_timestamp m "expires_at";
       authorized_claims = List.map Cbor.as_text (Cbor.field_array m "authorized_claims");
       display_name = Cbor.field_text_opt m "display_name";
+      application = Types.Application_ref.of_map (Cbor.as_map (Cbor.field_exn m "application"));
     }
 
   (* Only needed by this document's own round-trip test (there is no reason
@@ -483,9 +528,10 @@ module Identity_assertion = struct
          (Text "domain", Text v.domain);
          (Text "audience", Text v.audience);
          (Text "nonce", Text v.nonce);
-         (Text "issued_at", Text v.issued_at);
-         (Text "expires_at", Text v.expires_at);
+         (Text "issued_at", Cbor.timestamp v.issued_at);
+         (Text "expires_at", Cbor.timestamp v.expires_at);
          (Text "authorized_claims", Array (List.map (fun s -> Cbor.Text s) v.authorized_claims));
+         (Text "application", Types.Application_ref.to_value v.application);
        ]
       @ opt_field "display_name" (Option.map (fun s -> Cbor.Text s) v.display_name))
 end
@@ -540,10 +586,10 @@ module Claim = struct
       claim_type = Cbor.field_text m "claim_type";
       claim_value = Cbor.field_bytes m "claim_value";
       signatures = List.map (fun v -> Types.Claim_signature.of_map (Cbor.as_map v)) (Cbor.field_array m "signatures");
-      attested_at = Cbor.field_text m "attested_at";
-      created_at = Cbor.field_text m "created_at";
-      expires_at = Cbor.field_text_opt m "expires_at";
-      revoked_at = Cbor.field_text_opt m "revoked_at";
+      attested_at = Cbor.field_timestamp m "attested_at";
+      created_at = Cbor.field_timestamp m "created_at";
+      expires_at = Cbor.field_timestamp_opt m "expires_at";
+      revoked_at = Cbor.field_timestamp_opt m "revoked_at";
     }
 end
 
@@ -559,6 +605,16 @@ module User_info = struct
     }
 
   let of_cbor data = of_map (Cbor.as_map (Cbor.decode data))
+end
+
+(* The typed refusal every `Rp` op can send instead of its result. [code] is
+   an [rp_error_code] label. *)
+module Rp_error = struct
+  type t = { code : string; message : string }
+
+  let of_cbor data =
+    let m = Cbor.as_map (Cbor.decode data) in
+    { code = Cbor.field_enum rp_error_code m "code"; message = Cbor.field_text m "message" }
 end
 ```
 
@@ -583,9 +639,13 @@ open Linkkeys_local_rp
 
 type config = { tcp_addr : string; fingerprints : string list; api_key : string }
 
-type error = Rp_call_failed of string
+type error =
+  | Rp_call_failed of string
+  | Rp_refused of Rp_types.Rp_error.t (* the server sent a typed RpError *)
 
-let error_to_string (Rp_call_failed msg) = Printf.sprintf "RP call failed: %s" msg
+let error_to_string = function
+  | Rp_call_failed msg -> Printf.sprintf "RP call failed: %s" msg
+  | Rp_refused { code; message } -> Printf.sprintf "RP refused the call (%s): %s" code message
 
 (* The CSIL-RPC request envelope, WITH the `auth` field the `Rp` service
    requires and `Linkkeys_local_rp.Rpc.encode_request` deliberately omits
@@ -616,8 +676,10 @@ let encode_request_with_auth ~(api_key : string) (service : string) (op : string
    envelope encoder above is new, because the SDK's own `Rpc.call` hard-
    codes the no-`auth` `Rpc.encode_request` for its two ops. No client
    certificate is presented here -- this app has no domain key, only the
-   API key; the RP server is what holds the domain key. *)
-let call (cfg : config) (op : string) (payload : string) : (string, error) result =
+   API key; the RP server is what holds the domain key.
+   [expected_variant] is the op's result type name, for example
+   "RpSignResponse". *)
+let call (cfg : config) (op : string) ~(expected_variant : string) (payload : string) : (string, error) result =
   let dial_result =
     try Ok (Transport.default_transport.dial cfg.tcp_addr) with Transport.Connect_failed msg -> Error (Rp_call_failed msg)
   in
@@ -641,11 +703,20 @@ let call (cfg : config) (op : string) (payload : string) : (string, error) resul
             let request_bytes = encode_request_with_auth ~api_key:cfg.api_key "Rp" op payload in
             Rpc.send_frame (Tls_client.write tls) request_bytes;
             let response_bytes = Rpc.read_frame (Tls_client.read_exact tls) in
-            let status, err, resp_payload = Rpc.decode_response response_bytes in
+            let status, err, variant, resp_payload = Rpc.decode_response_with_variant response_bytes in
             if status <> 0 then
               Error (Rp_call_failed (Printf.sprintf "server error (%d): %s" status (Option.value err ~default:"unknown error")))
-            else Ok resp_payload
+            else
+              (* Status 0 has two arms: the op's result type, or a typed
+                 RpError. Read the variant. Do not decode the payload
+                 without this check. *)
+              match variant with
+              | Some "RpError" -> Error (Rp_refused (Rp_types.Rp_error.of_cbor resp_payload))
+              | Some v when v = expected_variant -> Ok resp_payload
+              | other ->
+                Error (Rp_call_failed (Printf.sprintf "unexpected response variant %s" (Option.value other ~default:"(none)")))
           with
+          | Cbor.Decode_error msg -> Error (Rp_call_failed ("decode RpError: " ^ msg))
           | Tls_client.Error msg -> Error (Rp_call_failed msg)
           | Error.Sdk_error e -> Error (Rp_call_failed (Error.to_string e))))
 
@@ -658,11 +729,11 @@ let ( >>= ) (r : ('a, error) result) (f : 'a -> ('b, error) result) : ('b, error
   match r with Ok v -> f v | Error e -> Error e
 
 let sign_request (cfg : config) (req : Rp_types.Rp_sign_request.t) : (Rp_types.Rp_sign_response.t, error) result =
-  call cfg "sign-request" (Rp_types.Rp_sign_request.to_cbor req) >>= fun bytes ->
+  call cfg "sign-request" ~expected_variant:"RpSignResponse" (Rp_types.Rp_sign_request.to_cbor req) >>= fun bytes ->
   try Ok (Rp_types.Rp_sign_response.of_cbor bytes) with Cbor.Decode_error msg -> Error (Rp_call_failed ("decode sign-request response: " ^ msg))
 
 let decrypt_token (cfg : config) (encrypted_token : string) : (Rp_types.Rp_decrypt_response.t, error) result =
-  call cfg "decrypt-token" (Rp_types.Rp_decrypt_request.to_cbor { encrypted_token }) >>= fun bytes ->
+  call cfg "decrypt-token" ~expected_variant:"RpDecryptResponse" (Rp_types.Rp_decrypt_request.to_cbor { encrypted_token }) >>= fun bytes ->
   try Ok (Rp_types.Rp_decrypt_response.of_cbor bytes)
   with Cbor.Decode_error msg -> Error (Rp_call_failed ("decode decrypt-token response: " ^ msg))
 
@@ -671,12 +742,12 @@ let decrypt_token (cfg : config) (encrypted_token : string) : (Rp_types.Rp_decry
    decoded, not that the assertion is cryptographically trustworthy. *)
 let verify_assertion (cfg : config) ~(signed_assertion : string) ~(expected_domain : string) :
     (Rp_types.Rp_verify_response.t, error) result =
-  call cfg "verify-assertion" (Rp_types.Rp_verify_request.to_cbor { signed_assertion; expected_domain }) >>= fun bytes ->
+  call cfg "verify-assertion" ~expected_variant:"RpVerifyResponse" (Rp_types.Rp_verify_request.to_cbor { signed_assertion; expected_domain }) >>= fun bytes ->
   try Ok (Rp_types.Rp_verify_response.of_cbor bytes)
   with Cbor.Decode_error msg -> Error (Rp_call_failed ("decode verify-assertion response: " ^ msg))
 
 let userinfo_fetch (cfg : config) (req : Rp_types.Rp_user_info_request.t) : (Rp_types.User_info.t, error) result =
-  call cfg "userinfo-fetch" (Rp_types.Rp_user_info_request.to_cbor req) >>= fun bytes ->
+  call cfg "userinfo-fetch" ~expected_variant:"UserInfo" (Rp_types.Rp_user_info_request.to_cbor req) >>= fun bytes ->
   try Ok (Rp_types.User_info.of_cbor bytes) with Cbor.Decode_error msg -> Error (Rp_call_failed ("decode userinfo-fetch response: " ^ msg))
 ```
 
@@ -982,6 +1053,13 @@ dune build              # clean, zero warnings, dev profile (warnings-as-errors)
 dune build --profile release   # also clean
 dune exec bin/main.exe
 ```
+
+After the wire format change (tag-0 timestamps, number enums, the required
+`IdentityAssertion.application`, and the `RpError` response arm), the four
+files were built again against this checkout (`dune build`, dev profile, no
+warnings). A new check program decoded an assertion with its `application`,
+an `RpError`, a number `datatype`, and a reply `variant`. All five checks
+passed. The list below is from the run before that change.
 
 The scratch project's `bin/main.ml` (not reproduced in full above — it's a
 test harness, not app code) ran 18 assertions, all passing, covering exactly

@@ -192,8 +192,8 @@ public final class Begin {
         List<String> requestedClaims = config.requestedClaims != null ? config.requestedClaims : DEFAULT_REQUESTED_CLAIMS;
         List<String> requiredClaims = config.requiredClaims != null ? config.requiredClaims : DEFAULT_REQUIRED_CLAIMS;
         Duration lifetime = config.requestLifetime != null ? config.requestLifetime : DEFAULT_LOGIN_REQUEST_LIFETIME;
-        String issuedAt = Rfc3339.format(config.now);
-        String expiresAt = Rfc3339.format(config.now.plus(lifetime));
+        Instant issuedAt = config.now;
+        Instant expiresAt = config.now.plus(lifetime);
 
         LocalRpLoginRequest request = LocalRp.buildLocalRpLoginRequest(
                 config.keyMaterial.descriptor(),

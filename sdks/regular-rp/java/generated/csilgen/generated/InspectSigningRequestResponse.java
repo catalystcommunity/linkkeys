@@ -2,13 +2,14 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.List;
 
 public record InspectSigningRequestResponse(
     String subjectUserId /* wire: "subject_user_id" */,
     String subjectDomain /* wire: "subject_domain" */,
     List<String> requestedClaimTypes /* wire: "requested_claim_types" */,
-    String expiresAt /* wire: "expires_at" */,
+    Instant expiresAt /* wire: "expires_at" */,
     List<String> issuableClaimTypes /* wire: "issuable_claim_types" */
 ) {
 }

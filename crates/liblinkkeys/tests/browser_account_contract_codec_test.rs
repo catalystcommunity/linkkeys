@@ -31,7 +31,7 @@ fn ui_configuration_round_trips_through_generated_codec() {
         }),
     };
 
-    let encoded = generated::encode_get_ui_configuration_response(&config);
+    let encoded = generated::encode_get_ui_configuration_response(&config).unwrap();
     let decoded = generated::decode_get_ui_configuration_response(&encoded)
         .expect("decode generated UI configuration");
 
@@ -43,19 +43,19 @@ fn notification_capabilities_round_trip_through_generated_codec() {
     let capabilities = GetNotificationCapabilitiesResponse {
         capabilities: vec![
             NotificationCapability {
-                purpose: "verify_contact".to_string(),
-                channel: "email".to_string(),
-                destination_kind: "email_address".to_string(),
+                purpose: NotificationPurpose::VerifyContact,
+                channel: NotificationChannel::Email,
+                destination_kind: DestinationKind::Email,
             },
             NotificationCapability {
-                purpose: "reset_password".to_string(),
-                channel: "email".to_string(),
-                destination_kind: "email_address".to_string(),
+                purpose: NotificationPurpose::ResetPassword,
+                channel: NotificationChannel::Email,
+                destination_kind: DestinationKind::Email,
             },
         ],
     };
 
-    let encoded = generated::encode_get_notification_capabilities_response(&capabilities);
+    let encoded = generated::encode_get_notification_capabilities_response(&capabilities).unwrap();
     let decoded = generated::decode_get_notification_capabilities_response(&encoded)
         .expect("decode generated notification capabilities");
 
@@ -68,7 +68,7 @@ fn secret_bearing_request_codecs_round_trip() {
         username: "alice".to_string(),
         password: "correct horse battery staple".to_string(),
     };
-    let encoded = generated::encode_session_password_login_request(&login);
+    let encoded = generated::encode_session_password_login_request(&login).unwrap();
     assert_eq!(
         generated::decode_session_password_login_request(&encoded).expect("decode login request"),
         login
@@ -77,7 +77,7 @@ fn secret_bearing_request_codecs_round_trip() {
     let confirm = ConfirmContactVerificationRequest {
         token: "verification-secret".to_string(),
     };
-    let encoded = generated::encode_confirm_contact_verification_request(&confirm);
+    let encoded = generated::encode_confirm_contact_verification_request(&confirm).unwrap();
     assert_eq!(
         generated::decode_confirm_contact_verification_request(&encoded)
             .expect("decode contact verification request"),
@@ -88,7 +88,7 @@ fn secret_bearing_request_codecs_round_trip() {
         token: "recovery-secret".to_string(),
         new_password: "new correct horse battery staple".to_string(),
     };
-    let encoded = generated::encode_complete_password_recovery_request(&recovery);
+    let encoded = generated::encode_complete_password_recovery_request(&recovery).unwrap();
     assert_eq!(
         generated::decode_complete_password_recovery_request(&encoded)
             .expect("decode password recovery request"),
@@ -99,7 +99,7 @@ fn secret_bearing_request_codecs_round_trip() {
         contact_method_id: "contact-id".to_string(),
         current_password: "correct horse battery staple".to_string(),
     };
-    let encoded = generated::encode_revoke_verified_contact_method_request(&revoke);
+    let encoded = generated::encode_revoke_verified_contact_method_request(&revoke).unwrap();
     assert_eq!(
         generated::decode_revoke_verified_contact_method_request(&encoded)
             .expect("decode contact revocation request"),

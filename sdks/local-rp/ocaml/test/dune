@@ -1,5 +1,10 @@
+; The conformance vectors (../../conformance, ../../../regular-rp/conformance)
+; are outside this dune workspace, so a file `deps` on them is not allowed.
+; `(universe)` makes `dune runtest` run this test every time, so a vector
+; change can never leave a stale PASS.
 (test
  (name run_tests)
  (libraries linkkeys_local_rp alcotest yojson tls x509 ptime cstruct unix)
  (deps
+  (universe)
   (glob_files_rec fixtures/*)))

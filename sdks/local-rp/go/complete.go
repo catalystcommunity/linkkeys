@@ -145,12 +145,7 @@ func CompleteLocalLogin(config CompleteLocalLoginConfig) (*VerifiedLocalLogin, e
 	if err != nil {
 		return nil, &DecodeError{Detail: "own descriptor: " + err.Error()}
 	}
-	var allowedSuites []AeadSuite
-	for _, s := range ownDescriptor.SupportedSuites {
-		if suite, ok := ParseAeadSuite(string(s)); ok {
-			allowedSuites = append(allowedSuites, suite)
-		}
-	}
+	allowedSuites := ownDescriptor.SupportedSuites
 
 	header, signedPayload, err := OpenLocalRpCallback(*encrypted, config.KeyMaterial.EncryptionPrivateKey, allowedSuites)
 	if err != nil {
@@ -204,8 +199,11 @@ func CompleteLocalLogin(config CompleteLocalLoginConfig) (*VerifiedLocalLogin, e
 
 	// 7. Redeem the claim ticket over TCP CSIL-RPC, signed with the local
 	// RP's own key (the possession proof a stolen ticket can't satisfy).
-	redemptionRequest := BuildLocalRpTicketRedemptionRequest(payload.ClaimTicket, config.KeyMaterial.Fingerprint, config.Now.UTC().Format(time.RFC3339Nano))
-	signedRedemption := SignLocalRpTicketRedemptionRequest(redemptionRequest, config.KeyMaterial.SigningPrivateKey)
+	redemptionRequest := BuildLocalRpTicketRedemptionRequest(payload.ClaimTicket, config.KeyMaterial.Fingerprint, config.Now.UTC())
+	signedRedemption, err := SignLocalRpTicketRedemptionRequest(redemptionRequest, config.KeyMaterial.SigningPrivateKey)
+	if err != nil {
+		return nil, err
+	}
 
 	redemption, err := RedeemClaimTicket(tr, dns, config.Pending.UserDomain, signedRedemption)
 	if err != nil {
@@ -282,19 +280,6 @@ func CompleteLocalLogin(config CompleteLocalLoginConfig) (*VerifiedLocalLogin, e
 		}
 	}
 
-	issuedAt, err := parseTimestamp("callback issued_at", payload.IssuedAt)
-	if err != nil {
-		return nil, err
-	}
-	expiresAt, err := parseTimestamp("callback expires_at", payload.ExpiresAt)
-	if err != nil {
-		return nil, err
-	}
-	ticketExpiresAt, err := parseTimestamp("ticket_expires_at", redemption.TicketExpiresAt)
-	if err != nil {
-		return nil, err
-	}
-
 	return &VerifiedLocalLogin{
 		// Sourced from the verified signed payload, not the unauthenticated
 		// redemption response (which was only just cross-checked against it
@@ -305,8 +290,8 @@ func CompleteLocalLogin(config CompleteLocalLoginConfig) (*VerifiedLocalLogin, e
 		Claims:             redemption.Claims,
 		DomainPublicKeys:   userDomainKeys,
 		LocalRpFingerprint: config.KeyMaterial.Fingerprint,
-		IssuedAt:           issuedAt,
-		ExpiresAt:          expiresAt,
-		TicketExpiresAt:    ticketExpiresAt,
+		IssuedAt:           payload.IssuedAt,
+		ExpiresAt:          payload.ExpiresAt,
+		TicketExpiresAt:    redemption.TicketExpiresAt,
 	}, nil
 }

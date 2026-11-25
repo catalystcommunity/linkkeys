@@ -5,6 +5,7 @@ package csilgen.generated;
 public record CreateUserRequest(
     String username /* wire: "username" */,
     String displayName /* wire: "display_name" */,
-    String password /* wire: "password" */
+    String password /* wire: "password" */,
+    String applicationId /* wire: "application_id" */
 ) {
 }

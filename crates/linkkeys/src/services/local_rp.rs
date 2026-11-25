@@ -448,10 +448,6 @@ pub fn issue_ticket(
     )
 }
 
-fn parse_rfc3339(s: &str) -> Option<time::OffsetDateTime> {
-    liblinkkeys::timestamp::parse_rfc3339(s).ok()
-}
-
 /// Redeem a claim-get ticket by its hash: checks it exists, is bound to
 /// `authenticated_fingerprint` (the caller's possession-proven identity —
 /// see [`TicketRedeemError::FingerprintMismatch`]), has not expired, and that
@@ -482,8 +478,7 @@ pub fn redeem_ticket(
         return Err(TicketRedeemError::FingerprintMismatch);
     }
 
-    let expires_at =
-        parse_rfc3339(&ticket.expires_at).unwrap_or(time::PrimitiveDateTime::MIN.assume_utc());
+    let expires_at = ticket.expires_at;
     if now > expires_at {
         return Err(TicketRedeemError::Expired);
     }
@@ -542,8 +537,8 @@ mod tests {
             app_name: "Old Name".to_string(),
             local_domain_hint: Some("old.local".to_string()),
             status: db::STATUS_PENDING.to_string(),
-            created_at: String::new(),
-            updated_at: String::new(),
+            created_at: time::OffsetDateTime::UNIX_EPOCH,
+            updated_at: time::OffsetDateTime::UNIX_EPOCH,
             expires_at: None,
             last_seen_at: None,
             admin_notes: None,

@@ -50,15 +50,15 @@ func newEd25519(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
 func appKey(t *testing.T, keyID string) (ApplicationSigner, ApplicationKeyRef) {
 	t.Helper()
 	pub, priv := newEd25519(t)
-	return ApplicationSigner{KeyID: keyID, Algorithm: "ed25519", PrivateKeyBytes: priv.Seed()},
+	return ApplicationSigner{KeyID: keyID, Algorithm: AlgorithmEd25519, PrivateKeyBytes: priv.Seed()},
 		ApplicationKeyRef{
 			KeyID:       keyID,
 			KeyUsage:    KeyUsageSign,
-			Algorithm:   "ed25519",
+			Algorithm:   AlgorithmEd25519,
 			PublicKey:   pub,
 			Fingerprint: Fingerprint(pub),
-			CreatedAt:   FormatActAsTime(actAsNow.Add(-24 * time.Hour)),
-			ExpiresAt:   FormatActAsTime(actAsNow.Add(365 * 24 * time.Hour)),
+			CreatedAt:   ActAsTime(actAsNow.Add(-24 * time.Hour)),
+			ExpiresAt:   ActAsTime(actAsNow.Add(365 * 24 * time.Hour)),
 		}
 }
 
@@ -69,10 +69,10 @@ func newDomainKey(t *testing.T, keyID string) (api.DomainPublicKey, ed25519.Priv
 		KeyId:       keyID,
 		PublicKey:   pub,
 		Fingerprint: Fingerprint(pub),
-		Algorithm:   "ed25519",
-		KeyUsage:    "sign",
-		CreatedAt:   FormatActAsTime(time.Now().Add(-24 * time.Hour)),
-		ExpiresAt:   FormatActAsTime(time.Now().Add(10 * 365 * 24 * time.Hour)),
+		Algorithm:   AlgorithmEd25519,
+		KeyUsage:    KeyUsageSign,
+		CreatedAt:   ActAsTime(time.Now().Add(-24 * time.Hour)),
+		ExpiresAt:   ActAsTime(time.Now().Add(10 * 365 * 24 * time.Hour)),
 	}, priv
 }
 
@@ -88,11 +88,11 @@ func newLocalRp(t *testing.T) (api.SignedLocalRpDescriptor, string, []byte) {
 		SigningPublicKey:    pub,
 		EncryptionPublicKey: encPub[:],
 		Fingerprint:         Fingerprint(pub),
-		SupportedSuites:     []api.AeadSuite{"chacha20-poly1305"},
-		CreatedAt:           FormatActAsTime(actAsNow.Add(-time.Hour)),
-		ExpiresAt:           FormatActAsTime(actAsNow.Add(24 * time.Hour)),
+		SupportedSuites:     []api.AeadSuite{api.AeadSuiteChacha20Poly1305},
+		CreatedAt:           ActAsTime(actAsNow.Add(-time.Hour)),
+		ExpiresAt:           ActAsTime(actAsNow.Add(24 * time.Hour)),
 	}
-	descriptorBytes := api.EncodeLocalRpDescriptor(descriptor)
+	descriptorBytes := must[[]byte](t)(api.EncodeLocalRpDescriptor(descriptor))
 	return api.SignedLocalRpDescriptor{
 		Descriptor: descriptorBytes,
 		Signature:  ed25519.Sign(priv, envelopeSignatureInput(localRpDescriptorTag, descriptorBytes)),
@@ -137,8 +137,8 @@ func (w actAsWorld) signGrant(t *testing.T, grantee api.GranteeRef, mutate func(
 		Audience:  w.audience,
 		Grantee:   grantee,
 		Entries:   []api.ActAsScopeEntry{{Scope: "read"}, {Scope: "write"}},
-		IssuedAt:  FormatActAsTime(actAsNow.Add(-time.Hour)),
-		ExpiresAt: FormatActAsTime(actAsNow.Add(-30 * time.Minute)), // expired: must not matter
+		IssuedAt:  ActAsTime(actAsNow.Add(-time.Hour)),
+		ExpiresAt: ActAsTime(actAsNow.Add(-30 * time.Minute)), // expired: must not matter
 	}, "instance-d", []ApplicationSigner{w.audienceSigner})
 	if err != nil {
 		t.Fatalf("sign scope set: %v", err)
@@ -151,15 +151,15 @@ func (w actAsWorld) signGrant(t *testing.T, grantee api.GranteeRef, mutate func(
 		Audience:       w.audience,
 		ScopeSet:       scopeSet,
 		ApprovedScope:  []string{"read"},
-		IssuedAt:       FormatActAsTime(actAsNow.Add(-10 * time.Minute)),
-		ExpiresAt:      FormatActAsTime(actAsNow.Add(50 * time.Minute)),
-		SeriesIssuedAt: FormatActAsTime(actAsNow.Add(-10 * time.Minute)),
-		RenewableUntil: FormatActAsTime(actAsNow.Add(2 * time.Hour)),
+		IssuedAt:       ActAsTime(actAsNow.Add(-10 * time.Minute)),
+		ExpiresAt:      ActAsTime(actAsNow.Add(50 * time.Minute)),
+		SeriesIssuedAt: ActAsTime(actAsNow.Add(-10 * time.Minute)),
+		RenewableUntil: ActAsTime(actAsNow.Add(2 * time.Hour)),
 	}
 	if mutate != nil {
 		mutate(&grant)
 	}
-	grantBytes := api.EncodeActAsGrant(grant)
+	grantBytes := must[[]byte](t)(api.EncodeActAsGrant(grant))
 	return api.SignedActAsGrant{
 		Grant: grantBytes,
 		Signatures: []api.ClaimSignature{{
@@ -290,8 +290,8 @@ func TestActAsGrantAndRefreshRequestRoundTrip(t *testing.T) {
 			RequestedLifetimeSeconds: &lifetime,
 			CallbackUrl:              "https://c.example/act-as/callback",
 			Nonce:                    "nonce",
-			RequestedAt:              FormatActAsTime(actAsNow),
-			ExpiresAt:                FormatActAsTime(actAsNow.Add(5 * time.Minute)),
+			RequestedAt:              ActAsTime(actAsNow),
+			ExpiresAt:                ActAsTime(actAsNow.Add(5 * time.Minute)),
 		}, signer)
 		if err != nil {
 			t.Fatalf("%s: sign grant request: %v", name, err)
@@ -303,8 +303,8 @@ func TestActAsGrantAndRefreshRequestRoundTrip(t *testing.T) {
 		refresh, err := SignRefreshRequest(api.ActAsRefreshRequest{
 			GrantId:     "grant-1",
 			Grantee:     grantee,
-			RequestedAt: FormatActAsTime(actAsNow),
-			ExpiresAt:   FormatActAsTime(actAsNow.Add(5 * time.Minute)),
+			RequestedAt: ActAsTime(actAsNow),
+			ExpiresAt:   ActAsTime(actAsNow.Add(5 * time.Minute)),
 			Nonce:       "refresh-nonce",
 		}, signer)
 		if err != nil {
@@ -338,8 +338,8 @@ func TestActAsScopeSetShapeBounds(t *testing.T) {
 	base := api.ActAsScopeSet{
 		Audience:  w.audience,
 		Grantee:   w.granteeRef(false),
-		IssuedAt:  FormatActAsTime(actAsNow),
-		ExpiresAt: FormatActAsTime(actAsNow.Add(time.Hour)),
+		IssuedAt:  ActAsTime(actAsNow),
+		ExpiresAt: ActAsTime(actAsNow.Add(time.Hour)),
 	}
 	tooMany := make([]api.ActAsScopeEntry, MaxScopeEntries+1)
 	for i := range tooMany {
@@ -366,34 +366,34 @@ func TestActAsScopeSetKeyValidAtIssuedAt(t *testing.T) {
 	signed := w.scopeSet(t, w.granteeRef(false))
 	// A key revoked after the set was issued still verifies the set.
 	keys := append([]ApplicationKeyRef{}, w.audienceKeys...)
-	revokedLater := FormatActAsTime(actAsNow)
+	revokedLater := ActAsTime(actAsNow)
 	keys[0].RevokedAt = &revokedLater
 	if _, err := VerifyScopeSet(signed, w.audience, keys, AcceptBeforeRevocation); err != nil {
 		t.Errorf("revoked after issue: %v", err)
 	}
 	// A key revoked before the set was issued does not.
-	revokedBefore := FormatActAsTime(actAsNow.Add(-2 * time.Hour))
+	revokedBefore := ActAsTime(actAsNow.Add(-2 * time.Hour))
 	keys[0].RevokedAt = &revokedBefore
 	_, err := VerifyScopeSet(signed, w.audience, keys, AcceptBeforeRevocation)
 	wantActAsKind(t, "revoked before issue", err, ErrActAsNoValidSignature)
 }
 
-func TestFormatActAsTime(t *testing.T) {
+func TestActAsTime(t *testing.T) {
 	zone := time.FixedZone("x", 2*3600)
-	got := FormatActAsTime(time.Date(2026, 10, 6, 14, 0, 5, 999_000_000, zone))
-	if got != "2026-10-06T12:00:05Z" {
+	got := ActAsTime(time.Date(2026, 10, 6, 14, 0, 5, 999_000_000, zone))
+	if !got.Equal(mustTime(t, "2026-10-06T12:00:05Z")) || got.Location() != time.UTC {
 		t.Errorf("got %s", got)
 	}
 }
 
 func TestDecideRefreshHugeLifetime(t *testing.T) {
 	grant := api.ActAsGrant{
-		IssuedAt:       "2026-10-06T12:00:00Z",
-		ExpiresAt:      "2026-10-06T13:00:00Z",
-		RenewableUntil: "2026-10-07T12:00:00Z",
+		IssuedAt:       mustTime(t, "2026-10-06T12:00:00Z"),
+		ExpiresAt:      mustTime(t, "2026-10-06T13:00:00Z"),
+		RenewableUntil: mustTime(t, "2026-10-07T12:00:00Z"),
 	}
 	got, err := DecideRefresh(grant, 1<<62, mustTime(t, "2026-10-06T12:45:00Z"))
-	if err != nil || !got.Renew || got.ExpiresAt != "2026-10-07T12:00:00Z" {
+	if err != nil || !got.Renew || !got.ExpiresAt.Equal(mustTime(t, "2026-10-07T12:00:00Z")) {
 		t.Errorf("got %+v, %v", got, err)
 	}
 }
@@ -448,13 +448,19 @@ func (f *actAsFakeRP) Call(_ context.Context, service, op string, payload []byte
 	return f.handle(op, payload)
 }
 
+// CallReply is not used: the act-as Rp operations declare no error arm, so
+// the generated client calls them through Call.
+func (f *actAsFakeRP) CallReply(_ context.Context, service, op string, _ []byte) (api.WireReply, error) {
+	return api.WireReply{}, fmt.Errorf("unexpected CallReply %s/%s", service, op)
+}
+
 func (w actAsWorld) signedRefresh(t *testing.T, grantID string) api.SignedActAsRefreshRequest {
 	t.Helper()
 	signed, err := SignRefreshRequest(api.ActAsRefreshRequest{
 		GrantId:     grantID,
 		Grantee:     w.granteeRef(false),
-		RequestedAt: FormatActAsTime(actAsNow),
-		ExpiresAt:   FormatActAsTime(actAsNow.Add(5 * time.Minute)),
+		RequestedAt: ActAsTime(actAsNow),
+		ExpiresAt:   ActAsTime(actAsNow.Add(5 * time.Minute)),
 		Nonce:       "refresh-nonce",
 	}, w.appSigner)
 	if err != nil {
@@ -471,7 +477,7 @@ func TestRefreshGrantCallsRp(t *testing.T) {
 		if op != "act-as-refresh-grant" {
 			return nil, fmt.Errorf("unexpected op %s", op)
 		}
-		return api.EncodeRefreshActAsGrantResponse(api.RefreshActAsGrantResponse{Grant: grant, Signed: true}), nil
+		return api.EncodeRefreshActAsGrantResponse(api.RefreshActAsGrantResponse{Grant: grant, Signed: true})
 	}}
 
 	got, err := RefreshGrant(context.Background(), rp, testHomeDomain, request)
@@ -488,7 +494,7 @@ func TestRefreshGrantCallsRp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode sent payload: %v", err)
 	}
-	if sent.SubjectDomain != testHomeDomain || !bytes.Equal(api.EncodeSignedActAsRefreshRequest(sent.Request), api.EncodeSignedActAsRefreshRequest(request)) {
+	if sent.SubjectDomain != testHomeDomain || !bytes.Equal(must[[]byte](t)(api.EncodeSignedActAsRefreshRequest(sent.Request)), must[[]byte](t)(api.EncodeSignedActAsRefreshRequest(request))) {
 		t.Errorf("payload did not round-trip: %+v", sent)
 	}
 
@@ -526,12 +532,12 @@ func TestRefreshGrantCallsRp(t *testing.T) {
 
 func (w actAsWorld) signRevocation(t *testing.T, grantID, domain string, priv ed25519.PrivateKey) api.SignedActAsGrantRevocation {
 	t.Helper()
-	revBytes := api.EncodeActAsGrantRevocation(api.ActAsGrantRevocation{
+	revBytes := must[[]byte](t)(api.EncodeActAsGrantRevocation(api.ActAsGrantRevocation{
 		GrantId:       grantID,
 		UserId:        "user-1",
 		SubjectDomain: domain,
-		RevokedAt:     FormatActAsTime(actAsNow),
-	})
+		RevokedAt:     ActAsTime(actAsNow),
+	}))
 	return api.SignedActAsGrantRevocation{
 		Revocation: revBytes,
 		Signatures: []api.ClaimSignature{{
@@ -555,13 +561,13 @@ func TestResolveGrantRevocationsVerifies(t *testing.T) {
 	rp := &actAsFakeRP{handle: func(op string, payload []byte) ([]byte, error) {
 		switch op {
 		case "resolve-act-as-revocations":
-			return api.EncodeGetActAsGrantRevocationsResponse(api.GetActAsGrantRevocationsResponse{Revocations: revocations}), nil
+			return api.EncodeGetActAsGrantRevocationsResponse(api.GetActAsGrantRevocationsResponse{Revocations: revocations})
 		case "resolve-domain-keys":
 			return api.EncodeRpResolveDomainKeysResponse(api.RpResolveDomainKeysResponse{
 				Domain:      testHomeDomain,
 				Keys:        []api.DomainPublicKey{w.homeKey},
-				CacheStatus: "fresh",
-			}), nil
+				CacheStatus: api.RpCacheStatusFresh,
+			})
 		}
 		return nil, fmt.Errorf("unexpected op %s", op)
 	}}
@@ -590,15 +596,15 @@ func TestResolveGrantRevocationsVerifies(t *testing.T) {
 func TestResolveGrantRevocationsDomainKeyRevoked(t *testing.T) {
 	w := newActAsWorld(t)
 	revoked := w.homeKey
-	at := FormatActAsTime(actAsNow)
+	at := ActAsTime(actAsNow)
 	revoked.RevokedAt = &at
 	rp := &actAsFakeRP{handle: func(op string, _ []byte) ([]byte, error) {
 		if op == "resolve-act-as-revocations" {
 			return api.EncodeGetActAsGrantRevocationsResponse(api.GetActAsGrantRevocationsResponse{
 				Revocations: []api.SignedActAsGrantRevocation{w.signRevocation(t, "grant-1", testHomeDomain, w.homePriv)},
-			}), nil
+			})
 		}
-		return api.EncodeRpResolveDomainKeysResponse(api.RpResolveDomainKeysResponse{Domain: testHomeDomain, Keys: []api.DomainPublicKey{revoked}}), nil
+		return api.EncodeRpResolveDomainKeysResponse(api.RpResolveDomainKeysResponse{Domain: testHomeDomain, Keys: []api.DomainPublicKey{revoked}, CacheStatus: api.RpCacheStatusFresh})
 	}}
 	got, err := ResolveGrantRevocations(context.Background(), rp, testHomeDomain, []string{"grant-1"})
 	if err != nil || len(got) != 0 {
@@ -628,7 +634,7 @@ func TestResolveGrantRevocationsBoundsAndErrors(t *testing.T) {
 		if op != "resolve-act-as-revocations" {
 			return nil, fmt.Errorf("unexpected op %s", op)
 		}
-		return api.EncodeGetActAsGrantRevocationsResponse(api.GetActAsGrantRevocationsResponse{}), nil
+		return api.EncodeGetActAsGrantRevocationsResponse(api.GetActAsGrantRevocationsResponse{})
 	}
 	got, err := ResolveGrantRevocations(context.Background(), rp, testHomeDomain, []string{"g"})
 	if err != nil || len(got) != 0 || len(rp.calls) != 1 {
@@ -658,8 +664,8 @@ func twoKeyScopeSet(t *testing.T, w actAsWorld) (api.SignedActAsScopeSet, []Appl
 		Audience:  w.audience,
 		Grantee:   w.granteeRef(false),
 		Entries:   []api.ActAsScopeEntry{{Scope: "read"}},
-		IssuedAt:  FormatActAsTime(actAsNow.Add(-time.Hour)),
-		ExpiresAt: FormatActAsTime(actAsNow.Add(time.Hour)),
+		IssuedAt:  ActAsTime(actAsNow.Add(-time.Hour)),
+		ExpiresAt: ActAsTime(actAsNow.Add(time.Hour)),
 	}, "instance-d", []ApplicationSigner{signer1, signer2})
 	if err != nil {
 		t.Fatalf("sign scope set: %v", err)
@@ -675,7 +681,7 @@ func TestActAsScopeSetOneValidSignatureIsEnough(t *testing.T) {
 	signed, keys := twoKeyScopeSet(t, w)
 
 	// key 1 expired before the set was issued; key 2 still verifies it.
-	keys[0].ExpiresAt = FormatActAsTime(actAsNow.Add(-2 * time.Hour))
+	keys[0].ExpiresAt = ActAsTime(actAsNow.Add(-2 * time.Hour))
 	if _, err := VerifyScopeSet(signed, w.audience, keys, AcceptBeforeRevocation); err != nil {
 		t.Errorf("one key expired: %v", err)
 	}
@@ -688,11 +694,11 @@ func TestActAsScopeSetOneValidSignatureIsEnough(t *testing.T) {
 func TestActAsScopeSetRefusalNamesEveryKey(t *testing.T) {
 	w := newActAsWorld(t)
 	signed, keys := twoKeyScopeSet(t, w)
-	revoked := FormatActAsTime(actAsNow.Add(-2 * time.Hour))
+	revoked := ActAsTime(actAsNow.Add(-2 * time.Hour))
 	keys[0].RevokedAt = &revoked
 	_, err := VerifyScopeSet(signed, w.audience, keys[:1], AcceptBeforeRevocation)
 	wantActAsKind(t, "all refused", err, ErrActAsNoValidSignature)
-	want := "audience-key-1: revoked at " + revoked + ", before it signed; audience-key-2: not a key of the audience"
+	want := "audience-key-1: revoked at " + revoked.Format(time.RFC3339) + ", before it signed; audience-key-2: not a key of the audience"
 	if e := (*ActAsError)(nil); errors.As(err, &e) && e.Detail != want {
 		t.Errorf("detail\n got  %s\n want %s", e.Detail, want)
 	}
@@ -700,7 +706,7 @@ func TestActAsScopeSetRefusalNamesEveryKey(t *testing.T) {
 	// A bad signature and an expired key.
 	signed2, keys2 := twoKeyScopeSet(t, w)
 	signed2.Signatures[0].Signature = bytes.Repeat([]byte{1}, 64)
-	keys2[1].ExpiresAt = FormatActAsTime(actAsNow.Add(-2 * time.Hour))
+	keys2[1].ExpiresAt = ActAsTime(actAsNow.Add(-2 * time.Hour))
 	_, err = VerifyScopeSet(signed2, w.audience, keys2, AcceptBeforeRevocation)
 	want = "audience-key-1: signature did not verify; audience-key-2: not inside its validity window when it signed"
 	if e := (*ActAsError)(nil); !errors.As(err, &e) || e.Detail != want {
@@ -716,7 +722,7 @@ func TestActAsScopeSetRefusalNamesEveryKey(t *testing.T) {
 func TestActAsScopeSetRevokedKeyPolicy(t *testing.T) {
 	w := newActAsWorld(t)
 	signed, keys := twoKeyScopeSet(t, w)
-	later := FormatActAsTime(actAsNow)
+	later := ActAsTime(actAsNow)
 	keys[0].RevokedAt = &later
 	keys = keys[:1]
 	if _, err := VerifyScopeSet(signed, w.audience, keys, AcceptBeforeRevocation); err != nil {
@@ -751,8 +757,8 @@ func TestActAsSignScopeSetSigners(t *testing.T) {
 		Audience:  w.audience,
 		Grantee:   w.granteeRef(false),
 		Entries:   []api.ActAsScopeEntry{{Scope: "read"}},
-		IssuedAt:  FormatActAsTime(actAsNow),
-		ExpiresAt: FormatActAsTime(actAsNow.Add(time.Hour)),
+		IssuedAt:  ActAsTime(actAsNow),
+		ExpiresAt: ActAsTime(actAsNow.Add(time.Hour)),
 	}
 	_, err := SignScopeSet(set, "instance-d", nil)
 	wantActAsKind(t, "no signers", err, ErrActAsNoValidSignature)
@@ -762,12 +768,12 @@ func TestActAsSignScopeSetSigners(t *testing.T) {
 
 func TestAttestedKeyRefsKeepsExpiredAndRevokedKeys(t *testing.T) {
 	att := func(id string) api.ApplicationKeyAttestation {
-		return api.ApplicationKeyAttestation{KeyId: id, KeyUsage: KeyUsageSign, Algorithm: "ed25519"}
+		return api.ApplicationKeyAttestation{KeyId: id, KeyUsage: KeyUsageSign, Algorithm: AlgorithmEd25519}
 	}
 	set := VerifiedApplicationKeySet{Keys: []VerifiedApplicationKey{
 		{Attestation: att("usable"), Status: KeyStatus{Kind: KeyStatusUsable}},
 		{Attestation: att("expired"), Status: KeyStatus{Kind: KeyStatusKeyExpired}},
-		{Attestation: att("revoked"), Status: KeyStatus{Kind: KeyStatusRevoked, RevokedAt: "2026-10-01T00:00:00Z"}},
+		{Attestation: att("revoked"), Status: KeyStatus{Kind: KeyStatusRevoked, RevokedAt: mustTime(t, "2026-10-01T00:00:00Z")}},
 	}}
 	all := set.AttestedKeyRefs()
 	if len(all) != 3 {
@@ -776,7 +782,7 @@ func TestAttestedKeyRefsKeepsExpiredAndRevokedKeys(t *testing.T) {
 	for _, k := range all {
 		switch k.KeyID {
 		case "revoked":
-			if k.RevokedAt == nil || *k.RevokedAt != "2026-10-01T00:00:00Z" {
+			if k.RevokedAt == nil || !k.RevokedAt.Equal(mustTime(t, "2026-10-01T00:00:00Z")) {
 				t.Errorf("revoked key: RevokedAt %v", k.RevokedAt)
 			}
 		default:
@@ -801,13 +807,16 @@ func signHandleClaim(party api.ApplicationRef, handle, domain string, key api.Do
 		UserId:     party.SubjectUserId,
 		ClaimType:  HandleClaimType,
 		ClaimValue: []byte(handle),
-		AttestedAt: FormatActAsTime(time.Now().Add(-time.Hour)),
-		CreatedAt:  FormatActAsTime(time.Now().Add(-time.Hour)),
+		AttestedAt: ActAsTime(time.Now().Add(-time.Hour)),
+		CreatedAt:  ActAsTime(time.Now().Add(-time.Hour)),
 	}
 	if mutate != nil {
 		mutate(&claim)
 	}
-	payload := claimSignPayload(claim.ClaimId, claim.ClaimType, claim.ClaimValue, claim.UserId, party.SubjectDomain, domain, claim.ExpiresAt, claim.AttestedAt)
+	payload, err := claimSignPayload(claim.ClaimId, claim.ClaimType, claim.ClaimValue, claim.UserId, party.SubjectDomain, domain, claim.ExpiresAt, claim.AttestedAt)
+	if err != nil {
+		panic(err)
+	}
 	claim.Signatures = append(claim.Signatures, api.ClaimSignature{Domain: domain, SignedByKeyId: key.KeyId, Signature: ed25519.Sign(priv, payload)})
 	return claim
 }
@@ -831,7 +840,7 @@ func TestVerifyHandleClaim(t *testing.T) {
 		t.Errorf("extra third-domain signature: %v", err)
 	}
 
-	past := FormatActAsTime(time.Now().Add(-time.Minute))
+	past := ActAsTime(time.Now().Add(-time.Minute))
 	revokedKey := domainKey
 	revokedKey.RevokedAt = &past
 	for name, tc := range map[string]struct {
@@ -846,7 +855,7 @@ func TestVerifyHandleClaim(t *testing.T) {
 		"revoked claim":        {signHandleClaim(party, "team-d", party.SubjectDomain, domainKey, domainPriv, func(c *api.Claim) { c.RevokedAt = &past }), keys},
 		"key revoked before attestation": {good, []api.DomainPublicKey{func() api.DomainPublicKey {
 			k := domainKey
-			early := FormatActAsTime(time.Now().Add(-2 * time.Hour))
+			early := ActAsTime(time.Now().Add(-2 * time.Hour))
 			k.RevokedAt = &early
 			return k
 		}()}},
@@ -854,6 +863,16 @@ func TestVerifyHandleClaim(t *testing.T) {
 	} {
 		_, err := VerifyHandleClaim(tc.claim, party, tc.keys)
 		wantActAsKind(t, name, err, ErrActAsBadHandleClaim)
+	}
+
+	// A signed time with a fraction of a second was never signed: the
+	// verifier does not round it.
+	fractional := good
+	fractional.AttestedAt = good.AttestedAt.Add(500 * time.Millisecond)
+	_, err := VerifyHandleClaim(fractional, party, keys)
+	wantActAsKind(t, "fractional attested_at", err, ErrActAsBadHandleClaim)
+	if _, err := claimSignPayload("c", "handle", nil, "u", "d", "d", nil, fractional.AttestedAt); !errors.Is(err, errClaimBadTimestamp) {
+		t.Errorf("fractional attested_at payload: %v", err)
 	}
 
 	// A key revoked AFTER the claim was attested still verifies it (I-7).
@@ -872,8 +891,8 @@ func TestActAsHandleClaimShapeChecks(t *testing.T) {
 		Audience:  w.audience,
 		Grantee:   w.granteeRef(false),
 		Entries:   []api.ActAsScopeEntry{{Scope: "read"}},
-		IssuedAt:  FormatActAsTime(actAsNow),
-		ExpiresAt: FormatActAsTime(actAsNow.Add(time.Hour)),
+		IssuedAt:  ActAsTime(actAsNow),
+		ExpiresAt: ActAsTime(actAsNow.Add(time.Hour)),
 	}
 	own := signHandleClaim(w.audience, "team-d", w.audience.SubjectDomain, domainKey, domainPriv, nil)
 	set.AudienceHandleClaim = &own
@@ -898,8 +917,8 @@ func TestActAsHandleClaimShapeChecks(t *testing.T) {
 			GranteeHandleClaim: claim,
 			CallbackUrl:        "https://c.example/act-as/callback",
 			Nonce:              "nonce",
-			RequestedAt:        FormatActAsTime(actAsNow),
-			ExpiresAt:          FormatActAsTime(actAsNow.Add(5 * time.Minute)),
+			RequestedAt:        ActAsTime(actAsNow),
+			ExpiresAt:          ActAsTime(actAsNow.Add(5 * time.Minute)),
 		}
 	}
 	granteeClaim := signHandleClaim(w.granteeApp, "team-c", w.granteeApp.SubjectDomain, domainKey, domainPriv, nil)
@@ -918,11 +937,29 @@ func TestActAsHandleClaimShapeChecks(t *testing.T) {
 
 	// The verifier refuses the same request when a grantee signs it anyway.
 	localRequest := request(true, &granteeClaim)
-	requestBytes := api.EncodeActAsGrantRequest(localRequest)
+	requestBytes := must[[]byte](t)(api.EncodeActAsGrantRequest(localRequest))
 	proof, err := w.localSigner.Prove(envelopeSignatureInput(GrantRequestTag, requestBytes))
 	if err != nil {
 		t.Fatalf("prove: %v", err)
 	}
 	_, err = VerifyGrantRequest(api.SignedActAsGrantRequest{Request: requestBytes, Proof: proof}, nil, actAsNow, 60)
 	wantActAsKind(t, "verify local-RP request with handle claim", err, ErrActAsBadHandleClaim)
+}
+
+// A value with no wire form (here a timestamp after year 9999) is an
+// *EncodeError from the signing function, never a panic or empty bytes.
+func TestSignRefreshRequestEncodeError(t *testing.T) {
+	w := newActAsWorld(t)
+	farFuture := time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC)
+	_, err := SignRefreshRequest(api.ActAsRefreshRequest{
+		GrantId:     "grant-1",
+		Grantee:     w.granteeRef(true),
+		RequestedAt: ActAsTime(actAsNow),
+		ExpiresAt:   farFuture,
+		Nonce:       "nonce",
+	}, w.localSigner)
+	var encodeErr *EncodeError
+	if !errors.As(err, &encodeErr) {
+		t.Fatalf("want *EncodeError, got %T: %v", err, err)
+	}
 }

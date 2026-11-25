@@ -20,7 +20,6 @@ public class LocalRpError : Exception
         FingerprintMismatch,
         NotYetValid,
         Expired,
-        BadTimestamp,
         NonceMismatch,
         StateMismatch,
         AudienceMismatch,

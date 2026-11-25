@@ -163,7 +163,7 @@ fn mapOf(allocator: std.mem.Allocator, entries: []const cbor.Entry) !cbor.Value 
 }
 
 fn intVal(n: i64) cbor.Value {
-    return if (n >= 0) cbor.uint(@intCast(n)) else .{ .nint = n };
+    return cbor.int(n);
 }
 
 fn asI64(v: cbor.Value) !i64 {
@@ -296,8 +296,8 @@ fn grantRequestToValue(allocator: std.mem.Allocator, v: ActAsGrantRequest) !cbor
         .{ .key = cbor.text("scope_set"), .value = try signedScopeSetToValue(allocator, v.scope_set) },
         .{ .key = cbor.text("callback_url"), .value = cbor.text(v.callback_url) },
         .{ .key = cbor.text("nonce"), .value = cbor.text(v.nonce) },
-        .{ .key = cbor.text("requested_at"), .value = cbor.text(v.requested_at) },
-        .{ .key = cbor.text("expires_at"), .value = cbor.text(v.expires_at) },
+        .{ .key = cbor.text("requested_at"), .value = try cbor.timestampVal(allocator, v.requested_at) },
+        .{ .key = cbor.text("expires_at"), .value = try cbor.timestampVal(allocator, v.expires_at) },
     });
     if (v.requested_lifetime_seconds) |n| try entries.append(.{ .key = cbor.text("requested_lifetime_seconds"), .value = intVal(n) });
     if (v.requested_renewal_window_seconds) |n| try entries.append(.{ .key = cbor.text("requested_renewal_window_seconds"), .value = intVal(n) });
@@ -312,8 +312,8 @@ fn grantRequestFromValue(allocator: std.mem.Allocator, v: cbor.Value) !ActAsGran
         .requested_renewal_window_seconds = try optI64(v, "requested_renewal_window_seconds"),
         .callback_url = try requireText(v, "callback_url"),
         .nonce = try requireText(v, "nonce"),
-        .requested_at = try requireText(v, "requested_at"),
-        .expires_at = try requireText(v, "expires_at"),
+        .requested_at = try types.requireTimestamp(v, "requested_at"),
+        .expires_at = try types.requireTimestamp(v, "expires_at"),
     };
 }
 
@@ -321,8 +321,8 @@ fn refreshRequestToValue(allocator: std.mem.Allocator, v: ActAsRefreshRequest) !
     return mapOf(allocator, &.{
         .{ .key = cbor.text("grant_id"), .value = cbor.text(v.grant_id) },
         .{ .key = cbor.text("grantee"), .value = try localGranteeRefToValue(allocator, v.grantee_fingerprint) },
-        .{ .key = cbor.text("requested_at"), .value = cbor.text(v.requested_at) },
-        .{ .key = cbor.text("expires_at"), .value = cbor.text(v.expires_at) },
+        .{ .key = cbor.text("requested_at"), .value = try cbor.timestampVal(allocator, v.requested_at) },
+        .{ .key = cbor.text("expires_at"), .value = try cbor.timestampVal(allocator, v.expires_at) },
         .{ .key = cbor.text("nonce"), .value = cbor.text(v.nonce) },
     });
 }
@@ -331,8 +331,8 @@ fn refreshRequestFromValue(v: cbor.Value) !ActAsRefreshRequest {
     return .{
         .grant_id = try requireText(v, "grant_id"),
         .grantee_fingerprint = try localGranteeRefFromValue(try cbor.require(v, "grantee")),
-        .requested_at = try requireText(v, "requested_at"),
-        .expires_at = try requireText(v, "expires_at"),
+        .requested_at = try types.requireTimestamp(v, "requested_at"),
+        .expires_at = try types.requireTimestamp(v, "expires_at"),
         .nonce = try requireText(v, "nonce"),
     };
 }
@@ -351,7 +351,7 @@ fn presentationToValue(allocator: std.mem.Allocator, v: ActAsPresentation) !cbor
         .{ .key = cbor.text("grant_hash"), .value = cbor.bytesVal(v.grant_hash) },
         .{ .key = cbor.text("audience"), .value = try applicationRefToValue(allocator, v.audience) },
         .{ .key = cbor.text("request_digest"), .value = cbor.bytesVal(v.request_digest) },
-        .{ .key = cbor.text("presented_at"), .value = cbor.text(v.presented_at) },
+        .{ .key = cbor.text("presented_at"), .value = try cbor.timestampVal(allocator, v.presented_at) },
         .{ .key = cbor.text("nonce"), .value = cbor.bytesVal(v.nonce) },
     });
 }
@@ -455,7 +455,7 @@ pub fn decodeActAsPresentation(allocator: std.mem.Allocator, bytes: []const u8) 
         .grant_hash = try requireBytes(root, "grant_hash"),
         .audience = try applicationRefFromValue(try cbor.require(root, "audience")),
         .request_digest = try requireBytes(root, "request_digest"),
-        .presented_at = try requireText(root, "presented_at"),
+        .presented_at = try types.requireTimestamp(root, "presented_at"),
         .nonce = try requireBytes(root, "nonce"),
     };
 }

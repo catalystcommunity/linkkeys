@@ -344,6 +344,13 @@ impl ApiKeyAuthenticator {
         if !authentication.user.is_active || authentication.user.purged_at.is_some() {
             return Err(AuthError::AccountInactive);
         }
+        // Coarse last-use time for the owner's key list; never fails the call.
+        if let Err(e) = self.pool.touch_api_key(
+            &authentication.credential_id,
+            time::OffsetDateTime::now_utc(),
+        ) {
+            log::warn!("could not record API key use: {e}");
+        }
         Ok(authentication)
     }
 

@@ -22,8 +22,8 @@ TestKit::test('cbor.empty_map_is_not_confused_with_empty_list', function () {
 
 TestKit::test('cbor.get_revocations_request_with_since_present', function () {
     $bytes = Wire::encodeGetRevocationsRequest(new GetRevocationsRequest(['since' => '2026-01-01T00:00:00+00:00']));
-    $decoded = Cbor::decode($bytes);
-    TestKit::assertEquals(['since' => '2026-01-01T00:00:00+00:00'], $decoded);
+    // A CSIL timestamp: CBOR tag 0 around RFC 3339 text in UTC with `Z`.
+    TestKit::assertEquals("\xa1\x65since\xc0\x742026-01-01T00:00:00Z", $bytes);
 });
 
 TestKit::test('cbor.byte_string_vs_text_string', function () {

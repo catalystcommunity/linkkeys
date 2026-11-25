@@ -46,8 +46,8 @@ public class CallbackBoxConformanceTests
             Assert.Equal(c.Get("fingerprint").AsString(), opened.Header.Fingerprint);
             Assert.Equal(Fixtures.Hex(c.Get("nonce_hex").AsString()), opened.Header.Nonce);
             Assert.Equal(Fixtures.Hex(c.Get("state_hex").AsString()), opened.Header.State);
-            Assert.Equal(c.Get("issued_at").AsString(), opened.Header.IssuedAt);
-            Assert.Equal(c.Get("expires_at").AsString(), opened.Header.ExpiresAt);
+            Assert.Equal(c.Get("issued_at").AsTime(), opened.Header.IssuedAt);
+            Assert.Equal(c.Get("expires_at").AsTime(), opened.Header.ExpiresAt);
 
             var plaintext = Codec.EncodeSignedLocalRpCallbackPayload(opened.SignedPayload);
             Assert.Equal(Fixtures.Hex(c.Get("plaintext_cbor_hex").AsString()), plaintext);

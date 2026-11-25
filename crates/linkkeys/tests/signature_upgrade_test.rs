@@ -1,27 +1,31 @@
 //! Regression guard for the signature-format upgrade
 //! (`services::signature_upgrade`).
 //!
-//! Claims, consent grants, and key revocations signed before the `-v1alpha`
-//! epoch (0.14.1) do not verify under the current format. Nothing re-signed
-//! them, so relying parties that verify claim signatures rejected them. The
-//! upgrade re-signs a record only when every local signature verifies in a
-//! known format with a key of this domain. These tests build records in each
-//! historical format, run the upgrade, and verify the result with the
-//! current `liblinkkeys` verifiers.
+//! Claims, consent grants, key revocations, and application-key attestations
+//! signed in an older format (before the `-v1alpha` epoch, 0.14.1, or with
+//! the "v1alpha text" timestamps used until CSIL typed them) do not verify
+//! under the current format. The upgrade re-signs a record only when every
+//! local signature verifies in a known format with a key of this domain.
+//! These tests build records in each historical format, run the upgrade, and
+//! verify the result with the current `liblinkkeys` verifiers.
 
 mod common;
 
-use liblinkkeys::timestamp::Rfc3339 as _;
 use std::collections::HashMap;
 
 use liblinkkeys::claims::{verify_claim, ClaimSpec, DomainKeySet};
 use liblinkkeys::crypto::{self, SigningAlgorithm};
 use liblinkkeys::generated::types::{
-    Claim, ClaimSignature, ConsentGrant, DomainPublicKey, RevocationCertificate, SignedConsentGrant,
+    ApplicationKeyAttestation, Claim, ClaimSignature, ConsentGrant, DomainPublicKey, KeyAlgorithm,
+    KeyUsage, RevocationCertificate, SignedApplicationKeyAttestation, SignedConsentGrant,
 };
 use liblinkkeys::legacy_signatures::{
-    legacy_claim_payload, legacy_consent_payload, legacy_revocation_payload, LegacyClaimFormat,
+    attestation_provenance, downgrade_to_v1alpha_text, legacy_claim_payload,
+    legacy_consent_payload, legacy_revocation_payload, sqlite_datetime_text, LegacyClaimFormat,
+    LegacyGrantTimes, Provenance, CONSENT_V1ALPHA_TAG,
 };
+use liblinkkeys::revocation::REVOCATION_TAG;
+use liblinkkeys::timestamp::{whole_seconds, Rfc3339 as _};
 use linkkeys::db::models::DomainKey;
 use linkkeys::db::DbPool;
 use linkkeys::services::signature_upgrade::run;
@@ -59,10 +63,6 @@ fn keysets(pool: &DbPool) -> Vec<DomainKeySet> {
     }]
 }
 
-fn whole_seconds(t: time::OffsetDateTime) -> time::OffsetDateTime {
-    t.replace_nanosecond(0).unwrap()
-}
-
 /// A stored claim with no signatures, read back so its fields are exactly
 /// what the server serves.
 fn bare_claim(pool: &DbPool, user_id: &str, claim_type: &str, value: &[u8]) -> Claim {
@@ -77,7 +77,7 @@ fn bare_claim(pool: &DbPool, user_id: &str, claim_type: &str, value: &[u8]) -> C
 
 /// Store `signatures` as the claim's signatures and return the stored claim.
 fn set_signatures(pool: &DbPool, claim_id: &str, signatures: &[ClaimSignature]) -> Claim {
-    pool.resign_claim(claim_id, None, signatures).unwrap();
+    pool.resign_claim(claim_id, None, None, signatures).unwrap();
     (&pool.find_claim_by_id(claim_id).unwrap()).into()
 }
 
@@ -124,6 +124,14 @@ fn claims_in_every_historical_format_are_resigned_and_verify() {
     // A claim already in the current format.
     let signers = linkkeys::claim_signing::active_signers(&keys, PASSPHRASE.as_bytes()).unwrap();
     let current_bare = bare_claim(&pool, &user.id, "handle", b"user");
+    pool.resign_claim(
+        &current_bare.claim_id,
+        Some(whole_seconds(current_bare.attested_at)),
+        None,
+        &[],
+    )
+    .unwrap();
+    let current_bare = stored(&pool, &current_bare.claim_id);
     let current = linkkeys::claim_signing::sign_with_active(
         &ClaimSpec {
             claim_id: &current_bare.claim_id,
@@ -132,7 +140,7 @@ fn claims_in_every_historical_format_are_resigned_and_verify() {
             user_id: &current_bare.user_id,
             subject_domain: &domain(),
             expires_at: None,
-            attested_at: &current_bare.attested_at,
+            attested_at: current_bare.attested_at,
         },
         &signers,
     )
@@ -140,9 +148,14 @@ fn claims_in_every_historical_format_are_resigned_and_verify() {
     let current = set_signatures(&pool, &current.claim_id, &current.signatures);
 
     let report = run(&pool, Some(PASSPHRASE)).unwrap();
-    assert_eq!(report.claims.checked, 4);
+    assert_eq!(report.claims.checked, LegacyClaimFormat::ALL.len() + 1);
     assert_eq!(report.claims.current, 1);
-    assert_eq!(report.claims.resigned.len(), 3, "{:?}", report.claims);
+    assert_eq!(
+        report.claims.resigned.len(),
+        LegacyClaimFormat::ALL.len(),
+        "{:?}",
+        report.claims
+    );
     assert!(report.claims.unverifiable.is_empty());
     assert!(report.is_clean());
 
@@ -153,8 +166,9 @@ fn claims_in_every_historical_format_are_resigned_and_verify() {
         assert_eq!(after.claim_type, before.claim_type);
         assert_eq!(after.expires_at, before.expires_at);
         assert_eq!(
-            after.attested_at, before.attested_at,
-            "the attestation time is kept"
+            after.attested_at,
+            whole_seconds(before.attested_at),
+            "the attestation time is kept, to the second"
         );
         assert_eq!(after.signatures.len(), 3);
     }
@@ -166,7 +180,7 @@ fn claims_in_every_historical_format_are_resigned_and_verify() {
 
     // Idempotent: the second pass finds everything current.
     let again = run(&pool, Some(PASSPHRASE)).unwrap();
-    assert_eq!(again.claims.current, 4);
+    assert_eq!(again.claims.current, LegacyClaimFormat::ALL.len() + 1);
     assert!(again.claims.resigned.is_empty());
 }
 
@@ -271,15 +285,15 @@ fn revoked_and_expired_claims_are_skipped() {
 }
 
 /// SQLite rows from before 2026-07-02 got `attested_at = created_at`, which
-/// SQLite wrote as "YYYY-MM-DD HH:MM:SS". That value cannot round-trip as
-/// RFC3339, so the re-sign records a new attestation time.
+/// SQLite wrote as "YYYY-MM-DD HH:MM:SS", and the server signed that text as
+/// stored. The upgrade recognizes the signature and re-signs the same instant.
 #[test]
-fn unreadable_attested_at_gets_a_new_attestation() {
+fn sqlite_datetime_attested_at_is_recognized() {
     let pool = common::create_test_pool();
     #[allow(irrefutable_let_patterns)]
     let DbPool::Sqlite(sqlite) = &pool
     else {
-        return; // Postgres stores timestamptz; it cannot hold this value.
+        return; // Postgres stores timestamptz; it never held this text.
     };
     let keys = three_keys(&pool);
     let user = common::data_factory::create_user(&pool, &HashMap::new());
@@ -293,14 +307,45 @@ fn unreadable_attested_at_gets_a_new_attestation() {
             .unwrap();
     }
     let claim = stored(&pool, &claim.claim_id);
-    let payload = legacy_claim_payload(LegacyClaimFormat::V1Subject, &claim, &domain(), &domain());
+    assert_eq!(
+        sqlite_datetime_text(&claim.attested_at),
+        "2026-06-10 12:00:00"
+    );
+    // The old signature covers the SQLite text, not RFC 3339.
+    let payload = liblinkkeys::legacy_signatures::legacy_claim_payload_with(
+        LegacyClaimFormat::V2,
+        &claim,
+        &domain(),
+        &domain(),
+        "2026-06-10 12:00:00",
+    );
     set_signatures(&pool, &claim.claim_id, &[sign(&keys[0], &payload)]);
+
+    let report = run(&pool, Some(PASSPHRASE)).unwrap();
+    assert_eq!(report.claims.resigned, vec![claim.claim_id.clone()]);
+    let after = stored(&pool, &claim.claim_id);
+    assert_eq!(after.attested_at, claim.attested_at);
+    verify_claim(&after, &domain(), &keysets(&pool)).expect("re-signed claim verifies");
+}
+
+/// A stored signed time with a fraction of a second is cut to whole seconds
+/// and audited.
+#[test]
+fn fractional_signed_times_are_cut_to_whole_seconds() {
+    let pool = common::create_test_pool();
+    let keys = three_keys(&pool);
+    let user = common::data_factory::create_user(&pool, &HashMap::new());
+    let claim = legacy_claim(&pool, &user.id, LegacyClaimFormat::V1AlphaText, &[&keys[0]]);
+    assert_ne!(
+        claim.attested_at.nanosecond(),
+        0,
+        "the test needs a fraction"
+    );
 
     let report = run(&pool, Some(PASSPHRASE)).unwrap();
     assert_eq!(report.claims.reattested, vec![claim.claim_id.clone()]);
     let after = stored(&pool, &claim.claim_id);
-    assert_ne!(after.attested_at, "2026-06-10 12:00:00");
-    liblinkkeys::timestamp::parse_rfc3339(&after.attested_at).expect("RFC3339 now");
+    assert_eq!(after.attested_at, whole_seconds(claim.attested_at));
     verify_claim(&after, &domain(), &keysets(&pool)).expect("re-signed claim verifies");
     assert!(pool
         .list_audit(10)
@@ -321,14 +366,21 @@ fn legacy_consent_grant_is_resigned_and_verifies() {
         subject_domain: domain(),
         audience: "rp.example".to_string(),
         claim_types: vec!["email".to_string()],
-        issued_at: issued.to_rfc3339(),
-        expires_at: (issued + time::Duration::days(365)).to_rfc3339(),
+        issued_at: issued,
+        expires_at: issued + time::Duration::days(365),
         revoked_at: None,
         application: None,
     };
-    let payload = legacy_consent_payload(&grant, &domain());
+    let times = LegacyGrantTimes {
+        issued_at: grant.issued_at.to_rfc3339(),
+        expires_at: grant.expires_at.to_rfc3339(),
+    };
+    let payload = legacy_consent_payload(CONSENT_V1ALPHA_TAG, &grant, &times, &domain());
     let signed = SignedConsentGrant {
-        grant: liblinkkeys::generated::encode_consent_grant(&grant),
+        grant: downgrade_to_v1alpha_text(
+            &liblinkkeys::generated::encode_consent_grant(&grant).unwrap(),
+        )
+        .unwrap(),
         signatures: vec![sign(&keys[0], &payload)],
     };
     pool.upsert_consent_grant(
@@ -339,10 +391,10 @@ fn legacy_consent_grant_is_resigned_and_verifies() {
         None,
         &grant.claim_types,
         &grant.claim_types,
-        &liblinkkeys::generated::encode_signed_consent_grant(&signed),
+        &liblinkkeys::generated::encode_signed_consent_grant(&signed).unwrap(),
         None,
-        &grant.issued_at,
-        &grant.expires_at,
+        grant.issued_at,
+        grant.expires_at,
     )
     .unwrap();
 
@@ -374,20 +426,28 @@ fn legacy_revocation_certificate_is_resigned_and_verifies() {
     let pool = common::create_test_pool();
     let keys = three_keys(&pool);
     let target = pool.revoke_domain_key(&keys[0].id).unwrap();
-    let revoked_at = target.revoked_at.clone().unwrap();
-    let payload =
-        legacy_revocation_payload(&target.id, &target.fingerprint, &revoked_at, &domain());
+    let revoked_at = target.revoked_at.unwrap();
+    let payload = legacy_revocation_payload(
+        REVOCATION_TAG,
+        &target.id,
+        &target.fingerprint,
+        &revoked_at.to_rfc3339(),
+        &domain(),
+    );
     let cert = RevocationCertificate {
         target_key_id: target.id.clone(),
         target_fingerprint: target.fingerprint.clone(),
-        revoked_at: revoked_at.clone(),
+        revoked_at,
         signatures: vec![sign(&keys[1], &payload), sign(&keys[2], &payload)],
     };
     pool.insert_issued_revocation(
         &target.id,
         &target.fingerprint,
-        liblinkkeys::timestamp::parse_rfc3339(&revoked_at).unwrap(),
-        &liblinkkeys::generated::encode_revocation_certificate(&cert),
+        revoked_at,
+        &downgrade_to_v1alpha_text(
+            &liblinkkeys::generated::encode_revocation_certificate(&cert).unwrap(),
+        )
+        .unwrap(),
     )
     .unwrap();
 
@@ -413,5 +473,130 @@ fn legacy_revocation_certificate_is_resigned_and_verifies() {
     let after = liblinkkeys::generated::decode_revocation_certificate(&row.cert).unwrap();
     liblinkkeys::revocation::verify_revocation_certificate(&after, &public, &domain())
         .expect("re-signed certificate verifies");
-    assert_eq!(after.revoked_at, revoked_at);
+    assert_eq!(after.revoked_at, whole_seconds(revoked_at));
+}
+
+/// Store an application-key attestation in the v1alpha text encoding, signed
+/// by `key` over the stored bytes.
+fn legacy_attestation(
+    pool: &DbPool,
+    key: &DomainKey,
+    revoked: bool,
+) -> (String, ApplicationKeyAttestation) {
+    let instance = common::data_factory::create_application_instance(pool, &HashMap::new());
+    let app_key = common::data_factory::create_application_key(pool, &instance.id, &HashMap::new());
+    if revoked {
+        pool.revoke_application_key(
+            &instance.id,
+            &app_key.key_id,
+            time::OffsetDateTime::now_utc(),
+        )
+        .unwrap();
+    }
+    let now = time::OffsetDateTime::now_utc();
+    let attestation = ApplicationKeyAttestation {
+        subject_user_id: instance.subject_user_id.clone(),
+        subject_domain: domain(),
+        application_id: instance.application_id.clone(),
+        instance_id: instance.instance_id.clone(),
+        key_id: app_key.key_id.clone(),
+        key_usage: KeyUsage::Sign,
+        algorithm: KeyAlgorithm::Ed25519,
+        public_key: app_key.public_key.clone(),
+        fingerprint: app_key.fingerprint.clone(),
+        key_created_at: app_key.created_at,
+        key_expires_at: app_key.expires_at,
+        attested_at: now,
+        attestation_expires_at: now + time::Duration::days(1),
+    };
+    let old = downgrade_to_v1alpha_text(
+        &liblinkkeys::generated::encode_application_key_attestation(&attestation).unwrap(),
+    )
+    .unwrap();
+    let message = liblinkkeys::application_keys::attestation_signature_input(&old);
+    let signed = SignedApplicationKeyAttestation {
+        attestation: old,
+        signatures: vec![sign(key, &message)],
+    };
+    pool.upsert_application_key_attestation(
+        &app_key.id,
+        &liblinkkeys::generated::encode_signed_application_key_attestation(&signed).unwrap(),
+        attestation.attested_at,
+        attestation.attestation_expires_at,
+    )
+    .unwrap();
+    (app_key.id, attestation)
+}
+
+#[test]
+fn legacy_attestation_is_resigned_and_a_revoked_key_is_not() {
+    let pool = common::create_test_pool();
+    let keys = three_keys(&pool);
+    let (live_id, live) = legacy_attestation(&pool, &keys[0], false);
+    let (revoked_id, _) = legacy_attestation(&pool, &keys[0], true);
+
+    let check_only = run(&pool, None).unwrap();
+    assert_eq!(check_only.attestations.stale.len(), 1);
+    assert_eq!(check_only.attestations.dropped.len(), 1);
+
+    let report = run(&pool, Some(PASSPHRASE)).unwrap();
+    assert_eq!(
+        report.attestations.resigned.len(),
+        1,
+        "{:?}",
+        report.attestations
+    );
+    assert_eq!(report.attestations.dropped.len(), 1);
+    assert!(report.attestations.is_clean());
+
+    let public: Vec<DomainPublicKey> = pool
+        .list_all_domain_keys()
+        .unwrap()
+        .iter()
+        .map(Into::into)
+        .collect();
+    let stored = pool
+        .get_application_key_attestation(&live_id)
+        .unwrap()
+        .unwrap();
+    let found = attestation_provenance(&stored.signed_attestation, &domain(), &public).unwrap();
+    assert_eq!(found.provenance, Provenance::Current);
+    assert_eq!(found.attestation, live);
+
+    // The revoked key keeps its old record, which no verifier can read.
+    let old = pool
+        .get_application_key_attestation(&revoked_id)
+        .unwrap()
+        .unwrap();
+    let signed =
+        liblinkkeys::generated::decode_signed_application_key_attestation(&old.signed_attestation)
+            .unwrap();
+    assert!(
+        liblinkkeys::generated::decode_application_key_attestation(&signed.attestation).is_err()
+    );
+
+    let again = run(&pool, Some(PASSPHRASE)).unwrap();
+    assert_eq!(again.attestations.current, 1);
+    assert!(again.attestations.resigned.is_empty());
+}
+
+#[test]
+fn act_as_grants_in_an_older_encoding_are_removed() {
+    let pool = common::create_test_pool();
+    three_keys(&pool);
+    // The data factory stores bytes that are not a current grant.
+    let grant = common::data_factory::create_act_as_grant(&pool, &HashMap::new());
+
+    let check_only = run(&pool, None).unwrap();
+    assert_eq!(check_only.act_as_grants.stale, vec![grant.grant_id.clone()]);
+    assert!(pool.find_act_as_grant(&grant.grant_id).unwrap().is_some());
+
+    let report = run(&pool, Some(PASSPHRASE)).unwrap();
+    assert_eq!(report.act_as_grants.dropped, vec![grant.grant_id.clone()]);
+    assert!(pool.find_act_as_grant(&grant.grant_id).unwrap().is_none());
+    assert!(pool
+        .list_audit(10)
+        .unwrap()
+        .iter()
+        .any(|e| e.event == "act_as_grant.dropped"));
 }

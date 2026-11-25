@@ -4,7 +4,8 @@
 // the raw TXT strings this module parses.
 
 import { fingerprint, verifyEd25519 } from "./crypto.ts";
-import { encodeCborTuple, text } from "./cborTuple.ts";
+import { encodeCborTuple, int, text } from "./cborTuple.ts";
+import { signedSeconds, SignedTimeError } from "./signedTime.ts";
 import type { DomainPublicKey } from "../generated/types.gen.ts";
 
 /** Default TCP port for the LinkKeys protocol service. */
@@ -117,14 +118,18 @@ export function pinKeysToFingerprints(
 
 const KEY_VOUCH_TAG = "linkkeys-key-vouch-v1alpha";
 
-/** Canonical bytes a signing key signs to vouch for an encryption key. */
-export function keyVouchPayload(encFingerprint: string, encExpiresAt: string): Uint8Array {
-  return encodeCborTuple([text(KEY_VOUCH_TAG), text(encFingerprint), text(encExpiresAt)]);
+/**
+ * Canonical bytes a signing key signs to vouch for an encryption key. The
+ * expiry is a CBOR integer of whole Unix seconds; a time with a fraction of a
+ * second throws `SignedTimeError`, because it was never signed.
+ */
+export function keyVouchPayload(encFingerprint: string, encExpiresAt: Date): Uint8Array {
+  return encodeCborTuple([text(KEY_VOUCH_TAG), text(encFingerprint), int(signedSeconds(encExpiresAt))]);
 }
 
 function signingKeyValidity(key: DomainPublicKey, now: Date): "valid" | "revoked" | "expired" {
   if (key.revokedAt !== undefined) return "revoked";
-  const expires = new Date(key.expiresAt);
+  const expires = key.expiresAt;
   if (Number.isNaN(expires.getTime())) return "expired";
   return now.getTime() > expires.getTime() ? "expired" : "valid";
 }
@@ -141,7 +146,13 @@ export function verifyKeyVouch(
   const sig = encKey.keySignature;
   if (!sig) return false;
   const recomputedFp = fingerprint(encKey.publicKey);
-  const payload = keyVouchPayload(recomputedFp, encKey.expiresAt);
+  let payload: Uint8Array;
+  try {
+    payload = keyVouchPayload(recomputedFp, encKey.expiresAt);
+  } catch (e) {
+    if (e instanceof SignedTimeError) return false;
+    throw e;
+  }
   return verifyEd25519(payload, sig, signingKey.publicKey);
 }
 

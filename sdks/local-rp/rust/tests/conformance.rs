@@ -153,8 +153,16 @@ fn parse_allowed_suites(case: &Value) -> Vec<AeadSuite> {
         .as_array()
         .unwrap()
         .iter()
-        .map(|v| AeadSuite::parse_str(v.as_str().unwrap()).expect("registered suite id"))
+        .map(|v| suite_from_id(v.as_str().unwrap()))
         .collect()
+}
+
+/// The suite whose text id (the KDF-context label, e.g. "aes-256-gcm") is `id`.
+fn suite_from_id(id: &str) -> AeadSuite {
+    AeadSuite::all_supported()
+        .into_iter()
+        .find(|s| s.kdf_label() == id)
+        .unwrap_or_else(|| panic!("unregistered suite id {id:?}"))
 }
 
 #[test]
@@ -185,7 +193,11 @@ fn callback_box_positive_cases_open_via_sdk_dependency() {
                     panic!("positive case {:?} failed to open: {e:?}", case["suite"])
                 });
 
-        assert_eq!(header.suite, case["suite"].as_str().unwrap());
+        assert_eq!(header.suite, suite_from_id(case["suite"].as_str().unwrap()));
+        assert_eq!(
+            header.suite.to_number(),
+            case["suite_number"].as_i64().unwrap()
+        );
         assert_eq!(header.fingerprint, case["fingerprint"].as_str().unwrap());
         assert_eq!(
             header.nonce,
@@ -195,10 +207,17 @@ fn callback_box_positive_cases_open_via_sdk_dependency() {
             header.state,
             hex_decode(case["state_hex"].as_str().unwrap())
         );
-        assert_eq!(header.issued_at, case["issued_at"].as_str().unwrap());
-        assert_eq!(header.expires_at, case["expires_at"].as_str().unwrap());
+        assert_eq!(
+            header.issued_at,
+            parse_rfc3339(case["issued_at"].as_str().unwrap())
+        );
+        assert_eq!(
+            header.expires_at,
+            parse_rfc3339(case["expires_at"].as_str().unwrap())
+        );
 
-        let plaintext = generated::encode_signed_local_rp_callback_payload(&signed_payload);
+        let plaintext =
+            generated::encode_signed_local_rp_callback_payload(&signed_payload).unwrap();
         assert_eq!(
             plaintext,
             hex_decode(case["plaintext_cbor_hex"].as_str().unwrap())
@@ -437,8 +456,8 @@ fn expirations_check_expirations_thresholds_via_sdk_wrapper() {
 #[test]
 fn expirations_check_timestamps_skew_boundaries_are_exact() {
     let d = load("expirations.json");
-    let issued_at = d["check_timestamps"]["issued_at"].as_str().unwrap();
-    let expires_at = d["check_timestamps"]["expires_at"].as_str().unwrap();
+    let issued_at = parse_rfc3339(d["check_timestamps"]["issued_at"].as_str().unwrap());
+    let expires_at = parse_rfc3339(d["check_timestamps"]["expires_at"].as_str().unwrap());
     let skew = d["check_timestamps"]["skew_seconds"].as_i64().unwrap();
     let cases = d["check_timestamps"]["cases"].as_array().unwrap();
     assert_eq!(cases.len(), 4);

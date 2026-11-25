@@ -8,6 +8,8 @@ import {
   fromGetRevocationsRequestCbor,
   toGetDomainKeysResponseCbor,
   toGetRevocationsResponseCbor,
+  RpErrorRefusal,
+  toRpErrorCbor,
   toRpSignResponseCbor,
 } from "../generated/codec.gen.ts";
 import { derivePublicKeyFromEd25519PrivateKey, fingerprint } from "../src/crypto.ts";
@@ -43,7 +45,11 @@ class LoopbackTransport implements Transport {
   }
 }
 
-async function server(): Promise<{ port: number; close: () => Promise<void>; auth: () => string | undefined }> {
+type SignReply = { variant: string; payload: Uint8Array };
+
+const SIGNED_REPLY: SignReply = { variant: "RpSignResponse", payload: toRpSignResponseCbor({ signedRequest: "from-rp" }) };
+
+async function server(reply: SignReply = SIGNED_REPLY): Promise<{ port: number; close: () => Promise<void>; auth: () => string | undefined }> {
   let receivedAuth: string | undefined;
   const listener = tls.createServer({ key: TEST_KEY, cert: TEST_CERTIFICATE }, (socket) => {
     let buffer = Buffer.alloc(0);
@@ -56,7 +62,7 @@ async function server(): Promise<{ port: number; close: () => Promise<void>; aut
       receivedAuth = request.auth;
       assert.equal(request.service, "Rp");
       assert.equal(request.op, "sign-request");
-      const response = RpcResponse.ok("", toRpSignResponseCbor({ signedRequest: "from-rp" })).encode();
+      const response = RpcResponse.ok(reply.variant, reply.payload).encode();
       const frame = Buffer.alloc(4 + response.length);
       frame.writeUInt32BE(response.length, 0);
       frame.set(response, 4);
@@ -89,6 +95,45 @@ test("generated client uses pinned TLS and puts the API key in RPC auth", async 
     });
     assert.equal(response.signedRequest, "from-rp");
     assert.equal(fake.auth(), "application-api-key");
+  } finally {
+    await fake.close();
+  }
+});
+
+test("an RpError reply arm is a typed RpErrorRefusal", async () => {
+  const fake = await server({
+    variant: "RpError",
+    payload: toRpErrorCbor({ code: "not_application_account", message: "not an application account" }),
+  });
+  try {
+    const transport = new PinnedRpcTransport({
+      tcpAddress: `ignored.example:${fake.port}`,
+      fingerprints: [fingerprint(derivePublicKeyFromEd25519PrivateKey(DOMAIN_SEED))],
+      apiKey: "application-api-key",
+      socketTransport: new LoopbackTransport(fake.port),
+    });
+    await assert.rejects(
+      new RpAsyncClient(transport).signRequest({ callbackUrl: "https://app.example/callback", nonce: "nonce" }),
+      (error: unknown) => error instanceof RpErrorRefusal && error.value.code === "not_application_account",
+    );
+  } finally {
+    await fake.close();
+  }
+});
+
+test("an unknown reply arm is refused", async () => {
+  const fake = await server({ variant: "Unexpected", payload: toRpSignResponseCbor({ signedRequest: "from-rp" }) });
+  try {
+    const transport = new PinnedRpcTransport({
+      tcpAddress: `ignored.example:${fake.port}`,
+      fingerprints: [fingerprint(derivePublicKeyFromEd25519PrivateKey(DOMAIN_SEED))],
+      apiKey: "application-api-key",
+      socketTransport: new LoopbackTransport(fake.port),
+    });
+    await assert.rejects(
+      new RpAsyncClient(transport).signRequest({ callbackUrl: "https://app.example/callback", nonce: "nonce" }),
+      /invalid RPC reply variant/,
+    );
   } finally {
     await fake.close();
   }
@@ -205,7 +250,7 @@ test("an abort signal cancels a live RPC", async () => {
 test("revocation lookup starts at the oldest presented key", async () => {
   const publicKey = derivePublicKeyFromEd25519PrivateKey(DOMAIN_SEED);
   const keyFingerprint = fingerprint(publicKey);
-  let requestedSince: string | undefined;
+  let requestedSince: Date | undefined;
   const listener = tls.createServer({ key: TEST_KEY, cert: TEST_CERTIFICATE }, (socket) => {
     let buffer = Buffer.alloc(0);
     socket.on("data", (chunk: Buffer) => {
@@ -224,8 +269,8 @@ test("revocation lookup starts at the oldest presented key", async () => {
             fingerprint: keyFingerprint,
             algorithm: "ed25519",
             keyUsage: "sign",
-            createdAt: "1999-03-04T05:06:07.000Z",
-            expiresAt: "2099-01-01T00:00:00.000Z",
+            createdAt: new Date("1999-03-04T05:06:07.000Z"),
+            expiresAt: new Date("2099-01-01T00:00:00.000Z"),
           }],
         });
       } else {
@@ -257,7 +302,7 @@ test("revocation lookup starts at the oldest presented key", async () => {
       "old.example",
     );
     assert.equal(keys.length, 1);
-    assert.equal(requestedSince, "1999-03-04T05:06:07.000Z");
+    assert.deepEqual(requestedSince, new Date("1999-03-04T05:06:07.000Z"));
   } finally {
     await new Promise<void>((resolve, reject) => listener.close((error) => error ? reject(error) : resolve()));
   }

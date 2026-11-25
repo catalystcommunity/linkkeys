@@ -87,10 +87,16 @@ public final class Identity {
         if (suites.isEmpty()) {
             throw new SdkException(SdkException.Kind.INVALID_INPUT, "supported_suites must not be empty");
         }
+        // Each suite becomes a CSIL number on the wire, so it must be a registry id.
+        for (String suite : suites) {
+            if (AeadSuite.parse(suite) == null) {
+                throw new SdkException(SdkException.Kind.INVALID_INPUT, "unknown AEAD suite: " + suite);
+            }
+        }
 
         Duration lifetime = config.lifetime != null ? config.lifetime : DEFAULT_LIFETIME;
-        String createdAt = Rfc3339.format(config.now);
-        String expiresAt = Rfc3339.format(config.now.plus(lifetime));
+        Instant createdAt = config.now;
+        Instant expiresAt = config.now.plus(lifetime);
 
         LocalRpDescriptor descriptor = LocalRp.buildLocalRpDescriptor(
                 config.appName,

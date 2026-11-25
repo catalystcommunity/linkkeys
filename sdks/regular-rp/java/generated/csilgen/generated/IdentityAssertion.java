@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.List;
 
 public record IdentityAssertion(
@@ -9,9 +10,10 @@ public record IdentityAssertion(
     String domain /* wire: "domain" */,
     String audience /* wire: "audience" */,
     String nonce /* wire: "nonce" */,
-    String issuedAt /* wire: "issued_at" */,
-    String expiresAt /* wire: "expires_at" */,
+    Instant issuedAt /* wire: "issued_at" */,
+    Instant expiresAt /* wire: "expires_at" */,
     List<String> authorizedClaims /* wire: "authorized_claims" */,
-    String displayName /* wire: "display_name" */
+    String displayName /* wire: "display_name" */,
+    ApplicationRef application /* wire: "application" */
 ) {
 }

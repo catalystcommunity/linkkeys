@@ -255,7 +255,7 @@ src/main/kotlin/community/catalyst/linkkeys/localrp/kt/
   Expiration.kt         checkExpirations, ExpirationStatus, ExpirationLevel
   Seams.kt              Transport / DnsResolver seams, AddressPolicy, defaults
   Errors.kt              LocalRpException sealed hierarchy + the Java-exception translation boundary
-  WireMapping.kt         Claim / ClaimSignature / DomainPublicKey idiomatic data classes + RFC3339 <-> Instant mapping
+  WireMapping.kt         Claim / ClaimSignature / DomainPublicKey idiomatic data classes (Instant times)
   protocol/Protocol.kt   lower-level pure helpers (envelope sig input, callback-box open,
                           revocation verification, DNS TXT parsing, URL-param codec) --
                           this package's own conformance-testing / advanced-interop surface
@@ -349,15 +349,15 @@ user authorization (design doc). Concretely:
   discovered host.
 - `LocalRpException` messages never carry key material, nonces, tokens,
   tickets, or claim values (see "Error handling" above).
-- `RevocationCertificate.revokedAt` (in the `protocol` sub-package) is
-  deliberately kept as a raw RFC3339 wire string rather than parsed to
-  `Instant`: it is one of the exact bytes a sibling's signature covers, and
-  parsing-then-reformatting it (`+00:00` -> `Z`, a real difference between
-  this SDK's own RFC3339 output and the conformance vectors' RFC3339 input)
-  would silently break every signature in the certificate. See that type's
-  class docs for the full rationale -- this is the one place in this
-  package's public surface where an `Instant` would have been more
-  "idiomatic" but actively wrong.
+- Wire rules (`docs/UPGRADING.md`, "Wire format: timestamps and enums"): a
+  CSIL `timestamp` is CBOR tag 0 that holds RFC 3339 text in UTC, and this
+  package gives it to you as an `Instant`. Key algorithm, key usage, and AEAD
+  suite are unsigned integers on the wire (`ed25519` = 1, `sign` = 1,
+  `encrypt` = 2, `aes-256-gcm` = 1, `chacha20-poly1305` = 2). This package
+  keeps the text labels. A signed claim, key revocation, or key vouch holds
+  each time as whole Unix seconds. A time with a fraction of a second fails
+  verification, so `RevocationCertificate.revokedAt` and the claim times are
+  `Instant`s and the SDK does not round them.
 
 ## Android
 

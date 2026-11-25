@@ -129,7 +129,7 @@ export class AdminAccountsPage extends AdminPage {
       h("td", null, link(`/app/admin/users/${encodeURIComponent(user.id)}`, h("code", null, user.username))),
       h("td", null, user.displayName),
       h("td", null, h("span", { class: "pill" }, user.isActive ? t("app.admin.status_active") : t("app.admin.status_disabled"))),
-      h("td", null, new Date(user.createdAt).toLocaleDateString()),
+      h("td", null, user.createdAt.toLocaleDateString()),
       h("td", null, action));
   }
 
@@ -414,7 +414,7 @@ export class AdminUserPage extends AdminPage {
 
   private async addClaim(): Promise<void> {
     const expires = this.expires.value;
-    const request = { userId: this.userId, claimType: this.claimType.value.trim(), claimValue: this.claimValue.value, expiresAt: expires ? `${expires}T00:00:00Z` : undefined };
+    const request = { userId: this.userId, claimType: this.claimType.value.trim(), claimValue: this.claimValue.value, expiresAt: expires ? new Date(`${expires}T00:00:00Z`) : undefined };
     if (await this.act(() => api.admin.setClaim(request), t("app.admin_user.claim_added"), t("app.admin_user.claim_add_failed"))) {
       this.claimValue.value = "";
       this.expires.value = "";

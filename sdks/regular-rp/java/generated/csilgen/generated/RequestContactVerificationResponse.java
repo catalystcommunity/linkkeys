@@ -2,7 +2,9 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
+
 public record RequestContactVerificationResponse(
-    String expiresAt /* wire: "expires_at" */
+    Instant expiresAt /* wire: "expires_at" */
 ) {
 }

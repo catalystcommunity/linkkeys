@@ -22,22 +22,22 @@ public static class Types
         string Fingerprint,
         string Algorithm,
         string KeyUsage,
-        string CreatedAt,
-        string ExpiresAt,
-        string? RevokedAt,
+        DateTimeOffset CreatedAt,
+        DateTimeOffset ExpiresAt,
+        DateTimeOffset? RevokedAt,
         string? SignedByKeyId,
         byte[]? KeySignature);
 
     public sealed record GetDomainKeysResponse(string Domain, IReadOnlyList<DomainPublicKey> Keys, bool? RecentRevocationsAvailable);
 
-    public sealed record GetRevocationsRequest(string? Since);
+    public sealed record GetRevocationsRequest(DateTimeOffset? Since);
 
     public sealed record ClaimSignature(string Domain, string SignedByKeyId, byte[] Signature);
 
     public sealed record RevocationCertificate(
         string TargetKeyId,
         string TargetFingerprint,
-        string RevokedAt,
+        DateTimeOffset RevokedAt,
         IReadOnlyList<ClaimSignature> Signatures);
 
     public sealed record GetRevocationsResponse(IReadOnlyList<RevocationCertificate> Revocations);
@@ -48,10 +48,10 @@ public static class Types
         string ClaimType,
         byte[] ClaimValue,
         IReadOnlyList<ClaimSignature> Signatures,
-        string AttestedAt,
-        string CreatedAt,
-        string? ExpiresAt,
-        string? RevokedAt);
+        DateTimeOffset AttestedAt,
+        DateTimeOffset CreatedAt,
+        DateTimeOffset? ExpiresAt,
+        DateTimeOffset? RevokedAt);
 
     public sealed record LocalRpDescriptor(
         string AppName,
@@ -60,8 +60,8 @@ public static class Types
         byte[] EncryptionPublicKey,
         string Fingerprint,
         IReadOnlyList<string> SupportedSuites,
-        string CreatedAt,
-        string ExpiresAt);
+        DateTimeOffset CreatedAt,
+        DateTimeOffset ExpiresAt);
 
     public sealed record SignedLocalRpDescriptor(byte[] Descriptor, byte[] Signature);
 
@@ -72,8 +72,8 @@ public static class Types
         byte[] State,
         IReadOnlyList<string> RequestedClaims,
         IReadOnlyList<string> RequiredClaims,
-        string IssuedAt,
-        string ExpiresAt);
+        DateTimeOffset IssuedAt,
+        DateTimeOffset ExpiresAt);
 
     public sealed record SignedLocalRpLoginRequest(byte[] Request, byte[] Signature);
 
@@ -84,8 +84,8 @@ public static class Types
         string Suite,
         byte[] EphemeralPublicKey,
         byte[] AeadNonce,
-        string IssuedAt,
-        string ExpiresAt);
+        DateTimeOffset IssuedAt,
+        DateTimeOffset ExpiresAt);
 
     public sealed record LocalRpEncryptedCallback(byte[] Header, byte[] Ciphertext);
 
@@ -97,17 +97,17 @@ public static class Types
         string CallbackUrl,
         byte[] Nonce,
         byte[] State,
-        string IssuedAt,
-        string ExpiresAt);
+        DateTimeOffset IssuedAt,
+        DateTimeOffset ExpiresAt);
 
     public sealed record SignedLocalRpCallbackPayload(byte[] Payload, string SigningKeyId, byte[] Signature);
 
-    public sealed record LocalRpTicketRedemptionRequest(byte[] ClaimTicket, string Fingerprint, string IssuedAt);
+    public sealed record LocalRpTicketRedemptionRequest(byte[] ClaimTicket, string Fingerprint, DateTimeOffset IssuedAt);
 
     public sealed record SignedLocalRpTicketRedemptionRequest(byte[] Request, byte[] Signature);
 
     public sealed record LocalRpTicketRedemptionResponse(
-        string UserId, string UserDomain, IReadOnlyList<Claim> Claims, string TicketExpiresAt);
+        string UserId, string UserDomain, IReadOnlyList<Claim> Claims, DateTimeOffset TicketExpiresAt);
 
     // -----------------------------------------------------------------
     // Act-as grants (grantee side only). A local RP can be a grantee, never an
@@ -140,10 +140,10 @@ public static class Types
         ApplicationRef Audience,
         SignedActAsScopeSet ScopeSet,
         IReadOnlyList<string> ApprovedScope,
-        string IssuedAt,
-        string ExpiresAt,
-        string SeriesIssuedAt,
-        string RenewableUntil,
+        DateTimeOffset IssuedAt,
+        DateTimeOffset ExpiresAt,
+        DateTimeOffset SeriesIssuedAt,
+        DateTimeOffset RenewableUntil,
         string? DeviceFingerprint);
 
     /// <summary>
@@ -157,12 +157,12 @@ public static class Types
         long? RequestedRenewalWindowSeconds,
         string CallbackUrl,
         string Nonce,
-        string RequestedAt,
-        string ExpiresAt);
+        DateTimeOffset RequestedAt,
+        DateTimeOffset ExpiresAt);
 
     public sealed record SignedActAsGrantRequest(byte[] Request, GranteeProof Proof);
 
-    public sealed record ActAsRefreshRequest(string GrantId, GranteeRef Grantee, string RequestedAt, string ExpiresAt, string Nonce);
+    public sealed record ActAsRefreshRequest(string GrantId, GranteeRef Grantee, DateTimeOffset RequestedAt, DateTimeOffset ExpiresAt, string Nonce);
 
     public sealed record SignedActAsRefreshRequest(byte[] Request, GranteeProof Proof);
 
@@ -171,7 +171,7 @@ public static class Types
     public sealed record RefreshActAsGrantResponse(SignedActAsGrant Grant, bool Signed);
 
     public sealed record ActAsPresentation(
-        byte[] GrantHash, ApplicationRef Audience, byte[] RequestDigest, string PresentedAt, byte[] Nonce);
+        byte[] GrantHash, ApplicationRef Audience, byte[] RequestDigest, DateTimeOffset PresentedAt, byte[] Nonce);
 
     public sealed record SignedActAsPresentation(byte[] Presentation, GranteeProof Proof);
 

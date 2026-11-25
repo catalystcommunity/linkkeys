@@ -22,7 +22,7 @@ function corePath(path: string): boolean {
   return path === "/app" || path === "/app/" || CORE_PATHS.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }
 
-function sessionIdentity(value?: BrowserSessionInfo): string { return value ? `${value.user.id}:${value.issuedAt}` : ""; }
+function sessionIdentity(value?: BrowserSessionInfo): string { return value ? `${value.user.id}:${value.issuedAt.getTime()}` : ""; }
 
 /** The page title for the last path segment of a UI route. */
 function pageTitle(segment: string): string {

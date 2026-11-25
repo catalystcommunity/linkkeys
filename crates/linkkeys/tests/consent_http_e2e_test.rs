@@ -15,7 +15,6 @@ use liblinkkeys::generated::types::{
     AuthenticationRequirements, BrowserAuthorizationCompleteRequest,
     BrowserAuthorizationInspectRequest, ClaimRequest, RequestedClaim, SessionPasswordLoginRequest,
 };
-use liblinkkeys::timestamp::Rfc3339 as _;
 use rocket::http::{ContentType, Header, Status};
 use rocket::local::asynchronous::Client;
 use std::sync::atomic::AtomicBool;
@@ -46,6 +45,19 @@ async fn rpc(client: &Client, service: &str, operation: &str, payload: Vec<u8>) 
         .expect("decode RPC response")
 }
 
+/// The relying party's application that every request names. It is a
+/// principal of the RP's own domain, as validation requires.
+fn rp_application() -> liblinkkeys::generated::types::RelyingPartyApplication {
+    liblinkkeys::generated::types::RelyingPartyApplication {
+        application: liblinkkeys::generated::types::ApplicationRef {
+            subject_user_id: "00000000-0000-0000-0000-0000000000ab".to_string(),
+            subject_domain: TEST_DOMAIN.to_string(),
+            application_id: "test-app".to_string(),
+        },
+        display_name: "Test App".to_string(),
+    }
+}
+
 fn signed_request(
     signing_key_id: &str,
     signing_key: &[u8],
@@ -60,6 +72,7 @@ fn signed_request(
         signing_key_id,
         claims,
         None,
+        rp_application(),
     );
     request.relying_party_claims = None;
     request.authentication_requirements = requirements;
@@ -88,7 +101,7 @@ async fn spa_consent_flow_end_to_end() {
     let encrypted_signing_key =
         crypto::encrypt_private_key(&signing_key_bytes, PASSPHRASE).unwrap();
     let fingerprint = crypto::fingerprint(&public_key);
-    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
+    let expires = liblinkkeys::timestamp::now_whole_seconds() + time::Duration::days(365);
     let signing = pool
         .create_domain_key(
             &public_key,
@@ -105,7 +118,7 @@ async fn spa_consent_flow_end_to_end() {
         crypto::encrypt_private_key(&encryption_private_key, PASSPHRASE).unwrap();
     let vouch = liblinkkeys::dns::sign_key_vouch(
         &encryption_fingerprint,
-        &expires.to_rfc3339(),
+        &expires,
         SigningAlgorithm::Ed25519,
         &signing_key_bytes,
     )
@@ -147,11 +160,11 @@ async fn spa_consent_flow_end_to_end() {
         Some(ClaimRequest {
             required: vec![RequestedClaim {
                 claim_type: "email".to_string(),
-                datatype: "email".to_string(),
+                datatype: liblinkkeys::claim_policy::ValueType::Email,
             }],
             optional: vec![RequestedClaim {
                 claim_type: "ssn".to_string(),
-                datatype: "text".to_string(),
+                datatype: liblinkkeys::claim_policy::ValueType::Text,
             }],
         }),
         None,
@@ -229,7 +242,8 @@ async fn spa_consent_flow_end_to_end() {
         &BrowserAuthorizationInspectRequest {
             signed_request: authorization.clone(),
         },
-    );
+    )
+    .unwrap();
     let response = rpc(
         &client,
         "BrowserAuthorization",
@@ -248,7 +262,8 @@ async fn spa_consent_flow_end_to_end() {
                 username: USERNAME.to_string(),
                 password: "wrong password".to_string(),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_ne!(wrong_login.status, RpcStatus::Ok);
@@ -262,7 +277,8 @@ async fn spa_consent_flow_end_to_end() {
                 username: format!("{USERNAME}@{TEST_DOMAIN}"),
                 password: PASSWORD.to_string(),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_eq!(login.status, RpcStatus::Ok);
@@ -282,7 +298,7 @@ async fn spa_consent_flow_end_to_end() {
         .any(|claim| claim.claim_type == "email"
             && claim.required
             && claim.available
-            && claim.policy == "forced_allow"));
+            && claim.policy.as_str() == "forced_allow"));
     assert!(inspection
         .claims
         .iter()
@@ -296,7 +312,8 @@ async fn spa_consent_flow_end_to_end() {
             claim_values_to_set: Vec::new(),
             use_standing_grant: None,
         },
-    );
+    )
+    .unwrap();
     let response = rpc(
         &client,
         "BrowserAuthorization",
@@ -312,7 +329,7 @@ async fn spa_consent_flow_end_to_end() {
     assert!(completion.redirect_url.contains("encrypted_token="));
 
     let grant = pool
-        .find_active_consent_grant(&user.id, TEST_DOMAIN, None)
+        .find_active_consent_grant(&user.id, TEST_DOMAIN, Some(&rp_application().application))
         .expect("query grant")
         .expect("stored grant");
     assert_eq!(grant.claim_types, vec!["email"]);
@@ -324,11 +341,11 @@ async fn spa_consent_flow_end_to_end() {
         Some(ClaimRequest {
             required: vec![RequestedClaim {
                 claim_type: "email".to_string(),
-                datatype: "email".to_string(),
+                datatype: liblinkkeys::claim_policy::ValueType::Email,
             }],
             optional: vec![RequestedClaim {
                 claim_type: "ssn".to_string(),
-                datatype: "text".to_string(),
+                datatype: liblinkkeys::claim_policy::ValueType::Text,
             }],
         }),
         None,
@@ -341,7 +358,8 @@ async fn spa_consent_flow_end_to_end() {
             &BrowserAuthorizationInspectRequest {
                 signed_request: repeat_authorization.clone(),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_eq!(response.status, RpcStatus::Ok);
@@ -366,7 +384,8 @@ async fn spa_consent_flow_end_to_end() {
                 claim_values_to_set: Vec::new(),
                 use_standing_grant: Some(true),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_eq!(response.status, RpcStatus::Ok);
@@ -378,11 +397,11 @@ async fn spa_consent_flow_end_to_end() {
         Some(ClaimRequest {
             required: vec![RequestedClaim {
                 claim_type: "email".to_string(),
-                datatype: "email".to_string(),
+                datatype: liblinkkeys::claim_policy::ValueType::Email,
             }],
             optional: vec![RequestedClaim {
                 claim_type: "ssn".to_string(),
-                datatype: "text".to_string(),
+                datatype: liblinkkeys::claim_policy::ValueType::Text,
             }],
         }),
         None,
@@ -395,7 +414,8 @@ async fn spa_consent_flow_end_to_end() {
             &BrowserAuthorizationInspectRequest {
                 signed_request: changed_policy_authorization.clone(),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_eq!(response.status, RpcStatus::Ok);
@@ -418,7 +438,8 @@ async fn spa_consent_flow_end_to_end() {
                 claim_values_to_set: Vec::new(),
                 use_standing_grant: Some(true),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_ne!(response.status, RpcStatus::Ok);
@@ -431,7 +452,8 @@ async fn spa_consent_flow_end_to_end() {
             &BrowserAuthorizationInspectRequest {
                 signed_request: changed_policy_authorization,
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_eq!(response.status, RpcStatus::Ok);
@@ -457,7 +479,7 @@ async fn spa_consent_flow_end_to_end() {
         Some(ClaimRequest {
             required: vec![RequestedClaim {
                 claim_type: "display_name".to_string(),
-                datatype: "text".to_string(),
+                datatype: liblinkkeys::claim_policy::ValueType::Text,
             }],
             optional: Vec::new(),
         }),
@@ -471,7 +493,8 @@ async fn spa_consent_flow_end_to_end() {
             &BrowserAuthorizationInspectRequest {
                 signed_request: missing_claim_authorization.clone(),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_eq!(response.status, RpcStatus::Ok);
@@ -494,7 +517,8 @@ async fn spa_consent_flow_end_to_end() {
                 claim_values_to_set: vec!["Ada".to_string()],
                 use_standing_grant: None,
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_eq!(response.status, RpcStatus::Ok);
@@ -545,23 +569,23 @@ fn signed_app_request(
         Some(ClaimRequest {
             required: vec![RequestedClaim {
                 claim_type: "email".to_string(),
-                datatype: "email".to_string(),
+                datatype: liblinkkeys::claim_policy::ValueType::Email,
             }],
             optional: Vec::new(),
         }),
         None,
+        liblinkkeys::generated::types::RelyingPartyApplication {
+            application: liblinkkeys::generated::types::ApplicationRef {
+                subject_user_id: "00000000-0000-0000-0000-0000000000aa".to_string(),
+                subject_domain: TEST_DOMAIN.to_string(),
+                application_id: application_id.to_string(),
+            },
+            // The signing RP chose this name. The IDP removes the bidi override
+            // and the newline before the consent screen shows it.
+            display_name: "Home \u{202E}Grafana\n".to_string(),
+        },
     );
     request.relying_party_claims = None;
-    request.application = Some(liblinkkeys::generated::types::RelyingPartyApplication {
-        application: liblinkkeys::generated::types::ApplicationRef {
-            subject_user_id: "00000000-0000-0000-0000-0000000000aa".to_string(),
-            subject_domain: TEST_DOMAIN.to_string(),
-            application_id: application_id.to_string(),
-        },
-        // The signing RP chose this name. The IDP removes the bidi override
-        // and the newline before the consent screen shows it.
-        display_name: "Home \u{202E}Grafana\n".to_string(),
-    });
     let signed = sign_auth_request(
         &request,
         signing_key_id,
@@ -584,7 +608,8 @@ async fn inspect(
             &BrowserAuthorizationInspectRequest {
                 signed_request: signed_request.to_string(),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_eq!(response.status, RpcStatus::Ok);
@@ -610,7 +635,7 @@ async fn off_domain_application_signs_in_with_per_application_consent() {
     let signing_key_bytes = signing_key.to_bytes().to_vec();
     let encrypted_signing_key =
         crypto::encrypt_private_key(&signing_key_bytes, PASSPHRASE).unwrap();
-    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
+    let expires = liblinkkeys::timestamp::now_whole_seconds() + time::Duration::days(365);
     let signing = pool
         .create_domain_key(
             &public_key,
@@ -624,7 +649,7 @@ async fn off_domain_application_signs_in_with_per_application_consent() {
     let encryption_fingerprint = crypto::fingerprint(&encryption_public_key);
     let vouch = liblinkkeys::dns::sign_key_vouch(
         &encryption_fingerprint,
-        &expires.to_rfc3339(),
+        &expires,
         SigningAlgorithm::Ed25519,
         &signing_key_bytes,
     )
@@ -694,7 +719,8 @@ async fn off_domain_application_signs_in_with_per_application_consent() {
                 username: USERNAME.to_string(),
                 password: PASSWORD.to_string(),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_eq!(login.status, RpcStatus::Ok);
@@ -727,7 +753,8 @@ async fn off_domain_application_signs_in_with_per_application_consent() {
                 claim_values_to_set: Vec::new(),
                 use_standing_grant: None,
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_eq!(response.status, RpcStatus::Ok);

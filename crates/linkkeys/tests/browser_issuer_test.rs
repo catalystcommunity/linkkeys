@@ -18,7 +18,6 @@ use liblinkkeys::generated::types::{
     IssueForSigningRequestRequest, SessionPasswordLoginRequest,
 };
 use liblinkkeys::signing_request::{sign_signing_request, SigningRequestSpec};
-use liblinkkeys::timestamp::Rfc3339 as _;
 use rocket::http::{ContentType, Header, Status};
 use rocket::local::asynchronous::Client;
 use std::sync::atomic::AtomicBool;
@@ -43,10 +42,10 @@ fn subject_domain() -> SubjectDomain {
         key_id: "subject-1".to_string(),
         public_key,
         fingerprint: fingerprint.clone(),
-        algorithm: "ed25519".to_string(),
-        key_usage: "sign".to_string(),
-        created_at: time::OffsetDateTime::now_utc().to_rfc3339(),
-        expires_at: (time::OffsetDateTime::now_utc() + time::Duration::days(365)).to_rfc3339(),
+        algorithm: liblinkkeys::generated::types::KeyAlgorithm::Ed25519,
+        key_usage: liblinkkeys::generated::types::KeyUsage::Sign,
+        created_at: time::OffsetDateTime::now_utc(),
+        expires_at: time::OffsetDateTime::now_utc() + time::Duration::days(365),
         revoked_at: None,
         signed_by_key_id: None,
         key_signature: None,
@@ -58,7 +57,8 @@ fn subject_domain() -> SubjectDomain {
             domain: SUBJECT.to_string(),
             keys: vec![key],
             recent_revocations_available: None,
-        }),
+        })
+        .unwrap(),
         fingerprint,
     }
 }
@@ -86,7 +86,8 @@ fn net(subject: &SubjectDomain, accept_deposit: bool) -> linkkeys::net::Net {
             "deposit-claim",
             liblinkkeys::generated::encode_deposit_claim_response(&DepositClaimResponse {
                 stored: true,
-            }),
+            })
+            .unwrap(),
         );
     }
     net_with_rpc(dns, rpc)
@@ -95,7 +96,7 @@ fn net(subject: &SubjectDomain, accept_deposit: bool) -> linkkeys::net::Net {
 /// A signing request from `subject-user@SUBJECT`, addressed to `issuer`.
 fn signing_request(subject: &SubjectDomain, issuer: &str, types: &[&str]) -> String {
     let types: Vec<String> = types.iter().map(|t| t.to_string()).collect();
-    let now = time::OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     let signed = sign_signing_request(
         &SigningRequestSpec {
             request_id: "request-1",
@@ -104,8 +105,8 @@ fn signing_request(subject: &SubjectDomain, issuer: &str, types: &[&str]) -> Str
             issuer_domain: issuer,
             requested_claim_types: &types,
             nonce: "nonce-1",
-            issued_at: &now.to_rfc3339(),
-            expires_at: &(now + time::Duration::days(2)).to_rfc3339(),
+            issued_at: now,
+            expires_at: now + time::Duration::days(2),
             callback: None,
         },
         &[ClaimSigner {
@@ -116,9 +117,9 @@ fn signing_request(subject: &SubjectDomain, issuer: &str, types: &[&str]) -> Str
         }],
     )
     .expect("sign request");
-    Base64UrlUnpadded::encode_string(&liblinkkeys::generated::encode_signed_signing_request(
-        &signed,
-    ))
+    Base64UrlUnpadded::encode_string(
+        &liblinkkeys::generated::encode_signed_signing_request(&signed).unwrap(),
+    )
 }
 
 async fn rpc(client: &Client, service: &str, op: &str, payload: Vec<u8>) -> RpcResponse {
@@ -169,7 +170,8 @@ async fn signed_in_client(net: linkkeys::net::Net, relation: Option<&str>) -> Cl
                 username: format!("operator@{ISSUER}"),
                 password: PASSWORD.to_string(),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_eq!(login.status, RpcStatus::Ok);
@@ -180,6 +182,7 @@ fn inspect_payload(signed_request: &str) -> Vec<u8> {
     liblinkkeys::generated::encode_inspect_signing_request_request(&InspectSigningRequestRequest {
         signed_request: signed_request.to_string(),
     })
+    .unwrap()
 }
 
 fn issue_payload(signed_request: &str, values: &[(&str, &str)]) -> Vec<u8> {
@@ -190,6 +193,7 @@ fn issue_payload(signed_request: &str, values: &[(&str, &str)]) -> Vec<u8> {
             claim_values: values.iter().map(|(_, v)| v.to_string()).collect(),
         },
     )
+    .unwrap()
 }
 
 #[rocket::async_test]
@@ -228,11 +232,11 @@ async fn an_operator_verifies_signs_and_deposits_requested_claims() {
             .results
             .iter()
             .find(|r| r.claim_type == claim_type)
-            .map(|r| r.outcome.clone())
+            .map(|r| r.outcome.as_str())
     };
-    assert_eq!(outcome("over_21").as_deref(), Some("deposited"));
+    assert_eq!(outcome("over_21"), Some("deposited"));
     assert_eq!(
-        outcome("favorite_color").as_deref(),
+        outcome("favorite_color"),
         Some("skipped"),
         "a type the request did not ask for is never signed"
     );
@@ -254,7 +258,7 @@ async fn an_unreachable_subject_domain_gets_a_handoff_code() {
     let issued =
         liblinkkeys::generated::decode_issue_for_signing_request_response(&response.payload)
             .unwrap();
-    assert_eq!(issued.results[0].outcome, "handoff");
+    assert_eq!(issued.results[0].outcome.as_str(), "handoff");
     let code = issued.results[0].claim_code.as_deref().expect("claim code");
     let claim = liblinkkeys::generated::decode_claim(
         &Base64UrlUnpadded::decode_vec(code).expect("base64url"),

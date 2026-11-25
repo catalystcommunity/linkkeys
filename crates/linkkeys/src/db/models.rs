@@ -1,12 +1,10 @@
-use serde::{Deserialize, Serialize};
-
 /// Backend-agnostic domain model for guestbook entries.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct GuestbookEntry {
     pub id: String,
     pub name: String,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: time::OffsetDateTime,
+    pub updated_at: time::OffsetDateTime,
 }
 
 /// Domain key model. NOT Serialize — contains encrypted private key material.
@@ -19,10 +17,10 @@ pub struct DomainKey {
     pub fingerprint: String,
     pub algorithm: String,
     pub key_usage: String,
-    pub created_at: String,
-    pub expires_at: String,
-    pub revoked_at: Option<String>,
-    pub updated_at: String,
+    pub created_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
+    pub revoked_at: Option<time::OffsetDateTime>,
+    pub updated_at: time::OffsetDateTime,
     /// Encrypt keys only: signing key that vouches + its signature (else None).
     pub signed_by_key_id: Option<String>,
     pub key_signature: Option<Vec<u8>>,
@@ -35,17 +33,29 @@ pub struct User {
     pub username: String,
     pub display_name: String,
     pub is_active: bool,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: time::OffsetDateTime,
+    pub updated_at: time::OffsetDateTime,
     /// A domain administrator account — has the admin relation + credentials but
     /// no presentable profile, and is refused on the RP (app) login path.
     pub is_admin_account: bool,
     /// Tombstone marker. Purged users keep their UUID forever but cannot log in
     /// or receive new credentials.
-    pub purged_at: Option<String>,
+    pub purged_at: Option<time::OffsetDateTime>,
     pub purge_reason: Option<String>,
     /// The account cannot change its own password or use password recovery.
     pub password_locked: bool,
+    /// `human` or `application` (CSIL `AccountKind` label).
+    pub kind: String,
+    /// Present only on an application account.
+    pub application_id: Option<String>,
+}
+
+impl User {
+    /// An application account: the identity of one application on a relying
+    /// party, with an administrator-set `application_id`.
+    pub fn is_application(&self) -> bool {
+        self.kind == "application" && self.application_id.is_some()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -73,10 +83,16 @@ pub struct AuthCredential {
     pub user_id: String,
     pub credential_type: String,
     pub credential_hash: String,
-    pub created_at: String,
-    pub expires_at: Option<String>,
-    pub revoked_at: Option<String>,
-    pub updated_at: String,
+    pub created_at: time::OffsetDateTime,
+    pub expires_at: Option<time::OffsetDateTime>,
+    pub revoked_at: Option<time::OffsetDateTime>,
+    pub updated_at: time::OffsetDateTime,
+    /// The owner-chosen name of an API key.
+    pub name: Option<String>,
+    /// The last four characters of an API key's secret.
+    pub hint: Option<String>,
+    /// When an API key last authenticated, to the minute.
+    pub last_used_at: Option<time::OffsetDateTime>,
 }
 
 /// Relation model for ReBAC authorization tuples.
@@ -88,9 +104,9 @@ pub struct Relation {
     pub relation: String,
     pub object_type: String,
     pub object_id: String,
-    pub created_at: String,
-    pub removed_at: Option<String>,
-    pub updated_at: String,
+    pub created_at: time::OffsetDateTime,
+    pub removed_at: Option<time::OffsetDateTime>,
+    pub updated_at: time::OffsetDateTime,
 }
 
 /// User key model. NOT Serialize — contains encrypted private key material.
@@ -103,10 +119,10 @@ pub struct UserKey {
     pub fingerprint: String,
     pub algorithm: String,
     pub key_usage: String,
-    pub created_at: String,
-    pub expires_at: String,
-    pub revoked_at: Option<String>,
-    pub updated_at: String,
+    pub created_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
+    pub revoked_at: Option<time::OffsetDateTime>,
+    pub updated_at: time::OffsetDateTime,
     /// Encrypt keys only: signing key that vouches + its signature (else None).
     pub signed_by_key_id: Option<String>,
     pub key_signature: Option<Vec<u8>>,
@@ -124,11 +140,11 @@ pub struct ClaimRow {
     pub signatures: Vec<ClaimSignatureRow>,
     /// Signed attestation time (RFC3339 UTC) — when this claim was signed. Part
     /// of the signed payload (SEC-08).
-    pub attested_at: String,
-    pub created_at: String,
-    pub expires_at: Option<String>,
-    pub revoked_at: Option<String>,
-    pub updated_at: String,
+    pub attested_at: time::OffsetDateTime,
+    pub created_at: time::OffsetDateTime,
+    pub expires_at: Option<time::OffsetDateTime>,
+    pub revoked_at: Option<time::OffsetDateTime>,
+    pub updated_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone)]
@@ -138,7 +154,7 @@ pub struct ClaimSignatureRow {
     pub domain: String,
     pub signed_by_key_id: String,
     pub signature: Vec<u8>,
-    pub created_at: String,
+    pub created_at: time::OffsetDateTime,
 }
 
 /// A persisted consent grant: the user's standing authorization for one
@@ -156,9 +172,9 @@ pub struct ConsentGrantRow {
     pub signed_grant: Vec<u8>,
     /// CBOR([DomainClaim]) the RP asserted about itself, if any.
     pub offered_claims: Option<Vec<u8>>,
-    pub issued_at: String,
-    pub expires_at: String,
-    pub revoked_at: Option<String>,
+    pub issued_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
+    pub revoked_at: Option<time::OffsetDateTime>,
     /// The application of `audience` the grant is for (`ApplicationRef`
     /// without `subject_domain`, which equals `audience`). Both are `None` for
     /// a grant that covers requests with no application.
@@ -251,8 +267,8 @@ pub struct ClaimApproval {
     pub claim_value: Vec<u8>,
     pub status: String,
     pub resolved_by: Option<String>,
-    pub resolved_at: Option<String>,
-    pub created_at: String,
+    pub resolved_at: Option<time::OffsetDateTime>,
+    pub created_at: time::OffsetDateTime,
 }
 
 /// A general item on the domain admin review queue. `kind` discriminates
@@ -269,8 +285,8 @@ pub struct AdminReview {
     pub detail: Option<String>,
     pub status: String,
     pub resolved_by: Option<String>,
-    pub resolved_at: Option<String>,
-    pub created_at: String,
+    pub resolved_at: Option<time::OffsetDateTime>,
+    pub created_at: time::OffsetDateTime,
 }
 
 /// An append-only audit-log event.
@@ -281,7 +297,7 @@ pub struct AuditEntry {
     pub subject: Option<String>,
     pub actor: Option<String>,
     pub detail: Option<String>,
-    pub created_at: String,
+    pub created_at: time::OffsetDateTime,
 }
 
 /// The pinned DNS fingerprint set for a peer domain (SEC-01 TOFU). `fingerprints`
@@ -290,8 +306,8 @@ pub struct AuditEntry {
 pub struct DomainKeyPin {
     pub domain: String,
     pub fingerprints: String,
-    pub pinned_at: String,
-    pub last_checked_at: String,
+    pub pinned_at: time::OffsetDateTime,
+    pub last_checked_at: time::OffsetDateTime,
 }
 
 /// A sibling-signed revocation certificate this domain has issued (SEC-08).
@@ -303,9 +319,9 @@ pub struct IssuedRevocation {
     pub id: String,
     pub target_key_id: String,
     pub target_fingerprint: String,
-    pub revoked_at: String,
+    pub revoked_at: time::OffsetDateTime,
     pub cert: Vec<u8>,
-    pub created_at: String,
+    pub created_at: time::OffsetDateTime,
 }
 
 /// One enrolled application instance of one canonical account
@@ -317,11 +333,11 @@ pub struct ApplicationInstance {
     pub subject_user_id: String,
     pub application_id: String,
     pub instance_id: String,
-    pub enrolled_at: String,
+    pub enrolled_at: time::OffsetDateTime,
     pub trust_reset_count: i64,
-    pub last_trust_reset_at: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
+    pub last_trust_reset_at: Option<time::OffsetDateTime>,
+    pub created_at: time::OffsetDateTime,
+    pub updated_at: time::OffsetDateTime,
 }
 
 /// One application public key. Never a private key: the application holds
@@ -335,9 +351,9 @@ pub struct ApplicationKey {
     pub algorithm: String,
     pub public_key: Vec<u8>,
     pub fingerprint: String,
-    pub created_at: String,
-    pub expires_at: String,
-    pub revoked_at: Option<String>,
+    pub created_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
+    pub revoked_at: Option<time::OffsetDateTime>,
 }
 
 /// The home domain's signed attestation for one application key, stored and
@@ -347,10 +363,10 @@ pub struct ApplicationKeyAttestationRecord {
     pub id: String,
     pub application_key_row_id: String,
     pub signed_attestation: Vec<u8>,
-    pub attested_at: String,
-    pub expires_at: String,
-    pub created_at: String,
-    pub updated_at: String,
+    pub attested_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
+    pub created_at: time::OffsetDateTime,
+    pub updated_at: time::OffsetDateTime,
 }
 
 /// Permanent, sibling-signed evidence that an application key was revoked.
@@ -360,9 +376,9 @@ pub struct ApplicationKeyRevocationRecord {
     pub instance_row_id: String,
     pub target_key_id: String,
     pub target_fingerprint: String,
-    pub revoked_at: String,
+    pub revoked_at: time::OffsetDateTime,
     pub record: Vec<u8>,
-    pub created_at: String,
+    pub created_at: time::OffsetDateTime,
 }
 
 /// A single-use nonce for application-key enrollment/renewal proof of
@@ -380,9 +396,9 @@ pub struct ApplicationKeyChallenge {
     pub algorithm: String,
     pub public_key: Vec<u8>,
     pub nonce: Vec<u8>,
-    pub expires_at: String,
-    pub consumed_at: Option<String>,
-    pub created_at: String,
+    pub expires_at: time::OffsetDateTime,
+    pub consumed_at: Option<time::OffsetDateTime>,
+    pub created_at: time::OffsetDateTime,
 }
 
 /// The public-read projection for one application instance
@@ -407,8 +423,8 @@ pub struct VerifiedContactMethod {
     pub channel: String,
     pub destination: String,
     pub purposes: String,
-    pub verified_at: String,
-    pub revoked_at: Option<String>,
+    pub verified_at: time::OffsetDateTime,
+    pub revoked_at: Option<time::OffsetDateTime>,
 }
 
 /// A single-use account action. Only the digest of the bearer token is stored.
@@ -421,9 +437,9 @@ pub struct AccountChallenge {
     pub channel: String,
     pub destination: String,
     pub required_credential_id: Option<String>,
-    pub expires_at: String,
-    pub consumed_at: Option<String>,
-    pub revoked_at: Option<String>,
+    pub expires_at: time::OffsetDateTime,
+    pub consumed_at: Option<time::OffsetDateTime>,
+    pub revoked_at: Option<time::OffsetDateTime>,
 }
 
 /// A durable notification that waits for a delivery worker.
@@ -437,11 +453,11 @@ pub struct NotificationOutboxItem {
     pub encrypted_payload: Option<Vec<u8>>,
     pub state: String,
     pub attempt_count: i64,
-    pub next_attempt_at: String,
+    pub next_attempt_at: time::OffsetDateTime,
     pub lease_owner: Option<String>,
-    pub lease_expires_at: Option<String>,
+    pub lease_expires_at: Option<time::OffsetDateTime>,
     pub last_error: Option<String>,
-    pub expires_at: String,
+    pub expires_at: time::OffsetDateTime,
 }
 
 /// Server-side state for an opaque browser session token.
@@ -449,20 +465,20 @@ pub struct NotificationOutboxItem {
 pub struct BrowserSession {
     pub token_digest: String,
     pub user_id: String,
-    pub issued_at: String,
-    pub last_seen_at: String,
-    pub authenticated_at: String,
+    pub issued_at: time::OffsetDateTime,
+    pub last_seen_at: time::OffsetDateTime,
+    pub authenticated_at: time::OffsetDateTime,
     pub authentication_methods: String,
-    pub expires_at: String,
-    pub revoked_at: Option<String>,
+    pub expires_at: time::OffsetDateTime,
+    pub revoked_at: Option<time::OffsetDateTime>,
 }
 
 /// Durable summary of successful authentication and browser activity.
 #[derive(Debug, Clone)]
 pub struct UserAuthenticationActivity {
     pub user_id: String,
-    pub last_authenticated_at: String,
-    pub last_seen_at: String,
+    pub last_authenticated_at: time::OffsetDateTime,
+    pub last_seen_at: time::OffsetDateTime,
     pub successful_authentication_count: i64,
 }
 
@@ -486,9 +502,9 @@ pub struct PeerKey {
     pub fingerprint: String,
     pub key_usage: String,
     /// RFC3339; honoured at verify time so an expired issuer key won't verify.
-    pub expires_at: String,
+    pub expires_at: time::OffsetDateTime,
     /// RFC3339 if the issuer revoked the key; honoured at verify time.
-    pub revoked_at: Option<String>,
+    pub revoked_at: Option<time::OffsetDateTime>,
 }
 
 /// This domain's admission policy for DNS-less local RP browser logins. A
@@ -518,10 +534,10 @@ pub struct LocalRp {
     pub app_name: String,
     pub local_domain_hint: Option<String>,
     pub status: String,
-    pub created_at: String,
-    pub updated_at: String,
-    pub expires_at: Option<String>,
-    pub last_seen_at: Option<String>,
+    pub created_at: time::OffsetDateTime,
+    pub updated_at: time::OffsetDateTime,
+    pub expires_at: Option<time::OffsetDateTime>,
+    pub last_seen_at: Option<time::OffsetDateTime>,
     pub admin_notes: Option<String>,
     /// The user id whose authenticated login attempt first created this
     /// (originally pending) row, for the per-user pending-queue cap
@@ -545,8 +561,8 @@ pub struct LocalRpClaimTicket {
     pub user_id: String,
     pub user_domain: String,
     pub granted_claims: Vec<String>,
-    pub issued_at: String,
-    pub expires_at: String,
+    pub issued_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
 }
 
 /// Parse a JSON `[String]` column. A parse failure (only reachable via DB
@@ -572,9 +588,9 @@ fn parse_json_types(field: &str, raw: &str) -> Vec<String> {
 #[derive(Debug, Clone)]
 pub struct RpDomainKeyCacheMeta {
     pub domain: String,
-    pub fetched_at: String,
-    pub revocations_checked_at: String,
-    pub last_used_at: String,
+    pub fetched_at: time::OffsetDateTime,
+    pub revocations_checked_at: time::OffsetDateTime,
+    pub last_used_at: time::OffsetDateTime,
 }
 
 /// One RP-cache entry for a remote application instance's key material. The
@@ -588,9 +604,9 @@ pub struct RpApplicationKeyCacheEntry {
     pub subject_domain: String,
     pub application_id: String,
     pub instance_id: String,
-    pub fetched_at: String,
-    pub revocations_checked_at: String,
-    pub last_used_at: String,
+    pub fetched_at: time::OffsetDateTime,
+    pub revocations_checked_at: time::OffsetDateTime,
+    pub last_used_at: time::OffsetDateTime,
 }
 
 /// One cached SIGNED application-key attestation, stored and served verbatim.
@@ -602,7 +618,7 @@ pub struct RpApplicationKeyAttestationCache {
     pub cache_entry_id: String,
     pub key_id: String,
     pub signed_attestation: Vec<u8>,
-    pub attestation_expires_at: String,
+    pub attestation_expires_at: time::OffsetDateTime,
     pub verified_by_key_ids: String,
 }
 
@@ -614,7 +630,7 @@ pub struct RpApplicationKeyRevocationCache {
     pub cache_entry_id: String,
     pub target_key_id: String,
     pub revocation: Vec<u8>,
-    pub revoked_at: String,
+    pub revoked_at: time::OffsetDateTime,
 }
 
 /// An app access policy with its patterns and targets
@@ -645,7 +661,6 @@ pub struct AppAccessTarget {
 #[cfg(feature = "postgres")]
 pub mod pg {
     use diesel::prelude::*;
-    use liblinkkeys::timestamp::Rfc3339 as _;
 
     // -- Guestbook --
 
@@ -663,8 +678,8 @@ pub mod pg {
             Self {
                 id: row.id.to_string(),
                 name: row.name,
-                created_at: row.created_at.to_rfc3339(),
-                updated_at: row.updated_at.to_rfc3339(),
+                created_at: row.created_at,
+                updated_at: row.updated_at,
             }
         }
     }
@@ -704,10 +719,10 @@ pub mod pg {
                 fingerprint: row.fingerprint,
                 algorithm: row.algorithm,
                 key_usage: row.key_usage,
-                created_at: row.created_at.to_rfc3339(),
-                expires_at: row.expires_at.to_rfc3339(),
-                revoked_at: row.revoked_at.map(|t| t.to_rfc3339()),
-                updated_at: row.updated_at.to_rfc3339(),
+                created_at: row.created_at,
+                expires_at: row.expires_at,
+                revoked_at: row.revoked_at,
+                updated_at: row.updated_at,
                 signed_by_key_id: row.signed_by_key_id,
                 key_signature: row.key_signature,
             }
@@ -743,6 +758,8 @@ pub mod pg {
         pub purged_at: Option<time::OffsetDateTime>,
         pub purge_reason: Option<String>,
         pub password_locked: bool,
+        pub kind: String,
+        pub application_id: Option<String>,
     }
 
     impl From<UserRow> for super::User {
@@ -752,12 +769,14 @@ pub mod pg {
                 username: row.username,
                 display_name: row.display_name,
                 is_active: row.is_active,
-                created_at: row.created_at.to_rfc3339(),
-                updated_at: row.updated_at.to_rfc3339(),
+                created_at: row.created_at,
+                updated_at: row.updated_at,
                 is_admin_account: row.is_admin_account,
-                purged_at: row.purged_at.map(|t| t.to_rfc3339()),
+                purged_at: row.purged_at,
                 purge_reason: row.purge_reason,
                 password_locked: row.password_locked,
+                kind: row.kind,
+                application_id: row.application_id,
             }
         }
     }
@@ -768,6 +787,8 @@ pub mod pg {
         pub id: uuid::Uuid,
         pub username: String,
         pub display_name: String,
+        pub kind: String,
+        pub application_id: Option<String>,
     }
 
     // -- Auth Credentials --
@@ -783,6 +804,9 @@ pub mod pg {
         pub expires_at: Option<time::OffsetDateTime>,
         pub revoked_at: Option<time::OffsetDateTime>,
         pub updated_at: time::OffsetDateTime,
+        pub name: Option<String>,
+        pub hint: Option<String>,
+        pub last_used_at: Option<time::OffsetDateTime>,
     }
 
     impl From<AuthCredentialRow> for super::AuthCredential {
@@ -792,10 +816,13 @@ pub mod pg {
                 user_id: row.user_id.to_string(),
                 credential_type: row.credential_type,
                 credential_hash: row.credential_hash,
-                created_at: row.created_at.to_rfc3339(),
-                expires_at: row.expires_at.map(|t| t.to_rfc3339()),
-                revoked_at: row.revoked_at.map(|t| t.to_rfc3339()),
-                updated_at: row.updated_at.to_rfc3339(),
+                created_at: row.created_at,
+                expires_at: row.expires_at,
+                revoked_at: row.revoked_at,
+                updated_at: row.updated_at,
+                name: row.name,
+                hint: row.hint,
+                last_used_at: row.last_used_at,
             }
         }
     }
@@ -807,6 +834,8 @@ pub mod pg {
         pub user_id: uuid::Uuid,
         pub credential_type: String,
         pub credential_hash: String,
+        pub name: Option<String>,
+        pub hint: Option<String>,
     }
 
     // -- User Keys --
@@ -839,10 +868,10 @@ pub mod pg {
                 fingerprint: row.fingerprint,
                 algorithm: row.algorithm,
                 key_usage: row.key_usage,
-                created_at: row.created_at.to_rfc3339(),
-                expires_at: row.expires_at.to_rfc3339(),
-                revoked_at: row.revoked_at.map(|t| t.to_rfc3339()),
-                updated_at: row.updated_at.to_rfc3339(),
+                created_at: row.created_at,
+                expires_at: row.expires_at,
+                revoked_at: row.revoked_at,
+                updated_at: row.updated_at,
                 signed_by_key_id: row.signed_by_key_id,
                 key_signature: row.key_signature,
             }
@@ -885,11 +914,11 @@ pub mod pg {
                 claim_type: row.claim_type,
                 claim_value: row.claim_value,
                 signatures: Vec::new(),
-                attested_at: row.attested_at.to_rfc3339(),
-                created_at: row.created_at.to_rfc3339(),
-                expires_at: row.expires_at.map(|t| t.to_rfc3339()),
-                revoked_at: row.revoked_at.map(|t| t.to_rfc3339()),
-                updated_at: row.updated_at.to_rfc3339(),
+                attested_at: row.attested_at,
+                created_at: row.created_at,
+                expires_at: row.expires_at,
+                revoked_at: row.revoked_at,
+                updated_at: row.updated_at,
             }
         }
     }
@@ -926,7 +955,7 @@ pub mod pg {
                 domain: row.domain,
                 signed_by_key_id: row.signed_by_key_id,
                 signature: row.signature,
-                created_at: row.created_at.to_rfc3339(),
+                created_at: row.created_at,
             }
         }
     }
@@ -966,9 +995,9 @@ pub mod pg {
                 relation: row.relation,
                 object_type: row.object_type,
                 object_id: row.object_id,
-                created_at: row.created_at.to_rfc3339(),
-                removed_at: row.removed_at.map(|t| t.to_rfc3339()),
-                updated_at: row.updated_at.to_rfc3339(),
+                created_at: row.created_at,
+                removed_at: row.removed_at,
+                updated_at: row.updated_at,
             }
         }
     }
@@ -1015,9 +1044,9 @@ pub mod pg {
                 requested_types: super::parse_json_types("requested_types", &row.requested_types),
                 signed_grant: row.signed_grant,
                 offered_claims: row.offered_claims,
-                issued_at: row.issued_at.to_rfc3339(),
-                expires_at: row.expires_at.to_rfc3339(),
-                revoked_at: row.revoked_at.map(|t| t.to_rfc3339()),
+                issued_at: row.issued_at,
+                expires_at: row.expires_at,
+                revoked_at: row.revoked_at,
                 app_subject_user_id: row.app_subject_user_id,
                 app_application_id: row.app_application_id,
             }
@@ -1246,8 +1275,8 @@ pub mod pg {
                 detail: r.detail,
                 status: r.status,
                 resolved_by: r.resolved_by,
-                resolved_at: r.resolved_at.map(|t| t.to_rfc3339()),
-                created_at: r.created_at.to_rfc3339(),
+                resolved_at: r.resolved_at,
+                created_at: r.created_at,
             }
         }
     }
@@ -1263,8 +1292,8 @@ pub mod pg {
                 claim_value: r.claim_value.unwrap_or_default(),
                 status: r.status,
                 resolved_by: r.resolved_by,
-                resolved_at: r.resolved_at.map(|t| t.to_rfc3339()),
-                created_at: r.created_at.to_rfc3339(),
+                resolved_at: r.resolved_at,
+                created_at: r.created_at,
             }
         }
     }
@@ -1307,7 +1336,7 @@ pub mod pg {
                 subject: r.subject,
                 actor: r.actor,
                 detail: r.detail,
-                created_at: r.created_at.to_rfc3339(),
+                created_at: r.created_at,
             }
         }
     }
@@ -1336,8 +1365,8 @@ pub mod pg {
             Self {
                 domain: r.domain,
                 fingerprints: r.fingerprints,
-                pinned_at: r.pinned_at.to_rfc3339(),
-                last_checked_at: r.last_checked_at.to_rfc3339(),
+                pinned_at: r.pinned_at,
+                last_checked_at: r.last_checked_at,
             }
         }
     }
@@ -1366,9 +1395,9 @@ pub mod pg {
                 id: r.id.to_string(),
                 target_key_id: r.target_key_id,
                 target_fingerprint: r.target_fingerprint,
-                revoked_at: r.revoked_at.to_rfc3339(),
+                revoked_at: r.revoked_at,
                 cert: r.cert,
-                created_at: r.created_at.to_rfc3339(),
+                created_at: r.created_at,
             }
         }
     }
@@ -1404,11 +1433,11 @@ pub mod pg {
                 subject_user_id: r.subject_user_id.to_string(),
                 application_id: r.application_id,
                 instance_id: r.instance_id,
-                enrolled_at: r.enrolled_at.to_rfc3339(),
+                enrolled_at: r.enrolled_at,
                 trust_reset_count: r.trust_reset_count,
-                last_trust_reset_at: r.last_trust_reset_at.map(|t| t.to_rfc3339()),
-                created_at: r.created_at.to_rfc3339(),
-                updated_at: r.updated_at.to_rfc3339(),
+                last_trust_reset_at: r.last_trust_reset_at,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
             }
         }
     }
@@ -1448,9 +1477,9 @@ pub mod pg {
                 algorithm: r.algorithm,
                 public_key: r.public_key,
                 fingerprint: r.fingerprint,
-                created_at: r.created_at.to_rfc3339(),
-                expires_at: r.expires_at.to_rfc3339(),
-                revoked_at: r.revoked_at.map(|t| t.to_rfc3339()),
+                created_at: r.created_at,
+                expires_at: r.expires_at,
+                revoked_at: r.revoked_at,
             }
         }
     }
@@ -1487,10 +1516,10 @@ pub mod pg {
                 id: r.id.to_string(),
                 application_key_row_id: r.application_key_row_id.to_string(),
                 signed_attestation: r.signed_attestation,
-                attested_at: r.attested_at.to_rfc3339(),
-                expires_at: r.expires_at.to_rfc3339(),
-                created_at: r.created_at.to_rfc3339(),
-                updated_at: r.updated_at.to_rfc3339(),
+                attested_at: r.attested_at,
+                expires_at: r.expires_at,
+                created_at: r.created_at,
+                updated_at: r.updated_at,
             }
         }
     }
@@ -1514,9 +1543,9 @@ pub mod pg {
                 instance_row_id: r.instance_row_id.to_string(),
                 target_key_id: r.target_key_id,
                 target_fingerprint: r.target_fingerprint,
-                revoked_at: r.revoked_at.to_rfc3339(),
+                revoked_at: r.revoked_at,
                 record: r.record,
-                created_at: r.created_at.to_rfc3339(),
+                created_at: r.created_at,
             }
         }
     }
@@ -1563,9 +1592,9 @@ pub mod pg {
                 algorithm: r.algorithm,
                 public_key: r.public_key,
                 nonce: r.nonce,
-                expires_at: r.expires_at.to_rfc3339(),
-                consumed_at: r.consumed_at.map(|t| t.to_rfc3339()),
-                created_at: r.created_at.to_rfc3339(),
+                expires_at: r.expires_at,
+                consumed_at: r.consumed_at,
+                created_at: r.created_at,
             }
         }
     }
@@ -1608,8 +1637,8 @@ pub mod pg {
                 channel: r.channel,
                 destination: r.destination,
                 purposes: r.purposes,
-                verified_at: r.verified_at.to_rfc3339(),
-                revoked_at: r.revoked_at.map(|v| v.to_rfc3339()),
+                verified_at: r.verified_at,
+                revoked_at: r.revoked_at,
             }
         }
     }
@@ -1640,9 +1669,9 @@ pub mod pg {
                 channel: r.channel,
                 destination: r.destination,
                 required_credential_id: r.required_credential_id.map(|value| value.to_string()),
-                expires_at: r.expires_at.to_rfc3339(),
-                consumed_at: r.consumed_at.map(|v| v.to_rfc3339()),
-                revoked_at: r.revoked_at.map(|v| v.to_rfc3339()),
+                expires_at: r.expires_at,
+                consumed_at: r.consumed_at,
+                revoked_at: r.revoked_at,
             }
         }
     }
@@ -1678,11 +1707,11 @@ pub mod pg {
                 encrypted_payload: r.encrypted_payload,
                 state: r.state,
                 attempt_count: r.attempt_count,
-                next_attempt_at: r.next_attempt_at.to_rfc3339(),
+                next_attempt_at: r.next_attempt_at,
                 lease_owner: r.lease_owner,
-                lease_expires_at: r.lease_expires_at.map(|v| v.to_rfc3339()),
+                lease_expires_at: r.lease_expires_at,
                 last_error: r.last_error,
-                expires_at: r.expires_at.to_rfc3339(),
+                expires_at: r.expires_at,
             }
         }
     }
@@ -1707,12 +1736,12 @@ pub mod pg {
             Self {
                 token_digest: r.token_digest,
                 user_id: r.user_id.to_string(),
-                issued_at: r.issued_at.to_rfc3339(),
-                last_seen_at: r.last_seen_at.to_rfc3339(),
-                authenticated_at: r.authenticated_at.to_rfc3339(),
+                issued_at: r.issued_at,
+                last_seen_at: r.last_seen_at,
+                authenticated_at: r.authenticated_at,
                 authentication_methods: r.authentication_methods,
-                expires_at: r.expires_at.to_rfc3339(),
-                revoked_at: r.revoked_at.map(|v| v.to_rfc3339()),
+                expires_at: r.expires_at,
+                revoked_at: r.revoked_at,
             }
         }
     }
@@ -1732,8 +1761,8 @@ pub mod pg {
         fn from(row: UserAuthenticationActivityRow) -> Self {
             Self {
                 user_id: row.user_id.to_string(),
-                last_authenticated_at: row.last_authenticated_at.to_rfc3339(),
-                last_seen_at: row.last_seen_at.to_rfc3339(),
+                last_authenticated_at: row.last_authenticated_at,
+                last_seen_at: row.last_seen_at,
                 successful_authentication_count: row.successful_authentication_count,
             }
         }
@@ -1761,8 +1790,8 @@ pub mod pg {
                 algorithm: r.algorithm,
                 fingerprint: r.fingerprint,
                 key_usage: r.key_usage,
-                expires_at: r.expires_at,
-                revoked_at: r.revoked_at,
+                expires_at: crate::db::db_time::load(&r.expires_at),
+                revoked_at: crate::db::db_time::load_opt(r.revoked_at.as_deref()),
             }
         }
     }
@@ -1852,10 +1881,10 @@ pub mod pg {
                 app_name: r.app_name,
                 local_domain_hint: r.local_domain_hint,
                 status: r.status,
-                created_at: r.created_at.to_rfc3339(),
-                updated_at: r.updated_at.to_rfc3339(),
-                expires_at: r.expires_at.map(|t| t.to_rfc3339()),
-                last_seen_at: r.last_seen_at.map(|t| t.to_rfc3339()),
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+                expires_at: r.expires_at,
+                last_seen_at: r.last_seen_at,
                 admin_notes: r.admin_notes,
                 first_seen_by_user_id: r.first_seen_by_user_id.map(|u| u.to_string()),
             }
@@ -1895,8 +1924,8 @@ pub mod pg {
                 user_id: r.user_id.to_string(),
                 user_domain: r.user_domain,
                 granted_claims: super::parse_json_types("granted_claims", &r.granted_claims),
-                issued_at: r.issued_at.to_rfc3339(),
-                expires_at: r.expires_at.to_rfc3339(),
+                issued_at: r.issued_at,
+                expires_at: r.expires_at,
             }
         }
     }
@@ -1927,9 +1956,9 @@ pub mod pg {
         fn from(r: RpDomainKeyCacheRow) -> Self {
             Self {
                 domain: r.domain,
-                fetched_at: r.fetched_at.to_rfc3339(),
-                revocations_checked_at: r.revocations_checked_at.to_rfc3339(),
-                last_used_at: r.last_used_at.to_rfc3339(),
+                fetched_at: r.fetched_at,
+                revocations_checked_at: r.revocations_checked_at,
+                last_used_at: r.last_used_at,
             }
         }
     }
@@ -1955,9 +1984,9 @@ pub mod pg {
                 subject_domain: r.subject_domain,
                 application_id: r.application_id,
                 instance_id: r.instance_id,
-                fetched_at: r.fetched_at.to_rfc3339(),
-                revocations_checked_at: r.revocations_checked_at.to_rfc3339(),
-                last_used_at: r.last_used_at.to_rfc3339(),
+                fetched_at: r.fetched_at,
+                revocations_checked_at: r.revocations_checked_at,
+                last_used_at: r.last_used_at,
             }
         }
     }
@@ -1993,7 +2022,7 @@ pub mod pg {
                 cache_entry_id: r.cache_entry_id.to_string(),
                 key_id: r.key_id,
                 signed_attestation: r.signed_attestation,
-                attestation_expires_at: r.attestation_expires_at.to_rfc3339(),
+                attestation_expires_at: r.attestation_expires_at,
                 verified_by_key_ids: r.verified_by_key_ids,
             }
         }
@@ -2016,7 +2045,7 @@ pub mod pg {
                 cache_entry_id: r.cache_entry_id.to_string(),
                 target_key_id: r.target_key_id,
                 revocation: r.revocation,
-                revoked_at: r.revoked_at.to_rfc3339(),
+                revoked_at: r.revoked_at,
             }
         }
     }
@@ -2042,8 +2071,8 @@ pub mod sqlite {
             Self {
                 id: row.id,
                 name: row.name,
-                created_at: row.created_at,
-                updated_at: row.updated_at,
+                created_at: crate::db::db_time::load(&row.created_at),
+                updated_at: crate::db::db_time::load(&row.updated_at),
             }
         }
     }
@@ -2083,10 +2112,10 @@ pub mod sqlite {
                 fingerprint: row.fingerprint,
                 algorithm: row.algorithm,
                 key_usage: row.key_usage,
-                created_at: row.created_at,
-                expires_at: row.expires_at,
-                revoked_at: row.revoked_at,
-                updated_at: row.updated_at,
+                created_at: crate::db::db_time::load(&row.created_at),
+                expires_at: crate::db::db_time::load(&row.expires_at),
+                revoked_at: crate::db::db_time::load_opt(row.revoked_at.as_deref()),
+                updated_at: crate::db::db_time::load(&row.updated_at),
                 signed_by_key_id: row.signed_by_key_id,
                 key_signature: row.key_signature,
             }
@@ -2122,6 +2151,8 @@ pub mod sqlite {
         pub purged_at: Option<String>,
         pub purge_reason: Option<String>,
         pub password_locked: i32,
+        pub kind: String,
+        pub application_id: Option<String>,
     }
 
     impl From<UserRow> for super::User {
@@ -2131,12 +2162,14 @@ pub mod sqlite {
                 username: row.username,
                 display_name: row.display_name,
                 is_active: row.is_active != 0,
-                created_at: row.created_at,
-                updated_at: row.updated_at,
+                created_at: crate::db::db_time::load(&row.created_at),
+                updated_at: crate::db::db_time::load(&row.updated_at),
                 is_admin_account: row.is_admin_account != 0,
-                purged_at: row.purged_at,
+                purged_at: crate::db::db_time::load_opt(row.purged_at.as_deref()),
                 purge_reason: row.purge_reason,
                 password_locked: row.password_locked != 0,
+                kind: row.kind,
+                application_id: row.application_id,
             }
         }
     }
@@ -2147,6 +2180,8 @@ pub mod sqlite {
         pub id: String,
         pub username: String,
         pub display_name: String,
+        pub kind: String,
+        pub application_id: Option<String>,
     }
 
     // -- Auth Credentials --
@@ -2162,6 +2197,9 @@ pub mod sqlite {
         pub expires_at: Option<String>,
         pub revoked_at: Option<String>,
         pub updated_at: String,
+        pub name: Option<String>,
+        pub hint: Option<String>,
+        pub last_used_at: Option<String>,
     }
 
     impl From<AuthCredentialRow> for super::AuthCredential {
@@ -2171,10 +2209,13 @@ pub mod sqlite {
                 user_id: row.user_id,
                 credential_type: row.credential_type,
                 credential_hash: row.credential_hash,
-                created_at: row.created_at,
-                expires_at: row.expires_at,
-                revoked_at: row.revoked_at,
-                updated_at: row.updated_at,
+                created_at: crate::db::db_time::load(&row.created_at),
+                expires_at: crate::db::db_time::load_opt(row.expires_at.as_deref()),
+                revoked_at: crate::db::db_time::load_opt(row.revoked_at.as_deref()),
+                updated_at: crate::db::db_time::load(&row.updated_at),
+                name: row.name,
+                hint: row.hint,
+                last_used_at: crate::db::db_time::load_opt(row.last_used_at.as_deref()),
             }
         }
     }
@@ -2186,6 +2227,8 @@ pub mod sqlite {
         pub user_id: String,
         pub credential_type: String,
         pub credential_hash: String,
+        pub name: Option<String>,
+        pub hint: Option<String>,
     }
 
     // -- User Keys --
@@ -2218,10 +2261,10 @@ pub mod sqlite {
                 fingerprint: row.fingerprint,
                 algorithm: row.algorithm,
                 key_usage: row.key_usage,
-                created_at: row.created_at,
-                expires_at: row.expires_at,
-                revoked_at: row.revoked_at,
-                updated_at: row.updated_at,
+                created_at: crate::db::db_time::load(&row.created_at),
+                expires_at: crate::db::db_time::load(&row.expires_at),
+                revoked_at: crate::db::db_time::load_opt(row.revoked_at.as_deref()),
+                updated_at: crate::db::db_time::load(&row.updated_at),
                 signed_by_key_id: row.signed_by_key_id,
                 key_signature: row.key_signature,
             }
@@ -2264,11 +2307,11 @@ pub mod sqlite {
                 claim_type: row.claim_type,
                 claim_value: row.claim_value,
                 signatures: Vec::new(),
-                attested_at: row.attested_at,
-                created_at: row.created_at,
-                expires_at: row.expires_at,
-                revoked_at: row.revoked_at,
-                updated_at: row.updated_at,
+                attested_at: crate::db::db_time::load(&row.attested_at),
+                created_at: crate::db::db_time::load(&row.created_at),
+                expires_at: crate::db::db_time::load_opt(row.expires_at.as_deref()),
+                revoked_at: crate::db::db_time::load_opt(row.revoked_at.as_deref()),
+                updated_at: crate::db::db_time::load(&row.updated_at),
             }
         }
     }
@@ -2303,7 +2346,7 @@ pub mod sqlite {
                 domain: row.domain,
                 signed_by_key_id: row.signed_by_key_id,
                 signature: row.signature,
-                created_at: row.created_at,
+                created_at: crate::db::db_time::load(&row.created_at),
             }
         }
     }
@@ -2343,9 +2386,9 @@ pub mod sqlite {
                 relation: row.relation,
                 object_type: row.object_type,
                 object_id: row.object_id,
-                created_at: row.created_at,
-                removed_at: row.removed_at,
-                updated_at: row.updated_at,
+                created_at: crate::db::db_time::load(&row.created_at),
+                removed_at: crate::db::db_time::load_opt(row.removed_at.as_deref()),
+                updated_at: crate::db::db_time::load(&row.updated_at),
             }
         }
     }
@@ -2392,9 +2435,9 @@ pub mod sqlite {
                 requested_types: super::parse_json_types("requested_types", &row.requested_types),
                 signed_grant: row.signed_grant,
                 offered_claims: row.offered_claims,
-                issued_at: row.issued_at,
-                expires_at: row.expires_at,
-                revoked_at: row.revoked_at,
+                issued_at: crate::db::db_time::load(&row.issued_at),
+                expires_at: crate::db::db_time::load(&row.expires_at),
+                revoked_at: crate::db::db_time::load_opt(row.revoked_at.as_deref()),
                 app_subject_user_id: row.app_subject_user_id,
                 app_application_id: row.app_application_id,
             }
@@ -2623,8 +2666,8 @@ pub mod sqlite {
                 detail: r.detail,
                 status: r.status,
                 resolved_by: r.resolved_by,
-                resolved_at: r.resolved_at,
-                created_at: r.created_at,
+                resolved_at: crate::db::db_time::load_opt(r.resolved_at.as_deref()),
+                created_at: crate::db::db_time::load(&r.created_at),
             }
         }
     }
@@ -2639,8 +2682,8 @@ pub mod sqlite {
                 claim_value: r.claim_value.unwrap_or_default(),
                 status: r.status,
                 resolved_by: r.resolved_by,
-                resolved_at: r.resolved_at,
-                created_at: r.created_at,
+                resolved_at: crate::db::db_time::load_opt(r.resolved_at.as_deref()),
+                created_at: crate::db::db_time::load(&r.created_at),
             }
         }
     }
@@ -2683,7 +2726,7 @@ pub mod sqlite {
                 subject: r.subject,
                 actor: r.actor,
                 detail: r.detail,
-                created_at: r.created_at,
+                created_at: crate::db::db_time::load(&r.created_at),
             }
         }
     }
@@ -2712,8 +2755,8 @@ pub mod sqlite {
             Self {
                 domain: r.domain,
                 fingerprints: r.fingerprints,
-                pinned_at: r.pinned_at,
-                last_checked_at: r.last_checked_at,
+                pinned_at: crate::db::db_time::load(&r.pinned_at),
+                last_checked_at: crate::db::db_time::load(&r.last_checked_at),
             }
         }
     }
@@ -2742,9 +2785,9 @@ pub mod sqlite {
                 id: r.id,
                 target_key_id: r.target_key_id,
                 target_fingerprint: r.target_fingerprint,
-                revoked_at: r.revoked_at,
+                revoked_at: crate::db::db_time::load(&r.revoked_at),
                 cert: r.cert,
-                created_at: r.created_at,
+                created_at: crate::db::db_time::load(&r.created_at),
             }
         }
     }
@@ -2780,11 +2823,11 @@ pub mod sqlite {
                 subject_user_id: r.subject_user_id,
                 application_id: r.application_id,
                 instance_id: r.instance_id,
-                enrolled_at: r.enrolled_at,
+                enrolled_at: crate::db::db_time::load(&r.enrolled_at),
                 trust_reset_count: r.trust_reset_count,
-                last_trust_reset_at: r.last_trust_reset_at,
-                created_at: r.created_at,
-                updated_at: r.updated_at,
+                last_trust_reset_at: crate::db::db_time::load_opt(r.last_trust_reset_at.as_deref()),
+                created_at: crate::db::db_time::load(&r.created_at),
+                updated_at: crate::db::db_time::load(&r.updated_at),
             }
         }
     }
@@ -2824,9 +2867,9 @@ pub mod sqlite {
                 algorithm: r.algorithm,
                 public_key: r.public_key,
                 fingerprint: r.fingerprint,
-                created_at: r.created_at,
-                expires_at: r.expires_at,
-                revoked_at: r.revoked_at,
+                created_at: crate::db::db_time::load(&r.created_at),
+                expires_at: crate::db::db_time::load(&r.expires_at),
+                revoked_at: crate::db::db_time::load_opt(r.revoked_at.as_deref()),
             }
         }
     }
@@ -2863,10 +2906,10 @@ pub mod sqlite {
                 id: r.id,
                 application_key_row_id: r.application_key_row_id,
                 signed_attestation: r.signed_attestation,
-                attested_at: r.attested_at,
-                expires_at: r.expires_at,
-                created_at: r.created_at,
-                updated_at: r.updated_at,
+                attested_at: crate::db::db_time::load(&r.attested_at),
+                expires_at: crate::db::db_time::load(&r.expires_at),
+                created_at: crate::db::db_time::load(&r.created_at),
+                updated_at: crate::db::db_time::load(&r.updated_at),
             }
         }
     }
@@ -2890,9 +2933,9 @@ pub mod sqlite {
                 instance_row_id: r.instance_row_id,
                 target_key_id: r.target_key_id,
                 target_fingerprint: r.target_fingerprint,
-                revoked_at: r.revoked_at,
+                revoked_at: crate::db::db_time::load(&r.revoked_at),
                 record: r.record,
-                created_at: r.created_at,
+                created_at: crate::db::db_time::load(&r.created_at),
             }
         }
     }
@@ -2939,9 +2982,9 @@ pub mod sqlite {
                 algorithm: r.algorithm,
                 public_key: r.public_key,
                 nonce: r.nonce,
-                expires_at: r.expires_at,
-                consumed_at: r.consumed_at,
-                created_at: r.created_at,
+                expires_at: crate::db::db_time::load(&r.expires_at),
+                consumed_at: crate::db::db_time::load_opt(r.consumed_at.as_deref()),
+                created_at: crate::db::db_time::load(&r.created_at),
             }
         }
     }
@@ -2984,8 +3027,8 @@ pub mod sqlite {
                 channel: r.channel,
                 destination: r.destination,
                 purposes: r.purposes,
-                verified_at: r.verified_at,
-                revoked_at: r.revoked_at,
+                verified_at: crate::db::db_time::load(&r.verified_at),
+                revoked_at: crate::db::db_time::load_opt(r.revoked_at.as_deref()),
             }
         }
     }
@@ -3016,9 +3059,9 @@ pub mod sqlite {
                 channel: r.channel,
                 destination: r.destination,
                 required_credential_id: r.required_credential_id,
-                expires_at: r.expires_at,
-                consumed_at: r.consumed_at,
-                revoked_at: r.revoked_at,
+                expires_at: crate::db::db_time::load(&r.expires_at),
+                consumed_at: crate::db::db_time::load_opt(r.consumed_at.as_deref()),
+                revoked_at: crate::db::db_time::load_opt(r.revoked_at.as_deref()),
             }
         }
     }
@@ -3054,11 +3097,11 @@ pub mod sqlite {
                 encrypted_payload: r.encrypted_payload,
                 state: r.state,
                 attempt_count: r.attempt_count,
-                next_attempt_at: r.next_attempt_at,
+                next_attempt_at: crate::db::db_time::load(&r.next_attempt_at),
                 lease_owner: r.lease_owner,
-                lease_expires_at: r.lease_expires_at,
+                lease_expires_at: crate::db::db_time::load_opt(r.lease_expires_at.as_deref()),
                 last_error: r.last_error,
-                expires_at: r.expires_at,
+                expires_at: crate::db::db_time::load(&r.expires_at),
             }
         }
     }
@@ -3083,12 +3126,12 @@ pub mod sqlite {
             Self {
                 token_digest: r.token_digest,
                 user_id: r.user_id,
-                issued_at: r.issued_at,
-                last_seen_at: r.last_seen_at,
-                authenticated_at: r.authenticated_at,
+                issued_at: crate::db::db_time::load(&r.issued_at),
+                last_seen_at: crate::db::db_time::load(&r.last_seen_at),
+                authenticated_at: crate::db::db_time::load(&r.authenticated_at),
                 authentication_methods: r.authentication_methods,
-                expires_at: r.expires_at,
-                revoked_at: r.revoked_at,
+                expires_at: crate::db::db_time::load(&r.expires_at),
+                revoked_at: crate::db::db_time::load_opt(r.revoked_at.as_deref()),
             }
         }
     }
@@ -3108,8 +3151,8 @@ pub mod sqlite {
         fn from(row: UserAuthenticationActivityRow) -> Self {
             Self {
                 user_id: row.user_id,
-                last_authenticated_at: row.last_authenticated_at,
-                last_seen_at: row.last_seen_at,
+                last_authenticated_at: crate::db::db_time::load(&row.last_authenticated_at),
+                last_seen_at: crate::db::db_time::load(&row.last_seen_at),
                 successful_authentication_count: row.successful_authentication_count,
             }
         }
@@ -3137,8 +3180,8 @@ pub mod sqlite {
                 algorithm: r.algorithm,
                 fingerprint: r.fingerprint,
                 key_usage: r.key_usage,
-                expires_at: r.expires_at,
-                revoked_at: r.revoked_at,
+                expires_at: crate::db::db_time::load(&r.expires_at),
+                revoked_at: crate::db::db_time::load_opt(r.revoked_at.as_deref()),
             }
         }
     }
@@ -3228,10 +3271,10 @@ pub mod sqlite {
                 app_name: r.app_name,
                 local_domain_hint: r.local_domain_hint,
                 status: r.status,
-                created_at: r.created_at,
-                updated_at: r.updated_at,
-                expires_at: r.expires_at,
-                last_seen_at: r.last_seen_at,
+                created_at: crate::db::db_time::load(&r.created_at),
+                updated_at: crate::db::db_time::load(&r.updated_at),
+                expires_at: crate::db::db_time::load_opt(r.expires_at.as_deref()),
+                last_seen_at: crate::db::db_time::load_opt(r.last_seen_at.as_deref()),
                 admin_notes: r.admin_notes,
                 first_seen_by_user_id: r.first_seen_by_user_id,
             }
@@ -3271,8 +3314,8 @@ pub mod sqlite {
                 user_id: r.user_id,
                 user_domain: r.user_domain,
                 granted_claims: super::parse_json_types("granted_claims", &r.granted_claims),
-                issued_at: r.issued_at,
-                expires_at: r.expires_at,
+                issued_at: crate::db::db_time::load(&r.issued_at),
+                expires_at: crate::db::db_time::load(&r.expires_at),
             }
         }
     }
@@ -3303,9 +3346,9 @@ pub mod sqlite {
         fn from(r: RpDomainKeyCacheRow) -> Self {
             Self {
                 domain: r.domain,
-                fetched_at: r.fetched_at,
-                revocations_checked_at: r.revocations_checked_at,
-                last_used_at: r.last_used_at,
+                fetched_at: crate::db::db_time::load(&r.fetched_at),
+                revocations_checked_at: crate::db::db_time::load(&r.revocations_checked_at),
+                last_used_at: crate::db::db_time::load(&r.last_used_at),
             }
         }
     }
@@ -3331,9 +3374,9 @@ pub mod sqlite {
                 subject_domain: r.subject_domain,
                 application_id: r.application_id,
                 instance_id: r.instance_id,
-                fetched_at: r.fetched_at,
-                revocations_checked_at: r.revocations_checked_at,
-                last_used_at: r.last_used_at,
+                fetched_at: crate::db::db_time::load(&r.fetched_at),
+                revocations_checked_at: crate::db::db_time::load(&r.revocations_checked_at),
+                last_used_at: crate::db::db_time::load(&r.last_used_at),
             }
         }
     }
@@ -3369,7 +3412,7 @@ pub mod sqlite {
                 cache_entry_id: r.cache_entry_id,
                 key_id: r.key_id,
                 signed_attestation: r.signed_attestation,
-                attestation_expires_at: r.attestation_expires_at,
+                attestation_expires_at: crate::db::db_time::load(&r.attestation_expires_at),
                 verified_by_key_ids: r.verified_by_key_ids,
             }
         }
@@ -3392,7 +3435,7 @@ pub mod sqlite {
                 cache_entry_id: r.cache_entry_id,
                 target_key_id: r.target_key_id,
                 revocation: r.revocation,
-                revoked_at: r.revoked_at,
+                revoked_at: crate::db::db_time::load(&r.revoked_at),
             }
         }
     }

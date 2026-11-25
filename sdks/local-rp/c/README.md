@@ -18,7 +18,7 @@ sdks/local-rp/c/
   src/
     error.c/.h                  lrp_error / lrp_fail
     bytes.c                     lrp_bytes/lrp_str/lrp_txt_records ownership
-    time_util.c/.h               RFC3339 <-> unix seconds (internal)
+    time_util.c/.h               RFC3339 <-> unix seconds, signed time (internal)
     cbor.c/.h                    hand-written CBOR writer + decoder (internal)
     encoding.c/.h                 base64url (unpadded) (internal)
     crypto.c/.h                   OpenSSL EVP wrappers (internal)
@@ -152,6 +152,25 @@ lrp_pending_login_free(&pending);
 lrp_login_redirect_free(&redirect);
 lrp_identity_free(&identity); /* zeroizes both private keys before freeing */
 ```
+
+## Wire format: timestamps and enums
+
+- A CSIL `timestamp` field is CBOR tag 0 that wraps RFC 3339 text in UTC.
+  This SDK writes whole seconds with `Z`. The decoder refuses a value
+  without tag 0 and text that is not RFC 3339. The public structs
+  (`lrp_claim`, `lrp_domain_public_key`) keep the RFC 3339 text from the
+  wire unchanged.
+- A CSIL enum is a CBOR unsigned integer: `KeyAlgorithm` (ed25519=1,
+  x25519=2), `KeyUsage` (sign=1, encrypt=2, agree=3), and `AeadSuite`
+  (aes-256-gcm=1, chacha20-poly1305=2). The public structs and the
+  `supported_suites` input keep the text ids. An unknown number is a
+  decode error.
+- The callback KDF context still binds the suite TEXT id
+  (`aes-256-gcm`, `chacha20-poly1305`). Only the header field is a number.
+- Signed tuple payloads (claim, key revocation, key vouch) carry each time
+  as a CBOR integer of whole Unix seconds. A time with a fraction of a
+  second cannot be signed, so verification fails. The SDK does not round
+  it.
 
 ## Ownership and lifetime rules
 

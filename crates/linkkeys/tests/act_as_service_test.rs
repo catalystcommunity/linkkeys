@@ -11,7 +11,6 @@
 
 mod common;
 
-use liblinkkeys::timestamp::Rfc3339 as _;
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
 
@@ -79,12 +78,12 @@ impl Key {
     fn key_ref(&self) -> ApplicationKeyRef {
         ApplicationKeyRef {
             key_id: self.id.clone(),
-            key_usage: "sign".into(),
-            algorithm: "ed25519".into(),
+            key_usage: liblinkkeys::generated::types::KeyUsage::Sign,
+            algorithm: liblinkkeys::generated::types::KeyAlgorithm::Ed25519,
             public_key: self.public.clone(),
             fingerprint: fingerprint(&self.public),
-            created_at: (OffsetDateTime::now_utc() - Duration::days(1)).to_rfc3339(),
-            expires_at: (OffsetDateTime::now_utc() + Duration::days(30)).to_rfc3339(),
+            created_at: OffsetDateTime::now_utc() - Duration::days(1),
+            expires_at: OffsetDateTime::now_utc() + Duration::days(30),
             revoked_at: None,
         }
     }
@@ -195,8 +194,8 @@ impl World {
                 .collect(),
             language: Some("en-US".into()),
             audience_handle_claim: None,
-            issued_at: aa::format_time(now() - Duration::minutes(1)),
-            expires_at: aa::format_time(now() + expires_in),
+            issued_at: now() - Duration::minutes(1),
+            expires_at: now() + expires_in,
         };
         aa::sign_scope_set(&set, "audience-inst", &[self.audience_key.signer()]).unwrap()
     }
@@ -217,12 +216,12 @@ impl World {
             grantee_handle_claim: None,
             callback_url: "https://grantee.test/act-as/callback?x=1".into(),
             nonce: nonce.into(),
-            requested_at: aa::format_time(now() - Duration::seconds(5)),
-            expires_at: aa::format_time(now() + Duration::minutes(10)),
+            requested_at: now() - Duration::seconds(5),
+            expires_at: now() + Duration::minutes(10),
         };
         let signed = aa::sign_grant_request(&request, signer).unwrap();
         Base64UrlUnpadded::encode_string(
-            &liblinkkeys::generated::encode_signed_act_as_grant_request(&signed),
+            &liblinkkeys::generated::encode_signed_act_as_grant_request(&signed).unwrap(),
         )
     }
 
@@ -279,8 +278,8 @@ impl World {
         let request = ActAsRefreshRequest {
             grant_id: grant_id.to_string(),
             grantee: app_grantee(),
-            requested_at: aa::format_time(at - Duration::seconds(5)),
-            expires_at: aa::format_time(at + Duration::minutes(5)),
+            requested_at: at - Duration::seconds(5),
+            expires_at: at + Duration::minutes(5),
             nonce: "refresh-nonce".into(),
         };
         let signed = aa::sign_refresh_request(&request, signer).unwrap();
@@ -342,7 +341,7 @@ fn inspect_complete_and_present_end_to_end() {
     assert!(!signed);
     let record = w.pool.find_act_as_grant(&grant_id).unwrap().unwrap();
     assert_eq!(
-        liblinkkeys::generated::encode_signed_act_as_grant(&grant),
+        liblinkkeys::generated::encode_signed_act_as_grant(&grant).unwrap(),
         record.signed_grant
     );
 
@@ -422,12 +421,12 @@ fn an_expired_scope_set_is_refused_at_inspection() {
         grantee_handle_claim: None,
         callback_url: "https://grantee.test/cb".into(),
         nonce: "n".into(),
-        requested_at: aa::format_time(now() - Duration::seconds(5)),
-        expires_at: aa::format_time(now() + Duration::minutes(5)),
+        requested_at: now() - Duration::seconds(5),
+        expires_at: now() + Duration::minutes(5),
     };
     let signed = aa::sign_grant_request(&request, &w.grantee_signer()).unwrap();
     let sr = Base64UrlUnpadded::encode_string(
-        &liblinkkeys::generated::encode_signed_act_as_grant_request(&signed),
+        &liblinkkeys::generated::encode_signed_act_as_grant_request(&signed).unwrap(),
     );
     let err = svc::inspect(&w.pool, &w.keys, &w.user, &sr, now()).unwrap_err();
     assert_eq!(err.code, 400);
@@ -449,12 +448,12 @@ fn a_request_window_longer_than_the_cap_is_refused() {
         grantee_handle_claim: None,
         callback_url: "https://grantee.test/cb".into(),
         nonce: "n".into(),
-        requested_at: aa::format_time(now() - Duration::seconds(5)),
-        expires_at: aa::format_time(now() + Duration::hours(2)),
+        requested_at: now() - Duration::seconds(5),
+        expires_at: now() + Duration::hours(2),
     };
     let signed = aa::sign_grant_request(&request, &w.grantee_signer()).unwrap();
     let sr = Base64UrlUnpadded::encode_string(
-        &liblinkkeys::generated::encode_signed_act_as_grant_request(&signed),
+        &liblinkkeys::generated::encode_signed_act_as_grant_request(&signed).unwrap(),
     );
     assert_eq!(
         svc::inspect(&w.pool, &w.keys, &w.user, &sr, now())
@@ -582,11 +581,8 @@ fn refresh_renews_only_with_a_window_and_after_half_life() {
     assert!(signed);
     let decoded = aa::verify_grant_signature(&renewed, &w.domain_keys()).unwrap();
     assert_eq!(decoded.grant_id, id);
-    assert_eq!(decoded.issued_at, aa::format_time(at));
-    assert_eq!(
-        decoded.expires_at,
-        aa::format_time(at + Duration::seconds(600))
-    );
+    assert_eq!(decoded.issued_at, at);
+    assert_eq!(decoded.expires_at, at + Duration::seconds(600));
     let record = w.pool.find_act_as_grant(&id).unwrap().unwrap();
     assert_eq!(record.expires_at, decoded.expires_at);
     assert_eq!(record.renewable_until, decoded.renewable_until);
@@ -629,8 +625,8 @@ fn a_refresh_window_longer_than_the_cap_is_refused() {
         let request = ActAsRefreshRequest {
             grant_id: id.clone(),
             grantee: app_grantee(),
-            requested_at: aa::format_time(now()),
-            expires_at: aa::format_time(now() + window),
+            requested_at: now(),
+            expires_at: now() + window,
             nonce: "refresh-nonce".into(),
         };
         let signed = aa::sign_refresh_request(&request, &w.grantee_signer()).unwrap();
@@ -713,8 +709,8 @@ fn revocation_is_owner_only_published_and_stops_refresh() {
     let listed = svc::list_for_user(&w.pool, &w.user).unwrap();
     assert_eq!(listed.grants.len(), 1);
     assert_eq!(
-        listed.grants[0].revoked_at.as_deref(),
-        Some(first.revoked_at.as_str())
+        listed.grants[0].revoked_at.as_ref(),
+        Some(&first.revoked_at)
     );
     assert!(svc::list_for_user(&w.pool, &stranger)
         .unwrap()
@@ -760,9 +756,9 @@ fn local_rp_descriptor(signing_private: &[u8]) -> (SignedLocalRpDescriptor, Stri
         signing_public_key: public,
         encryption_public_key: vec![9; 32],
         fingerprint: fp.clone(),
-        supported_suites: vec!["chacha20-poly1305".into()],
-        created_at: (OffsetDateTime::now_utc() - Duration::days(1)).to_rfc3339(),
-        expires_at: (OffsetDateTime::now_utc() + Duration::days(30)).to_rfc3339(),
+        supported_suites: vec![liblinkkeys::generated::types::AeadSuite::Chacha20Poly1305],
+        created_at: OffsetDateTime::now_utc() - Duration::days(1),
+        expires_at: OffsetDateTime::now_utc() + Duration::days(30),
     };
     (
         liblinkkeys::local_rp::sign_local_rp_descriptor(&descriptor, signing_private).unwrap(),
@@ -830,7 +826,7 @@ fn handle_claim(
             user_id: &subject.subject_user_id,
             subject_domain: &subject.subject_domain,
             expires_at: None,
-            attested_at: &aa::format_time(now() - Duration::hours(1)),
+            attested_at: now() - Duration::hours(1),
         },
         &[liblinkkeys::claims::ClaimSigner {
             domain: &subject.subject_domain,
@@ -847,10 +843,10 @@ fn domain_public(k: &Key) -> DomainPublicKey {
         key_id: k.id.clone(),
         public_key: k.public.clone(),
         fingerprint: fingerprint(&k.public),
-        algorithm: "ed25519".into(),
-        key_usage: "sign".into(),
-        created_at: String::new(),
-        expires_at: "2126-01-01T00:00:00Z".into(),
+        algorithm: liblinkkeys::generated::types::KeyAlgorithm::Ed25519,
+        key_usage: liblinkkeys::generated::types::KeyUsage::Sign,
+        created_at: OffsetDateTime::UNIX_EPOCH,
+        expires_at: liblinkkeys::timestamp::parse_rfc3339("2126-01-01T00:00:00Z").unwrap(),
         revoked_at: None,
         signed_by_key_id: None,
         key_signature: None,
@@ -876,12 +872,12 @@ fn verified_handle_claims_are_shown_and_bad_ones_are_dropped() {
             grantee_handle_claim: Some(claim),
             callback_url: "https://grantee.test/cb".into(),
             nonce: "n".into(),
-            requested_at: aa::format_time(now() - Duration::seconds(5)),
-            expires_at: aa::format_time(now() + Duration::minutes(5)),
+            requested_at: now() - Duration::seconds(5),
+            expires_at: now() + Duration::minutes(5),
         };
         let signed = aa::sign_grant_request(&request, &w.grantee_signer()).unwrap();
         let sr = Base64UrlUnpadded::encode_string(
-            &liblinkkeys::generated::encode_signed_act_as_grant_request(&signed),
+            &liblinkkeys::generated::encode_signed_act_as_grant_request(&signed).unwrap(),
         );
         let inspected = svc::inspect(&w.pool, &w.keys, &w.user, &sr, now()).unwrap();
         assert_eq!(inspected.grantee_party.handle.as_deref(), expected);
@@ -922,8 +918,8 @@ fn a_scope_set_survives_when_one_of_its_signing_keys_expired() {
         }],
         language: None,
         audience_handle_claim: None,
-        issued_at: aa::format_time(now() - Duration::minutes(1)),
-        expires_at: aa::format_time(now() + Duration::minutes(10)),
+        issued_at: now() - Duration::minutes(1),
+        expires_at: now() + Duration::minutes(10),
     };
     let scope_set = aa::sign_scope_set(
         &set,
@@ -933,7 +929,7 @@ fn a_scope_set_survives_when_one_of_its_signing_keys_expired() {
     .unwrap();
     // The first key expired before the set was issued; the second is valid.
     let mut expired = w.audience_key.key_ref();
-    expired.expires_at = (OffsetDateTime::now_utc() - Duration::days(1)).to_rfc3339();
+    expired.expires_at = OffsetDateTime::now_utc() - Duration::days(1);
     w.keys.keys.insert(
         ("audience-app".into(), "audience-inst".into()),
         vec![expired, second.key_ref()],
@@ -946,12 +942,12 @@ fn a_scope_set_survives_when_one_of_its_signing_keys_expired() {
         grantee_handle_claim: None,
         callback_url: "https://grantee.test/cb".into(),
         nonce: "n".into(),
-        requested_at: aa::format_time(now() - Duration::seconds(5)),
-        expires_at: aa::format_time(now() + Duration::minutes(5)),
+        requested_at: now() - Duration::seconds(5),
+        expires_at: now() + Duration::minutes(5),
     };
     let signed = aa::sign_grant_request(&request, &w.grantee_signer()).unwrap();
     let sr = Base64UrlUnpadded::encode_string(
-        &liblinkkeys::generated::encode_signed_act_as_grant_request(&signed),
+        &liblinkkeys::generated::encode_signed_act_as_grant_request(&signed).unwrap(),
     );
     assert!(svc::inspect(&w.pool, &w.keys, &w.user, &sr, now()).is_ok());
 }

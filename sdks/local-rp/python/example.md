@@ -109,13 +109,18 @@ TCP (`docs/DEPLOYING-RP.md` now documents the TCP integration correctly).
 
 ```
 service Rp {
-    sign-request:      RpSignRequest      -> RpSignResponse,
-    decrypt-token:      RpDecryptRequest   -> RpDecryptResponse,
-    verify-assertion:   RpVerifyRequest    -> RpVerifyResponse,
-    userinfo-fetch:     RpUserInfoRequest  -> UserInfo,
+    sign-request:      RpSignRequest      -> RpSignResponse / RpError,
+    decrypt-token:      RpDecryptRequest   -> RpDecryptResponse / RpError,
+    verify-assertion:   RpVerifyRequest    -> RpVerifyResponse / RpError,
+    userinfo-fetch:     RpUserInfoRequest  -> UserInfo / RpError,
     issue-attestation:  RpIssueAttestationRequest -> RpIssueAttestationResponse
 }
 ```
+
+The first four operations reply with status 0 and a typed arm. The reply
+`variant` field names the arm: the success type, or `RpError`. An `RpError`
+payload is `{code: RpErrorCode, message}`. Your client must read `variant`
+and treat `RpError` as a failure. The walkthrough below does this.
 
 1. **`Rp/sign-request`** `{callback_url, nonce, requested_claims?}` →
    `{signed_request}`. Your app generates a fresh `nonce` and calls this
@@ -190,13 +195,15 @@ from linkkeys_local_rp import dns as lk_dns
 from linkkeys_local_rp.dns import SystemDnsResolver, DnsParseError
 from linkkeys_local_rp.browser import resolve_browser_base
 from linkkeys_local_rp.rpc import MAX_FRAME_SIZE
-from linkkeys_local_rp.generated.codec import CborTag, cbor_encode, cbor_decode
+from linkkeys_local_rp.generated.codec import (
+    CborTag, RpErrorRefusal, cbor_encode, cbor_decode, resolve_rpc_reply,
+)
 from linkkeys_local_rp.generated.types import (
     RpSignRequest, RpSignResponse,
     RpDecryptRequest, RpDecryptResponse,
     RpVerifyRequest, RpVerifyResponse,
     RpUserInfoRequest, UserInfo,
-    ClaimRequest, RequestedClaim,
+    ClaimRequest, ClaimValueType, RequestedClaim,
 )
 
 _CSIL_RPC_VERSION = 1
@@ -205,6 +212,16 @@ _TAG_ENCODED_CBOR = 24
 
 class RpCallError(Exception):
     """Raised for both transport-level and CSIL-RPC status failures."""
+
+
+class RpRefused(RpCallError):
+    """The RP server replied with the typed `RpError` arm. `code` is an
+    `RpErrorCode` (for example `not_application_account` or `bad_request`)."""
+
+    def __init__(self, code, message: str):
+        super().__init__(f"rp error ({code}): {message}")
+        self.code = code
+        self.message = message
 
 
 @dataclass
@@ -227,13 +244,21 @@ def _build_request_envelope(op: str, req, api_key: str) -> bytes:
     return cbor_encode(envelope)
 
 
-def _parse_response_envelope(response_bytes: bytes, decode_response):
+def _parse_response_envelope(op: str, response_bytes: bytes, decode_response):
     envelope = cbor_decode(response_bytes)
     status = envelope.get("status")
     if status != 0:
         raise RpCallError(f"server error (status={status}): {envelope.get('error')}")
     payload_tag = envelope.get("payload")
     payload = payload_tag.value if isinstance(payload_tag, CborTag) else b""
+    # sign-request, decrypt-token, verify-assertion, and userinfo-fetch reply
+    # with status 0 and a typed arm in `variant`: the success type, or
+    # `RpError`. The generated `resolve_rpc_reply` checks the arm and raises
+    # `RpErrorRefusal` for `RpError`.
+    try:
+        payload = resolve_rpc_reply("Rp", op, envelope.get("variant"), payload)
+    except RpErrorRefusal as refusal:
+        raise RpRefused(refusal.value.code, refusal.value.message) from None
     return decode_response(payload)
 
 
@@ -277,14 +302,14 @@ def rp_call(rp_config: RpConfig, op: str, req, decode_response):
     finally:
         tls_sock.close()
 
-    return _parse_response_envelope(response_bytes, decode_response)
+    return _parse_response_envelope(op, response_bytes, decode_response)
 
 
 def default_claim_request() -> ClaimRequest:
     """Adjust to whatever claims your app actually needs."""
     return ClaimRequest(
-        required=[RequestedClaim(claim_type="display_name", datatype="text")],
-        optional=[RequestedClaim(claim_type="email", datatype="email")],
+        required=[RequestedClaim(claim_type="display_name", datatype=ClaimValueType.TEXT)],
+        optional=[RequestedClaim(claim_type="email", datatype=ClaimValueType.EMAIL)],
     )
 
 
@@ -399,7 +424,8 @@ plus: an `RpSignResponse`/`RpDecryptRequest`/`RpDecryptResponse`/
 for every type used above (`X.from_cbor(x.to_cbor()) == x`); a synthetic
 success-status response envelope parsed back through
 `_parse_response_envelope`; a synthetic error-status envelope confirmed to
-raise `RpCallError`; `resolve_api_base` against a fake `DnsResolver`
+raise `RpCallError`; a synthetic `RpError`-arm envelope confirmed to raise
+`RpRefused`; `resolve_api_base` against a fake `DnsResolver`
 returning a canned `_linkkeys_apis` TXT string (confirms the `https=`
 parse) and against one returning nothing (confirms the `https://<domain>`
 fallback); and `build_authorize_redirect` confirmed to produce a

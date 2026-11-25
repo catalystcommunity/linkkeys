@@ -38,6 +38,1195 @@ pub struct CheckResult {
     pub entries: CheckEntries,
 }
 
+/// KeyAlgorithm variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum KeyAlgorithm {
+    Ed25519,
+    X25519,
+}
+
+impl KeyAlgorithm {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ed25519 => "ed25519",
+            Self::X25519 => "x25519",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "ed25519" => Some(Self::Ed25519),
+            "x25519" => Some(Self::X25519),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Ed25519 => 1,
+            Self::X25519 => 2,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Ed25519),
+            2 => Some(Self::X25519),
+            _ => None,
+        }
+    }
+}
+
+/// KeyUsage variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum KeyUsage {
+    Sign,
+    Encrypt,
+    Agree,
+}
+
+impl KeyUsage {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Sign => "sign",
+            Self::Encrypt => "encrypt",
+            Self::Agree => "agree",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "sign" => Some(Self::Sign),
+            "encrypt" => Some(Self::Encrypt),
+            "agree" => Some(Self::Agree),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Sign => 1,
+            Self::Encrypt => 2,
+            Self::Agree => 3,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Sign),
+            2 => Some(Self::Encrypt),
+            3 => Some(Self::Agree),
+            _ => None,
+        }
+    }
+}
+
+/// AeadSuite variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AeadSuite {
+    Aes256Gcm,
+    Chacha20Poly1305,
+}
+
+impl AeadSuite {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Aes256Gcm => "aes_256_gcm",
+            Self::Chacha20Poly1305 => "chacha20_poly1305",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "aes_256_gcm" => Some(Self::Aes256Gcm),
+            "chacha20_poly1305" => Some(Self::Chacha20Poly1305),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Aes256Gcm => 1,
+            Self::Chacha20Poly1305 => 2,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Aes256Gcm),
+            2 => Some(Self::Chacha20Poly1305),
+            _ => None,
+        }
+    }
+}
+
+/// ClaimValueType variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClaimValueType {
+    Text,
+    Url,
+    Email,
+    Bool,
+    Int,
+    Float,
+    Decimal,
+    Date,
+    Timestamp,
+    Opaque,
+}
+
+impl ClaimValueType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Url => "url",
+            Self::Email => "email",
+            Self::Bool => "bool",
+            Self::Int => "int",
+            Self::Float => "float",
+            Self::Decimal => "decimal",
+            Self::Date => "date",
+            Self::Timestamp => "timestamp",
+            Self::Opaque => "opaque",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "text" => Some(Self::Text),
+            "url" => Some(Self::Url),
+            "email" => Some(Self::Email),
+            "bool" => Some(Self::Bool),
+            "int" => Some(Self::Int),
+            "float" => Some(Self::Float),
+            "decimal" => Some(Self::Decimal),
+            "date" => Some(Self::Date),
+            "timestamp" => Some(Self::Timestamp),
+            "opaque" => Some(Self::Opaque),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Text => 1,
+            Self::Url => 2,
+            Self::Email => 3,
+            Self::Bool => 4,
+            Self::Int => 5,
+            Self::Float => 6,
+            Self::Decimal => 7,
+            Self::Date => 8,
+            Self::Timestamp => 9,
+            Self::Opaque => 10,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Text),
+            2 => Some(Self::Url),
+            3 => Some(Self::Email),
+            4 => Some(Self::Bool),
+            5 => Some(Self::Int),
+            6 => Some(Self::Float),
+            7 => Some(Self::Decimal),
+            8 => Some(Self::Date),
+            9 => Some(Self::Timestamp),
+            10 => Some(Self::Opaque),
+            _ => None,
+        }
+    }
+}
+
+/// SetRule variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SetRule {
+    UserSelf,
+    IdpOnRequest,
+    TrustedIssuerOnly,
+    AdminOnly,
+    Deny,
+}
+
+impl SetRule {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::UserSelf => "user_self",
+            Self::IdpOnRequest => "idp_on_request",
+            Self::TrustedIssuerOnly => "trusted_issuer_only",
+            Self::AdminOnly => "admin_only",
+            Self::Deny => "deny",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "user_self" => Some(Self::UserSelf),
+            "idp_on_request" => Some(Self::IdpOnRequest),
+            "trusted_issuer_only" => Some(Self::TrustedIssuerOnly),
+            "admin_only" => Some(Self::AdminOnly),
+            "deny" => Some(Self::Deny),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::UserSelf => 1,
+            Self::IdpOnRequest => 2,
+            Self::TrustedIssuerOnly => 3,
+            Self::AdminOnly => 4,
+            Self::Deny => 5,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::UserSelf),
+            2 => Some(Self::IdpOnRequest),
+            3 => Some(Self::TrustedIssuerOnly),
+            4 => Some(Self::AdminOnly),
+            5 => Some(Self::Deny),
+            _ => None,
+        }
+    }
+}
+
+/// SigningRule variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SigningRule {
+    SelfSigned,
+    Verified,
+    Attested,
+    Unsigned,
+}
+
+impl SigningRule {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::SelfSigned => "self_signed",
+            Self::Verified => "verified",
+            Self::Attested => "attested",
+            Self::Unsigned => "unsigned",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "self_signed" => Some(Self::SelfSigned),
+            "verified" => Some(Self::Verified),
+            "attested" => Some(Self::Attested),
+            "unsigned" => Some(Self::Unsigned),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::SelfSigned => 1,
+            Self::Verified => 2,
+            Self::Attested => 3,
+            Self::Unsigned => 4,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::SelfSigned),
+            2 => Some(Self::Verified),
+            3 => Some(Self::Attested),
+            4 => Some(Self::Unsigned),
+            _ => None,
+        }
+    }
+}
+
+/// SetClaimOutcome variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SetClaimOutcome {
+    Signed,
+    StoredUnsigned,
+    VerificationRequired,
+    Queued,
+}
+
+impl SetClaimOutcome {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Signed => "signed",
+            Self::StoredUnsigned => "stored_unsigned",
+            Self::VerificationRequired => "verification_required",
+            Self::Queued => "queued",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "signed" => Some(Self::Signed),
+            "stored_unsigned" => Some(Self::StoredUnsigned),
+            "verification_required" => Some(Self::VerificationRequired),
+            "queued" => Some(Self::Queued),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Signed => 1,
+            Self::StoredUnsigned => 2,
+            Self::VerificationRequired => 3,
+            Self::Queued => 4,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Signed),
+            2 => Some(Self::StoredUnsigned),
+            3 => Some(Self::VerificationRequired),
+            4 => Some(Self::Queued),
+            _ => None,
+        }
+    }
+}
+
+/// ReleaseDisposition variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ReleaseDisposition {
+    ForcedAllow,
+    ForcedDeny,
+}
+
+impl ReleaseDisposition {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::ForcedAllow => "forced_allow",
+            Self::ForcedDeny => "forced_deny",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "forced_allow" => Some(Self::ForcedAllow),
+            "forced_deny" => Some(Self::ForcedDeny),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::ForcedAllow => 1,
+            Self::ForcedDeny => 2,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::ForcedAllow),
+            2 => Some(Self::ForcedDeny),
+            _ => None,
+        }
+    }
+}
+
+/// ConsentRowPolicy variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ConsentRowPolicy {
+    User,
+    ForcedAllow,
+    ForcedDeny,
+}
+
+impl ConsentRowPolicy {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::ForcedAllow => "forced_allow",
+            Self::ForcedDeny => "forced_deny",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "user" => Some(Self::User),
+            "forced_allow" => Some(Self::ForcedAllow),
+            "forced_deny" => Some(Self::ForcedDeny),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::User => 1,
+            Self::ForcedAllow => 2,
+            Self::ForcedDeny => 3,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::User),
+            2 => Some(Self::ForcedAllow),
+            3 => Some(Self::ForcedDeny),
+            _ => None,
+        }
+    }
+}
+
+/// ClaimApprovalStatus variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClaimApprovalStatus {
+    Pending,
+    Approved,
+    Rejected,
+}
+
+impl ClaimApprovalStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Approved => "approved",
+            Self::Rejected => "rejected",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "pending" => Some(Self::Pending),
+            "approved" => Some(Self::Approved),
+            "rejected" => Some(Self::Rejected),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Pending => 1,
+            Self::Approved => 2,
+            Self::Rejected => 3,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Pending),
+            2 => Some(Self::Approved),
+            3 => Some(Self::Rejected),
+            _ => None,
+        }
+    }
+}
+
+/// PinRecheckOutcome variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PinRecheckOutcome {
+    FirstSeen,
+    Unchanged,
+    Rotated,
+    Mismatch,
+    Error,
+}
+
+impl PinRecheckOutcome {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::FirstSeen => "first_seen",
+            Self::Unchanged => "unchanged",
+            Self::Rotated => "rotated",
+            Self::Mismatch => "mismatch",
+            Self::Error => "error",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "first_seen" => Some(Self::FirstSeen),
+            "unchanged" => Some(Self::Unchanged),
+            "rotated" => Some(Self::Rotated),
+            "mismatch" => Some(Self::Mismatch),
+            "error" => Some(Self::Error),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::FirstSeen => 1,
+            Self::Unchanged => 2,
+            Self::Rotated => 3,
+            Self::Mismatch => 4,
+            Self::Error => 5,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::FirstSeen),
+            2 => Some(Self::Unchanged),
+            3 => Some(Self::Rotated),
+            4 => Some(Self::Mismatch),
+            5 => Some(Self::Error),
+            _ => None,
+        }
+    }
+}
+
+/// NotificationPurpose variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NotificationPurpose {
+    VerifyContact,
+    ResetPassword,
+}
+
+impl NotificationPurpose {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::VerifyContact => "verify_contact",
+            Self::ResetPassword => "reset_password",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "verify_contact" => Some(Self::VerifyContact),
+            "reset_password" => Some(Self::ResetPassword),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::VerifyContact => 1,
+            Self::ResetPassword => 2,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::VerifyContact),
+            2 => Some(Self::ResetPassword),
+            _ => None,
+        }
+    }
+}
+
+/// NotificationChannel variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NotificationChannel {
+    Email,
+}
+
+impl NotificationChannel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Email => "email",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "email" => Some(Self::Email),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Email => 1,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Email),
+            _ => None,
+        }
+    }
+}
+
+/// DestinationKind variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DestinationKind {
+    Email,
+}
+
+impl DestinationKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Email => "email",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "email" => Some(Self::Email),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Email => 1,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Email),
+            _ => None,
+        }
+    }
+}
+
+/// LocalRpPolicy variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LocalRpPolicy {
+    Disabled,
+    AdminApprovalRequired,
+    AllowByDefault,
+}
+
+impl LocalRpPolicy {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Disabled => "disabled",
+            Self::AdminApprovalRequired => "admin_approval_required",
+            Self::AllowByDefault => "allow_by_default",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "disabled" => Some(Self::Disabled),
+            "admin_approval_required" => Some(Self::AdminApprovalRequired),
+            "allow_by_default" => Some(Self::AllowByDefault),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Disabled => 1,
+            Self::AdminApprovalRequired => 2,
+            Self::AllowByDefault => 3,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Disabled),
+            2 => Some(Self::AdminApprovalRequired),
+            3 => Some(Self::AllowByDefault),
+            _ => None,
+        }
+    }
+}
+
+/// LocalRpStatus variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LocalRpStatus {
+    Pending,
+    Approved,
+    Denied,
+    Revoked,
+}
+
+impl LocalRpStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Approved => "approved",
+            Self::Denied => "denied",
+            Self::Revoked => "revoked",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "pending" => Some(Self::Pending),
+            "approved" => Some(Self::Approved),
+            "denied" => Some(Self::Denied),
+            "revoked" => Some(Self::Revoked),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Pending => 1,
+            Self::Approved => 2,
+            Self::Denied => 3,
+            Self::Revoked => 4,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Pending),
+            2 => Some(Self::Approved),
+            3 => Some(Self::Denied),
+            4 => Some(Self::Revoked),
+            _ => None,
+        }
+    }
+}
+
+/// LocalRpAdmission variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LocalRpAdmission {
+    Consent,
+    Pending,
+    Blocked,
+}
+
+impl LocalRpAdmission {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Consent => "consent",
+            Self::Pending => "pending",
+            Self::Blocked => "blocked",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "consent" => Some(Self::Consent),
+            "pending" => Some(Self::Pending),
+            "blocked" => Some(Self::Blocked),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Consent => 1,
+            Self::Pending => 2,
+            Self::Blocked => 3,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Consent),
+            2 => Some(Self::Pending),
+            3 => Some(Self::Blocked),
+            _ => None,
+        }
+    }
+}
+
+/// AppAccessMode variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AppAccessMode {
+    Allow,
+    Deny,
+}
+
+impl AppAccessMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Allow => "allow",
+            Self::Deny => "deny",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "allow" => Some(Self::Allow),
+            "deny" => Some(Self::Deny),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Allow => 1,
+            Self::Deny => 2,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Allow),
+            2 => Some(Self::Deny),
+            _ => None,
+        }
+    }
+}
+
+/// AppAccessTargetKind variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AppAccessTargetKind {
+    Everyone,
+    User,
+    Group,
+    Claim,
+}
+
+impl AppAccessTargetKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Everyone => "everyone",
+            Self::User => "user",
+            Self::Group => "group",
+            Self::Claim => "claim",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "everyone" => Some(Self::Everyone),
+            "user" => Some(Self::User),
+            "group" => Some(Self::Group),
+            "claim" => Some(Self::Claim),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Everyone => 1,
+            Self::User => 2,
+            Self::Group => 3,
+            Self::Claim => 4,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Everyone),
+            2 => Some(Self::User),
+            3 => Some(Self::Group),
+            4 => Some(Self::Claim),
+            _ => None,
+        }
+    }
+}
+
+/// ClaimOperator variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClaimOperator {
+    Present,
+    Absent,
+    Equals,
+    AgeUnder,
+    AgeAtLeast,
+}
+
+impl ClaimOperator {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Present => "present",
+            Self::Absent => "absent",
+            Self::Equals => "equals",
+            Self::AgeUnder => "age_under",
+            Self::AgeAtLeast => "age_at_least",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "present" => Some(Self::Present),
+            "absent" => Some(Self::Absent),
+            "equals" => Some(Self::Equals),
+            "age_under" => Some(Self::AgeUnder),
+            "age_at_least" => Some(Self::AgeAtLeast),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Present => 1,
+            Self::Absent => 2,
+            Self::Equals => 3,
+            Self::AgeUnder => 4,
+            Self::AgeAtLeast => 5,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Present),
+            2 => Some(Self::Absent),
+            3 => Some(Self::Equals),
+            4 => Some(Self::AgeUnder),
+            5 => Some(Self::AgeAtLeast),
+            _ => None,
+        }
+    }
+}
+
+/// ApplicationKeyChallengePurpose variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ApplicationKeyChallengePurpose {
+    Add,
+    Renew,
+}
+
+impl ApplicationKeyChallengePurpose {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Add => "add",
+            Self::Renew => "renew",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "add" => Some(Self::Add),
+            "renew" => Some(Self::Renew),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Add => 1,
+            Self::Renew => 2,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Add),
+            2 => Some(Self::Renew),
+            _ => None,
+        }
+    }
+}
+
+/// AuthFlow variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AuthFlow {
+    Login,
+    ClaimsUpdate,
+}
+
+impl AuthFlow {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Login => "login",
+            Self::ClaimsUpdate => "claims_update",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "login" => Some(Self::Login),
+            "claims_update" => Some(Self::ClaimsUpdate),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Login => 1,
+            Self::ClaimsUpdate => 2,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Login),
+            2 => Some(Self::ClaimsUpdate),
+            _ => None,
+        }
+    }
+}
+
+/// RpCacheStatus variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RpCacheStatus {
+    Fresh,
+    Refreshed,
+    Stale,
+}
+
+impl RpCacheStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Fresh => "fresh",
+            Self::Refreshed => "refreshed",
+            Self::Stale => "stale",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "fresh" => Some(Self::Fresh),
+            "refreshed" => Some(Self::Refreshed),
+            "stale" => Some(Self::Stale),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Fresh => 1,
+            Self::Refreshed => 2,
+            Self::Stale => 3,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Fresh),
+            2 => Some(Self::Refreshed),
+            3 => Some(Self::Stale),
+            _ => None,
+        }
+    }
+}
+
+/// AccountKind variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AccountKind {
+    Human,
+    Application,
+}
+
+impl AccountKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Human => "human",
+            Self::Application => "application",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "human" => Some(Self::Human),
+            "application" => Some(Self::Application),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Human => 1,
+            Self::Application => 2,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Human),
+            2 => Some(Self::Application),
+            _ => None,
+        }
+    }
+}
+
+/// RpErrorCode variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RpErrorCode {
+    NotApplicationAccount,
+    ApplicationMismatch,
+    ApplicationUserLimit,
+    BadRequest,
+    UpstreamFailed,
+    Internal,
+}
+
+impl RpErrorCode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::NotApplicationAccount => "not_application_account",
+            Self::ApplicationMismatch => "application_mismatch",
+            Self::ApplicationUserLimit => "application_user_limit",
+            Self::BadRequest => "bad_request",
+            Self::UpstreamFailed => "upstream_failed",
+            Self::Internal => "internal",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "not_application_account" => Some(Self::NotApplicationAccount),
+            "application_mismatch" => Some(Self::ApplicationMismatch),
+            "application_user_limit" => Some(Self::ApplicationUserLimit),
+            "bad_request" => Some(Self::BadRequest),
+            "upstream_failed" => Some(Self::UpstreamFailed),
+            "internal" => Some(Self::Internal),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::NotApplicationAccount => 1,
+            Self::ApplicationMismatch => 2,
+            Self::ApplicationUserLimit => 3,
+            Self::BadRequest => 4,
+            Self::UpstreamFailed => 5,
+            Self::Internal => 6,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::NotApplicationAccount),
+            2 => Some(Self::ApplicationMismatch),
+            3 => Some(Self::ApplicationUserLimit),
+            4 => Some(Self::BadRequest),
+            5 => Some(Self::UpstreamFailed),
+            6 => Some(Self::Internal),
+            _ => None,
+        }
+    }
+}
+
+/// IssuedClaimOutcome variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IssuedClaimOutcome {
+    Deposited,
+    Handoff,
+    Skipped,
+    Failed,
+}
+
+impl IssuedClaimOutcome {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Deposited => "deposited",
+            Self::Handoff => "handoff",
+            Self::Skipped => "skipped",
+            Self::Failed => "failed",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "deposited" => Some(Self::Deposited),
+            "handoff" => Some(Self::Handoff),
+            "skipped" => Some(Self::Skipped),
+            "failed" => Some(Self::Failed),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Deposited => 1,
+            Self::Handoff => 2,
+            Self::Skipped => 3,
+            Self::Failed => 4,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Deposited),
+            2 => Some(Self::Handoff),
+            3 => Some(Self::Skipped),
+            4 => Some(Self::Failed),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct HelloRequest {
     pub name: Option<String>,
@@ -52,8 +1241,8 @@ pub struct HelloResponse {
 pub struct GuestbookEntry {
     pub id: String,
     pub name: String,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: time::OffsetDateTime,
+    pub updated_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -96,11 +1285,11 @@ pub struct DomainPublicKey {
     pub key_id: String,
     pub public_key: Vec<u8>,
     pub fingerprint: String,
-    pub algorithm: String,
-    pub key_usage: String,
-    pub created_at: String,
-    pub expires_at: String,
-    pub revoked_at: Option<String>,
+    pub algorithm: KeyAlgorithm,
+    pub key_usage: KeyUsage,
+    pub created_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
+    pub revoked_at: Option<time::OffsetDateTime>,
     pub signed_by_key_id: Option<String>,
     pub key_signature: Option<Vec<u8>>,
 }
@@ -114,7 +1303,7 @@ pub struct GetDomainKeysResponse {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GetRevocationsRequest {
-    pub since: Option<String>,
+    pub since: Option<time::OffsetDateTime>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -130,7 +1319,8 @@ pub struct RecheckPinsRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PinRecheckResult {
     pub domain: String,
-    pub outcome: String,
+    pub outcome: PinRecheckOutcome,
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -144,11 +1334,11 @@ pub struct UserPublicKey {
     pub user_id: String,
     pub public_key: Vec<u8>,
     pub fingerprint: String,
-    pub algorithm: String,
-    pub key_usage: String,
-    pub created_at: String,
-    pub expires_at: String,
-    pub revoked_at: Option<String>,
+    pub algorithm: KeyAlgorithm,
+    pub key_usage: KeyUsage,
+    pub created_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
+    pub revoked_at: Option<time::OffsetDateTime>,
     pub signed_by_key_id: Option<String>,
     pub key_signature: Option<Vec<u8>>,
 }
@@ -176,7 +1366,7 @@ pub struct ClaimSignature {
 pub struct RevocationCertificate {
     pub target_key_id: String,
     pub target_fingerprint: String,
-    pub revoked_at: String,
+    pub revoked_at: time::OffsetDateTime,
     pub signatures: Vec<ClaimSignature>,
 }
 
@@ -187,10 +1377,10 @@ pub struct Claim {
     pub claim_type: String,
     pub claim_value: Vec<u8>,
     pub signatures: Vec<ClaimSignature>,
-    pub attested_at: String,
-    pub created_at: String,
-    pub expires_at: Option<String>,
-    pub revoked_at: Option<String>,
+    pub attested_at: time::OffsetDateTime,
+    pub created_at: time::OffsetDateTime,
+    pub expires_at: Option<time::OffsetDateTime>,
+    pub revoked_at: Option<time::OffsetDateTime>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -209,7 +1399,7 @@ pub struct GetUserClaimsResponse {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RequestedClaim {
     pub claim_type: String,
-    pub datatype: String,
+    pub datatype: ClaimValueType,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -225,7 +1415,7 @@ pub struct AuthenticationRequirements {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuthFlowContext {
-    pub flow: String,
+    pub flow: AuthFlow,
     pub prior_session: Option<String>,
     pub request_reason: Option<String>,
 }
@@ -237,9 +1427,9 @@ pub struct ConsentGrant {
     pub subject_domain: String,
     pub audience: String,
     pub claim_types: Vec<String>,
-    pub issued_at: String,
-    pub expires_at: String,
-    pub revoked_at: Option<String>,
+    pub issued_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
+    pub revoked_at: Option<time::OffsetDateTime>,
     pub application: Option<ApplicationRef>,
 }
 
@@ -254,8 +1444,8 @@ pub struct DomainClaim {
     pub claim_type: String,
     pub claim_value: Vec<u8>,
     pub signatures: Vec<ClaimSignature>,
-    pub attested_at: String,
-    pub expires_at: Option<String>,
+    pub attested_at: time::OffsetDateTime,
+    pub expires_at: Option<time::OffsetDateTime>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -266,8 +1456,8 @@ pub struct SigningRequest {
     pub issuer_domain: String,
     pub requested_claim_types: Vec<String>,
     pub nonce: String,
-    pub issued_at: String,
-    pub expires_at: String,
+    pub issued_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
     pub callback: Option<String>,
 }
 
@@ -293,10 +1483,11 @@ pub struct IdentityAssertion {
     pub domain: String,
     pub audience: String,
     pub nonce: String,
-    pub issued_at: String,
-    pub expires_at: String,
+    pub issued_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
     pub authorized_claims: Vec<String>,
     pub display_name: Option<String>,
+    pub application: ApplicationRef,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -315,7 +1506,7 @@ pub struct GetUserInfoRequest {
 pub struct UserInfoRequest {
     pub token: Vec<u8>,
     pub relying_party: String,
-    pub timestamp: String,
+    pub timestamp: time::OffsetDateTime,
     pub nonce: String,
 }
 
@@ -346,13 +1537,13 @@ pub struct AuthRequest {
     pub relying_party: String,
     pub callback_url: String,
     pub nonce: String,
-    pub timestamp: String,
+    pub timestamp: time::OffsetDateTime,
     pub signing_key_id: String,
     pub requested_claims: Option<ClaimRequest>,
     pub authentication_requirements: Option<AuthenticationRequirements>,
     pub flow_context: Option<AuthFlowContext>,
     pub relying_party_claims: Option<Vec<DomainClaim>>,
-    pub application: Option<RelyingPartyApplication>,
+    pub application: RelyingPartyApplication,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -372,8 +1563,8 @@ pub struct EncryptedToken {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AlgorithmSupport {
-    pub signing: Vec<String>,
-    pub encryption: Option<Vec<String>>,
+    pub signing: Vec<KeyAlgorithm>,
+    pub encryption: Option<Vec<AeadSuite>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -396,8 +1587,8 @@ pub struct Relation {
     pub relation: String,
     pub object_type: String,
     pub object_id: String,
-    pub created_at: String,
-    pub removed_at: Option<String>,
+    pub created_at: time::OffsetDateTime,
+    pub removed_at: Option<time::OffsetDateTime>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -405,10 +1596,12 @@ pub struct AdminUser {
     pub id: String,
     pub username: String,
     pub display_name: String,
+    pub kind: AccountKind,
+    pub application_id: Option<String>,
     pub is_active: bool,
-    pub created_at: String,
-    pub updated_at: String,
-    pub purged_at: Option<String>,
+    pub created_at: time::OffsetDateTime,
+    pub updated_at: time::OffsetDateTime,
+    pub purged_at: Option<time::OffsetDateTime>,
     pub purge_reason: Option<String>,
     pub password_locked: Option<bool>,
 }
@@ -438,8 +1631,8 @@ pub struct GetUserResponse {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UserAuthenticationActivity {
     pub user_id: String,
-    pub last_authenticated_at: Option<String>,
-    pub last_seen_at: Option<String>,
+    pub last_authenticated_at: Option<time::OffsetDateTime>,
+    pub last_seen_at: Option<time::OffsetDateTime>,
     pub successful_authentication_count: i64,
     pub active_browser_session_count: i64,
 }
@@ -459,12 +1652,130 @@ pub struct CreateUserRequest {
     pub username: String,
     pub display_name: String,
     pub password: Option<String>,
+    pub application_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateUserResponse {
     pub user: AdminUser,
     pub api_key: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RenameUserRequest {
+    pub user_id: String,
+    pub username: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RenameUserResponse {
+    pub user: AdminUser,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetApplicationIdRequest {
+    pub user_id: String,
+    pub application_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetApplicationIdResponse {
+    pub user: AdminUser,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApiKeyInfo {
+    pub key_id: String,
+    pub name: String,
+    pub hint: String,
+    pub created_at: time::OffsetDateTime,
+    pub last_used_at: Option<time::OffsetDateTime>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreateApiKeyRequest {
+    pub user_id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreateApiKeyResponse {
+    pub key: ApiKeyInfo,
+    pub api_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListApiKeysRequest {
+    pub user_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListApiKeysResponse {
+    pub keys: Vec<ApiKeyInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RevokeApiKeyRequest {
+    pub user_id: String,
+    pub key_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RevokeApiKeyResponse {
+    pub revoked: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AccountLimits {
+    pub max_api_keys: Option<i64>,
+    pub max_distinct_users: Option<i64>,
+    pub distinct_user_window_days: i64,
+    pub requests_per_minute: Option<i64>,
+    pub request_burst: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetAccountLimitsRequest {
+    pub user_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetAccountLimitsResponse {
+    pub limits: AccountLimits,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetAccountLimitsRequest {
+    pub user_id: String,
+    pub limits: AccountLimits,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetAccountLimitsResponse {
+    pub limits: AccountLimits,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RpUsageDay {
+    pub day: time::Date,
+    pub operation: String,
+    pub succeeded: i64,
+    pub failed: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetApplicationUsageRequest {
+    pub user_id: String,
+    pub first_day: time::Date,
+    pub last_day: time::Date,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetApplicationUsageResponse {
+    pub distinct_users: i64,
+    pub distinct_user_window_days: i64,
+    pub max_distinct_users: Option<i64>,
+    pub days: Vec<RpUsageDay>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -568,7 +1879,7 @@ pub struct SetClaimRequest {
     pub user_id: String,
     pub claim_type: String,
     pub claim_value: String,
-    pub expires_at: Option<String>,
+    pub expires_at: Option<time::OffsetDateTime>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -615,7 +1926,7 @@ pub struct SetUserClaimRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SetUserClaimResponse {
-    pub outcome: String,
+    pub outcome: SetClaimOutcome,
     pub claim: Option<Claim>,
 }
 
@@ -624,11 +1935,11 @@ pub struct SettableClaimPolicy {
     pub claim_type: String,
     pub label: String,
     pub description: String,
-    pub datatype: String,
+    pub datatype: ClaimValueType,
     pub max_bytes: i64,
-    pub set_rule: String,
+    pub set_rule: SetRule,
     pub requires_approval: bool,
-    pub signing_rule: String,
+    pub signing_rule: SigningRule,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -641,10 +1952,10 @@ pub struct ClaimTypePolicy {
     pub claim_type: String,
     pub label: String,
     pub description: String,
-    pub value_type: String,
+    pub value_type: ClaimValueType,
     pub max_bytes: i64,
-    pub set_rule: String,
-    pub signing_rule: String,
+    pub set_rule: SetRule,
+    pub signing_rule: SigningRule,
     pub requires_approval: bool,
     pub user_settable: bool,
     pub default_auto_sign: bool,
@@ -661,10 +1972,10 @@ pub struct SetClaimTypeRequest {
     pub claim_type: String,
     pub label: String,
     pub description: Option<String>,
-    pub value_type: String,
+    pub value_type: ClaimValueType,
     pub max_bytes: i64,
-    pub set_rule: String,
-    pub signing_rule: String,
+    pub set_rule: SetRule,
+    pub signing_rule: SigningRule,
     pub user_settable: bool,
     pub default_auto_sign: bool,
     pub requires_approval: bool,
@@ -760,7 +2071,7 @@ pub struct RemoveTrustedIssuerResponse {
 pub struct ReleaseRule {
     pub audience: String,
     pub claim_type: String,
-    pub disposition: String,
+    pub disposition: ReleaseDisposition,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -772,7 +2083,7 @@ pub struct ListReleaseRulesResponse {
 pub struct SetReleaseRuleRequest {
     pub audience: String,
     pub claim_type: String,
-    pub disposition: String,
+    pub disposition: ReleaseDisposition,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -797,10 +2108,10 @@ pub struct ClaimApproval {
     pub user_id: String,
     pub claim_type: String,
     pub claim_value: Vec<u8>,
-    pub status: String,
+    pub status: ClaimApprovalStatus,
     pub resolved_by: Option<String>,
-    pub resolved_at: Option<String>,
-    pub created_at: String,
+    pub resolved_at: Option<time::OffsetDateTime>,
+    pub created_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -916,7 +2227,7 @@ pub struct SetMyClaimRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SetMyClaimResponse {
-    pub outcome: String,
+    pub outcome: SetClaimOutcome,
     pub claim: Option<Claim>,
 }
 
@@ -1001,9 +2312,9 @@ pub struct PasswordPolicy {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BrowserSessionInfo {
     pub user: AdminUser,
-    pub issued_at: String,
-    pub authenticated_at: String,
-    pub expires_at: String,
+    pub issued_at: time::OffsetDateTime,
+    pub authenticated_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
     pub authentication_methods: Vec<String>,
 }
 
@@ -1037,16 +2348,16 @@ pub struct IntrospectBrowserSessionRequest {
 pub struct IntrospectBrowserSessionResponse {
     pub user_id: String,
     pub user_domain: String,
-    pub authenticated_at: String,
-    pub expires_at: String,
+    pub authenticated_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
     pub authentication_methods: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NotificationCapability {
-    pub purpose: String,
-    pub channel: String,
-    pub destination_kind: String,
+    pub purpose: NotificationPurpose,
+    pub channel: NotificationChannel,
+    pub destination_kind: DestinationKind,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1057,11 +2368,11 @@ pub struct GetNotificationCapabilitiesResponse {
 #[derive(Debug, Clone, PartialEq)]
 pub struct VerifiedContactMethod {
     pub id: String,
-    pub channel: String,
+    pub channel: NotificationChannel,
     pub destination: String,
-    pub verified_at: String,
-    pub purposes: Vec<String>,
-    pub revoked_at: Option<String>,
+    pub verified_at: time::OffsetDateTime,
+    pub purposes: Vec<NotificationPurpose>,
+    pub revoked_at: Option<time::OffsetDateTime>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1082,14 +2393,14 @@ pub struct RevokeVerifiedContactMethodResponse {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RequestContactVerificationRequest {
-    pub channel: String,
+    pub channel: NotificationChannel,
     pub destination: String,
     pub current_password: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RequestContactVerificationResponse {
-    pub expires_at: String,
+    pub expires_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1118,7 +2429,7 @@ pub struct ValidatePasswordRecoveryRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValidatePasswordRecoveryResponse {
-    pub expires_at: String,
+    pub expires_at: time::OffsetDateTime,
     pub password_policy: PasswordPolicy,
 }
 
@@ -1142,11 +2453,11 @@ pub struct BrowserAuthorizationInspectRequest {
 pub struct BrowserConsentClaim {
     pub claim_type: String,
     pub label: String,
-    pub datatype: String,
+    pub datatype: ClaimValueType,
     pub required: bool,
     pub available: bool,
     pub default_granted: bool,
-    pub policy: String,
+    pub policy: ConsentRowPolicy,
     pub user_settable: bool,
     pub max_bytes: i64,
     pub requires_approval: bool,
@@ -1187,11 +2498,11 @@ pub struct BrowserLocalRpInspectRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BrowserLocalRpInspectResponse {
-    pub admission: String,
+    pub admission: LocalRpAdmission,
     pub app_name: String,
     pub fingerprint: String,
     pub callback_host: String,
-    pub first_seen_at: Option<String>,
+    pub first_seen_at: Option<time::OffsetDateTime>,
     pub claims: Vec<BrowserConsentClaim>,
     pub request_reason: Option<String>,
     pub already_consented: Option<bool>,
@@ -1250,7 +2561,6 @@ pub struct GetUiConfigurationResponse {
 pub struct RpSignRequest {
     pub callback_url: String,
     pub nonce: String,
-    pub application_id: Option<String>,
     pub requested_claims: Option<ClaimRequest>,
     pub authentication_requirements: Option<AuthenticationRequirements>,
     pub flow_context: Option<AuthFlowContext>,
@@ -1288,6 +2598,12 @@ pub struct RpUserInfoRequest {
     pub token: String,
     pub api_base: String,
     pub domain: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RpError {
+    pub code: RpErrorCode,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1334,7 +2650,7 @@ pub struct AuthorizeFinalizeResponse {
 }
 
 /// ApiErrorCode variants
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ApiErrorCode {
     RequestAlreadyUsed,
     RpKeyFetchFailed,
@@ -1380,7 +2696,7 @@ impl ApiErrorCode {
         }
     }
 
-    pub fn to_number(&self) -> i64 {
+    pub fn to_number(self) -> i64 {
         match self {
             Self::RequestAlreadyUsed => 1,
             Self::RpKeyFetchFailed => 2,
@@ -1418,10 +2734,6 @@ pub struct ApiError {
     pub message: String,
 }
 
-pub type AeadSuite = String;
-
-pub type LocalRpPolicy = String;
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalRpDescriptor {
     pub app_name: String,
@@ -1432,8 +2744,8 @@ pub struct LocalRpDescriptor {
     pub encryption_public_key: Vec<u8>,
     pub fingerprint: String,
     pub supported_suites: Vec<AeadSuite>,
-    pub created_at: String,
-    pub expires_at: String,
+    pub created_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
 }
 
 impl LocalRpDescriptor {
@@ -1477,8 +2789,8 @@ pub struct LocalRpLoginRequest {
     pub required_claims: Vec<String>,
     pub authentication_requirements: Option<AuthenticationRequirements>,
     pub flow_context: Option<AuthFlowContext>,
-    pub issued_at: String,
-    pub expires_at: String,
+    pub issued_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1497,8 +2809,8 @@ pub struct LocalRpCallbackHeader {
     pub ephemeral_public_key: Vec<u8>,
     /// constraint: size == 12
     pub aead_nonce: Vec<u8>,
-    pub issued_at: String,
-    pub expires_at: String,
+    pub issued_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
 }
 
 impl LocalRpCallbackHeader {
@@ -1541,8 +2853,8 @@ pub struct LocalRpCallbackPayload {
     pub callback_url: String,
     pub nonce: Vec<u8>,
     pub state: Vec<u8>,
-    pub issued_at: String,
-    pub expires_at: String,
+    pub issued_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1556,7 +2868,7 @@ pub struct SignedLocalRpCallbackPayload {
 pub struct LocalRpTicketRedemptionRequest {
     pub claim_ticket: Vec<u8>,
     pub fingerprint: String,
-    pub issued_at: String,
+    pub issued_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1570,7 +2882,7 @@ pub struct LocalRpTicketRedemptionResponse {
     pub user_id: String,
     pub user_domain: String,
     pub claims: Vec<Claim>,
-    pub ticket_expires_at: String,
+    pub ticket_expires_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1582,11 +2894,11 @@ pub struct AdminLocalRp {
     pub encryption_public_key: Vec<u8>,
     pub app_name: String,
     pub local_domain_hint: Option<String>,
-    pub status: String,
-    pub created_at: String,
-    pub updated_at: String,
-    pub expires_at: Option<String>,
-    pub last_seen_at: Option<String>,
+    pub status: LocalRpStatus,
+    pub created_at: time::OffsetDateTime,
+    pub updated_at: time::OffsetDateTime,
+    pub expires_at: Option<time::OffsetDateTime>,
+    pub last_seen_at: Option<time::OffsetDateTime>,
     pub admin_notes: Option<String>,
 }
 
@@ -1619,7 +2931,7 @@ impl AdminLocalRp {
 pub struct ListLocalRpsRequest {
     pub offset: Option<i64>,
     pub limit: Option<i64>,
-    pub status: Option<String>,
+    pub status: Option<LocalRpStatus>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1714,11 +3026,11 @@ pub struct SetUserPasswordLockResponse {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppAccessTarget {
-    pub kind: String,
+    pub kind: AppAccessTargetKind,
     pub user_id: Option<String>,
     pub group_name: Option<String>,
     pub claim_type: Option<String>,
-    pub claim_operator: Option<String>,
+    pub claim_operator: Option<ClaimOperator>,
     pub claim_value: Option<String>,
 }
 
@@ -1726,7 +3038,7 @@ pub struct AppAccessTarget {
 pub struct AppAccessPolicy {
     pub id: String,
     pub name: String,
-    pub mode: String,
+    pub mode: AppAccessMode,
     pub patterns: Vec<String>,
     pub message: Option<String>,
     pub targets: Vec<AppAccessTarget>,
@@ -1741,7 +3053,7 @@ pub struct ListAppAccessPoliciesResponse {
 pub struct SetAppAccessPolicyRequest {
     pub id: Option<String>,
     pub name: String,
-    pub mode: String,
+    pub mode: AppAccessMode,
     pub patterns: Vec<String>,
     pub message: Option<String>,
     pub targets: Vec<AppAccessTarget>,
@@ -1823,14 +3135,14 @@ pub struct ApplicationKeyAttestation {
     pub application_id: String,
     pub instance_id: String,
     pub key_id: String,
-    pub key_usage: String,
-    pub algorithm: String,
+    pub key_usage: KeyUsage,
+    pub algorithm: KeyAlgorithm,
     pub public_key: Vec<u8>,
     pub fingerprint: String,
-    pub key_created_at: String,
-    pub key_expires_at: String,
-    pub attested_at: String,
-    pub attestation_expires_at: String,
+    pub key_created_at: time::OffsetDateTime,
+    pub key_expires_at: time::OffsetDateTime,
+    pub attested_at: time::OffsetDateTime,
+    pub attestation_expires_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1846,15 +3158,15 @@ pub struct ApplicationKeyAddition {
     pub application_id: String,
     pub instance_id: String,
     pub key_id: String,
-    pub key_usage: String,
-    pub algorithm: String,
+    pub key_usage: KeyUsage,
+    pub algorithm: KeyAlgorithm,
     pub public_key: Vec<u8>,
     pub fingerprint: String,
     pub requested_key_lifetime_seconds: i64,
     pub challenge_id: String,
     pub challenge: Vec<u8>,
-    pub requested_at: String,
-    pub expires_at: String,
+    pub requested_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1873,8 +3185,8 @@ pub struct ApplicationKeyRenewal {
     pub key_id: String,
     pub challenge_id: String,
     pub challenge: Vec<u8>,
-    pub requested_at: String,
-    pub expires_at: String,
+    pub requested_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1892,7 +3204,7 @@ pub struct ApplicationKeyRevocation {
     pub instance_id: String,
     pub target_key_id: String,
     pub target_fingerprint: String,
-    pub revoked_at: String,
+    pub revoked_at: time::OffsetDateTime,
     pub signatures: Vec<ApplicationKeySignature>,
 }
 
@@ -1901,9 +3213,9 @@ pub struct StartApplicationKeyChallengeRequest {
     pub subject_user_id: String,
     pub application_id: String,
     pub instance_id: String,
-    pub purpose: String,
-    pub key_usage: String,
-    pub algorithm: String,
+    pub purpose: ApplicationKeyChallengePurpose,
+    pub key_usage: KeyUsage,
+    pub algorithm: KeyAlgorithm,
     pub public_key: Vec<u8>,
 }
 
@@ -1912,7 +3224,7 @@ pub struct StartApplicationKeyChallengeResponse {
     pub challenge_id: String,
     pub challenge: Option<Vec<u8>>,
     pub sealed_challenge: Option<Vec<u8>>,
-    pub expires_at: String,
+    pub expires_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1943,7 +3255,7 @@ pub struct RevokeApplicationKeyRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RevokeApplicationKeyResponse {
-    pub revoked_at: String,
+    pub revoked_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1990,9 +3302,9 @@ pub struct RpResolveDomainKeysResponse {
     pub domain: String,
     pub keys: Vec<DomainPublicKey>,
     pub revocations: Vec<RevocationCertificate>,
-    pub fetched_at: String,
-    pub revocations_checked_at: String,
-    pub cache_status: String,
+    pub fetched_at: time::OffsetDateTime,
+    pub revocations_checked_at: time::OffsetDateTime,
+    pub cache_status: RpCacheStatus,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2014,9 +3326,9 @@ pub struct RpResolveApplicationKeysResponse {
     pub application_key_revocations: Vec<ApplicationKeyRevocation>,
     pub home_domain_keys: Vec<DomainPublicKey>,
     pub home_domain_key_revocations: Vec<RevocationCertificate>,
-    pub fetched_at: String,
-    pub revocations_checked_at: String,
-    pub cache_status: String,
+    pub fetched_at: time::OffsetDateTime,
+    pub revocations_checked_at: time::OffsetDateTime,
+    pub cache_status: RpCacheStatus,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2052,8 +3364,8 @@ pub struct ActAsScopeSet {
     pub entries: Vec<ActAsScopeEntry>,
     pub language: Option<String>,
     pub audience_handle_claim: Option<Claim>,
-    pub issued_at: String,
-    pub expires_at: String,
+    pub issued_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2079,10 +3391,10 @@ pub struct ActAsGrant {
     pub audience: ApplicationRef,
     pub scope_set: SignedActAsScopeSet,
     pub approved_scope: Vec<String>,
-    pub issued_at: String,
-    pub expires_at: String,
-    pub series_issued_at: String,
-    pub renewable_until: String,
+    pub issued_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
+    pub series_issued_at: time::OffsetDateTime,
+    pub renewable_until: time::OffsetDateTime,
     pub device_fingerprint: Option<String>,
 }
 
@@ -2101,8 +3413,8 @@ pub struct ActAsGrantRequest {
     pub grantee_handle_claim: Option<Claim>,
     pub callback_url: String,
     pub nonce: String,
-    pub requested_at: String,
-    pub expires_at: String,
+    pub requested_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2115,8 +3427,8 @@ pub struct SignedActAsGrantRequest {
 pub struct ActAsRefreshRequest {
     pub grant_id: String,
     pub grantee: GranteeRef,
-    pub requested_at: String,
-    pub expires_at: String,
+    pub requested_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
     pub nonce: String,
 }
 
@@ -2142,7 +3454,7 @@ pub struct ActAsPresentation {
     pub grant_hash: Vec<u8>,
     pub audience: ApplicationRef,
     pub request_digest: Vec<u8>,
-    pub presented_at: String,
+    pub presented_at: time::OffsetDateTime,
     pub nonce: Vec<u8>,
 }
 
@@ -2163,7 +3475,7 @@ pub struct ActAsGrantRevocation {
     pub grant_id: String,
     pub user_id: String,
     pub subject_domain: String,
-    pub revoked_at: String,
+    pub revoked_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2254,10 +3566,10 @@ pub struct ActAsGrantSummary {
     pub grantee: GranteeRef,
     pub audience: ApplicationRef,
     pub approved_scope: Vec<String>,
-    pub issued_at: String,
-    pub expires_at: String,
-    pub renewable_until: String,
-    pub revoked_at: Option<String>,
+    pub issued_at: time::OffsetDateTime,
+    pub expires_at: time::OffsetDateTime,
+    pub renewable_until: time::OffsetDateTime,
+    pub revoked_at: Option<time::OffsetDateTime>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2272,7 +3584,7 @@ pub struct RevokeActAsGrantRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RevokeActAsGrantResponse {
-    pub revoked_at: String,
+    pub revoked_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2284,7 +3596,7 @@ pub struct PreviewReleasePolicyRequest {
     pub user_choices: Vec<String>,
     pub temp_audience: Option<String>,
     pub temp_claim_type: Option<String>,
-    pub temp_disposition: Option<String>,
+    pub temp_disposition: Option<ReleaseDisposition>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2293,7 +3605,7 @@ pub struct PreviewReleaseRow {
     pub required: bool,
     pub available: bool,
     pub locked: bool,
-    pub policy: String,
+    pub policy: ConsentRowPolicy,
     pub default_granted: bool,
 }
 
@@ -2334,7 +3646,7 @@ pub struct InspectSigningRequestResponse {
     pub subject_user_id: String,
     pub subject_domain: String,
     pub requested_claim_types: Vec<String>,
-    pub expires_at: String,
+    pub expires_at: time::OffsetDateTime,
     pub issuable_claim_types: Vec<String>,
 }
 
@@ -2348,7 +3660,7 @@ pub struct IssueForSigningRequestRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub struct IssuedClaimResult {
     pub claim_type: String,
-    pub outcome: String,
+    pub outcome: IssuedClaimOutcome,
     pub message: Option<String>,
     pub claim_code: Option<String>,
 }

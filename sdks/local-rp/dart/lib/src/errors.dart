@@ -112,8 +112,11 @@ enum ClaimErrorKind {
   domainKeysUnavailable,
   domainUnverified,
   revoked,
-  badExpiry,
   expired,
+
+  /// A signed timestamp (`attested_at` or `expires_at`) has a fraction of
+  /// a second, so it cannot be in a signed payload.
+  badTimestamp,
 
   /// A claim's `user_id` did not match the domain-signature-verified
   /// callback payload's `user_id` -- a claim about a different user must

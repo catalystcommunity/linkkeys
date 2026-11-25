@@ -37,6 +37,7 @@ from . import crypto
 from .generated import codec as _codec  # noqa: F401  (side effect: attaches to_cbor/from_cbor)
 from .generated.codec import cbor_encode
 from .generated.types import DomainPublicKey, RevocationCertificate
+from .timeutil import signed_time
 
 # Minimum number of distinct sibling signatures required to revoke a key.
 REVOCATION_QUORUM = 2
@@ -53,10 +54,11 @@ class RevocationError(Exception):
         self.need = need
 
 
-def revocation_payload(target_key_id: str, target_fingerprint: str, revoked_at: str, signing_domain: str) -> bytes:
+def revocation_payload(target_key_id: str, target_fingerprint: str, revoked_at: int, signing_domain: str) -> bytes:
     """The canonical signed bytes: `CBOR([tag, target_key_id,
     target_fingerprint, revoked_at, signing_domain])` — the signing
-    sibling's domain is bound per-signature to stop cross-domain reuse."""
+    sibling's domain is bound per-signature to stop cross-domain reuse.
+    `revoked_at` is a signed time: whole Unix seconds as a CBOR integer."""
     return cbor_encode([_REVOCATION_TAG, target_key_id, target_fingerprint, revoked_at, signing_domain])
 
 
@@ -74,6 +76,12 @@ def count_valid_signers(
     if now is None:
         now = datetime.now(timezone.utc)
 
+    # A revocation time with a fraction of a second was never signed.
+    try:
+        revoked_at = signed_time(cert.revoked_at)
+    except (ValueError, AttributeError, TypeError):
+        return 0
+
     valid_signers = set()
     for sig in cert.signatures:
         # A key can never authorize its own revocation.
@@ -87,12 +95,12 @@ def count_valid_signers(
         if key is None:
             continue
         # Only a currently-valid signing key counts toward the quorum.
-        if key.key_usage != "sign":
+        if not crypto.is_signing_key(key.key_usage):
             continue
         if crypto.signing_key_validity(key.expires_at, key.revoked_at, now) != crypto.KeyValidity.VALID:
             continue
 
-        payload = revocation_payload(cert.target_key_id, cert.target_fingerprint, cert.revoked_at, sig.domain)
+        payload = revocation_payload(cert.target_key_id, cert.target_fingerprint, revoked_at, sig.domain)
         try:
             crypto.resolve_and_verify(key.algorithm, payload, sig.signature, key.public_key)
         except crypto.CryptoError:

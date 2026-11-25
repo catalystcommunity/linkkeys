@@ -69,6 +69,55 @@ let encode (v : t) : bytes =
   enc buf v;
   Buffer.to_bytes buf
 
+(* An integer, text, byte-string, bool or null key re-encodes to its raw bytes
+   once its head is in shortest form, which [decode] checks. Any other key (a float,
+   an array, a map, a tag) can arrive in a form [enc] does not write. No record has
+   such a key, so [decode] checks the canonical order of a map that has one on its
+   raw bytes itself. *)
+let exact_key = function
+  | Uint _ | Nint _ | Text _ | Bytes _ | Bool _ | Null -> true
+  | Float _ | Array _ | Map _ | Tag _ -> false
+
+(* A dynamic map must arrive with its keys strictly ascending, bytewise (RFC 8949
+   section 4.2.1). Each key is compared with the previous one only, so the check is
+   linear; a repeated key also fails it. For exact keys the bytes [enc] writes are
+   the raw bytes; a map with another key was already checked on its raw bytes. *)
+let canonical_map (kvs : (t * t) list) : (t * t) list =
+  if List.for_all (fun (k, _) -> exact_key k) kvs then
+    ignore
+      (List.fold_left
+         (fun prev (k, _) ->
+           let cur = let buf = Buffer.create 16 in enc buf k; Buffer.contents buf in
+           (match prev with
+            | Some p when String.compare p cur >= 0 ->
+              failwith "csil cbor: map keys are not in canonical order"
+            | _ -> ());
+           Some cur)
+         None kvs);
+  kvs
+
+(* A record may list its fields in any order, but no map may repeat a key. The
+   raw key bytes are compared, so the usual ascending input costs one linear pass
+   and only out-of-order input is sorted. *)
+let unique_keys (raw : (string * t) list) =
+  let rec ascending = function
+    | (a, _) :: ((b, _) :: _ as rest) -> String.compare a b < 0 && ascending rest
+    | _ -> true
+  in
+  if not (ascending raw) then begin
+    let rec adjacent = function
+      | (a, k) :: ((b, _) :: _ as rest) ->
+        if String.equal a b then
+          failwith
+            (match k with
+             | Text s -> Printf.sprintf "csil cbor: duplicate key %S" s
+             | _ -> "csil cbor: duplicate key")
+        else adjacent rest
+      | _ -> ()
+    in
+    adjacent (List.sort (fun (a, _) (b, _) -> String.compare a b) raw)
+  end
+
 let decode (b : bytes) : (t, string) result =
   let len = Bytes.length b in
   let byte i = Char.code (Bytes.get b i) in
@@ -123,6 +172,20 @@ let decode (b : bytes) : (t, string) result =
     end
     else failwith "csilgen: bad head"
   in
+  (* A map key must not spend more bytes on its head than its argument needs, so
+     one key has one encoding and the raw-byte comparisons above are sound. A
+     float's head says its width, not a length, so it is left alone. *)
+  let shortest_head pos =
+    need pos 1;
+    let ib = byte pos in
+    let major = ib lsr 5 and low = ib land 0x1f in
+    if major <> 7 && low >= 24 && low <= 27 then begin
+      let arg, _ = read_arg pos low in
+      let floor = match low with 24 -> 24L | 25 -> 0x100L | 26 -> 0x10000L | _ -> 0x100000000L in
+      if Int64.unsigned_compare arg floor < 0 then
+        failwith "csil cbor: map key is not in shortest form"
+    end
+  in
   let rec dec depth pos =
     if depth > 64 then failwith "csilgen: nesting limit exceeded";
     need pos 1;
@@ -133,6 +196,16 @@ let decode (b : bytes) : (t, string) result =
       | 20 -> (Bool false, pos + 1)
       | 21 -> (Bool true, pos + 1)
       | 22 | 23 -> (Null, pos + 1)
+      | 25 ->
+        let arg, p = read_arg pos low in
+        let half = Int64.to_int arg in
+        let exponent = (half lsr 10) land 0x1f and mantissa = float_of_int (half land 0x3ff) in
+        let magnitude =
+          if exponent = 0 then ldexp mantissa (-24)
+          else if exponent = 31 then (if mantissa = 0.0 then infinity else nan)
+          else ldexp (mantissa +. 1024.0) (exponent - 25)
+        in
+        (Float (if half land 0x8000 <> 0 then -. magnitude else magnitude), p)
       | 26 ->
         let arg, p = read_arg pos low in
         (Float (Int32.float_of_bits (Int64.to_int32 arg)), p)
@@ -144,7 +217,11 @@ let decode (b : bytes) : (t, string) result =
       let arg, p = read_arg pos low in
       match major with
       | 0 -> (Uint arg, p)
-      | 1 -> (Nint (Int64.sub (Int64.neg arg) 1L), p)
+      | 1 ->
+        (* An argument of 2^63 or more reads as negative here, and -1 - arg would
+           wrap to a wrong value, so it is out of range for int64. *)
+        if Int64.compare arg 0L < 0 then failwith "csilgen: negative integer out of range";
+        (Nint (Int64.sub (Int64.neg arg) 1L), p)
       | 2 ->
         if arg < 0L || arg > Int64.of_int (len - p) then failwith "csilgen: truncated byte string";
         let n = Int64.to_int arg in (Bytes (Bytes.sub b p n), p + n)
@@ -166,14 +243,27 @@ let decode (b : bytes) : (t, string) result =
       | 5 ->
         if arg < 0L || arg > Int64.of_int (len - p) then failwith "csilgen: map length exceeds remaining input";
         let n = Int64.to_int arg in
-        let rec loop i pos acc =
-          if i = 0 then (List.rev acc, pos)
-          else
+        let rec loop i pos acc raw =
+          if i = 0 then (List.rev acc, List.rev raw, pos)
+          else begin
+            shortest_head pos;
             let k, p1 = dec (depth + 1) pos in
             let v, p2 = dec (depth + 1) p1 in
-            loop (i - 1) p2 ((k, v) :: acc)
+            loop (i - 1) p2 ((k, v) :: acc) ((Bytes.sub_string b pos (p1 - pos), k) :: raw)
+          end
         in
-        let kvs, np = loop n p [] in
+        let kvs, raw, np = loop n p [] [] in
+        unique_keys raw;
+        if not (List.for_all (fun (_, k) -> exact_key k) raw) then
+          ignore
+            (List.fold_left
+               (fun prev (cur, _) ->
+                 (match prev with
+                  | Some p when String.compare p cur >= 0 ->
+                    failwith "csil cbor: map keys are not in canonical order"
+                  | _ -> ());
+                 Some cur)
+               None raw);
         (Map kvs, np)
       | 6 -> let inner, np = dec (depth + 1) p in (Tag (Int64.to_int arg, inner), np)
       | _ -> failwith "csilgen: bad major"
@@ -198,6 +288,143 @@ let calendar_date s =
   let days = [|31; (if leap then 29 else 28); 31;30;31;30;31;31;30;31;30;31|] in
   if m < 1 || m > 12 || d < 1 || d > days.(m-1) then bad ();
   s
+
+(* [timestamp] stays RFC 3339 text so the package needs no Unix or time library.
+   Encode and decode both pass it through here so a held value is always the one
+   canonical UTC spelling every other target writes; the shape is matched by hand
+   because the contract refuses forms a lenient parser would accept. *)
+let epoch_first = -62135596800 (* 0001-01-01T00:00:00Z *)
+let epoch_last = 253402300799 (* 9999-12-31T23:59:59Z *)
+
+let fdiv a b = if a >= 0 then a / b else - ((- a + b - 1) / b)
+
+(* Reads the strict RFC 3339 form into UTC epoch seconds and nanoseconds. The year
+   must be 0001 to 9999 after conversion to UTC. *)
+let parse_timestamp s =
+  let bad () = failwith "csilgen: bad timestamp" in
+  let n = String.length s in
+  let digit i =
+    if i >= n then bad ()
+    else match s.[i] with '0' .. '9' as c -> Char.code c - 48 | _ -> bad ()
+  in
+  let number pos len =
+    let r = ref 0 in
+    for i = pos to pos + len - 1 do r := (!r * 10) + digit i done;
+    !r
+  in
+  let expect i c = if i >= n || s.[i] <> c then bad () in
+  let y = number 0 4 in
+  expect 4 '-';
+  let mo = number 5 2 in
+  expect 7 '-';
+  let d = number 8 2 in
+  if n <= 10 || (s.[10] <> 'T' && s.[10] <> 't') then bad ();
+  let h = number 11 2 in
+  expect 13 ':';
+  let mi = number 14 2 in
+  expect 16 ':';
+  let se = number 17 2 in
+  let pos = ref 19 in
+  let nanos = ref 0 in
+  if !pos < n && s.[!pos] = '.' then begin
+    incr pos;
+    let start = !pos in
+    while !pos < n && s.[!pos] >= '0' && s.[!pos] <= '9' do incr pos done;
+    let len = !pos - start in
+    if len < 1 || len > 9 then bad ();
+    nanos := number start len;
+    for _ = len to 8 do nanos := !nanos * 10 done
+  end;
+  if !pos >= n then bad ();
+  let offset =
+    match s.[!pos] with
+    | 'Z' | 'z' -> if !pos + 1 <> n then bad () else 0
+    | ('+' | '-') as sign ->
+      if !pos + 6 <> n then bad ();
+      let oh = number (!pos + 1) 2 in
+      expect (!pos + 3) ':';
+      let om = number (!pos + 4) 2 in
+      if oh > 23 || om > 59 then bad ();
+      (if sign = '-' then -1 else 1) * ((oh * 60) + om)
+    | _ -> bad ()
+  in
+  let leap yr = yr mod 4 = 0 && (yr mod 100 <> 0 || yr mod 400 = 0) in
+  let days = [|31; (if leap y then 29 else 28); 31;30;31;30;31;31;30;31;30;31|] in
+  if y < 1 || mo < 1 || mo > 12 || d < 1 || d > days.(mo-1) || h > 23 || mi > 59 || se > 59 then bad ();
+  (* Days-from-civil arithmetic (proleptic Gregorian) so the offset can move the
+     instant across a day, month, or year boundary without a date library. *)
+  let days_from_civil yr m dd =
+    let yr = if m <= 2 then yr - 1 else yr in
+    let era = fdiv yr 400 in
+    let yoe = yr - (era * 400) in
+    let mp = (m + 9) mod 12 in
+    let doy = (((153 * mp) + 2) / 5) + dd - 1 in
+    let doe = (yoe * 365) + (yoe / 4) - (yoe / 100) + doy in
+    (era * 146097) + doe - 719468
+  in
+  let seconds = (((days_from_civil y mo d * 1440) + (h * 60) + mi - offset) * 60) + se in
+  if seconds < epoch_first || seconds > epoch_last then bad ();
+  (seconds, !nanos)
+
+(* The canonical UTC text for an instant already known to lie in years 0001 to
+   9999, so that both wire forms produce the same text. *)
+let format_timestamp seconds nanos =
+  let day = fdiv seconds 86400 in
+  let second_of_day = seconds - (day * 86400) in
+  let z = day + 719468 in
+  let era = fdiv z 146097 in
+  let doe = z - (era * 146097) in
+  let yoe = (doe - (doe / 1460) + (doe / 36524) - (doe / 146096)) / 365 in
+  let doy = doe - ((365 * yoe) + (yoe / 4) - (yoe / 100)) in
+  let mp = ((5 * doy) + 2) / 153 in
+  let ud = doy - (((153 * mp) + 2) / 5) + 1 in
+  let um = if mp < 10 then mp + 3 else mp - 9 in
+  let uy = yoe + (era * 400) + (if um <= 2 then 1 else 0) in
+  let fraction =
+    if nanos = 0 then ""
+    else if nanos mod 1_000_000 = 0 then Printf.sprintf ".%03d" (nanos / 1_000_000)
+    else if nanos mod 1000 = 0 then Printf.sprintf ".%06d" (nanos / 1000)
+    else Printf.sprintf ".%09d" nanos
+  in
+  Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02d%sZ" uy um ud (second_of_day / 3600)
+    (second_of_day / 60 mod 60) (second_of_day mod 60) fraction
+
+let canonical_timestamp s =
+  let seconds, nanos = parse_timestamp s in
+  format_timestamp seconds nanos
+
+(* [cddl_time] is CBOR tag 1 around epoch seconds. It is held as the same
+   canonical text as a [timestamp], so both wire forms compare equal for one
+   instant. *)
+let epoch_to_cbor s =
+  let seconds, nanos = parse_timestamp s in
+  if nanos = 0 then Tag (1, int64 (Int64.of_int seconds))
+  else Tag (1, Float (float_of_int seconds +. (float_of_int nanos /. 1e9)))
+
+let epoch_of_cbor v =
+  let bad () = failwith "csilgen: bad cddl_time" in
+  let seconds, units =
+    match v with
+    | Tag (1, Uint n) ->
+      if Int64.unsigned_compare n (Int64.of_int epoch_last) > 0 then bad ();
+      (Int64.to_int n, 0)
+    | Tag (1, Nint n) ->
+      if Int64.compare n (Int64.of_int epoch_first) < 0 then bad ();
+      (Int64.to_int n, 0)
+    | Tag (1, Float value) ->
+      (* The range test also refuses NaN and infinity, and it comes before the
+         conversion to an integer, which is unspecified out of range. *)
+      if not (value >= float_of_int (epoch_first - 1) && value <= float_of_int (epoch_last + 1))
+      then bad ();
+      let whole = Float.floor value in
+      (* Two operations, not a fused multiply-add, which can round differently. *)
+      let scaled = (value -. whole) *. 1e9 in
+      let units = int_of_float (Float.floor (scaled +. 0.5)) in
+      if units = 1_000_000_000 then (int_of_float whole + 1, 0) else (int_of_float whole, units)
+    | _ -> bad ()
+  in
+  if seconds < epoch_first || seconds > epoch_last then bad ();
+  format_timestamp seconds units
 
 let to_text = function Text s -> s | _ -> failwith "csilgen: expected text"
 let to_bytes = function Bytes b -> b | _ -> failwith "csilgen: expected bytes"

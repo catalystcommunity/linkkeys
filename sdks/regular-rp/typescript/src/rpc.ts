@@ -366,6 +366,35 @@ export async function call(
   auth?: string,
   options: RpcCallOptions = {},
 ): Promise<Uint8Array> {
+  const reply = await callReply(transport, endpoint, service, op, payload, auth, options);
+  // A typed reply names its arm in `variant`. A declared error arm (for
+  // example `RpError` on `Rp/sign-request`) throws its typed refusal
+  // (`RpErrorRefusal`); an unknown arm throws. Other operations return the
+  // payload unchanged.
+  return generated.resolveRpcReply(service, op, reply.variant, reply.payload);
+}
+
+/** A status-0 CSIL-RPC reply: the arm name (absent for a single-arm operation) and its payload. */
+export interface RpcReply {
+  readonly variant?: string | null;
+  readonly payload: Uint8Array;
+}
+
+/**
+ * Like {@link call}, but returns the reply `variant` with the payload and does
+ * not decode the arm. A non-zero transport status still throws
+ * {@link RpcServerError}. The generated clients use this through
+ * `callReply` to decode operations with declared error arms.
+ */
+export async function callReply(
+  transport: Transport,
+  endpoint: DomainEndpoint,
+  service: string,
+  op: string,
+  payload: Uint8Array,
+  auth?: string,
+  options: RpcCallOptions = {},
+): Promise<RpcReply> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new TypeError("RPC timeoutMs must be a positive finite number");
@@ -393,7 +422,7 @@ export async function call(
       if (!statusIsOk(resp.status)) {
         throw new RpcServerError(resp.status, resp.error ?? "unknown error");
       }
-      return resp.payload;
+      return { variant: resp.variant, payload: resp.payload };
     } catch (error) {
       if (deadline.signal.aborted) throw deadline.signal.reason;
       throw error;
@@ -448,6 +477,22 @@ export class PinnedRpcTransport implements AsyncServiceTransport {
     return this.callWithOptions(service, op, req);
   }
 
+  callReply(service: string, op: string, req: Uint8Array): Promise<RpcReply> {
+    return this.callReplyWithOptions(service, op, req);
+  }
+
+  callReplyWithOptions(
+    service: string,
+    op: string,
+    req: Uint8Array,
+    options: RpcCallOptions = {},
+  ): Promise<RpcReply> {
+    return callReply(this.socketTransport, this.endpoint, service, op, req, this.apiKey, {
+      timeoutMs: options.timeoutMs ?? this.requestTimeoutMs,
+      signal: options.signal,
+    });
+  }
+
   callWithOptions(
     service: string,
     op: string,
@@ -499,11 +544,11 @@ export async function fetchDomainKeys(
   // all revocations since the oldest presented key was created. If a peer
   // supplies an invalid key time, use the Unix epoch and fail toward more
   // revocation data, not less.
-  const createdTimes = trusted.map((key) => Date.parse(key.createdAt));
+  const createdTimes = trusted.map((key) => key.createdAt.getTime());
   const oldestCreatedAt = createdTimes.every(Number.isFinite)
     ? Math.min(...createdTimes)
     : 0;
-  const since = new Date(oldestCreatedAt).toISOString();
+  const since = new Date(oldestCreatedAt);
   const reqPayload = generated.toGetRevocationsRequestCbor({ since });
   // No try/catch: any failure here (RPC error status, transport/decode
   // failure) propagates as a fatal error out of this function. Revocation

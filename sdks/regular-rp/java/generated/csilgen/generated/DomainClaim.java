@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -10,8 +11,8 @@ public record DomainClaim(
     String claimType /* wire: "claim_type" */,
     byte[] claimValue /* wire: "claim_value" */,
     List<ClaimSignature> signatures /* wire: "signatures" */,
-    String attestedAt /* wire: "attested_at" */,
-    String expiresAt /* wire: "expires_at" */
+    Instant attestedAt /* wire: "attested_at" */,
+    Instant expiresAt /* wire: "expires_at" */
 ) {
     @Override
     public boolean equals(Object obj) {

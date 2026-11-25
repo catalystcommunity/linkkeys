@@ -8,6 +8,26 @@ require_relative "codec"
 # delegates only byte movement to a host-supplied transport seam: a duck-typed
 # object responding to `call(service, op, req_bytes) -> resp_bytes`. The carrier
 # moves bytes (HTTP, a queue, an in-process loop); it never sees the typed values.
+#
+# This spec has operations with more than one reply arm, so the transport must
+# also respond to `call_reply(service, op, req_bytes) -> [variant, payload]`:
+# `variant` is the CSIL-RPC response envelope's `variant` text (nil when absent)
+# and `payload` the reply bytes. The client picks the arm from `variant`: the
+# success arm returns its value, a declared error arm raises its
+# `CsilCbor::<Arm>Refusal`, and a missing or unknown variant raises ArgumentError.
+
+module CsilCbor
+  module_function
+
+  def rpc_reply_payload(transport, service, op, req_bytes)
+    unless transport.respond_to?(:call_reply)
+      raise NotImplementedError,
+            "transport must implement call_reply(service, op, req_bytes) -> [variant, payload] for #{service}/#{op}"
+    end
+    variant, payload = transport.call_reply(service, op, req_bytes)
+    resolve_rpc_reply(service, op, variant, payload)
+  end
+end
 
 # Typed client for the Ops service.
 class OpsClient
@@ -579,6 +599,46 @@ class AdminClient
   def preview_app_access(req)
     PreviewAppAccessResponse.from_cbor(@transport.call("Admin", "preview-app-access", req.to_cbor))
   end
+
+  # rename-user: -> RenameUserResponse
+  def rename_user(req)
+    RenameUserResponse.from_cbor(@transport.call("Admin", "rename-user", req.to_cbor))
+  end
+
+  # set-application-id: -> SetApplicationIdResponse
+  def set_application_id(req)
+    SetApplicationIdResponse.from_cbor(@transport.call("Admin", "set-application-id", req.to_cbor))
+  end
+
+  # create-api-key: -> CreateApiKeyResponse
+  def create_api_key(req)
+    CreateApiKeyResponse.from_cbor(@transport.call("Admin", "create-api-key", req.to_cbor))
+  end
+
+  # list-api-keys: -> ListApiKeysResponse
+  def list_api_keys(req)
+    ListApiKeysResponse.from_cbor(@transport.call("Admin", "list-api-keys", req.to_cbor))
+  end
+
+  # revoke-api-key: -> RevokeApiKeyResponse
+  def revoke_api_key(req)
+    RevokeApiKeyResponse.from_cbor(@transport.call("Admin", "revoke-api-key", req.to_cbor))
+  end
+
+  # get-account-limits: -> GetAccountLimitsResponse
+  def get_account_limits(req)
+    GetAccountLimitsResponse.from_cbor(@transport.call("Admin", "get-account-limits", req.to_cbor))
+  end
+
+  # set-account-limits: -> SetAccountLimitsResponse
+  def set_account_limits(req)
+    SetAccountLimitsResponse.from_cbor(@transport.call("Admin", "set-account-limits", req.to_cbor))
+  end
+
+  # get-application-usage: -> GetApplicationUsageResponse
+  def get_application_usage(req)
+    GetApplicationUsageResponse.from_cbor(@transport.call("Admin", "get-application-usage", req.to_cbor))
+  end
 end
 
 # Typed client for the Account service.
@@ -693,22 +753,22 @@ class RpClient
 
   # sign-request: -> RpSignResponse
   def sign_request(req)
-    RpSignResponse.from_cbor(@transport.call("Rp", "sign-request", req.to_cbor))
+    RpSignResponse.from_cbor(CsilCbor.rpc_reply_payload(@transport, "Rp", "sign-request", req.to_cbor))
   end
 
   # decrypt-token: -> RpDecryptResponse
   def decrypt_token(req)
-    RpDecryptResponse.from_cbor(@transport.call("Rp", "decrypt-token", req.to_cbor))
+    RpDecryptResponse.from_cbor(CsilCbor.rpc_reply_payload(@transport, "Rp", "decrypt-token", req.to_cbor))
   end
 
   # verify-assertion: -> RpVerifyResponse
   def verify_assertion(req)
-    RpVerifyResponse.from_cbor(@transport.call("Rp", "verify-assertion", req.to_cbor))
+    RpVerifyResponse.from_cbor(CsilCbor.rpc_reply_payload(@transport, "Rp", "verify-assertion", req.to_cbor))
   end
 
   # userinfo-fetch: -> UserInfo
   def userinfo_fetch(req)
-    UserInfo.from_cbor(@transport.call("Rp", "userinfo-fetch", req.to_cbor))
+    UserInfo.from_cbor(CsilCbor.rpc_reply_payload(@transport, "Rp", "userinfo-fetch", req.to_cbor))
   end
 
   # issue-attestation: -> RpIssueAttestationResponse

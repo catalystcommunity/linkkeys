@@ -114,13 +114,33 @@ and contains no HTTP calls to its RP server at all.
 
 ```
 service Rp {
-    sign-request:      RpSignRequest      -> RpSignResponse,
-    decrypt-token:      RpDecryptRequest   -> RpDecryptResponse,
-    verify-assertion:   RpVerifyRequest    -> RpVerifyResponse,
-    userinfo-fetch:     RpUserInfoRequest  -> UserInfo,
+    sign-request:      RpSignRequest      -> RpSignResponse / RpError,
+    decrypt-token:      RpDecryptRequest   -> RpDecryptResponse / RpError,
+    verify-assertion:   RpVerifyRequest    -> RpVerifyResponse / RpError,
+    userinfo-fetch:     RpUserInfoRequest  -> UserInfo / RpError,
     issue-attestation:  RpIssueAttestationRequest -> RpIssueAttestationResponse
 }
 ```
+
+These four operations have two typed reply arms. A reply with status 0
+names its arm in the envelope `variant` field: the success type, or
+`RpError`. An `RpError` payload is `{code, message}`, and `code` is an
+`RpErrorCode` number. Your client must read `variant` and must not decode an
+`RpError` payload as the success type. The walkthrough below raises
+`RpRefused` for an `RpError` reply.
+
+Wire shapes to know:
+
+- Each timestamp is CBOR tag 0 that wraps RFC 3339 text in UTC with a `Z`
+  suffix, for example `2026-01-01T00:00:00Z`.
+- Each closed vocabulary is a CBOR unsigned integer, for example
+  `RequestedClaim.datatype` (`text` = 1, `email` = 3).
+- `IdentityAssertion.application` is required. It names the application
+  that the login is for.
+- `RpSignRequest` has no `application_id` field. The RP server uses the
+  application of the account that owns your API key. That account must be
+  an application account, or the reply is `RpError` with code
+  `not_application_account`.
 
 1. **`Rp/sign-request`** `{callback_url, nonce, requested_claims?}` →
    `{signed_request}`. Your app generates a fresh `nonce` and calls this
@@ -231,10 +251,31 @@ module RegularRp
   module Types
     Claim = LinkkeysLocalRp::Types::Claim
     ClaimSignature = LinkkeysLocalRp::Types::ClaimSignature
+    ApplicationRef = LinkkeysLocalRp::Types::ApplicationRef
+    # Timestamp (CBOR tag 0) and enum (CBOR unsigned integer) wire helpers.
+    Wire = LinkkeysLocalRp::Types::Wire
+
+    # ClaimValueType is a named-number enum: an unsigned integer on the wire.
+    CLAIM_VALUE_TYPE = {
+      'text' => 1, 'url' => 2, 'email' => 3, 'bool' => 4, 'int' => 5,
+      'float' => 6, 'decimal' => 7, 'date' => 8, 'timestamp' => 9, 'opaque' => 10
+    }.freeze
+
+    # RpErrorCode is a named-number enum: an unsigned integer on the wire.
+    RP_ERROR_CODE = {
+      'not_application_account' => 1, 'application_mismatch' => 2, 'application_user_limit' => 3,
+      'bad_request' => 4, 'upstream_failed' => 5, 'internal' => 6
+    }.freeze
 
     RequestedClaim = Struct.new(:claim_type, :datatype, keyword_init: true) do
-      def self.to_map(v) = { 'claim_type' => v.claim_type, 'datatype' => v.datatype }
-      def self.from_map(t) = new(claim_type: t['claim_type'], datatype: t['datatype'])
+      def self.to_map(v)
+        { 'claim_type' => v.claim_type, 'datatype' => Wire.enum(CLAIM_VALUE_TYPE, v.datatype, 'datatype') }
+      end
+
+      def self.from_map(t)
+        new(claim_type: t['claim_type'], datatype: Wire.enum_dec(CLAIM_VALUE_TYPE, t['datatype'], 'datatype'))
+      end
+
       def to_cbor = Cbor.encode(self.class.to_map(self))
       def self.from_cbor(data) = from_map(Cbor.decode(data))
     end
@@ -305,16 +346,20 @@ module RegularRp
       def self.from_cbor(data) = from_map(Cbor.decode(data))
     end
 
+    # `application` is required: the application principal the login was
+    # for. `issued_at`/`expires_at` are CBOR tag 0 timestamps on the wire.
     IdentityAssertion = Struct.new(
       :user_id, :domain, :audience, :nonce, :issued_at, :expires_at,
-      :authorized_claims, :display_name,
+      :authorized_claims, :display_name, :application,
       keyword_init: true
     ) do
       def self.to_map(v)
         m = {
           'user_id' => v.user_id, 'domain' => v.domain, 'audience' => v.audience,
-          'nonce' => v.nonce, 'issued_at' => v.issued_at, 'expires_at' => v.expires_at,
-          'authorized_claims' => v.authorized_claims
+          'nonce' => v.nonce, 'issued_at' => Wire.ts(v.issued_at, 'issued_at'),
+          'expires_at' => Wire.ts(v.expires_at, 'expires_at'),
+          'authorized_claims' => v.authorized_claims,
+          'application' => ApplicationRef.to_map(v.application)
         }
         m['display_name'] = v.display_name unless v.display_name.nil?
         m
@@ -323,8 +368,10 @@ module RegularRp
       def self.from_map(t)
         new(
           user_id: t['user_id'], domain: t['domain'], audience: t['audience'],
-          nonce: t['nonce'], issued_at: t['issued_at'], expires_at: t['expires_at'],
-          authorized_claims: t['authorized_claims'], display_name: t['display_name']
+          nonce: t['nonce'], issued_at: Wire.ts_dec(t['issued_at'], 'issued_at'),
+          expires_at: Wire.ts_dec(t['expires_at'], 'expires_at'),
+          authorized_claims: t['authorized_claims'], display_name: t['display_name'],
+          application: ApplicationRef.from_map(t['application'])
         )
       end
 
@@ -347,6 +394,13 @@ module RegularRp
       def self.to_map(v) = { 'token' => v.token, 'api_base' => v.api_base, 'domain' => v.domain }
       def self.from_map(t) = new(token: t['token'], api_base: t['api_base'], domain: t['domain'])
       def to_cbor = Cbor.encode(self.class.to_map(self))
+      def self.from_cbor(data) = from_map(Cbor.decode(data))
+    end
+
+    # The typed error arm of sign-request, decrypt-token, verify-assertion,
+    # and userinfo-fetch.
+    RpError = Struct.new(:code, :message, keyword_init: true) do
+      def self.from_map(t) = new(code: Wire.enum_dec(RP_ERROR_CODE, t['code'], 'code'), message: t['message'])
       def self.from_cbor(data) = from_map(Cbor.decode(data))
     end
 
@@ -389,13 +443,34 @@ module RegularRp
     Cbor.encode(envelope)
   end
 
-  def parse_response_envelope(response_bytes)
+  # The RP refused the call with a typed `RpError` reply. `code` is the
+  # RpErrorCode label, for example 'application_mismatch'.
+  class RpRefused < RpCallError
+    attr_reader :code
+
+    def initialize(rp_error)
+      @code = rp_error.code
+      super("RP refused the call (#{rp_error.code}): #{rp_error.message}")
+    end
+  end
+
+  # Returns the payload bytes of the expected reply arm. A status-0 reply
+  # names its arm in `variant`: the success type, or `RpError`. Any other
+  # variant is a protocol error.
+  def parse_response_envelope(response_bytes, response_class)
     envelope = Cbor.decode(response_bytes)
     status = envelope['status']
     raise RpCallError, "server error (status=#{status}): #{envelope['error']}" unless status == 0
 
     payload_tag = envelope['payload']
-    payload_tag.is_a?(Cbor::CborTag) ? payload_tag.value : ''.b
+    payload = payload_tag.is_a?(Cbor::CborTag) ? payload_tag.value : ''.b
+    variant = envelope['variant']
+    raise RpRefused, Types::RpError.from_cbor(payload) if variant == 'RpError'
+
+    expected = response_class.name.split('::').last
+    raise RpCallError, "unexpected reply variant #{variant.inspect}" unless variant == expected
+
+    payload
   end
 
   def send_frame(sock, data)
@@ -437,7 +512,7 @@ module RegularRp
       request_bytes = build_request_envelope(op, req_struct.to_cbor, rp_config.api_key)
       send_frame(tls_sock, request_bytes)
       response_bytes = recv_frame(tls_sock)
-      payload = parse_response_envelope(response_bytes)
+      payload = parse_response_envelope(response_bytes, response_class)
       response_class.from_cbor(payload)
     ensure
       tls_sock.close

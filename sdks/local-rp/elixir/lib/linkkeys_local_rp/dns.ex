@@ -111,8 +111,12 @@ defmodule LinkkeysLocalRp.Dns do
 
   @key_vouch_tag "linkkeys-key-vouch-v1alpha"
 
-  def key_vouch_payload(enc_fingerprint, enc_expires_at) do
-    LinkkeysLocalRp.Cbor.encode([@key_vouch_tag, enc_fingerprint, enc_expires_at])
+  @doc "The key-vouch signed bytes: `CBOR([tag, enc_fingerprint, enc_expires_at])`, where `enc_expires_at` is whole Unix seconds as a CBOR integer. Returns `:error` when `enc_expires_at` has a fraction of a second (such a time cannot be signed)."
+  @spec key_vouch_payload(String.t(), DateTime.t()) :: {:ok, binary} | :error
+  def key_vouch_payload(enc_fingerprint, %DateTime{} = enc_expires_at) do
+    with {:ok, seconds} <- Timeutil.signed_seconds(enc_expires_at) do
+      {:ok, LinkkeysLocalRp.Cbor.encode([@key_vouch_tag, enc_fingerprint, seconds])}
+    end
   end
 
   @doc "Verify that `signing_key` vouches for `enc_key` (encryption keys are not published in DNS; they are trusted only via a DNS-pinned signing key's vouch)."
@@ -129,8 +133,11 @@ defmodule LinkkeysLocalRp.Dns do
 
       true ->
         recomputed_fp = Crypto.fingerprint(enc_key.public_key)
-        payload = key_vouch_payload(recomputed_fp, enc_key.expires_at)
-        Crypto.ed25519_verify(payload, enc_key.key_signature, signing_key.public_key)
+
+        case key_vouch_payload(recomputed_fp, enc_key.expires_at) do
+          {:ok, payload} -> Crypto.ed25519_verify(payload, enc_key.key_signature, signing_key.public_key)
+          :error -> false
+        end
     end
   end
 
@@ -138,17 +145,8 @@ defmodule LinkkeysLocalRp.Dns do
     if key.revoked_at != nil do
       false
     else
-      case safe_parse(key.expires_at) do
-        {:ok, expires} -> DateTime.compare(now, expires) != :gt
-        {:error, _} -> false
-      end
+      DateTime.compare(now, key.expires_at) != :gt
     end
-  end
-
-  defp safe_parse(s) do
-    {:ok, Timeutil.parse_rfc3339(s)}
-  rescue
-    _ -> {:error, :bad_timestamp}
   end
 
   @doc "Establish the trusted key set from a fetched key list and the DNS-pinned fingerprint set. Signing keys are pinned directly; encryption keys are trusted only when a pinned signing key vouches for them. Callers MUST treat an empty result as 'no trustworthy keys' and fail closed."

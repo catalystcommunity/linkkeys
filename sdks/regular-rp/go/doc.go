@@ -49,7 +49,7 @@
 //		InstanceID:    peerInstanceID,
 //	}, nil)
 //	// result.Freshness is fresh / refreshed / stale — never discard it.
-//	key, err := result.Keys.KeyForUse(signedByKeyID, regularrp.KeyUsageSign, "ed25519")
+//	key, err := result.Keys.KeyForUse(signedByKeyID, regularrp.KeyUsageSign, regularrp.AlgorithmEd25519)
 //	// verify the peer's message signature against key.PublicKey.
 //
 // # Act-as grants
@@ -75,7 +75,7 @@
 //  6. Call [RefreshGrant] again when less than half of the grant's life
 //     remains. [DecideRefresh] predicts the result.
 //
-// Use [FormatActAsTime] for every timestamp in a request.
+// Use [ActAsTime] for every timestamp in a request.
 //
 // Audience flow:
 //

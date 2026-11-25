@@ -21,12 +21,15 @@
 
 import { decode } from "../generated/codec.gen.ts";
 import { fromApplicationKeyAttestationCborValue } from "../generated/codec.gen.ts";
-import { encodeCborTuple, text, bytes as bytesElem } from "./cborTuple.ts";
+import { encodeCborTuple, int, text, bytes as bytesElem } from "./cborTuple.ts";
 import { fingerprint, verifyEd25519 } from "./crypto.ts";
+import { signedSeconds, SignedTimeError } from "./signedTime.ts";
 import type {
   ApplicationKeyAttestation,
   ApplicationKeyRevocation,
   DomainPublicKey,
+  KeyAlgorithm,
+  KeyUsage,
   SignedApplicationKeyAttestation,
 } from "../generated/types.gen.ts";
 
@@ -42,12 +45,12 @@ export const REVOCATION_TAG = "linkkeys-application-key-revocation-v1alpha";
 export const REVOCATION_QUORUM = 2;
 
 /** Key use: an Ed25519 signing key. */
-export const KEY_USAGE_SIGN = "sign";
+export const KEY_USAGE_SIGN: KeyUsage = "sign";
 /** Key use: an X25519 key-agreement key. */
-export const KEY_USAGE_AGREE = "agree";
+export const KEY_USAGE_AGREE: KeyUsage = "agree";
 
-const ALG_ED25519 = "ed25519";
-const ALG_X25519 = "x25519";
+const ALG_ED25519: KeyAlgorithm = "ed25519";
+const ALG_X25519: KeyAlgorithm = "x25519";
 
 /**
  * Bytes a home-domain signature over an attestation covers:
@@ -67,7 +70,8 @@ export function attestationSignatureInput(attestationBytes: Uint8Array): Uint8Ar
  * (`CBOR([REVOCATION_TAG, subject_user_id, subject_domain, application_id,
  * instance_id, target_key_id, target_fingerprint, revoked_at])`, an
  * eight-element array), so a revocation can never move between subjects,
- * applications, or instances.
+ * applications, or instances. `revoked_at` is a CBOR integer of whole Unix
+ * seconds; a time with a fraction of a second throws `SignedTimeError`.
  */
 export function revocationPayload(
   subjectUserId: string,
@@ -76,7 +80,7 @@ export function revocationPayload(
   instanceId: string,
   targetKeyId: string,
   targetFingerprint: string,
-  revokedAt: string,
+  revokedAt: Date,
 ): Uint8Array {
   return encodeCborTuple([
     text(REVOCATION_TAG),
@@ -86,11 +90,19 @@ export function revocationPayload(
     text(instanceId),
     text(targetKeyId),
     text(targetFingerprint),
-    text(revokedAt),
+    int(signedSeconds(revokedAt)),
   ]);
 }
 
-function revocationPayloadOf(rev: ApplicationKeyRevocation): Uint8Array {
+/** The revocation's signed bytes, or `undefined` when its time has a fraction
+ * of a second (such a revocation was never signed). */
+function revocationPayloadOf(rev: ApplicationKeyRevocation): Uint8Array | undefined {
+  try {
+    signedSeconds(rev.revokedAt);
+  } catch (e) {
+    if (e instanceof SignedTimeError) return undefined;
+    throw e;
+  }
   return revocationPayload(
     rev.subjectUserId,
     rev.subjectDomain,
@@ -103,7 +115,7 @@ function revocationPayloadOf(rev: ApplicationKeyRevocation): Uint8Array {
 }
 
 /** The algorithm a key use requires. Ed25519 keys sign; X25519 keys agree. */
-function expectedAlgorithm(keyUsage: string): string | undefined {
+function expectedAlgorithm(keyUsage: KeyUsage): KeyAlgorithm | undefined {
   if (keyUsage === KEY_USAGE_SIGN) return ALG_ED25519;
   if (keyUsage === KEY_USAGE_AGREE) return ALG_X25519;
   return undefined;
@@ -115,8 +127,8 @@ function expectedAlgorithm(keyUsage: string): string | undefined {
  * `application_keys::check_key_shape`).
  */
 export function checkKeyShape(
-  keyUsage: string,
-  algorithm: string,
+  keyUsage: KeyUsage,
+  algorithm: KeyAlgorithm,
   publicKey: Uint8Array,
   fingerprintHex: string,
 ): boolean {
@@ -128,7 +140,7 @@ export function checkKeyShape(
 
 function signingKeyValidity(key: DomainPublicKey, now: Date): "valid" | "revoked" | "expired" {
   if (key.revokedAt !== undefined) return "revoked";
-  const expires = Date.parse(key.expiresAt);
+  const expires = key.expiresAt.getTime();
   if (Number.isNaN(expires)) return "expired";
   return now.getTime() > expires ? "expired" : "valid";
 }
@@ -183,23 +195,23 @@ export function verifyAttestationSignature(
  * `actAs.ts`) can set it. */
 export interface ApplicationKeyRef {
   keyId: string;
-  keyUsage: string;
-  algorithm: string;
+  keyUsage: KeyUsage;
+  algorithm: KeyAlgorithm;
   publicKey: Uint8Array;
   fingerprint: string;
-  createdAt: string;
-  expiresAt: string;
-  /** When the key stopped being valid. An unparsable value means invalid. */
-  revokedAt?: string;
+  createdAt: Date;
+  expiresAt: Date;
+  /** When the key stopped being valid. An invalid `Date` means invalid. */
+  revokedAt?: Date;
 }
 
 function wasValidAt(key: ApplicationKeyRef, at: Date): boolean {
-  const created = Date.parse(key.createdAt);
-  const expires = Date.parse(key.expiresAt);
+  const created = key.createdAt.getTime();
+  const expires = key.expiresAt.getTime();
   if (Number.isFinite(created) && created > at.getTime()) return false;
   if (!Number.isFinite(expires) || expires <= at.getTime()) return false;
   if (key.revokedAt !== undefined) {
-    const revoked = Date.parse(key.revokedAt);
+    const revoked = key.revokedAt.getTime();
     if (!Number.isFinite(revoked) || revoked <= at.getTime()) return false;
   }
   return true;
@@ -229,8 +241,9 @@ export function countApplicationKeyRevocationSigners(
   rev: ApplicationKeyRevocation,
   keys: readonly ApplicationKeyRef[],
 ): number {
-  const effective = new Date(Date.parse(rev.revokedAt));
+  const effective = rev.revokedAt;
   const message = revocationPayloadOf(rev);
+  if (message === undefined) return 0;
   const accepted = new Set<string>();
   for (const sig of rev.signatures) {
     if (sig.signedByKeyId === rev.targetKeyId) continue;
@@ -265,7 +278,7 @@ export type KeyStatus =
   | { kind: "usable" }
   | { kind: "attestation_expired" }
   | { kind: "key_expired" }
-  | { kind: "revoked"; revokedAt: string };
+  | { kind: "revoked"; revokedAt: Date };
 
 export interface VerifiedApplicationKey {
   attestation: ApplicationKeyAttestation;
@@ -287,22 +300,22 @@ export interface VerifiedApplicationKeySet {
  * `application_keys::classify_key`). */
 export function classifyKey(
   attestation: ApplicationKeyAttestation,
-  revokedAt: string | undefined,
+  revokedAt: Date | undefined,
   now: Date,
   skewSeconds: number,
 ): KeyStatus {
   const skewMs = skewSeconds * 1000;
   if (revokedAt !== undefined) {
-    const effective = Date.parse(revokedAt);
+    const effective = revokedAt.getTime();
     if (Number.isFinite(effective) && effective <= now.getTime() + skewMs) {
       return { kind: "revoked", revokedAt };
     }
   }
-  const keyExpires = Date.parse(attestation.keyExpiresAt);
+  const keyExpires = attestation.keyExpiresAt.getTime();
   if (!Number.isFinite(keyExpires) || keyExpires + skewMs <= now.getTime()) {
     return { kind: "key_expired" };
   }
-  const attestationExpires = Date.parse(attestation.attestationExpiresAt);
+  const attestationExpires = attestation.attestationExpiresAt.getTime();
   if (!Number.isFinite(attestationExpires) || attestationExpires + skewMs <= now.getTime()) {
     return { kind: "attestation_expired" };
   }
@@ -378,7 +391,7 @@ export function verifyApplicationKeySet(
   }
 
   const keyRefs = attested.map(attestedKeyRef);
-  const revoked = new Map<string, string>();
+  const revoked = new Map<string, Date>();
   for (const rev of revocations) {
     if (
       rev.subjectUserId !== instance.subjectUserId ||
@@ -394,7 +407,7 @@ export function verifyApplicationKeySet(
       continue;
     }
     const existing = revoked.get(rev.targetKeyId);
-    if (existing === undefined || rev.revokedAt < existing) {
+    if (existing === undefined || rev.revokedAt.getTime() < existing.getTime()) {
       revoked.set(rev.targetKeyId, rev.revokedAt);
     }
   }
@@ -414,7 +427,7 @@ export function verifyApplicationKeySet(
  * no preferred key, and array order carries no meaning. */
 export function usableKeys(
   set: VerifiedApplicationKeySet,
-  keyUsage: string,
+  keyUsage: KeyUsage,
 ): ApplicationKeyAttestation[] {
   return set.keys
     .filter((k) => k.status.kind === "usable" && k.attestation.keyUsage === keyUsage)
@@ -427,8 +440,8 @@ export function usableKeys(
 export function keyForUse(
   set: VerifiedApplicationKeySet,
   keyId: string,
-  keyUsage: string,
-  algorithm: string,
+  keyUsage: KeyUsage,
+  algorithm: KeyAlgorithm,
 ): ApplicationKeyAttestation | undefined {
   if (set.revokedKeyIds.has(keyId)) return undefined;
   const found = set.keys.find((k) => k.attestation.keyId === keyId);

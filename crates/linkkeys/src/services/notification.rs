@@ -11,7 +11,10 @@ use lettre::message::{Mailbox, Message};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::transport::smtp::client::{Tls, TlsParameters};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Tokio1Executor};
-use liblinkkeys::generated::types::{GetNotificationCapabilitiesResponse, NotificationCapability};
+use liblinkkeys::generated::types::{
+    DestinationKind, GetNotificationCapabilitiesResponse, NotificationCapability,
+    NotificationChannel, NotificationPurpose,
+};
 use rand::Rng;
 
 use crate::db::models::NotificationOutboxItem;
@@ -237,14 +240,17 @@ pub fn capabilities() -> GetNotificationCapabilitiesResponse {
 
 pub fn capabilities_for(email_ready: bool) -> GetNotificationCapabilitiesResponse {
     let capabilities = if email_ready {
-        ["verify_contact", "reset_password"]
-            .into_iter()
-            .map(|purpose| NotificationCapability {
-                purpose: purpose.to_string(),
-                channel: "email".to_string(),
-                destination_kind: "email".to_string(),
-            })
-            .collect()
+        [
+            NotificationPurpose::VerifyContact,
+            NotificationPurpose::ResetPassword,
+        ]
+        .into_iter()
+        .map(|purpose| NotificationCapability {
+            purpose,
+            channel: NotificationChannel::Email,
+            destination_kind: DestinationKind::Email,
+        })
+        .collect()
     } else {
         Vec::new()
     };
@@ -640,14 +646,10 @@ impl OutboxWorker {
                     permanent: true,
                 }
             })?;
-        let lease_expires_at = item
-            .lease_expires_at
-            .as_deref()
-            .and_then(|value| liblinkkeys::timestamp::parse_rfc3339(value).ok())
-            .ok_or(DeliveryFailure {
-                category: "invalid_lease",
-                permanent: false,
-            })?;
+        let lease_expires_at = item.lease_expires_at.ok_or(DeliveryFailure {
+            category: "invalid_lease",
+            permanent: false,
+        })?;
         let remaining = lease_expires_at - time::OffsetDateTime::now_utc();
         let configured_timeout =
             std::time::Duration::from_secs((self.lease_seconds / 2).max(1) as u64);

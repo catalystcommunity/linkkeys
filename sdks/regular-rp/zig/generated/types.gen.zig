@@ -3,6 +3,624 @@
 
 const std = @import("std");
 
+pub const CsilTimestamp = @import("csil_timestamp.gen.zig").CsilTimestamp;
+
+/// KeyAlgorithm is an enumeration.
+pub const KeyAlgorithm = enum(i64) {
+    ed25519 = 1,
+    x25519 = 2,
+
+    pub fn to_number(self: KeyAlgorithm) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?KeyAlgorithm {
+        return @import("std").meta.intToEnum(KeyAlgorithm, number) catch null;
+    }
+
+    pub fn wire_name(self: KeyAlgorithm) []const u8 {
+        return switch (self) {
+            .ed25519 => "ed25519",
+            .x25519 => "x25519",
+        };
+    }
+};
+
+/// KeyUsage is an enumeration.
+pub const KeyUsage = enum(i64) {
+    sign = 1,
+    encrypt = 2,
+    agree = 3,
+
+    pub fn to_number(self: KeyUsage) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?KeyUsage {
+        return @import("std").meta.intToEnum(KeyUsage, number) catch null;
+    }
+
+    pub fn wire_name(self: KeyUsage) []const u8 {
+        return switch (self) {
+            .sign => "sign",
+            .encrypt => "encrypt",
+            .agree => "agree",
+        };
+    }
+};
+
+/// AeadSuite is an enumeration.
+pub const AeadSuite = enum(i64) {
+    aes_256_gcm = 1,
+    chacha20_poly1305 = 2,
+
+    pub fn to_number(self: AeadSuite) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?AeadSuite {
+        return @import("std").meta.intToEnum(AeadSuite, number) catch null;
+    }
+
+    pub fn wire_name(self: AeadSuite) []const u8 {
+        return switch (self) {
+            .aes_256_gcm => "aes_256_gcm",
+            .chacha20_poly1305 => "chacha20_poly1305",
+        };
+    }
+};
+
+/// ClaimValueType is an enumeration.
+pub const ClaimValueType = enum(i64) {
+    text = 1,
+    url = 2,
+    email = 3,
+    bool = 4,
+    int = 5,
+    float = 6,
+    decimal = 7,
+    date = 8,
+    timestamp = 9,
+    @"opaque" = 10,
+
+    pub fn to_number(self: ClaimValueType) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?ClaimValueType {
+        return @import("std").meta.intToEnum(ClaimValueType, number) catch null;
+    }
+
+    pub fn wire_name(self: ClaimValueType) []const u8 {
+        return switch (self) {
+            .text => "text",
+            .url => "url",
+            .email => "email",
+            .bool => "bool",
+            .int => "int",
+            .float => "float",
+            .decimal => "decimal",
+            .date => "date",
+            .timestamp => "timestamp",
+            .@"opaque" => "opaque",
+        };
+    }
+};
+
+/// SetRule is an enumeration.
+pub const SetRule = enum(i64) {
+    user_self = 1,
+    idp_on_request = 2,
+    trusted_issuer_only = 3,
+    admin_only = 4,
+    deny = 5,
+
+    pub fn to_number(self: SetRule) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?SetRule {
+        return @import("std").meta.intToEnum(SetRule, number) catch null;
+    }
+
+    pub fn wire_name(self: SetRule) []const u8 {
+        return switch (self) {
+            .user_self => "user_self",
+            .idp_on_request => "idp_on_request",
+            .trusted_issuer_only => "trusted_issuer_only",
+            .admin_only => "admin_only",
+            .deny => "deny",
+        };
+    }
+};
+
+/// SigningRule is an enumeration.
+pub const SigningRule = enum(i64) {
+    self_signed = 1,
+    verified = 2,
+    attested = 3,
+    unsigned = 4,
+
+    pub fn to_number(self: SigningRule) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?SigningRule {
+        return @import("std").meta.intToEnum(SigningRule, number) catch null;
+    }
+
+    pub fn wire_name(self: SigningRule) []const u8 {
+        return switch (self) {
+            .self_signed => "self_signed",
+            .verified => "verified",
+            .attested => "attested",
+            .unsigned => "unsigned",
+        };
+    }
+};
+
+/// SetClaimOutcome is an enumeration.
+pub const SetClaimOutcome = enum(i64) {
+    signed = 1,
+    stored_unsigned = 2,
+    verification_required = 3,
+    queued = 4,
+
+    pub fn to_number(self: SetClaimOutcome) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?SetClaimOutcome {
+        return @import("std").meta.intToEnum(SetClaimOutcome, number) catch null;
+    }
+
+    pub fn wire_name(self: SetClaimOutcome) []const u8 {
+        return switch (self) {
+            .signed => "signed",
+            .stored_unsigned => "stored_unsigned",
+            .verification_required => "verification_required",
+            .queued => "queued",
+        };
+    }
+};
+
+/// ReleaseDisposition is an enumeration.
+pub const ReleaseDisposition = enum(i64) {
+    forced_allow = 1,
+    forced_deny = 2,
+
+    pub fn to_number(self: ReleaseDisposition) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?ReleaseDisposition {
+        return @import("std").meta.intToEnum(ReleaseDisposition, number) catch null;
+    }
+
+    pub fn wire_name(self: ReleaseDisposition) []const u8 {
+        return switch (self) {
+            .forced_allow => "forced_allow",
+            .forced_deny => "forced_deny",
+        };
+    }
+};
+
+/// ConsentRowPolicy is an enumeration.
+pub const ConsentRowPolicy = enum(i64) {
+    user = 1,
+    forced_allow = 2,
+    forced_deny = 3,
+
+    pub fn to_number(self: ConsentRowPolicy) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?ConsentRowPolicy {
+        return @import("std").meta.intToEnum(ConsentRowPolicy, number) catch null;
+    }
+
+    pub fn wire_name(self: ConsentRowPolicy) []const u8 {
+        return switch (self) {
+            .user => "user",
+            .forced_allow => "forced_allow",
+            .forced_deny => "forced_deny",
+        };
+    }
+};
+
+/// ClaimApprovalStatus is an enumeration.
+pub const ClaimApprovalStatus = enum(i64) {
+    pending = 1,
+    approved = 2,
+    rejected = 3,
+
+    pub fn to_number(self: ClaimApprovalStatus) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?ClaimApprovalStatus {
+        return @import("std").meta.intToEnum(ClaimApprovalStatus, number) catch null;
+    }
+
+    pub fn wire_name(self: ClaimApprovalStatus) []const u8 {
+        return switch (self) {
+            .pending => "pending",
+            .approved => "approved",
+            .rejected => "rejected",
+        };
+    }
+};
+
+/// PinRecheckOutcome is an enumeration.
+pub const PinRecheckOutcome = enum(i64) {
+    first_seen = 1,
+    unchanged = 2,
+    rotated = 3,
+    mismatch = 4,
+    @"error" = 5,
+
+    pub fn to_number(self: PinRecheckOutcome) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?PinRecheckOutcome {
+        return @import("std").meta.intToEnum(PinRecheckOutcome, number) catch null;
+    }
+
+    pub fn wire_name(self: PinRecheckOutcome) []const u8 {
+        return switch (self) {
+            .first_seen => "first_seen",
+            .unchanged => "unchanged",
+            .rotated => "rotated",
+            .mismatch => "mismatch",
+            .@"error" => "error",
+        };
+    }
+};
+
+/// NotificationPurpose is an enumeration.
+pub const NotificationPurpose = enum(i64) {
+    verify_contact = 1,
+    reset_password = 2,
+
+    pub fn to_number(self: NotificationPurpose) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?NotificationPurpose {
+        return @import("std").meta.intToEnum(NotificationPurpose, number) catch null;
+    }
+
+    pub fn wire_name(self: NotificationPurpose) []const u8 {
+        return switch (self) {
+            .verify_contact => "verify_contact",
+            .reset_password => "reset_password",
+        };
+    }
+};
+
+/// NotificationChannel is an enumeration.
+pub const NotificationChannel = enum(i64) {
+    email = 1,
+
+    pub fn to_number(self: NotificationChannel) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?NotificationChannel {
+        return @import("std").meta.intToEnum(NotificationChannel, number) catch null;
+    }
+
+    pub fn wire_name(self: NotificationChannel) []const u8 {
+        return switch (self) {
+            .email => "email",
+        };
+    }
+};
+
+/// DestinationKind is an enumeration.
+pub const DestinationKind = enum(i64) {
+    email = 1,
+
+    pub fn to_number(self: DestinationKind) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?DestinationKind {
+        return @import("std").meta.intToEnum(DestinationKind, number) catch null;
+    }
+
+    pub fn wire_name(self: DestinationKind) []const u8 {
+        return switch (self) {
+            .email => "email",
+        };
+    }
+};
+
+/// LocalRpPolicy is an enumeration.
+pub const LocalRpPolicy = enum(i64) {
+    disabled = 1,
+    admin_approval_required = 2,
+    allow_by_default = 3,
+
+    pub fn to_number(self: LocalRpPolicy) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?LocalRpPolicy {
+        return @import("std").meta.intToEnum(LocalRpPolicy, number) catch null;
+    }
+
+    pub fn wire_name(self: LocalRpPolicy) []const u8 {
+        return switch (self) {
+            .disabled => "disabled",
+            .admin_approval_required => "admin_approval_required",
+            .allow_by_default => "allow_by_default",
+        };
+    }
+};
+
+/// LocalRpStatus is an enumeration.
+pub const LocalRpStatus = enum(i64) {
+    pending = 1,
+    approved = 2,
+    denied = 3,
+    revoked = 4,
+
+    pub fn to_number(self: LocalRpStatus) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?LocalRpStatus {
+        return @import("std").meta.intToEnum(LocalRpStatus, number) catch null;
+    }
+
+    pub fn wire_name(self: LocalRpStatus) []const u8 {
+        return switch (self) {
+            .pending => "pending",
+            .approved => "approved",
+            .denied => "denied",
+            .revoked => "revoked",
+        };
+    }
+};
+
+/// LocalRpAdmission is an enumeration.
+pub const LocalRpAdmission = enum(i64) {
+    consent = 1,
+    pending = 2,
+    blocked = 3,
+
+    pub fn to_number(self: LocalRpAdmission) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?LocalRpAdmission {
+        return @import("std").meta.intToEnum(LocalRpAdmission, number) catch null;
+    }
+
+    pub fn wire_name(self: LocalRpAdmission) []const u8 {
+        return switch (self) {
+            .consent => "consent",
+            .pending => "pending",
+            .blocked => "blocked",
+        };
+    }
+};
+
+/// AppAccessMode is an enumeration.
+pub const AppAccessMode = enum(i64) {
+    allow = 1,
+    deny = 2,
+
+    pub fn to_number(self: AppAccessMode) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?AppAccessMode {
+        return @import("std").meta.intToEnum(AppAccessMode, number) catch null;
+    }
+
+    pub fn wire_name(self: AppAccessMode) []const u8 {
+        return switch (self) {
+            .allow => "allow",
+            .deny => "deny",
+        };
+    }
+};
+
+/// AppAccessTargetKind is an enumeration.
+pub const AppAccessTargetKind = enum(i64) {
+    everyone = 1,
+    user = 2,
+    group = 3,
+    claim = 4,
+
+    pub fn to_number(self: AppAccessTargetKind) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?AppAccessTargetKind {
+        return @import("std").meta.intToEnum(AppAccessTargetKind, number) catch null;
+    }
+
+    pub fn wire_name(self: AppAccessTargetKind) []const u8 {
+        return switch (self) {
+            .everyone => "everyone",
+            .user => "user",
+            .group => "group",
+            .claim => "claim",
+        };
+    }
+};
+
+/// ClaimOperator is an enumeration.
+pub const ClaimOperator = enum(i64) {
+    present = 1,
+    absent = 2,
+    equals = 3,
+    age_under = 4,
+    age_at_least = 5,
+
+    pub fn to_number(self: ClaimOperator) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?ClaimOperator {
+        return @import("std").meta.intToEnum(ClaimOperator, number) catch null;
+    }
+
+    pub fn wire_name(self: ClaimOperator) []const u8 {
+        return switch (self) {
+            .present => "present",
+            .absent => "absent",
+            .equals => "equals",
+            .age_under => "age_under",
+            .age_at_least => "age_at_least",
+        };
+    }
+};
+
+/// ApplicationKeyChallengePurpose is an enumeration.
+pub const ApplicationKeyChallengePurpose = enum(i64) {
+    add = 1,
+    renew = 2,
+
+    pub fn to_number(self: ApplicationKeyChallengePurpose) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?ApplicationKeyChallengePurpose {
+        return @import("std").meta.intToEnum(ApplicationKeyChallengePurpose, number) catch null;
+    }
+
+    pub fn wire_name(self: ApplicationKeyChallengePurpose) []const u8 {
+        return switch (self) {
+            .add => "add",
+            .renew => "renew",
+        };
+    }
+};
+
+/// AuthFlow is an enumeration.
+pub const AuthFlow = enum(i64) {
+    login = 1,
+    claims_update = 2,
+
+    pub fn to_number(self: AuthFlow) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?AuthFlow {
+        return @import("std").meta.intToEnum(AuthFlow, number) catch null;
+    }
+
+    pub fn wire_name(self: AuthFlow) []const u8 {
+        return switch (self) {
+            .login => "login",
+            .claims_update => "claims_update",
+        };
+    }
+};
+
+/// RpCacheStatus is an enumeration.
+pub const RpCacheStatus = enum(i64) {
+    fresh = 1,
+    refreshed = 2,
+    stale = 3,
+
+    pub fn to_number(self: RpCacheStatus) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?RpCacheStatus {
+        return @import("std").meta.intToEnum(RpCacheStatus, number) catch null;
+    }
+
+    pub fn wire_name(self: RpCacheStatus) []const u8 {
+        return switch (self) {
+            .fresh => "fresh",
+            .refreshed => "refreshed",
+            .stale => "stale",
+        };
+    }
+};
+
+/// AccountKind is an enumeration.
+pub const AccountKind = enum(i64) {
+    human = 1,
+    application = 2,
+
+    pub fn to_number(self: AccountKind) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?AccountKind {
+        return @import("std").meta.intToEnum(AccountKind, number) catch null;
+    }
+
+    pub fn wire_name(self: AccountKind) []const u8 {
+        return switch (self) {
+            .human => "human",
+            .application => "application",
+        };
+    }
+};
+
+/// RpErrorCode is an enumeration.
+pub const RpErrorCode = enum(i64) {
+    not_application_account = 1,
+    application_mismatch = 2,
+    application_user_limit = 3,
+    bad_request = 4,
+    upstream_failed = 5,
+    internal = 6,
+
+    pub fn to_number(self: RpErrorCode) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?RpErrorCode {
+        return @import("std").meta.intToEnum(RpErrorCode, number) catch null;
+    }
+
+    pub fn wire_name(self: RpErrorCode) []const u8 {
+        return switch (self) {
+            .not_application_account => "not_application_account",
+            .application_mismatch => "application_mismatch",
+            .application_user_limit => "application_user_limit",
+            .bad_request => "bad_request",
+            .upstream_failed => "upstream_failed",
+            .internal => "internal",
+        };
+    }
+};
+
+/// IssuedClaimOutcome is an enumeration.
+pub const IssuedClaimOutcome = enum(i64) {
+    deposited = 1,
+    handoff = 2,
+    skipped = 3,
+    failed = 4,
+
+    pub fn to_number(self: IssuedClaimOutcome) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?IssuedClaimOutcome {
+        return @import("std").meta.intToEnum(IssuedClaimOutcome, number) catch null;
+    }
+
+    pub fn wire_name(self: IssuedClaimOutcome) []const u8 {
+        return switch (self) {
+            .deposited => "deposited",
+            .handoff => "handoff",
+            .skipped => "skipped",
+            .failed => "failed",
+        };
+    }
+};
+
 /// ApiErrorCode is an enumeration.
 pub const ApiErrorCode = enum(i64) {
     request_already_used = 1,
@@ -43,12 +661,6 @@ pub const ApiErrorCode = enum(i64) {
 /// CheckEntries is a type alias.
 pub const CheckEntries = std.StringHashMapUnmanaged(CheckValue);
 
-/// AeadSuite is a type alias.
-pub const AeadSuite = []const u8;
-
-/// LocalRpPolicy is a type alias.
-pub const LocalRpPolicy = []const u8;
-
 /// LocaleMessages is a type alias.
 pub const LocaleMessages = std.StringHashMapUnmanaged([]const u8);
 
@@ -81,8 +693,8 @@ pub const HelloResponse = struct {
 pub const GuestbookEntry = struct {
     id: []const u8,
     name: []const u8,
-    created_at: []const u8,
-    updated_at: []const u8,
+    created_at: CsilTimestamp,
+    updated_at: CsilTimestamp,
 };
 
 /// CreateGuestbookRequest is a structured data type.
@@ -120,20 +732,6 @@ pub const GuestbookListResponse = struct {
 /// EmptyRequest is a structured data type.
 pub const EmptyRequest = struct {};
 
-/// DomainPublicKey is a structured data type.
-pub const DomainPublicKey = struct {
-    key_id: []const u8,
-    public_key: []const u8,
-    fingerprint: []const u8,
-    algorithm: []const u8,
-    key_usage: []const u8,
-    created_at: []const u8,
-    expires_at: []const u8,
-    revoked_at: ?[]const u8 = null,
-    signed_by_key_id: ?[]const u8 = null,
-    key_signature: ?[]const u8 = null,
-};
-
 /// GetDomainKeysResponse is a structured data type.
 pub const GetDomainKeysResponse = struct {
     domain: []const u8,
@@ -143,7 +741,7 @@ pub const GetDomainKeysResponse = struct {
 
 /// GetRevocationsRequest is a structured data type.
 pub const GetRevocationsRequest = struct {
-    since: ?[]const u8 = null,
+    since: ?CsilTimestamp = null,
 };
 
 /// GetRevocationsResponse is a structured data type.
@@ -156,30 +754,9 @@ pub const RecheckPinsRequest = struct {
     domain: ?[]const u8 = null,
 };
 
-/// PinRecheckResult is a structured data type.
-pub const PinRecheckResult = struct {
-    domain: []const u8,
-    outcome: []const u8,
-};
-
 /// RecheckPinsResponse is a structured data type.
 pub const RecheckPinsResponse = struct {
     results: []PinRecheckResult,
-};
-
-/// UserPublicKey is a structured data type.
-pub const UserPublicKey = struct {
-    key_id: []const u8,
-    user_id: []const u8,
-    public_key: []const u8,
-    fingerprint: []const u8,
-    algorithm: []const u8,
-    key_usage: []const u8,
-    created_at: []const u8,
-    expires_at: []const u8,
-    revoked_at: ?[]const u8 = null,
-    signed_by_key_id: ?[]const u8 = null,
-    key_signature: ?[]const u8 = null,
 };
 
 /// GetUserKeysRequest is a structured data type.
@@ -205,7 +782,7 @@ pub const ClaimSignature = struct {
 pub const RevocationCertificate = struct {
     target_key_id: []const u8,
     target_fingerprint: []const u8,
-    revoked_at: []const u8,
+    revoked_at: CsilTimestamp,
     signatures: []ClaimSignature,
 };
 
@@ -216,10 +793,10 @@ pub const Claim = struct {
     claim_type: []const u8,
     claim_value: []const u8,
     signatures: []ClaimSignature,
-    attested_at: []const u8,
-    created_at: []const u8,
-    expires_at: ?[]const u8 = null,
-    revoked_at: ?[]const u8 = null,
+    attested_at: CsilTimestamp,
+    created_at: CsilTimestamp,
+    expires_at: ?CsilTimestamp = null,
+    revoked_at: ?CsilTimestamp = null,
 };
 
 /// GetUserClaimsRequest is a structured data type.
@@ -235,12 +812,6 @@ pub const GetUserClaimsResponse = struct {
     claims: []Claim,
 };
 
-/// RequestedClaim is a structured data type.
-pub const RequestedClaim = struct {
-    claim_type: []const u8,
-    datatype: []const u8,
-};
-
 /// ClaimRequest is a structured data type.
 pub const ClaimRequest = struct {
     required: []RequestedClaim,
@@ -252,13 +823,6 @@ pub const AuthenticationRequirements = struct {
     minimum_factor_count: i64,
 };
 
-/// AuthFlowContext is a structured data type.
-pub const AuthFlowContext = struct {
-    flow: []const u8,
-    prior_session: ?[]const u8 = null,
-    request_reason: ?[]const u8 = null,
-};
-
 /// ConsentGrant is a structured data type.
 pub const ConsentGrant = struct {
     grant_id: []const u8,
@@ -266,9 +830,9 @@ pub const ConsentGrant = struct {
     subject_domain: []const u8,
     audience: []const u8,
     claim_types: [][]const u8,
-    issued_at: []const u8,
-    expires_at: []const u8,
-    revoked_at: ?[]const u8 = null,
+    issued_at: CsilTimestamp,
+    expires_at: CsilTimestamp,
+    revoked_at: ?CsilTimestamp = null,
     application: ?ApplicationRef = null,
 };
 
@@ -283,8 +847,8 @@ pub const DomainClaim = struct {
     claim_type: []const u8,
     claim_value: []const u8,
     signatures: []ClaimSignature,
-    attested_at: []const u8,
-    expires_at: ?[]const u8 = null,
+    attested_at: CsilTimestamp,
+    expires_at: ?CsilTimestamp = null,
 };
 
 /// SigningRequest is a structured data type.
@@ -295,8 +859,8 @@ pub const SigningRequest = struct {
     issuer_domain: []const u8,
     requested_claim_types: [][]const u8,
     nonce: []const u8,
-    issued_at: []const u8,
-    expires_at: []const u8,
+    issued_at: CsilTimestamp,
+    expires_at: CsilTimestamp,
     callback: ?[]const u8 = null,
 };
 
@@ -316,18 +880,6 @@ pub const DepositClaimResponse = struct {
     stored: bool,
 };
 
-/// IdentityAssertion is a structured data type.
-pub const IdentityAssertion = struct {
-    user_id: []const u8,
-    domain: []const u8,
-    audience: []const u8,
-    nonce: []const u8,
-    issued_at: []const u8,
-    expires_at: []const u8,
-    authorized_claims: [][]const u8,
-    display_name: ?[]const u8 = null,
-};
-
 /// SignedIdentityAssertion is a structured data type.
 pub const SignedIdentityAssertion = struct {
     assertion: []const u8,
@@ -344,7 +896,7 @@ pub const GetUserInfoRequest = struct {
 pub const UserInfoRequest = struct {
     token: []const u8,
     relying_party: []const u8,
-    timestamp: []const u8,
+    timestamp: CsilTimestamp,
     nonce: []const u8,
 };
 
@@ -364,20 +916,6 @@ pub const UserInfo = struct {
     claims: []Claim,
 };
 
-/// AuthRequest is a structured data type.
-pub const AuthRequest = struct {
-    relying_party: []const u8,
-    callback_url: []const u8,
-    nonce: []const u8,
-    timestamp: []const u8,
-    signing_key_id: []const u8,
-    requested_claims: ?ClaimRequest = null,
-    authentication_requirements: ?AuthenticationRequirements = null,
-    flow_context: ?AuthFlowContext = null,
-    relying_party_claims: ?[]DomainClaim = null,
-    application: ?RelyingPartyApplication = null,
-};
-
 /// SignedAuthRequest is a structured data type.
 pub const SignedAuthRequest = struct {
     request: []const u8,
@@ -395,8 +933,8 @@ pub const EncryptedToken = struct {
 
 /// AlgorithmSupport is a structured data type.
 pub const AlgorithmSupport = struct {
-    signing: [][]const u8,
-    encryption: ?[][]const u8 = null,
+    signing: []KeyAlgorithm,
+    encryption: ?[]AeadSuite = null,
 };
 
 /// HandshakeRequest is a structured data type.
@@ -419,21 +957,8 @@ pub const Relation = struct {
     relation: []const u8,
     object_type: []const u8,
     object_id: []const u8,
-    created_at: []const u8,
-    removed_at: ?[]const u8 = null,
-};
-
-/// AdminUser is a structured data type.
-pub const AdminUser = struct {
-    id: []const u8,
-    username: []const u8,
-    display_name: []const u8,
-    is_active: bool,
-    created_at: []const u8,
-    updated_at: []const u8,
-    purged_at: ?[]const u8 = null,
-    purge_reason: ?[]const u8 = null,
-    password_locked: ?bool = null,
+    created_at: CsilTimestamp,
+    removed_at: ?CsilTimestamp = null,
 };
 
 /// ListUsersRequest is a structured data type.
@@ -453,16 +978,11 @@ pub const GetUserRequest = struct {
     user_id: []const u8,
 };
 
-/// GetUserResponse is a structured data type.
-pub const GetUserResponse = struct {
-    user: AdminUser,
-};
-
 /// UserAuthenticationActivity is a structured data type.
 pub const UserAuthenticationActivity = struct {
     user_id: []const u8,
-    last_authenticated_at: ?[]const u8 = null,
-    last_seen_at: ?[]const u8 = null,
+    last_authenticated_at: ?CsilTimestamp = null,
+    last_seen_at: ?CsilTimestamp = null,
     successful_authentication_count: i64,
     active_browser_session_count: i64,
 };
@@ -482,12 +1002,114 @@ pub const CreateUserRequest = struct {
     username: []const u8,
     display_name: []const u8,
     password: ?[]const u8 = null,
+    application_id: ?[]const u8 = null,
 };
 
-/// CreateUserResponse is a structured data type.
-pub const CreateUserResponse = struct {
-    user: AdminUser,
-    api_key: ?[]const u8 = null,
+/// RenameUserRequest is a structured data type.
+pub const RenameUserRequest = struct {
+    user_id: []const u8,
+    username: []const u8,
+};
+
+/// SetApplicationIdRequest is a structured data type.
+pub const SetApplicationIdRequest = struct {
+    user_id: []const u8,
+    application_id: []const u8,
+};
+
+/// ApiKeyInfo is a structured data type.
+pub const ApiKeyInfo = struct {
+    key_id: []const u8,
+    name: []const u8,
+    hint: []const u8,
+    created_at: CsilTimestamp,
+    last_used_at: ?CsilTimestamp = null,
+};
+
+/// CreateApiKeyRequest is a structured data type.
+pub const CreateApiKeyRequest = struct {
+    user_id: []const u8,
+    name: []const u8,
+};
+
+/// CreateApiKeyResponse is a structured data type.
+pub const CreateApiKeyResponse = struct {
+    key: ApiKeyInfo,
+    api_key: []const u8,
+};
+
+/// ListApiKeysRequest is a structured data type.
+pub const ListApiKeysRequest = struct {
+    user_id: []const u8,
+};
+
+/// ListApiKeysResponse is a structured data type.
+pub const ListApiKeysResponse = struct {
+    keys: []ApiKeyInfo,
+};
+
+/// RevokeApiKeyRequest is a structured data type.
+pub const RevokeApiKeyRequest = struct {
+    user_id: []const u8,
+    key_id: []const u8,
+};
+
+/// RevokeApiKeyResponse is a structured data type.
+pub const RevokeApiKeyResponse = struct {
+    revoked: bool,
+};
+
+/// AccountLimits is a structured data type.
+pub const AccountLimits = struct {
+    max_api_keys: ?i64 = null,
+    max_distinct_users: ?i64 = null,
+    distinct_user_window_days: i64,
+    requests_per_minute: ?i64 = null,
+    request_burst: ?i64 = null,
+};
+
+/// GetAccountLimitsRequest is a structured data type.
+pub const GetAccountLimitsRequest = struct {
+    user_id: []const u8,
+};
+
+/// GetAccountLimitsResponse is a structured data type.
+pub const GetAccountLimitsResponse = struct {
+    limits: AccountLimits,
+};
+
+/// SetAccountLimitsRequest is a structured data type.
+pub const SetAccountLimitsRequest = struct {
+    user_id: []const u8,
+    limits: AccountLimits,
+};
+
+/// SetAccountLimitsResponse is a structured data type.
+pub const SetAccountLimitsResponse = struct {
+    limits: AccountLimits,
+};
+
+/// RpUsageDay is a structured data type.
+pub const RpUsageDay = struct {
+    day: []const u8,
+    operation: []const u8,
+    succeeded: i64,
+    failed: i64,
+};
+
+/// GetApplicationUsageRequest is a structured data type.
+pub const GetApplicationUsageRequest = struct {
+    user_id: []const u8,
+    first_day: []const u8,
+    last_day: []const u8,
+};
+
+/// GetApplicationUsageResponse is a structured data type.
+pub const GetApplicationUsageResponse = struct {
+    distinct_users: i64,
+    distinct_user_window_days: i64,
+    max_distinct_users: ?i64 = null,
+    days: []RpUsageDay,
 };
 
 /// UpdateUserRequest is a structured data type.
@@ -496,29 +1118,14 @@ pub const UpdateUserRequest = struct {
     display_name: ?[]const u8 = null,
 };
 
-/// UpdateUserResponse is a structured data type.
-pub const UpdateUserResponse = struct {
-    user: AdminUser,
-};
-
 /// DeactivateUserRequest is a structured data type.
 pub const DeactivateUserRequest = struct {
     user_id: []const u8,
 };
 
-/// DeactivateUserResponse is a structured data type.
-pub const DeactivateUserResponse = struct {
-    user: AdminUser,
-};
-
 /// ActivateUserRequest is a structured data type.
 pub const ActivateUserRequest = struct {
     user_id: []const u8,
-};
-
-/// ActivateUserResponse is a structured data type.
-pub const ActivateUserResponse = struct {
-    user: AdminUser,
 };
 
 /// PurgeUserRequest is a structured data type.
@@ -527,31 +1134,9 @@ pub const PurgeUserRequest = struct {
     reason: ?[]const u8 = null,
 };
 
-/// PurgeUserResponse is a structured data type.
-pub const PurgeUserResponse = struct {
-    user: AdminUser,
-    credentials_revoked: i64,
-    keys_revoked: i64,
-    claims_revoked: i64,
-    relations_removed: i64,
-    profiles_deleted: i64,
-    consent_grants_deleted: i64,
-    release_prefs_deleted: i64,
-    email_verifications_deleted: i64,
-    reviews_resolved: i64,
-    local_rp_claim_tickets_deleted: i64,
-};
-
 /// RevokeDomainKeyRequest is a structured data type.
 pub const RevokeDomainKeyRequest = struct {
     key_id: []const u8,
-};
-
-/// RevokeDomainKeyResponse is a structured data type.
-pub const RevokeDomainKeyResponse = struct {
-    revoked_key: DomainPublicKey,
-    certificate_issued: bool,
-    dns_removal_reminder: []const u8,
 };
 
 /// ResetPasswordRequest is a structured data type.
@@ -571,11 +1156,6 @@ pub const AuthenticateRequest = struct {
     password: []const u8,
 };
 
-/// AuthenticateResponse is a structured data type.
-pub const AuthenticateResponse = struct {
-    user: AdminUser,
-};
-
 /// RemoveCredentialRequest is a structured data type.
 pub const RemoveCredentialRequest = struct {
     credential_id: []const u8,
@@ -591,7 +1171,7 @@ pub const SetClaimRequest = struct {
     user_id: []const u8,
     claim_type: []const u8,
     claim_value: []const u8,
-    expires_at: ?[]const u8 = null,
+    expires_at: ?CsilTimestamp = null,
 };
 
 /// SetClaimResponse is a structured data type.
@@ -636,67 +1216,14 @@ pub const SetUserClaimRequest = struct {
     claim_value: []const u8,
 };
 
-/// SetUserClaimResponse is a structured data type.
-pub const SetUserClaimResponse = struct {
-    outcome: []const u8,
-    claim: ?Claim = null,
-};
-
-/// SettableClaimPolicy is a structured data type.
-pub const SettableClaimPolicy = struct {
-    claim_type: []const u8,
-    label: []const u8,
-    description: []const u8,
-    datatype: []const u8,
-    max_bytes: i64,
-    set_rule: []const u8,
-    requires_approval: bool,
-    signing_rule: []const u8,
-};
-
 /// ListSettablePoliciesResponse is a structured data type.
 pub const ListSettablePoliciesResponse = struct {
     policies: []SettableClaimPolicy,
 };
 
-/// ClaimTypePolicy is a structured data type.
-pub const ClaimTypePolicy = struct {
-    claim_type: []const u8,
-    label: []const u8,
-    description: []const u8,
-    value_type: []const u8,
-    max_bytes: i64,
-    set_rule: []const u8,
-    signing_rule: []const u8,
-    requires_approval: bool,
-    user_settable: bool,
-    default_auto_sign: bool,
-    suggested: bool,
-};
-
 /// ListClaimTypesResponse is a structured data type.
 pub const ListClaimTypesResponse = struct {
     claim_types: []ClaimTypePolicy,
-};
-
-/// SetClaimTypeRequest is a structured data type.
-pub const SetClaimTypeRequest = struct {
-    claim_type: []const u8,
-    label: []const u8,
-    description: ?[]const u8 = null,
-    value_type: []const u8,
-    max_bytes: i64,
-    set_rule: []const u8,
-    signing_rule: []const u8,
-    user_settable: bool,
-    default_auto_sign: bool,
-    requires_approval: bool,
-    suggested: bool,
-};
-
-/// SetClaimTypeResponse is a structured data type.
-pub const SetClaimTypeResponse = struct {
-    claim_type: ClaimTypePolicy,
 };
 
 /// RemoveClaimTypeRequest is a structured data type.
@@ -779,28 +1306,9 @@ pub const RemoveTrustedIssuerResponse = struct {
     success: bool,
 };
 
-/// ReleaseRule is a structured data type.
-pub const ReleaseRule = struct {
-    audience: []const u8,
-    claim_type: []const u8,
-    disposition: []const u8,
-};
-
 /// ListReleaseRulesResponse is a structured data type.
 pub const ListReleaseRulesResponse = struct {
     release_rules: []ReleaseRule,
-};
-
-/// SetReleaseRuleRequest is a structured data type.
-pub const SetReleaseRuleRequest = struct {
-    audience: []const u8,
-    claim_type: []const u8,
-    disposition: []const u8,
-};
-
-/// SetReleaseRuleResponse is a structured data type.
-pub const SetReleaseRuleResponse = struct {
-    release_rule: ReleaseRule,
 };
 
 /// RemoveReleaseRuleRequest is a structured data type.
@@ -812,18 +1320,6 @@ pub const RemoveReleaseRuleRequest = struct {
 /// RemoveReleaseRuleResponse is a structured data type.
 pub const RemoveReleaseRuleResponse = struct {
     success: bool,
-};
-
-/// ClaimApproval is a structured data type.
-pub const ClaimApproval = struct {
-    id: []const u8,
-    user_id: []const u8,
-    claim_type: []const u8,
-    claim_value: []const u8,
-    status: []const u8,
-    resolved_by: ?[]const u8 = null,
-    resolved_at: ?[]const u8 = null,
-    created_at: []const u8,
 };
 
 /// ListPendingClaimApprovalsResponse is a structured data type.
@@ -924,23 +1420,10 @@ pub const ChangePasswordResponse = struct {
     success: bool,
 };
 
-/// GetMyInfoResponse is a structured data type.
-pub const GetMyInfoResponse = struct {
-    user: AdminUser,
-    relations: []Relation,
-    claims: []Claim,
-};
-
 /// SetMyClaimRequest is a structured data type.
 pub const SetMyClaimRequest = struct {
     claim_type: []const u8,
     claim_value: []const u8,
-};
-
-/// SetMyClaimResponse is a structured data type.
-pub const SetMyClaimResponse = struct {
-    outcome: []const u8,
-    claim: ?Claim = null,
 };
 
 /// RemoveMyClaimRequest is a structured data type.
@@ -1021,29 +1504,10 @@ pub const PasswordPolicy = struct {
     max_length: i64,
 };
 
-/// BrowserSessionInfo is a structured data type.
-pub const BrowserSessionInfo = struct {
-    user: AdminUser,
-    issued_at: []const u8,
-    authenticated_at: []const u8,
-    expires_at: []const u8,
-    authentication_methods: [][]const u8,
-};
-
 /// SessionPasswordLoginRequest is a structured data type.
 pub const SessionPasswordLoginRequest = struct {
     username: []const u8,
     password: []const u8,
-};
-
-/// SessionPasswordLoginResponse is a structured data type.
-pub const SessionPasswordLoginResponse = struct {
-    session: BrowserSessionInfo,
-};
-
-/// SessionCurrentResponse is a structured data type.
-pub const SessionCurrentResponse = struct {
-    session: BrowserSessionInfo,
 };
 
 /// SessionLogoutResponse is a structured data type.
@@ -1060,31 +1524,14 @@ pub const IntrospectBrowserSessionRequest = struct {
 pub const IntrospectBrowserSessionResponse = struct {
     user_id: []const u8,
     user_domain: []const u8,
-    authenticated_at: []const u8,
-    expires_at: []const u8,
+    authenticated_at: CsilTimestamp,
+    expires_at: CsilTimestamp,
     authentication_methods: [][]const u8,
-};
-
-/// NotificationCapability is a structured data type.
-pub const NotificationCapability = struct {
-    purpose: []const u8,
-    channel: []const u8,
-    destination_kind: []const u8,
 };
 
 /// GetNotificationCapabilitiesResponse is a structured data type.
 pub const GetNotificationCapabilitiesResponse = struct {
     capabilities: []NotificationCapability,
-};
-
-/// VerifiedContactMethod is a structured data type.
-pub const VerifiedContactMethod = struct {
-    id: []const u8,
-    channel: []const u8,
-    destination: []const u8,
-    verified_at: []const u8,
-    purposes: [][]const u8,
-    revoked_at: ?[]const u8 = null,
 };
 
 /// ListVerifiedContactMethodsResponse is a structured data type.
@@ -1103,27 +1550,14 @@ pub const RevokeVerifiedContactMethodResponse = struct {
     success: bool,
 };
 
-/// RequestContactVerificationRequest is a structured data type.
-pub const RequestContactVerificationRequest = struct {
-    channel: []const u8,
-    destination: []const u8,
-    current_password: []const u8,
-};
-
 /// RequestContactVerificationResponse is a structured data type.
 pub const RequestContactVerificationResponse = struct {
-    expires_at: []const u8,
+    expires_at: CsilTimestamp,
 };
 
 /// ConfirmContactVerificationRequest is a structured data type.
 pub const ConfirmContactVerificationRequest = struct {
     token: []const u8,
-};
-
-/// ConfirmContactVerificationResponse is a structured data type.
-pub const ConfirmContactVerificationResponse = struct {
-    contact_method: VerifiedContactMethod,
-    claims: []Claim,
 };
 
 /// RequestPasswordRecoveryRequest is a structured data type.
@@ -1141,7 +1575,7 @@ pub const ValidatePasswordRecoveryRequest = struct {
 
 /// ValidatePasswordRecoveryResponse is a structured data type.
 pub const ValidatePasswordRecoveryResponse = struct {
-    expires_at: []const u8,
+    expires_at: CsilTimestamp,
     password_policy: PasswordPolicy,
 };
 
@@ -1159,21 +1593,6 @@ pub const CompletePasswordRecoveryResponse = struct {
 /// BrowserAuthorizationInspectRequest is a structured data type.
 pub const BrowserAuthorizationInspectRequest = struct {
     signed_request: []const u8,
-};
-
-/// BrowserConsentClaim is a structured data type.
-pub const BrowserConsentClaim = struct {
-    claim_type: []const u8,
-    label: []const u8,
-    datatype: []const u8,
-    required: bool,
-    available: bool,
-    default_granted: bool,
-    policy: []const u8,
-    user_settable: bool,
-    max_bytes: i64,
-    requires_approval: bool,
-    newly_requested: ?bool = null,
 };
 
 /// BrowserAuthorizationInspectResponse is a structured data type.
@@ -1206,20 +1625,6 @@ pub const BrowserAuthorizationCompleteResponse = struct {
 /// BrowserLocalRpInspectRequest is a structured data type.
 pub const BrowserLocalRpInspectRequest = struct {
     signed_request: []const u8,
-};
-
-/// BrowserLocalRpInspectResponse is a structured data type.
-pub const BrowserLocalRpInspectResponse = struct {
-    admission: []const u8,
-    app_name: []const u8,
-    fingerprint: []const u8,
-    callback_host: []const u8,
-    first_seen_at: ?[]const u8 = null,
-    claims: []BrowserConsentClaim,
-    request_reason: ?[]const u8 = null,
-    already_consented: ?bool = null,
-    authorized_claims: ?[][]const u8 = null,
-    access_denied: ?AppAccessDenial = null,
 };
 
 /// BrowserLocalRpCompleteRequest is a structured data type.
@@ -1273,7 +1678,6 @@ pub const GetUiConfigurationResponse = struct {
 pub const RpSignRequest = struct {
     callback_url: []const u8,
     nonce: []const u8,
-    application_id: ?[]const u8 = null,
     requested_claims: ?ClaimRequest = null,
     authentication_requirements: ?AuthenticationRequirements = null,
     flow_context: ?AuthFlowContext = null,
@@ -1298,12 +1702,6 @@ pub const RpDecryptResponse = struct {
 pub const RpVerifyRequest = struct {
     signed_assertion: []const u8,
     expected_domain: []const u8,
-};
-
-/// RpVerifyResponse is a structured data type.
-pub const RpVerifyResponse = struct {
-    assertion: IdentityAssertion,
-    verified: bool,
 };
 
 /// RpUserInfoRequest is a structured data type.
@@ -1364,8 +1762,8 @@ pub const LocalRpDescriptor = struct {
     encryption_public_key: []const u8,
     fingerprint: []const u8,
     supported_suites: []AeadSuite,
-    created_at: []const u8,
-    expires_at: []const u8,
+    created_at: CsilTimestamp,
+    expires_at: CsilTimestamp,
 };
 
 /// SignedLocalRpDescriptor is a structured data type.
@@ -1384,8 +1782,8 @@ pub const LocalRpLoginRequest = struct {
     required_claims: [][]const u8,
     authentication_requirements: ?AuthenticationRequirements = null,
     flow_context: ?AuthFlowContext = null,
-    issued_at: []const u8,
-    expires_at: []const u8,
+    issued_at: CsilTimestamp,
+    expires_at: CsilTimestamp,
 };
 
 /// SignedLocalRpLoginRequest is a structured data type.
@@ -1409,8 +1807,8 @@ pub const LocalRpCallbackPayload = struct {
     callback_url: []const u8,
     nonce: []const u8,
     state: []const u8,
-    issued_at: []const u8,
-    expires_at: []const u8,
+    issued_at: CsilTimestamp,
+    expires_at: CsilTimestamp,
 };
 
 /// SignedLocalRpCallbackPayload is a structured data type.
@@ -1424,7 +1822,7 @@ pub const SignedLocalRpCallbackPayload = struct {
 pub const LocalRpTicketRedemptionRequest = struct {
     claim_ticket: []const u8,
     fingerprint: []const u8,
-    issued_at: []const u8,
+    issued_at: CsilTimestamp,
 };
 
 /// SignedLocalRpTicketRedemptionRequest is a structured data type.
@@ -1438,29 +1836,14 @@ pub const LocalRpTicketRedemptionResponse = struct {
     user_id: []const u8,
     user_domain: []const u8,
     claims: []Claim,
-    ticket_expires_at: []const u8,
-};
-
-/// AdminLocalRp is a structured data type.
-pub const AdminLocalRp = struct {
-    fingerprint: []const u8,
-    signing_public_key: []const u8,
-    encryption_public_key: []const u8,
-    app_name: []const u8,
-    local_domain_hint: ?[]const u8 = null,
-    status: []const u8,
-    created_at: []const u8,
-    updated_at: []const u8,
-    expires_at: ?[]const u8 = null,
-    last_seen_at: ?[]const u8 = null,
-    admin_notes: ?[]const u8 = null,
+    ticket_expires_at: CsilTimestamp,
 };
 
 /// ListLocalRpsRequest is a structured data type.
 pub const ListLocalRpsRequest = struct {
     offset: ?i64 = null,
     limit: ?i64 = null,
-    status: ?[]const u8 = null,
+    status: ?LocalRpStatus = null,
 };
 
 /// ListLocalRpsResponse is a structured data type.
@@ -1473,20 +1856,10 @@ pub const GetLocalRpRequest = struct {
     fingerprint: []const u8,
 };
 
-/// GetLocalRpResponse is a structured data type.
-pub const GetLocalRpResponse = struct {
-    local_rp: AdminLocalRp,
-};
-
 /// ApproveLocalRpRequest is a structured data type.
 pub const ApproveLocalRpRequest = struct {
     fingerprint: []const u8,
     admin_notes: ?[]const u8 = null,
-};
-
-/// ApproveLocalRpResponse is a structured data type.
-pub const ApproveLocalRpResponse = struct {
-    local_rp: AdminLocalRp,
 };
 
 /// DenyLocalRpRequest is a structured data type.
@@ -1495,20 +1868,10 @@ pub const DenyLocalRpRequest = struct {
     admin_notes: ?[]const u8 = null,
 };
 
-/// DenyLocalRpResponse is a structured data type.
-pub const DenyLocalRpResponse = struct {
-    local_rp: AdminLocalRp,
-};
-
 /// RevokeLocalRpRequest is a structured data type.
 pub const RevokeLocalRpRequest = struct {
     fingerprint: []const u8,
     admin_notes: ?[]const u8 = null,
-};
-
-/// RevokeLocalRpResponse is a structured data type.
-pub const RevokeLocalRpResponse = struct {
-    local_rp: AdminLocalRp,
 };
 
 /// GetLocalRpPolicyRequest is a structured data type.
@@ -1533,49 +1896,9 @@ pub const SetUserPasswordLockRequest = struct {
     locked: bool,
 };
 
-/// SetUserPasswordLockResponse is a structured data type.
-pub const SetUserPasswordLockResponse = struct {
-    user: AdminUser,
-};
-
-/// AppAccessTarget is a structured data type.
-pub const AppAccessTarget = struct {
-    kind: []const u8,
-    user_id: ?[]const u8 = null,
-    group_name: ?[]const u8 = null,
-    claim_type: ?[]const u8 = null,
-    claim_operator: ?[]const u8 = null,
-    claim_value: ?[]const u8 = null,
-};
-
-/// AppAccessPolicy is a structured data type.
-pub const AppAccessPolicy = struct {
-    id: []const u8,
-    name: []const u8,
-    mode: []const u8,
-    patterns: [][]const u8,
-    message: ?[]const u8 = null,
-    targets: []AppAccessTarget,
-};
-
 /// ListAppAccessPoliciesResponse is a structured data type.
 pub const ListAppAccessPoliciesResponse = struct {
     policies: []AppAccessPolicy,
-};
-
-/// SetAppAccessPolicyRequest is a structured data type.
-pub const SetAppAccessPolicyRequest = struct {
-    id: ?[]const u8 = null,
-    name: []const u8,
-    mode: []const u8,
-    patterns: [][]const u8,
-    message: ?[]const u8 = null,
-    targets: []AppAccessTarget,
-};
-
-/// SetAppAccessPolicyResponse is a structured data type.
-pub const SetAppAccessPolicyResponse = struct {
-    policy: AppAccessPolicy,
 };
 
 /// RemoveAppAccessPolicyRequest is a structured data type.
@@ -1633,45 +1956,10 @@ pub const ApplicationKeySignature = struct {
     signature: []const u8,
 };
 
-/// ApplicationKeyAttestation is a structured data type.
-pub const ApplicationKeyAttestation = struct {
-    subject_user_id: []const u8,
-    subject_domain: []const u8,
-    application_id: []const u8,
-    instance_id: []const u8,
-    key_id: []const u8,
-    key_usage: []const u8,
-    algorithm: []const u8,
-    public_key: []const u8,
-    fingerprint: []const u8,
-    key_created_at: []const u8,
-    key_expires_at: []const u8,
-    attested_at: []const u8,
-    attestation_expires_at: []const u8,
-};
-
 /// SignedApplicationKeyAttestation is a structured data type.
 pub const SignedApplicationKeyAttestation = struct {
     attestation: []const u8,
     signatures: []ClaimSignature,
-};
-
-/// ApplicationKeyAddition is a structured data type.
-pub const ApplicationKeyAddition = struct {
-    subject_user_id: []const u8,
-    subject_domain: []const u8,
-    application_id: []const u8,
-    instance_id: []const u8,
-    key_id: []const u8,
-    key_usage: []const u8,
-    algorithm: []const u8,
-    public_key: []const u8,
-    fingerprint: []const u8,
-    requested_key_lifetime_seconds: i64,
-    challenge_id: []const u8,
-    challenge: []const u8,
-    requested_at: []const u8,
-    expires_at: []const u8,
 };
 
 /// SignedApplicationKeyAddition is a structured data type.
@@ -1690,8 +1978,8 @@ pub const ApplicationKeyRenewal = struct {
     key_id: []const u8,
     challenge_id: []const u8,
     challenge: []const u8,
-    requested_at: []const u8,
-    expires_at: []const u8,
+    requested_at: CsilTimestamp,
+    expires_at: CsilTimestamp,
 };
 
 /// SignedApplicationKeyRenewal is a structured data type.
@@ -1709,19 +1997,8 @@ pub const ApplicationKeyRevocation = struct {
     instance_id: []const u8,
     target_key_id: []const u8,
     target_fingerprint: []const u8,
-    revoked_at: []const u8,
+    revoked_at: CsilTimestamp,
     signatures: []ApplicationKeySignature,
-};
-
-/// StartApplicationKeyChallengeRequest is a structured data type.
-pub const StartApplicationKeyChallengeRequest = struct {
-    subject_user_id: []const u8,
-    application_id: []const u8,
-    instance_id: []const u8,
-    purpose: []const u8,
-    key_usage: []const u8,
-    algorithm: []const u8,
-    public_key: []const u8,
 };
 
 /// StartApplicationKeyChallengeResponse is a structured data type.
@@ -1729,7 +2006,7 @@ pub const StartApplicationKeyChallengeResponse = struct {
     challenge_id: []const u8,
     challenge: ?[]const u8 = null,
     sealed_challenge: ?[]const u8 = null,
-    expires_at: []const u8,
+    expires_at: CsilTimestamp,
 };
 
 /// AddApplicationKeyRequest is a structured data type.
@@ -1760,7 +2037,7 @@ pub const RevokeApplicationKeyRequest = struct {
 
 /// RevokeApplicationKeyResponse is a structured data type.
 pub const RevokeApplicationKeyResponse = struct {
-    revoked_at: []const u8,
+    revoked_at: CsilTimestamp,
 };
 
 /// EnrollApplicationInstanceRequest is a structured data type.
@@ -1802,16 +2079,6 @@ pub const RpResolveDomainKeysRequest = struct {
     max_cache_age_seconds: ?i64 = null,
 };
 
-/// RpResolveDomainKeysResponse is a structured data type.
-pub const RpResolveDomainKeysResponse = struct {
-    domain: []const u8,
-    keys: []DomainPublicKey,
-    revocations: []RevocationCertificate,
-    fetched_at: []const u8,
-    revocations_checked_at: []const u8,
-    cache_status: []const u8,
-};
-
 /// RpResolveApplicationKeysRequest is a structured data type.
 pub const RpResolveApplicationKeysRequest = struct {
     subject_user_id: []const u8,
@@ -1819,21 +2086,6 @@ pub const RpResolveApplicationKeysRequest = struct {
     application_id: []const u8,
     instance_id: []const u8,
     max_cache_age_seconds: ?i64 = null,
-};
-
-/// RpResolveApplicationKeysResponse is a structured data type.
-pub const RpResolveApplicationKeysResponse = struct {
-    subject_user_id: []const u8,
-    subject_domain: []const u8,
-    application_id: []const u8,
-    instance_id: []const u8,
-    application_keys: []SignedApplicationKeyAttestation,
-    application_key_revocations: []ApplicationKeyRevocation,
-    home_domain_keys: []DomainPublicKey,
-    home_domain_key_revocations: []RevocationCertificate,
-    fetched_at: []const u8,
-    revocations_checked_at: []const u8,
-    cache_status: []const u8,
 };
 
 /// ApplicationRef is a structured data type.
@@ -1869,8 +2121,8 @@ pub const ActAsScopeSet = struct {
     entries: []ActAsScopeEntry,
     language: ?[]const u8 = null,
     audience_handle_claim: ?Claim = null,
-    issued_at: []const u8,
-    expires_at: []const u8,
+    issued_at: CsilTimestamp,
+    expires_at: CsilTimestamp,
 };
 
 /// SignedActAsScopeSet is a structured data type.
@@ -1896,10 +2148,10 @@ pub const ActAsGrant = struct {
     audience: ApplicationRef,
     scope_set: SignedActAsScopeSet,
     approved_scope: [][]const u8,
-    issued_at: []const u8,
-    expires_at: []const u8,
-    series_issued_at: []const u8,
-    renewable_until: []const u8,
+    issued_at: CsilTimestamp,
+    expires_at: CsilTimestamp,
+    series_issued_at: CsilTimestamp,
+    renewable_until: CsilTimestamp,
     device_fingerprint: ?[]const u8 = null,
 };
 
@@ -1918,8 +2170,8 @@ pub const ActAsGrantRequest = struct {
     grantee_handle_claim: ?Claim = null,
     callback_url: []const u8,
     nonce: []const u8,
-    requested_at: []const u8,
-    expires_at: []const u8,
+    requested_at: CsilTimestamp,
+    expires_at: CsilTimestamp,
 };
 
 /// SignedActAsGrantRequest is a structured data type.
@@ -1932,8 +2184,8 @@ pub const SignedActAsGrantRequest = struct {
 pub const ActAsRefreshRequest = struct {
     grant_id: []const u8,
     grantee: GranteeRef,
-    requested_at: []const u8,
-    expires_at: []const u8,
+    requested_at: CsilTimestamp,
+    expires_at: CsilTimestamp,
     nonce: []const u8,
 };
 
@@ -1959,7 +2211,7 @@ pub const ActAsPresentation = struct {
     grant_hash: []const u8,
     audience: ApplicationRef,
     request_digest: []const u8,
-    presented_at: []const u8,
+    presented_at: CsilTimestamp,
     nonce: []const u8,
 };
 
@@ -1980,7 +2232,7 @@ pub const ActAsGrantRevocation = struct {
     grant_id: []const u8,
     user_id: []const u8,
     subject_domain: []const u8,
-    revoked_at: []const u8,
+    revoked_at: CsilTimestamp,
 };
 
 /// SignedActAsGrantRevocation is a structured data type.
@@ -2071,10 +2323,10 @@ pub const ActAsGrantSummary = struct {
     grantee: GranteeRef,
     audience: ApplicationRef,
     approved_scope: [][]const u8,
-    issued_at: []const u8,
-    expires_at: []const u8,
-    renewable_until: []const u8,
-    revoked_at: ?[]const u8 = null,
+    issued_at: CsilTimestamp,
+    expires_at: CsilTimestamp,
+    renewable_until: CsilTimestamp,
+    revoked_at: ?CsilTimestamp = null,
 };
 
 /// ListActAsGrantsResponse is a structured data type.
@@ -2089,7 +2341,7 @@ pub const RevokeActAsGrantRequest = struct {
 
 /// RevokeActAsGrantResponse is a structured data type.
 pub const RevokeActAsGrantResponse = struct {
-    revoked_at: []const u8,
+    revoked_at: CsilTimestamp,
 };
 
 /// PreviewReleasePolicyRequest is a structured data type.
@@ -2101,17 +2353,7 @@ pub const PreviewReleasePolicyRequest = struct {
     user_choices: [][]const u8,
     temp_audience: ?[]const u8 = null,
     temp_claim_type: ?[]const u8 = null,
-    temp_disposition: ?[]const u8 = null,
-};
-
-/// PreviewReleaseRow is a structured data type.
-pub const PreviewReleaseRow = struct {
-    claim_type: []const u8,
-    required: bool,
-    available: bool,
-    locked: bool,
-    policy: []const u8,
-    default_granted: bool,
+    temp_disposition: ?ReleaseDisposition = null,
 };
 
 /// PreviewReleasePolicyResponse is a structured data type.
@@ -2151,7 +2393,7 @@ pub const InspectSigningRequestResponse = struct {
     subject_user_id: []const u8,
     subject_domain: []const u8,
     requested_claim_types: [][]const u8,
-    expires_at: []const u8,
+    expires_at: CsilTimestamp,
     issuable_claim_types: [][]const u8,
 };
 
@@ -2162,17 +2404,22 @@ pub const IssueForSigningRequestRequest = struct {
     claim_values: [][]const u8,
 };
 
-/// IssuedClaimResult is a structured data type.
-pub const IssuedClaimResult = struct {
-    claim_type: []const u8,
-    outcome: []const u8,
-    message: ?[]const u8 = null,
-    claim_code: ?[]const u8 = null,
-};
-
 /// IssueForSigningRequestResponse is a structured data type.
 pub const IssueForSigningRequestResponse = struct {
     results: []IssuedClaimResult,
+};
+
+/// IdentityAssertion is a structured data type.
+pub const IdentityAssertion = struct {
+    user_id: []const u8,
+    domain: []const u8,
+    audience: []const u8,
+    nonce: []const u8,
+    issued_at: CsilTimestamp,
+    expires_at: CsilTimestamp,
+    authorized_claims: [][]const u8,
+    display_name: ?[]const u8 = null,
+    application: ApplicationRef,
 };
 
 /// RelyingPartyApplication is a structured data type.
@@ -2181,10 +2428,338 @@ pub const RelyingPartyApplication = struct {
     display_name: []const u8,
 };
 
+/// AuthRequest is a structured data type.
+pub const AuthRequest = struct {
+    relying_party: []const u8,
+    callback_url: []const u8,
+    nonce: []const u8,
+    timestamp: CsilTimestamp,
+    signing_key_id: []const u8,
+    requested_claims: ?ClaimRequest = null,
+    authentication_requirements: ?AuthenticationRequirements = null,
+    flow_context: ?AuthFlowContext = null,
+    relying_party_claims: ?[]DomainClaim = null,
+    application: RelyingPartyApplication,
+};
+
+/// RpVerifyResponse is a structured data type.
+pub const RpVerifyResponse = struct {
+    assertion: IdentityAssertion,
+    verified: bool,
+};
+
 /// CheckResult is a structured data type.
 pub const CheckResult = struct {
     result: bool,
     entries: CheckEntries,
+};
+
+/// DomainPublicKey is a structured data type.
+pub const DomainPublicKey = struct {
+    key_id: []const u8,
+    public_key: []const u8,
+    fingerprint: []const u8,
+    algorithm: KeyAlgorithm,
+    key_usage: KeyUsage,
+    created_at: CsilTimestamp,
+    expires_at: CsilTimestamp,
+    revoked_at: ?CsilTimestamp = null,
+    signed_by_key_id: ?[]const u8 = null,
+    key_signature: ?[]const u8 = null,
+};
+
+/// PinRecheckResult is a structured data type.
+pub const PinRecheckResult = struct {
+    domain: []const u8,
+    outcome: PinRecheckOutcome,
+    message: ?[]const u8 = null,
+};
+
+/// UserPublicKey is a structured data type.
+pub const UserPublicKey = struct {
+    key_id: []const u8,
+    user_id: []const u8,
+    public_key: []const u8,
+    fingerprint: []const u8,
+    algorithm: KeyAlgorithm,
+    key_usage: KeyUsage,
+    created_at: CsilTimestamp,
+    expires_at: CsilTimestamp,
+    revoked_at: ?CsilTimestamp = null,
+    signed_by_key_id: ?[]const u8 = null,
+    key_signature: ?[]const u8 = null,
+};
+
+/// RequestedClaim is a structured data type.
+pub const RequestedClaim = struct {
+    claim_type: []const u8,
+    datatype: ClaimValueType,
+};
+
+/// AuthFlowContext is a structured data type.
+pub const AuthFlowContext = struct {
+    flow: AuthFlow,
+    prior_session: ?[]const u8 = null,
+    request_reason: ?[]const u8 = null,
+};
+
+/// AdminUser is a structured data type.
+pub const AdminUser = struct {
+    id: []const u8,
+    username: []const u8,
+    display_name: []const u8,
+    kind: AccountKind,
+    application_id: ?[]const u8 = null,
+    is_active: bool,
+    created_at: CsilTimestamp,
+    updated_at: CsilTimestamp,
+    purged_at: ?CsilTimestamp = null,
+    purge_reason: ?[]const u8 = null,
+    password_locked: ?bool = null,
+};
+
+/// GetUserResponse is a structured data type.
+pub const GetUserResponse = struct {
+    user: AdminUser,
+};
+
+/// CreateUserResponse is a structured data type.
+pub const CreateUserResponse = struct {
+    user: AdminUser,
+    api_key: ?[]const u8 = null,
+};
+
+/// RenameUserResponse is a structured data type.
+pub const RenameUserResponse = struct {
+    user: AdminUser,
+};
+
+/// SetApplicationIdResponse is a structured data type.
+pub const SetApplicationIdResponse = struct {
+    user: AdminUser,
+};
+
+/// UpdateUserResponse is a structured data type.
+pub const UpdateUserResponse = struct {
+    user: AdminUser,
+};
+
+/// DeactivateUserResponse is a structured data type.
+pub const DeactivateUserResponse = struct {
+    user: AdminUser,
+};
+
+/// ActivateUserResponse is a structured data type.
+pub const ActivateUserResponse = struct {
+    user: AdminUser,
+};
+
+/// PurgeUserResponse is a structured data type.
+pub const PurgeUserResponse = struct {
+    user: AdminUser,
+    credentials_revoked: i64,
+    keys_revoked: i64,
+    claims_revoked: i64,
+    relations_removed: i64,
+    profiles_deleted: i64,
+    consent_grants_deleted: i64,
+    release_prefs_deleted: i64,
+    email_verifications_deleted: i64,
+    reviews_resolved: i64,
+    local_rp_claim_tickets_deleted: i64,
+};
+
+/// RevokeDomainKeyResponse is a structured data type.
+pub const RevokeDomainKeyResponse = struct {
+    revoked_key: DomainPublicKey,
+    certificate_issued: bool,
+    dns_removal_reminder: []const u8,
+};
+
+/// AuthenticateResponse is a structured data type.
+pub const AuthenticateResponse = struct {
+    user: AdminUser,
+};
+
+/// SetUserClaimResponse is a structured data type.
+pub const SetUserClaimResponse = struct {
+    outcome: SetClaimOutcome,
+    claim: ?Claim = null,
+};
+
+/// SettableClaimPolicy is a structured data type.
+pub const SettableClaimPolicy = struct {
+    claim_type: []const u8,
+    label: []const u8,
+    description: []const u8,
+    datatype: ClaimValueType,
+    max_bytes: i64,
+    set_rule: SetRule,
+    requires_approval: bool,
+    signing_rule: SigningRule,
+};
+
+/// ClaimTypePolicy is a structured data type.
+pub const ClaimTypePolicy = struct {
+    claim_type: []const u8,
+    label: []const u8,
+    description: []const u8,
+    value_type: ClaimValueType,
+    max_bytes: i64,
+    set_rule: SetRule,
+    signing_rule: SigningRule,
+    requires_approval: bool,
+    user_settable: bool,
+    default_auto_sign: bool,
+    suggested: bool,
+};
+
+/// SetClaimTypeRequest is a structured data type.
+pub const SetClaimTypeRequest = struct {
+    claim_type: []const u8,
+    label: []const u8,
+    description: ?[]const u8 = null,
+    value_type: ClaimValueType,
+    max_bytes: i64,
+    set_rule: SetRule,
+    signing_rule: SigningRule,
+    user_settable: bool,
+    default_auto_sign: bool,
+    requires_approval: bool,
+    suggested: bool,
+};
+
+/// SetClaimTypeResponse is a structured data type.
+pub const SetClaimTypeResponse = struct {
+    claim_type: ClaimTypePolicy,
+};
+
+/// ReleaseRule is a structured data type.
+pub const ReleaseRule = struct {
+    audience: []const u8,
+    claim_type: []const u8,
+    disposition: ReleaseDisposition,
+};
+
+/// SetReleaseRuleRequest is a structured data type.
+pub const SetReleaseRuleRequest = struct {
+    audience: []const u8,
+    claim_type: []const u8,
+    disposition: ReleaseDisposition,
+};
+
+/// SetReleaseRuleResponse is a structured data type.
+pub const SetReleaseRuleResponse = struct {
+    release_rule: ReleaseRule,
+};
+
+/// ClaimApproval is a structured data type.
+pub const ClaimApproval = struct {
+    id: []const u8,
+    user_id: []const u8,
+    claim_type: []const u8,
+    claim_value: []const u8,
+    status: ClaimApprovalStatus,
+    resolved_by: ?[]const u8 = null,
+    resolved_at: ?CsilTimestamp = null,
+    created_at: CsilTimestamp,
+};
+
+/// GetMyInfoResponse is a structured data type.
+pub const GetMyInfoResponse = struct {
+    user: AdminUser,
+    relations: []Relation,
+    claims: []Claim,
+};
+
+/// SetMyClaimResponse is a structured data type.
+pub const SetMyClaimResponse = struct {
+    outcome: SetClaimOutcome,
+    claim: ?Claim = null,
+};
+
+/// BrowserSessionInfo is a structured data type.
+pub const BrowserSessionInfo = struct {
+    user: AdminUser,
+    issued_at: CsilTimestamp,
+    authenticated_at: CsilTimestamp,
+    expires_at: CsilTimestamp,
+    authentication_methods: [][]const u8,
+};
+
+/// SessionPasswordLoginResponse is a structured data type.
+pub const SessionPasswordLoginResponse = struct {
+    session: BrowserSessionInfo,
+};
+
+/// SessionCurrentResponse is a structured data type.
+pub const SessionCurrentResponse = struct {
+    session: BrowserSessionInfo,
+};
+
+/// NotificationCapability is a structured data type.
+pub const NotificationCapability = struct {
+    purpose: NotificationPurpose,
+    channel: NotificationChannel,
+    destination_kind: DestinationKind,
+};
+
+/// VerifiedContactMethod is a structured data type.
+pub const VerifiedContactMethod = struct {
+    id: []const u8,
+    channel: NotificationChannel,
+    destination: []const u8,
+    verified_at: CsilTimestamp,
+    purposes: []NotificationPurpose,
+    revoked_at: ?CsilTimestamp = null,
+};
+
+/// RequestContactVerificationRequest is a structured data type.
+pub const RequestContactVerificationRequest = struct {
+    channel: NotificationChannel,
+    destination: []const u8,
+    current_password: []const u8,
+};
+
+/// ConfirmContactVerificationResponse is a structured data type.
+pub const ConfirmContactVerificationResponse = struct {
+    contact_method: VerifiedContactMethod,
+    claims: []Claim,
+};
+
+/// BrowserConsentClaim is a structured data type.
+pub const BrowserConsentClaim = struct {
+    claim_type: []const u8,
+    label: []const u8,
+    datatype: ClaimValueType,
+    required: bool,
+    available: bool,
+    default_granted: bool,
+    policy: ConsentRowPolicy,
+    user_settable: bool,
+    max_bytes: i64,
+    requires_approval: bool,
+    newly_requested: ?bool = null,
+};
+
+/// BrowserLocalRpInspectResponse is a structured data type.
+pub const BrowserLocalRpInspectResponse = struct {
+    admission: LocalRpAdmission,
+    app_name: []const u8,
+    fingerprint: []const u8,
+    callback_host: []const u8,
+    first_seen_at: ?CsilTimestamp = null,
+    claims: []BrowserConsentClaim,
+    request_reason: ?[]const u8 = null,
+    already_consented: ?bool = null,
+    authorized_claims: ?[][]const u8 = null,
+    access_denied: ?AppAccessDenial = null,
+};
+
+/// RpError is a structured data type.
+pub const RpError = struct {
+    code: RpErrorCode,
+    message: []const u8,
 };
 
 /// ApiError is a structured data type.
@@ -2201,8 +2776,43 @@ pub const LocalRpCallbackHeader = struct {
     suite: AeadSuite,
     ephemeral_public_key: []const u8,
     aead_nonce: []const u8,
-    issued_at: []const u8,
-    expires_at: []const u8,
+    issued_at: CsilTimestamp,
+    expires_at: CsilTimestamp,
+};
+
+/// AdminLocalRp is a structured data type.
+pub const AdminLocalRp = struct {
+    fingerprint: []const u8,
+    signing_public_key: []const u8,
+    encryption_public_key: []const u8,
+    app_name: []const u8,
+    local_domain_hint: ?[]const u8 = null,
+    status: LocalRpStatus,
+    created_at: CsilTimestamp,
+    updated_at: CsilTimestamp,
+    expires_at: ?CsilTimestamp = null,
+    last_seen_at: ?CsilTimestamp = null,
+    admin_notes: ?[]const u8 = null,
+};
+
+/// GetLocalRpResponse is a structured data type.
+pub const GetLocalRpResponse = struct {
+    local_rp: AdminLocalRp,
+};
+
+/// ApproveLocalRpResponse is a structured data type.
+pub const ApproveLocalRpResponse = struct {
+    local_rp: AdminLocalRp,
+};
+
+/// DenyLocalRpResponse is a structured data type.
+pub const DenyLocalRpResponse = struct {
+    local_rp: AdminLocalRp,
+};
+
+/// RevokeLocalRpResponse is a structured data type.
+pub const RevokeLocalRpResponse = struct {
+    local_rp: AdminLocalRp,
 };
 
 /// GetLocalRpPolicyResponse is a structured data type.
@@ -2220,9 +2830,155 @@ pub const SetLocalRpPolicyResponse = struct {
     policy: LocalRpPolicy,
 };
 
+/// SetUserPasswordLockResponse is a structured data type.
+pub const SetUserPasswordLockResponse = struct {
+    user: AdminUser,
+};
+
+/// AppAccessTarget is a structured data type.
+pub const AppAccessTarget = struct {
+    kind: AppAccessTargetKind,
+    user_id: ?[]const u8 = null,
+    group_name: ?[]const u8 = null,
+    claim_type: ?[]const u8 = null,
+    claim_operator: ?ClaimOperator = null,
+    claim_value: ?[]const u8 = null,
+};
+
+/// AppAccessPolicy is a structured data type.
+pub const AppAccessPolicy = struct {
+    id: []const u8,
+    name: []const u8,
+    mode: AppAccessMode,
+    patterns: [][]const u8,
+    message: ?[]const u8 = null,
+    targets: []AppAccessTarget,
+};
+
+/// SetAppAccessPolicyRequest is a structured data type.
+pub const SetAppAccessPolicyRequest = struct {
+    id: ?[]const u8 = null,
+    name: []const u8,
+    mode: AppAccessMode,
+    patterns: [][]const u8,
+    message: ?[]const u8 = null,
+    targets: []AppAccessTarget,
+};
+
+/// SetAppAccessPolicyResponse is a structured data type.
+pub const SetAppAccessPolicyResponse = struct {
+    policy: AppAccessPolicy,
+};
+
 /// TranslationsResponse is a structured data type.
 pub const TranslationsResponse = struct {
     locale: []const u8,
     available_locales: [][]const u8,
     messages: LocaleMessages,
+};
+
+/// ApplicationKeyAttestation is a structured data type.
+pub const ApplicationKeyAttestation = struct {
+    subject_user_id: []const u8,
+    subject_domain: []const u8,
+    application_id: []const u8,
+    instance_id: []const u8,
+    key_id: []const u8,
+    key_usage: KeyUsage,
+    algorithm: KeyAlgorithm,
+    public_key: []const u8,
+    fingerprint: []const u8,
+    key_created_at: CsilTimestamp,
+    key_expires_at: CsilTimestamp,
+    attested_at: CsilTimestamp,
+    attestation_expires_at: CsilTimestamp,
+};
+
+/// ApplicationKeyAddition is a structured data type.
+pub const ApplicationKeyAddition = struct {
+    subject_user_id: []const u8,
+    subject_domain: []const u8,
+    application_id: []const u8,
+    instance_id: []const u8,
+    key_id: []const u8,
+    key_usage: KeyUsage,
+    algorithm: KeyAlgorithm,
+    public_key: []const u8,
+    fingerprint: []const u8,
+    requested_key_lifetime_seconds: i64,
+    challenge_id: []const u8,
+    challenge: []const u8,
+    requested_at: CsilTimestamp,
+    expires_at: CsilTimestamp,
+};
+
+/// StartApplicationKeyChallengeRequest is a structured data type.
+pub const StartApplicationKeyChallengeRequest = struct {
+    subject_user_id: []const u8,
+    application_id: []const u8,
+    instance_id: []const u8,
+    purpose: ApplicationKeyChallengePurpose,
+    key_usage: KeyUsage,
+    algorithm: KeyAlgorithm,
+    public_key: []const u8,
+};
+
+/// RpResolveDomainKeysResponse is a structured data type.
+pub const RpResolveDomainKeysResponse = struct {
+    domain: []const u8,
+    keys: []DomainPublicKey,
+    revocations: []RevocationCertificate,
+    fetched_at: CsilTimestamp,
+    revocations_checked_at: CsilTimestamp,
+    cache_status: RpCacheStatus,
+};
+
+/// RpResolveApplicationKeysResponse is a structured data type.
+pub const RpResolveApplicationKeysResponse = struct {
+    subject_user_id: []const u8,
+    subject_domain: []const u8,
+    application_id: []const u8,
+    instance_id: []const u8,
+    application_keys: []SignedApplicationKeyAttestation,
+    application_key_revocations: []ApplicationKeyRevocation,
+    home_domain_keys: []DomainPublicKey,
+    home_domain_key_revocations: []RevocationCertificate,
+    fetched_at: CsilTimestamp,
+    revocations_checked_at: CsilTimestamp,
+    cache_status: RpCacheStatus,
+};
+
+/// PreviewReleaseRow is a structured data type.
+pub const PreviewReleaseRow = struct {
+    claim_type: []const u8,
+    required: bool,
+    available: bool,
+    locked: bool,
+    policy: ConsentRowPolicy,
+    default_granted: bool,
+};
+
+/// IssuedClaimResult is a structured data type.
+pub const IssuedClaimResult = struct {
+    claim_type: []const u8,
+    outcome: IssuedClaimOutcome,
+    message: ?[]const u8 = null,
+    claim_code: ?[]const u8 = null,
+};
+
+pub const RpSignRequestReply = union(enum) {
+    rp_sign_response: RpSignResponse,
+    rp_error: RpError,
+};
+pub const RpDecryptTokenReply = union(enum) {
+    rp_decrypt_response: RpDecryptResponse,
+    rp_error: RpError,
+};
+pub const RpVerifyAssertionReply = union(enum) {
+    rp_verify_response: RpVerifyResponse,
+    rp_error: RpError,
+};
+pub const RpUserinfoFetchReply = union(enum) {
+    user_info: UserInfo,
+    rp_error: RpError,
 };

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'cbor'
+require_relative 'timeutil'
 
 module LinkkeysLocalRp
   # Hand-written CBOR struct codecs for exactly the CSIL types this SDK
@@ -23,6 +24,71 @@ module LinkkeysLocalRp
   module Types
     Cbor = LinkkeysLocalRp::Cbor
 
+    # Wire forms of the CSIL tagged core types and named-number enums.
+    #
+    # In memory, a `timestamp` field holds an RFC 3339 String and an enum
+    # field holds its text label (for example 'sign' or 'aes-256-gcm'). On
+    # the wire, a `timestamp` is CBOR tag 0 wrapping RFC 3339 text in UTC
+    # with a `Z` suffix, and an enum is a CBOR unsigned integer. These
+    # helpers convert at the codec boundary and reject all other wire
+    # shapes.
+    module Wire
+      TAG_DATE_TIME = 0
+
+      KEY_ALGORITHM = { 'ed25519' => 1, 'x25519' => 2 }.freeze
+      KEY_USAGE = { 'sign' => 1, 'encrypt' => 2, 'agree' => 3 }.freeze
+      AEAD_SUITE = { 'aes-256-gcm' => 1, 'chacha20-poly1305' => 2 }.freeze
+
+      module_function
+
+      def ts(value, field)
+        Cbor::CborTag.new(TAG_DATE_TIME, Timeutil.to_wire_rfc3339(value))
+      rescue ArgumentError => e
+        raise Cbor::EncodeError, "#{field}: #{e.message}"
+      end
+
+      def ts_dec(value, field)
+        unless value.is_a?(Cbor::CborTag) && value.tag == TAG_DATE_TIME
+          raise Cbor::DecodeError, "#{field}: expected a CBOR tag 0 timestamp"
+        end
+
+        text = value.value
+        unless text.is_a?(String) && text.encoding != ::Encoding::ASCII_8BIT
+          raise Cbor::DecodeError, "#{field}: tag 0 must wrap a text string"
+        end
+
+        begin
+          Timeutil.parse_rfc3339(text)
+        rescue ArgumentError => e
+          raise Cbor::DecodeError, "#{field}: #{e.message}"
+        end
+        text
+      end
+
+      def ts_dec_opt(value, field) = value.nil? ? nil : ts_dec(value, field)
+
+      def enum(table, label, field)
+        table.fetch(label) { raise Cbor::EncodeError, "#{field}: unknown value #{label.inspect}" }
+      end
+
+      def enum_dec(table, value, field)
+        raise Cbor::DecodeError, "#{field}: expected an unsigned integer" unless value.is_a?(Integer) && value >= 0
+
+        label = table.key(value)
+        raise Cbor::DecodeError, "#{field}: unknown enum number #{value}" if label.nil?
+
+        label
+      end
+
+      def enum_list(table, labels, field) = labels.map { |l| enum(table, l, field) }
+
+      def enum_list_dec(table, value, field)
+        raise Cbor::DecodeError, "#{field}: expected an array" unless value.is_a?(Array)
+
+        value.map { |v| enum_dec(table, v, field) }
+      end
+    end
+
     # ---------------------------------------------------------------
     # Local RP descriptor / login request
     # ---------------------------------------------------------------
@@ -35,10 +101,10 @@ module LinkkeysLocalRp
       def self.to_map(v)
         m = {}
         m['app_name'] = v.app_name
-        m['created_at'] = v.created_at
-        m['expires_at'] = v.expires_at
+        m['created_at'] = Wire.ts(v.created_at, 'created_at')
+        m['expires_at'] = Wire.ts(v.expires_at, 'expires_at')
         m['fingerprint'] = v.fingerprint
-        m['supported_suites'] = v.supported_suites
+        m['supported_suites'] = Wire.enum_list(Wire::AEAD_SUITE, v.supported_suites, 'supported_suites')
         m['local_domain_hint'] = v.local_domain_hint unless v.local_domain_hint.nil?
         m['signing_public_key'] = v.signing_public_key
         m['encryption_public_key'] = v.encryption_public_key
@@ -52,9 +118,9 @@ module LinkkeysLocalRp
           signing_public_key: tree['signing_public_key'],
           encryption_public_key: tree['encryption_public_key'],
           fingerprint: tree['fingerprint'],
-          supported_suites: tree['supported_suites'],
-          created_at: tree['created_at'],
-          expires_at: tree['expires_at']
+          supported_suites: Wire.enum_list_dec(Wire::AEAD_SUITE, tree['supported_suites'], 'supported_suites'),
+          created_at: Wire.ts_dec(tree['created_at'], 'created_at'),
+          expires_at: Wire.ts_dec(tree['expires_at'], 'expires_at')
         )
       end
 
@@ -78,9 +144,9 @@ module LinkkeysLocalRp
         {
           'nonce' => v.nonce,
           'state' => v.state,
-          'issued_at' => v.issued_at,
+          'issued_at' => Wire.ts(v.issued_at, 'issued_at'),
           'descriptor' => SignedLocalRpDescriptor.to_map(v.descriptor),
-          'expires_at' => v.expires_at,
+          'expires_at' => Wire.ts(v.expires_at, 'expires_at'),
           'callback_url' => v.callback_url,
           'required_claims' => v.required_claims,
           'requested_claims' => v.requested_claims
@@ -95,8 +161,8 @@ module LinkkeysLocalRp
           state: tree['state'],
           requested_claims: tree['requested_claims'],
           required_claims: tree['required_claims'],
-          issued_at: tree['issued_at'],
-          expires_at: tree['expires_at']
+          issued_at: Wire.ts_dec(tree['issued_at'], 'issued_at'),
+          expires_at: Wire.ts_dec(tree['expires_at'], 'expires_at')
         )
       end
 
@@ -124,10 +190,10 @@ module LinkkeysLocalRp
         {
           'nonce' => v.nonce,
           'state' => v.state,
-          'suite' => v.suite,
-          'issued_at' => v.issued_at,
+          'suite' => Wire.enum(Wire::AEAD_SUITE, v.suite, 'suite'),
+          'issued_at' => Wire.ts(v.issued_at, 'issued_at'),
           'aead_nonce' => v.aead_nonce,
-          'expires_at' => v.expires_at,
+          'expires_at' => Wire.ts(v.expires_at, 'expires_at'),
           'fingerprint' => v.fingerprint,
           'ephemeral_public_key' => v.ephemeral_public_key
         }
@@ -138,11 +204,11 @@ module LinkkeysLocalRp
           fingerprint: tree['fingerprint'],
           nonce: tree['nonce'],
           state: tree['state'],
-          suite: tree['suite'],
+          suite: Wire.enum_dec(Wire::AEAD_SUITE, tree['suite'], 'suite'),
           ephemeral_public_key: tree['ephemeral_public_key'],
           aead_nonce: tree['aead_nonce'],
-          issued_at: tree['issued_at'],
-          expires_at: tree['expires_at']
+          issued_at: Wire.ts_dec(tree['issued_at'], 'issued_at'),
+          expires_at: Wire.ts_dec(tree['expires_at'], 'expires_at')
         )
       end
 
@@ -167,8 +233,8 @@ module LinkkeysLocalRp
           'nonce' => v.nonce,
           'state' => v.state,
           'user_id' => v.user_id,
-          'issued_at' => v.issued_at,
-          'expires_at' => v.expires_at,
+          'issued_at' => Wire.ts(v.issued_at, 'issued_at'),
+          'expires_at' => Wire.ts(v.expires_at, 'expires_at'),
           'user_domain' => v.user_domain,
           'callback_url' => v.callback_url,
           'claim_ticket' => v.claim_ticket,
@@ -185,8 +251,8 @@ module LinkkeysLocalRp
           callback_url: tree['callback_url'],
           nonce: tree['nonce'],
           state: tree['state'],
-          issued_at: tree['issued_at'],
-          expires_at: tree['expires_at']
+          issued_at: Wire.ts_dec(tree['issued_at'], 'issued_at'),
+          expires_at: Wire.ts_dec(tree['expires_at'], 'expires_at')
         )
       end
 
@@ -213,11 +279,11 @@ module LinkkeysLocalRp
 
     LocalRpTicketRedemptionRequest = Struct.new(:claim_ticket, :fingerprint, :issued_at, keyword_init: true) do
       def self.to_map(v)
-        { 'issued_at' => v.issued_at, 'fingerprint' => v.fingerprint, 'claim_ticket' => v.claim_ticket }
+        { 'issued_at' => Wire.ts(v.issued_at, 'issued_at'), 'fingerprint' => v.fingerprint, 'claim_ticket' => v.claim_ticket }
       end
 
       def self.from_map(tree)
-        new(claim_ticket: tree['claim_ticket'], fingerprint: tree['fingerprint'], issued_at: tree['issued_at'])
+        new(claim_ticket: tree['claim_ticket'], fingerprint: tree['fingerprint'], issued_at: Wire.ts_dec(tree['issued_at'], 'issued_at'))
       end
 
       def to_cbor = Cbor.encode(self.class.to_map(self))
@@ -239,7 +305,7 @@ module LinkkeysLocalRp
           'claims' => v.claims.map { |c| Claim.to_map(c) },
           'user_id' => v.user_id,
           'user_domain' => v.user_domain,
-          'ticket_expires_at' => v.ticket_expires_at
+          'ticket_expires_at' => Wire.ts(v.ticket_expires_at, 'ticket_expires_at')
         }
       end
 
@@ -248,7 +314,7 @@ module LinkkeysLocalRp
           user_id: tree['user_id'],
           user_domain: tree['user_domain'],
           claims: tree['claims'].map { |c| Claim.from_map(c) },
-          ticket_expires_at: tree['ticket_expires_at']
+          ticket_expires_at: Wire.ts_dec(tree['ticket_expires_at'], 'ticket_expires_at')
         )
       end
 
@@ -268,12 +334,12 @@ module LinkkeysLocalRp
       def self.to_map(v)
         m = {}
         m['key_id'] = v.key_id
-        m['algorithm'] = v.algorithm
-        m['key_usage'] = v.key_usage
-        m['created_at'] = v.created_at
-        m['expires_at'] = v.expires_at
+        m['algorithm'] = Wire.enum(Wire::KEY_ALGORITHM, v.algorithm, 'algorithm')
+        m['key_usage'] = Wire.enum(Wire::KEY_USAGE, v.key_usage, 'key_usage')
+        m['created_at'] = Wire.ts(v.created_at, 'created_at')
+        m['expires_at'] = Wire.ts(v.expires_at, 'expires_at')
         m['public_key'] = v.public_key
-        m['revoked_at'] = v.revoked_at unless v.revoked_at.nil?
+        m['revoked_at'] = Wire.ts(v.revoked_at, 'revoked_at') unless v.revoked_at.nil?
         m['fingerprint'] = v.fingerprint
         m['key_signature'] = v.key_signature unless v.key_signature.nil?
         m['signed_by_key_id'] = v.signed_by_key_id unless v.signed_by_key_id.nil?
@@ -285,11 +351,11 @@ module LinkkeysLocalRp
           key_id: tree['key_id'],
           public_key: tree['public_key'],
           fingerprint: tree['fingerprint'],
-          algorithm: tree['algorithm'],
-          key_usage: tree['key_usage'],
-          created_at: tree['created_at'],
-          expires_at: tree['expires_at'],
-          revoked_at: tree['revoked_at'],
+          algorithm: Wire.enum_dec(Wire::KEY_ALGORITHM, tree['algorithm'], 'algorithm'),
+          key_usage: Wire.enum_dec(Wire::KEY_USAGE, tree['key_usage'], 'key_usage'),
+          created_at: Wire.ts_dec(tree['created_at'], 'created_at'),
+          expires_at: Wire.ts_dec(tree['expires_at'], 'expires_at'),
+          revoked_at: Wire.ts_dec_opt(tree['revoked_at'], 'revoked_at'),
           signed_by_key_id: tree['signed_by_key_id'],
           key_signature: tree['key_signature']
         )
@@ -320,11 +386,11 @@ module LinkkeysLocalRp
         m['user_id'] = v.user_id
         m['claim_id'] = v.claim_id
         m['claim_type'] = v.claim_type
-        m['created_at'] = v.created_at
-        m['expires_at'] = v.expires_at unless v.expires_at.nil?
-        m['revoked_at'] = v.revoked_at unless v.revoked_at.nil?
+        m['created_at'] = Wire.ts(v.created_at, 'created_at')
+        m['expires_at'] = Wire.ts(v.expires_at, 'expires_at') unless v.expires_at.nil?
+        m['revoked_at'] = Wire.ts(v.revoked_at, 'revoked_at') unless v.revoked_at.nil?
         m['signatures'] = v.signatures.map { |s| ClaimSignature.to_map(s) }
-        m['attested_at'] = v.attested_at
+        m['attested_at'] = Wire.ts(v.attested_at, 'attested_at')
         m['claim_value'] = v.claim_value
         m
       end
@@ -349,10 +415,10 @@ module LinkkeysLocalRp
           claim_type: tree['claim_type'],
           claim_value: claim_value,
           signatures: tree['signatures'].map { |s| ClaimSignature.from_map(s) },
-          attested_at: tree['attested_at'],
-          created_at: tree['created_at'],
-          expires_at: tree['expires_at'],
-          revoked_at: tree['revoked_at']
+          attested_at: Wire.ts_dec(tree['attested_at'], 'attested_at'),
+          created_at: Wire.ts_dec(tree['created_at'], 'created_at'),
+          expires_at: Wire.ts_dec_opt(tree['expires_at'], 'expires_at'),
+          revoked_at: Wire.ts_dec_opt(tree['revoked_at'], 'revoked_at')
         )
       end
 
@@ -365,7 +431,7 @@ module LinkkeysLocalRp
     ) do
       def self.to_map(v)
         {
-          'revoked_at' => v.revoked_at,
+          'revoked_at' => Wire.ts(v.revoked_at, 'revoked_at'),
           'signatures' => v.signatures.map { |s| ClaimSignature.to_map(s) },
           'target_key_id' => v.target_key_id,
           'target_fingerprint' => v.target_fingerprint
@@ -376,7 +442,7 @@ module LinkkeysLocalRp
         new(
           target_key_id: tree['target_key_id'],
           target_fingerprint: tree['target_fingerprint'],
-          revoked_at: tree['revoked_at'],
+          revoked_at: Wire.ts_dec(tree['revoked_at'], 'revoked_at'),
           signatures: tree['signatures'].map { |s| ClaimSignature.from_map(s) }
         )
       end
@@ -420,11 +486,11 @@ module LinkkeysLocalRp
     GetRevocationsRequest = Struct.new(:since, keyword_init: true) do
       def self.to_map(v)
         m = {}
-        m['since'] = v.since unless v.since.nil?
+        m['since'] = Wire.ts(v.since, 'since') unless v.since.nil?
         m
       end
 
-      def self.from_map(tree) = new(since: tree['since'])
+      def self.from_map(tree) = new(since: Wire.ts_dec_opt(tree['since'], 'since'))
       def to_cbor = Cbor.encode(self.class.to_map(self))
       def self.from_cbor(data) = from_map(Cbor.decode(data))
     end
@@ -598,8 +664,8 @@ module LinkkeysLocalRp
           'scope_set' => SignedActAsScopeSet.to_map(v.scope_set),
           'callback_url' => v.callback_url,
           'nonce' => v.nonce,
-          'requested_at' => v.requested_at,
-          'expires_at' => v.expires_at
+          'requested_at' => Wire.ts(v.requested_at, 'requested_at'),
+          'expires_at' => Wire.ts(v.expires_at, 'expires_at')
         }
         m['requested_lifetime_seconds'] = v.requested_lifetime_seconds unless v.requested_lifetime_seconds.nil?
         unless v.requested_renewal_window_seconds.nil?
@@ -617,8 +683,8 @@ module LinkkeysLocalRp
           requested_renewal_window_seconds: ActAsShape.int!(tree, 'requested_renewal_window_seconds', optional: true),
           callback_url: ActAsShape.text!(tree, 'callback_url'),
           nonce: ActAsShape.text!(tree, 'nonce'),
-          requested_at: ActAsShape.text!(tree, 'requested_at'),
-          expires_at: ActAsShape.text!(tree, 'expires_at')
+          requested_at: Wire.ts_dec(tree['requested_at'], 'requested_at'),
+          expires_at: Wire.ts_dec(tree['expires_at'], 'expires_at')
         )
       end
 
@@ -646,8 +712,8 @@ module LinkkeysLocalRp
         {
           'grant_id' => v.grant_id,
           'grantee' => GranteeRef.to_map(v.grantee),
-          'requested_at' => v.requested_at,
-          'expires_at' => v.expires_at,
+          'requested_at' => Wire.ts(v.requested_at, 'requested_at'),
+          'expires_at' => Wire.ts(v.expires_at, 'expires_at'),
           'nonce' => v.nonce
         }
       end
@@ -657,8 +723,8 @@ module LinkkeysLocalRp
         new(
           grant_id: ActAsShape.text!(tree, 'grant_id'),
           grantee: GranteeRef.from_map(tree['grantee']),
-          requested_at: ActAsShape.text!(tree, 'requested_at'),
-          expires_at: ActAsShape.text!(tree, 'expires_at'),
+          requested_at: Wire.ts_dec(tree['requested_at'], 'requested_at'),
+          expires_at: Wire.ts_dec(tree['expires_at'], 'expires_at'),
           nonce: ActAsShape.text!(tree, 'nonce')
         )
       end
@@ -721,7 +787,7 @@ module LinkkeysLocalRp
           'grant_hash' => v.grant_hash,
           'audience' => ApplicationRef.to_map(v.audience),
           'request_digest' => v.request_digest,
-          'presented_at' => v.presented_at,
+          'presented_at' => Wire.ts(v.presented_at, 'presented_at'),
           'nonce' => v.nonce
         }
       end
@@ -732,7 +798,7 @@ module LinkkeysLocalRp
           grant_hash: ActAsShape.bytes!(tree, 'grant_hash'),
           audience: ApplicationRef.from_map(tree['audience']),
           request_digest: ActAsShape.bytes!(tree, 'request_digest'),
-          presented_at: ActAsShape.text!(tree, 'presented_at'),
+          presented_at: Wire.ts_dec(tree['presented_at'], 'presented_at'),
           nonce: ActAsShape.bytes!(tree, 'nonce')
         )
       end

@@ -253,7 +253,7 @@ class TestFlow < Minitest::Test
   end
 
   def run_scenario(scenario)
-    now = Time.now.utc
+    now = Time.now.utc.floor
     key_material = fixed_key_material(now)
 
     # begin_local_login's browser endpoint discovery is exercised in
@@ -388,7 +388,7 @@ class TestFlow < Minitest::Test
 
   def test_expired_callback_payload_is_rejected
     mutate = lambda do |p|
-      n = Time.now.utc
+      n = Time.now.utc.floor
       p.issued_at = LinkkeysLocalRp::Timeutil.to_rfc3339(n - 7200)
       p.expires_at = LinkkeysLocalRp::Timeutil.to_rfc3339(n - 3600)
     end
@@ -403,7 +403,7 @@ class TestFlow < Minitest::Test
   end
 
   def test_revoked_signing_key_is_rejected
-    mutate = ->(k) { k.revoked_at = LinkkeysLocalRp::Timeutil.to_rfc3339(Time.now.utc) }
+    mutate = ->(k) { k.revoked_at = LinkkeysLocalRp::Timeutil.to_rfc3339(Time.now.utc.floor) }
     assert_raises(LinkkeysLocalRp::LocalRp::Error) { run_scenario(Scenario.new(mutate_domain_key: mutate, expected_requests: 2)) }
   end
 
@@ -425,7 +425,7 @@ class TestFlow < Minitest::Test
     # the trusted set) reveals it is dead. An SDK that skips the fetch, or
     # verifies the certificate without applying it, would incorrectly
     # complete this login.
-    now = Time.now.utc
+    now = Time.now.utc.floor
     sibling_seeds = [("\x0E" * 32).b, ("\x0F" * 32).b]
     siblings = sibling_seeds.each_with_index.map { |seed, i| sibling_key(seed, "sibling-key-#{i + 1}", now) }
 
@@ -531,7 +531,7 @@ class TestFlow < Minitest::Test
   # ---------------------------------------------------------------
 
   def act_as_dns(addr)
-    fp = LinkkeysLocalRp::Crypto.fingerprint(domain_public_key(Time.now.getutc).public_key)
+    fp = LinkkeysLocalRp::Crypto.fingerprint(domain_public_key(Time.now.getutc.floor).public_key)
     FakeDnsResolver.new("v=lk1 fp=#{fp}", "v=lk1 tcp=#{addr}")
   end
 
@@ -628,7 +628,7 @@ class TestFlow < Minitest::Test
   end
 
   def test_refresh_act_as_grant_surfaces_server_error
-    now = Time.now.getutc
+    now = Time.now.getutc.floor
     key_material = fixed_key_material(now)
     addr, thread = spawn_fake_idp(DOMAIN_SIGNING_SEED, 1) { |_s, _o, _p| encode_error_response(7, 'grant store unavailable') }
     error = assert_raises(LinkkeysLocalRp::Rpc::ServerError) do

@@ -49,8 +49,8 @@ class CallbackBoxConformanceTest {
             assertEquals(c.get("fingerprint").asString(), opened.header().fingerprint());
             assertArrayEquals(Fixtures.hex(c.get("nonce_hex").asString()), opened.header().nonce());
             assertArrayEquals(Fixtures.hex(c.get("state_hex").asString()), opened.header().state());
-            assertEquals(c.get("issued_at").asString(), opened.header().issuedAt());
-            assertEquals(c.get("expires_at").asString(), opened.header().expiresAt());
+            assertEquals(Fixtures.time(c.get("issued_at").asString()), opened.header().issuedAt());
+            assertEquals(Fixtures.time(c.get("expires_at").asString()), opened.header().expiresAt());
 
             byte[] plaintext = Codec.encodeSignedLocalRpCallbackPayload(opened.signedPayload());
             assertArrayEquals(Fixtures.hex(c.get("plaintext_cbor_hex").asString()), plaintext);

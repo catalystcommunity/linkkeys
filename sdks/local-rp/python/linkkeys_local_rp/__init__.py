@@ -99,7 +99,7 @@ from .act_as import (
     act_as_grant_hash,
     begin_act_as,
     complete_act_as_callback,
-    format_act_as_time,
+    act_as_time,
     present_act_as,
     refresh_act_as_grant,
     sign_act_as_grant_request,
@@ -131,7 +131,13 @@ from .complete import (
     VerifiedLocalLogin,
     complete_local_login,
 )
-from .crypto import AeadSuite, SigningAlgorithm
+from .crypto import (
+    AeadSuite,
+    SigningAlgorithm,
+    aead_suite_from_kdf_label,
+    aead_suite_kdf_label,
+    all_supported_aead_suites,
+)
 from .dns import DnsResolver, SystemDnsResolver
 from .identity import (
     DEFAULT_LIFETIME,
@@ -200,7 +206,7 @@ __all__ = [
     "sign_act_as_refresh_request",
     "signed_act_as_grant_request_to_url_param",
     "act_as_grant_hash",
-    "format_act_as_time",
+    "act_as_time",
     "ActAsError",
     "ACT_AS_GRANT_REQUEST_TAG",
     "ACT_AS_REFRESH_REQUEST_TAG",
@@ -226,6 +232,9 @@ __all__ = [
     "DnsResolver",
     "SystemDnsResolver",
     "AeadSuite",
+    "aead_suite_from_kdf_label",
+    "aead_suite_kdf_label",
+    "all_supported_aead_suites",
     "SigningAlgorithm",
     "Claim",
     "ClaimSignature",

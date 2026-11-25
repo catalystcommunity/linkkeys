@@ -165,10 +165,14 @@ func GrantRequestURL(browserBase string, signed api.SignedActAsGrantRequest) (st
 	default:
 		return "", &ProtocolError{Detail: "browser base must use https"}
 	}
+	signedBytes, err := api.EncodeSignedActAsGrantRequest(signed)
+	if err != nil {
+		return "", encodeFailed("SignedActAsGrantRequest", err)
+	}
 	u.Path = strings.TrimSuffix(u.Path, "/") + "/auth/act-as"
 	u.RawPath = ""
 	u.RawQuery = url.Values{
-		"signed_request": {base64.RawURLEncoding.EncodeToString(api.EncodeSignedActAsGrantRequest(signed))},
+		"signed_request": {base64.RawURLEncoding.EncodeToString(signedBytes)},
 	}.Encode()
 	return u.String(), nil
 }

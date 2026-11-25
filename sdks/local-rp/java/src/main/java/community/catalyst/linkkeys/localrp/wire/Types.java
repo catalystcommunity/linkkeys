@@ -1,5 +1,6 @@
 package community.catalyst.linkkeys.localrp.wire;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -12,8 +13,11 @@ import java.util.List;
  *
  * <p>These are plain data carriers, not builders: optional fields are
  * {@code null} when absent (mirroring Rust {@code Option::None} / Go nil
- * pointers), and byte-array fields are raw, unencoded bytes. Encoding/decoding
- * lives in {@link Codec}.
+ * pointers), and byte-array fields are raw, unencoded bytes. CSIL
+ * {@code timestamp} fields are {@link Instant}s (tag 0 RFC 3339 text on the
+ * wire). Closed vocabularies (key algorithm, key usage, AEAD suite) keep
+ * their text labels here; {@link Codec} writes their CSIL numbers on the
+ * wire. Encoding/decoding lives in {@link Codec}.
  */
 public final class Types {
     private Types() {}
@@ -27,23 +31,23 @@ public final class Types {
             String fingerprint,
             String algorithm,
             String keyUsage,
-            String createdAt,
-            String expiresAt,
-            String revokedAt,
+            Instant createdAt,
+            Instant expiresAt,
+            Instant revokedAt,
             String signedByKeyId,
             byte[] keySignature) {}
 
     public record GetDomainKeysResponse(
             String domain, List<DomainPublicKey> keys, Boolean recentRevocationsAvailable) {}
 
-    public record GetRevocationsRequest(String since) {}
+    public record GetRevocationsRequest(Instant since) {}
 
     public record ClaimSignature(String domain, String signedByKeyId, byte[] signature) {}
 
     public record RevocationCertificate(
             String targetKeyId,
             String targetFingerprint,
-            String revokedAt,
+            Instant revokedAt,
             List<ClaimSignature> signatures) {}
 
     public record GetRevocationsResponse(List<RevocationCertificate> revocations) {}
@@ -54,10 +58,10 @@ public final class Types {
             String claimType,
             byte[] claimValue,
             List<ClaimSignature> signatures,
-            String attestedAt,
-            String createdAt,
-            String expiresAt,
-            String revokedAt) {}
+            Instant attestedAt,
+            Instant createdAt,
+            Instant expiresAt,
+            Instant revokedAt) {}
 
     public record LocalRpDescriptor(
             String appName,
@@ -66,8 +70,8 @@ public final class Types {
             byte[] encryptionPublicKey,
             String fingerprint,
             List<String> supportedSuites,
-            String createdAt,
-            String expiresAt) {}
+            Instant createdAt,
+            Instant expiresAt) {}
 
     public record SignedLocalRpDescriptor(byte[] descriptor, byte[] signature) {}
 
@@ -78,8 +82,8 @@ public final class Types {
             byte[] state,
             List<String> requestedClaims,
             List<String> requiredClaims,
-            String issuedAt,
-            String expiresAt) {}
+            Instant issuedAt,
+            Instant expiresAt) {}
 
     public record SignedLocalRpLoginRequest(byte[] request, byte[] signature) {}
 
@@ -90,8 +94,8 @@ public final class Types {
             String suite,
             byte[] ephemeralPublicKey,
             byte[] aeadNonce,
-            String issuedAt,
-            String expiresAt) {}
+            Instant issuedAt,
+            Instant expiresAt) {}
 
     public record LocalRpEncryptedCallback(byte[] header, byte[] ciphertext) {}
 
@@ -103,17 +107,17 @@ public final class Types {
             String callbackUrl,
             byte[] nonce,
             byte[] state,
-            String issuedAt,
-            String expiresAt) {}
+            Instant issuedAt,
+            Instant expiresAt) {}
 
     public record SignedLocalRpCallbackPayload(byte[] payload, String signingKeyId, byte[] signature) {}
 
-    public record LocalRpTicketRedemptionRequest(byte[] claimTicket, String fingerprint, String issuedAt) {}
+    public record LocalRpTicketRedemptionRequest(byte[] claimTicket, String fingerprint, Instant issuedAt) {}
 
     public record SignedLocalRpTicketRedemptionRequest(byte[] request, byte[] signature) {}
 
     public record LocalRpTicketRedemptionResponse(
-            String userId, String userDomain, List<Claim> claims, String ticketExpiresAt) {}
+            String userId, String userDomain, List<Claim> claims, Instant ticketExpiresAt) {}
 
     // -----------------------------------------------------------------
     // Act-as grants (grantee side only). A local RP can be a grantee, never
@@ -149,10 +153,10 @@ public final class Types {
             ApplicationRef audience,
             SignedActAsScopeSet scopeSet,
             List<String> approvedScope,
-            String issuedAt,
-            String expiresAt,
-            String seriesIssuedAt,
-            String renewableUntil,
+            Instant issuedAt,
+            Instant expiresAt,
+            Instant seriesIssuedAt,
+            Instant renewableUntil,
             String deviceFingerprint) {}
 
     public record ActAsGrantRequest(
@@ -162,13 +166,13 @@ public final class Types {
             Long requestedRenewalWindowSeconds,
             String callbackUrl,
             String nonce,
-            String requestedAt,
-            String expiresAt) {}
+            Instant requestedAt,
+            Instant expiresAt) {}
 
     public record SignedActAsGrantRequest(byte[] request, GranteeProof proof) {}
 
     public record ActAsRefreshRequest(
-            String grantId, GranteeRef grantee, String requestedAt, String expiresAt, String nonce) {}
+            String grantId, GranteeRef grantee, Instant requestedAt, Instant expiresAt, String nonce) {}
 
     public record SignedActAsRefreshRequest(byte[] request, GranteeProof proof) {}
 
@@ -177,7 +181,7 @@ public final class Types {
     public record RefreshActAsGrantResponse(SignedActAsGrant grant, boolean signed) {}
 
     public record ActAsPresentation(
-            byte[] grantHash, ApplicationRef audience, byte[] requestDigest, String presentedAt, byte[] nonce) {}
+            byte[] grantHash, ApplicationRef audience, byte[] requestDigest, Instant presentedAt, byte[] nonce) {}
 
     public record SignedActAsPresentation(byte[] presentation, GranteeProof proof) {}
 

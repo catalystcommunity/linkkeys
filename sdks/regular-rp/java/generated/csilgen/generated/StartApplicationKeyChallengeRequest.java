@@ -9,9 +9,9 @@ public record StartApplicationKeyChallengeRequest(
     String subjectUserId /* wire: "subject_user_id" */,
     String applicationId /* wire: "application_id" */,
     String instanceId /* wire: "instance_id" */,
-    String purpose /* wire: "purpose" */,
-    String keyUsage /* wire: "key_usage" */,
-    String algorithm /* wire: "algorithm" */,
+    ApplicationKeyChallengePurpose purpose /* wire: "purpose" */,
+    KeyUsage keyUsage /* wire: "key_usage" */,
+    KeyAlgorithm algorithm /* wire: "algorithm" */,
     byte[] publicKey /* wire: "public_key" */
 ) {
     @Override

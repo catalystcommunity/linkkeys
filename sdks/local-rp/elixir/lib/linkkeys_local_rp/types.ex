@@ -13,9 +13,16 @@ defmodule LinkkeysLocalRp.Types do
   omitted entirely when `nil`) and hands it to `Cbor.encode/1`, which sorts
   map keys canonically — so encode order here never has to match any
   particular field declaration order to be wire-correct.
+
+  Every CSIL `timestamp` field holds a `DateTime.t()` and goes on the wire
+  as CBOR tag 0 + RFC 3339 UTC text (`LinkkeysLocalRp.Timeutil.to_wire/1`).
+  `algorithm`, `key_usage`, `supported_suites` and the callback header's
+  `suite` hold registry text ids (`"ed25519"`, `"sign"`, `"aes-256-gcm"`)
+  and go on the wire as CSIL named-number enums (CBOR unsigned integers).
   """
 
   alias LinkkeysLocalRp.Cbor
+  alias LinkkeysLocalRp.Timeutil
 
   defmodule DomainPublicKey do
     @moduledoc "A domain's published signing or encryption key (CSIL `DomainPublicKey`)."
@@ -270,6 +277,43 @@ defmodule LinkkeysLocalRp.Types do
 
   defp map_list(list, f), do: Enum.map(list, f)
 
+  # CSIL `timestamp`: CBOR tag 0 + RFC 3339 UTC text <-> `DateTime.t()`.
+  defp ts(dt), do: Timeutil.to_wire(dt)
+  defp ts_opt(dt), do: Timeutil.to_wire_opt(dt)
+  defp get_ts(tree, key), do: Timeutil.from_wire!(get(tree, key))
+  defp get_ts_opt(tree, key), do: Timeutil.from_wire_opt!(get_opt(tree, key))
+
+  # Closed vocabularies are CSIL named-number enums: a CBOR unsigned
+  # integer on the wire. In memory this SDK keeps the registry text ids
+  # (the AEAD suite text id is also bound into the callback-box KDF
+  # context). A number outside the registry fails the decode.
+  @key_algorithms [{"ed25519", 1}, {"x25519", 2}]
+  @key_usages [{"sign", 1}, {"encrypt", 2}, {"agree", 3}]
+  @aead_suites [{"aes-256-gcm", 1}, {"chacha20-poly1305", 2}]
+
+  defp enum_to_wire(vocab, name, id) do
+    case List.keyfind(vocab, id, 0) do
+      {_, n} -> n
+      nil -> raise ArgumentError, "csil cbor: #{inspect(id)} is not a #{name}"
+    end
+  end
+
+  defp enum_from_wire!(vocab, name, n) when is_integer(n) and n >= 0 do
+    case List.keyfind(vocab, n, 1) do
+      {id, _} -> id
+      nil -> raise ArgumentError, "csil cbor: #{n} is not a known #{name} number"
+    end
+  end
+
+  defp enum_from_wire!(_vocab, name, other),
+    do: raise(ArgumentError, "csil cbor: #{name} must be an unsigned integer, got #{inspect(other)}")
+
+  @doc "The `AeadSuite` wire number for a suite text id (`\"aes-256-gcm\"` is 1, `\"chacha20-poly1305\"` is 2)."
+  def aead_suite_number(id), do: enum_to_wire(@aead_suites, "AeadSuite", id)
+
+  @doc "The suite text id for an `AeadSuite` wire number. Raises on a number outside the registry."
+  def aead_suite_from_number!(n), do: enum_from_wire!(@aead_suites, "AeadSuite", n)
+
   defp non_empty_list!([_ | _] = list, f), do: Enum.map(list, f)
   defp non_empty_list!(_, _), do: raise(ArgumentError, "expected a non-empty CBOR array")
 
@@ -280,12 +324,12 @@ defmodule LinkkeysLocalRp.Types do
       "key_id" => v.key_id,
       "public_key" => Cbor.bytes(v.public_key),
       "fingerprint" => v.fingerprint,
-      "algorithm" => v.algorithm,
-      "key_usage" => v.key_usage,
-      "created_at" => v.created_at,
-      "expires_at" => v.expires_at
+      "algorithm" => enum_to_wire(@key_algorithms, "KeyAlgorithm", v.algorithm),
+      "key_usage" => enum_to_wire(@key_usages, "KeyUsage", v.key_usage),
+      "created_at" => ts(v.created_at),
+      "expires_at" => ts(v.expires_at)
     }
-    |> put_opt("revoked_at", v.revoked_at)
+    |> put_opt("revoked_at", ts_opt(v.revoked_at))
     |> put_opt("signed_by_key_id", v.signed_by_key_id)
     |> put_opt("key_signature", if(v.key_signature, do: Cbor.bytes(v.key_signature)))
   end
@@ -297,11 +341,11 @@ defmodule LinkkeysLocalRp.Types do
       key_id: get(tree, "key_id"),
       public_key: Cbor.bytes!(get(tree, "public_key")),
       fingerprint: get(tree, "fingerprint"),
-      algorithm: get(tree, "algorithm"),
-      key_usage: get(tree, "key_usage"),
-      created_at: get(tree, "created_at"),
-      expires_at: get(tree, "expires_at"),
-      revoked_at: get_opt(tree, "revoked_at"),
+      algorithm: enum_from_wire!(@key_algorithms, "KeyAlgorithm", get(tree, "algorithm")),
+      key_usage: enum_from_wire!(@key_usages, "KeyUsage", get(tree, "key_usage")),
+      created_at: get_ts(tree, "created_at"),
+      expires_at: get_ts(tree, "expires_at"),
+      revoked_at: get_ts_opt(tree, "revoked_at"),
       signed_by_key_id: get_opt(tree, "signed_by_key_id"),
       key_signature: opt_bytes!(get_opt(tree, "key_signature"))
     }
@@ -340,11 +384,11 @@ defmodule LinkkeysLocalRp.Types do
       "claim_type" => v.claim_type,
       "claim_value" => Cbor.bytes(v.claim_value),
       "signatures" => Enum.map(v.signatures, &claim_signature_to_tree/1),
-      "attested_at" => v.attested_at,
-      "created_at" => v.created_at
+      "attested_at" => ts(v.attested_at),
+      "created_at" => ts(v.created_at)
     }
-    |> put_opt("expires_at", v.expires_at)
-    |> put_opt("revoked_at", v.revoked_at)
+    |> put_opt("expires_at", ts_opt(v.expires_at))
+    |> put_opt("revoked_at", ts_opt(v.revoked_at))
   end
 
   def claim_to_cbor(%Claim{} = v), do: Cbor.encode(claim_to_tree(v))
@@ -356,10 +400,10 @@ defmodule LinkkeysLocalRp.Types do
       claim_type: get(tree, "claim_type"),
       claim_value: Cbor.bytes!(get(tree, "claim_value")),
       signatures: map_list(get(tree, "signatures"), &claim_signature_from_tree/1),
-      attested_at: get(tree, "attested_at"),
-      created_at: get(tree, "created_at"),
-      expires_at: get_opt(tree, "expires_at"),
-      revoked_at: get_opt(tree, "revoked_at")
+      attested_at: get_ts(tree, "attested_at"),
+      created_at: get_ts(tree, "created_at"),
+      expires_at: get_ts_opt(tree, "expires_at"),
+      revoked_at: get_ts_opt(tree, "revoked_at")
     }
   end
 
@@ -371,7 +415,7 @@ defmodule LinkkeysLocalRp.Types do
     %{
       "target_key_id" => v.target_key_id,
       "target_fingerprint" => v.target_fingerprint,
-      "revoked_at" => v.revoked_at,
+      "revoked_at" => ts(v.revoked_at),
       "signatures" => Enum.map(v.signatures, &claim_signature_to_tree/1)
     }
   end
@@ -383,7 +427,7 @@ defmodule LinkkeysLocalRp.Types do
     %RevocationCertificate{
       target_key_id: get(tree, "target_key_id"),
       target_fingerprint: get(tree, "target_fingerprint"),
-      revoked_at: get(tree, "revoked_at"),
+      revoked_at: get_ts(tree, "revoked_at"),
       signatures: map_list(get(tree, "signatures"), &claim_signature_from_tree/1)
     }
   end
@@ -405,9 +449,9 @@ defmodule LinkkeysLocalRp.Types do
       "signing_public_key" => Cbor.bytes(v.signing_public_key),
       "encryption_public_key" => Cbor.bytes(v.encryption_public_key),
       "fingerprint" => v.fingerprint,
-      "supported_suites" => v.supported_suites,
-      "created_at" => v.created_at,
-      "expires_at" => v.expires_at
+      "supported_suites" => Enum.map(v.supported_suites, &aead_suite_number/1),
+      "created_at" => ts(v.created_at),
+      "expires_at" => ts(v.expires_at)
     }
     |> put_opt("local_domain_hint", v.local_domain_hint)
   end
@@ -421,9 +465,9 @@ defmodule LinkkeysLocalRp.Types do
       signing_public_key: Cbor.bytes!(get(tree, "signing_public_key")),
       encryption_public_key: Cbor.bytes!(get(tree, "encryption_public_key")),
       fingerprint: get(tree, "fingerprint"),
-      supported_suites: get(tree, "supported_suites"),
-      created_at: get(tree, "created_at"),
-      expires_at: get(tree, "expires_at"),
+      supported_suites: Enum.map(get(tree, "supported_suites"), &aead_suite_from_number!/1),
+      created_at: get_ts(tree, "created_at"),
+      expires_at: get_ts(tree, "expires_at"),
       local_domain_hint: get_opt(tree, "local_domain_hint")
     }
   end
@@ -459,8 +503,8 @@ defmodule LinkkeysLocalRp.Types do
       "state" => Cbor.bytes(v.state),
       "requested_claims" => v.requested_claims,
       "required_claims" => v.required_claims,
-      "issued_at" => v.issued_at,
-      "expires_at" => v.expires_at
+      "issued_at" => ts(v.issued_at),
+      "expires_at" => ts(v.expires_at)
     }
   end
 
@@ -475,8 +519,8 @@ defmodule LinkkeysLocalRp.Types do
       state: Cbor.bytes!(get(tree, "state")),
       requested_claims: get(tree, "requested_claims"),
       required_claims: get(tree, "required_claims"),
-      issued_at: get(tree, "issued_at"),
-      expires_at: get(tree, "expires_at")
+      issued_at: get_ts(tree, "issued_at"),
+      expires_at: get_ts(tree, "expires_at")
     }
   end
 
@@ -514,11 +558,11 @@ defmodule LinkkeysLocalRp.Types do
       "fingerprint" => v.fingerprint,
       "nonce" => Cbor.bytes(v.nonce),
       "state" => Cbor.bytes(v.state),
-      "suite" => v.suite,
+      "suite" => aead_suite_number(v.suite),
       "ephemeral_public_key" => Cbor.bytes(v.ephemeral_public_key),
       "aead_nonce" => Cbor.bytes(v.aead_nonce),
-      "issued_at" => v.issued_at,
-      "expires_at" => v.expires_at
+      "issued_at" => ts(v.issued_at),
+      "expires_at" => ts(v.expires_at)
     }
   end
 
@@ -530,11 +574,11 @@ defmodule LinkkeysLocalRp.Types do
       fingerprint: get(tree, "fingerprint"),
       nonce: Cbor.bytes!(get(tree, "nonce")),
       state: Cbor.bytes!(get(tree, "state")),
-      suite: get(tree, "suite"),
+      suite: aead_suite_from_number!(get(tree, "suite")),
       ephemeral_public_key: Cbor.bytes!(get(tree, "ephemeral_public_key")),
       aead_nonce: Cbor.bytes!(get(tree, "aead_nonce")),
-      issued_at: get(tree, "issued_at"),
-      expires_at: get(tree, "expires_at")
+      issued_at: get_ts(tree, "issued_at"),
+      expires_at: get_ts(tree, "expires_at")
     }
   end
 
@@ -571,8 +615,8 @@ defmodule LinkkeysLocalRp.Types do
       "callback_url" => v.callback_url,
       "nonce" => Cbor.bytes(v.nonce),
       "state" => Cbor.bytes(v.state),
-      "issued_at" => v.issued_at,
-      "expires_at" => v.expires_at
+      "issued_at" => ts(v.issued_at),
+      "expires_at" => ts(v.expires_at)
     }
   end
 
@@ -588,8 +632,8 @@ defmodule LinkkeysLocalRp.Types do
       callback_url: get(tree, "callback_url"),
       nonce: Cbor.bytes!(get(tree, "nonce")),
       state: Cbor.bytes!(get(tree, "state")),
-      issued_at: get(tree, "issued_at"),
-      expires_at: get(tree, "expires_at")
+      issued_at: get_ts(tree, "issued_at"),
+      expires_at: get_ts(tree, "expires_at")
     }
   end
 
@@ -626,7 +670,7 @@ defmodule LinkkeysLocalRp.Types do
     %{
       "claim_ticket" => Cbor.bytes(v.claim_ticket),
       "fingerprint" => v.fingerprint,
-      "issued_at" => v.issued_at
+      "issued_at" => ts(v.issued_at)
     }
   end
 
@@ -637,7 +681,7 @@ defmodule LinkkeysLocalRp.Types do
     %LocalRpTicketRedemptionRequest{
       claim_ticket: Cbor.bytes!(get(tree, "claim_ticket")),
       fingerprint: get(tree, "fingerprint"),
-      issued_at: get(tree, "issued_at")
+      issued_at: get_ts(tree, "issued_at")
     }
   end
 
@@ -670,7 +714,7 @@ defmodule LinkkeysLocalRp.Types do
       "user_id" => v.user_id,
       "user_domain" => v.user_domain,
       "claims" => Enum.map(v.claims, &claim_to_tree/1),
-      "ticket_expires_at" => v.ticket_expires_at
+      "ticket_expires_at" => ts(v.ticket_expires_at)
     }
   end
 
@@ -682,7 +726,7 @@ defmodule LinkkeysLocalRp.Types do
       user_id: get(tree, "user_id"),
       user_domain: get(tree, "user_domain"),
       claims: map_list(get(tree, "claims"), &claim_from_tree/1),
-      ticket_expires_at: get(tree, "ticket_expires_at")
+      ticket_expires_at: get_ts(tree, "ticket_expires_at")
     }
   end
 
@@ -718,7 +762,7 @@ defmodule LinkkeysLocalRp.Types do
   # -- GetRevocationsRequest --------------------------------------------------
 
   def get_revocations_request_to_tree(%GetRevocationsRequest{} = v) do
-    %{} |> put_opt("since", v.since)
+    %{} |> put_opt("since", ts_opt(v.since))
   end
 
   def get_revocations_request_to_cbor(%GetRevocationsRequest{} = v),
@@ -839,8 +883,8 @@ defmodule LinkkeysLocalRp.Types do
       "scope_set" => signed_act_as_scope_set_to_tree(v.scope_set),
       "callback_url" => v.callback_url,
       "nonce" => v.nonce,
-      "requested_at" => v.requested_at,
-      "expires_at" => v.expires_at
+      "requested_at" => ts(v.requested_at),
+      "expires_at" => ts(v.expires_at)
     }
     |> put_opt("requested_lifetime_seconds", v.requested_lifetime_seconds)
     |> put_opt("requested_renewal_window_seconds", v.requested_renewal_window_seconds)
@@ -854,8 +898,8 @@ defmodule LinkkeysLocalRp.Types do
       scope_set: signed_act_as_scope_set_from_tree(get(tree, "scope_set")),
       callback_url: get(tree, "callback_url"),
       nonce: get(tree, "nonce"),
-      requested_at: get(tree, "requested_at"),
-      expires_at: get(tree, "expires_at"),
+      requested_at: get_ts(tree, "requested_at"),
+      expires_at: get_ts(tree, "expires_at"),
       requested_lifetime_seconds: get_opt(tree, "requested_lifetime_seconds"),
       requested_renewal_window_seconds: get_opt(tree, "requested_renewal_window_seconds")
     }
@@ -904,8 +948,8 @@ defmodule LinkkeysLocalRp.Types do
     %{
       "grant_id" => v.grant_id,
       "grantee" => grantee_ref_to_tree(v.grantee),
-      "requested_at" => v.requested_at,
-      "expires_at" => v.expires_at,
+      "requested_at" => ts(v.requested_at),
+      "expires_at" => ts(v.expires_at),
       "nonce" => v.nonce
     }
   end
@@ -918,8 +962,8 @@ defmodule LinkkeysLocalRp.Types do
     %ActAsRefreshRequest{
       grant_id: get(tree, "grant_id"),
       grantee: grantee_ref_from_tree(get(tree, "grantee")),
-      requested_at: get(tree, "requested_at"),
-      expires_at: get(tree, "expires_at"),
+      requested_at: get_ts(tree, "requested_at"),
+      expires_at: get_ts(tree, "expires_at"),
       nonce: get(tree, "nonce")
     }
   end
@@ -966,7 +1010,7 @@ defmodule LinkkeysLocalRp.Types do
       "grant_hash" => Cbor.bytes(v.grant_hash),
       "audience" => application_ref_to_tree(v.audience),
       "request_digest" => Cbor.bytes(v.request_digest),
-      "presented_at" => v.presented_at,
+      "presented_at" => ts(v.presented_at),
       "nonce" => Cbor.bytes(v.nonce)
     }
   end

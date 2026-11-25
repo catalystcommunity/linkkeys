@@ -51,6 +51,7 @@ fn validate_body() -> Vec<u8> {
         signed_request: "not-a-real-request".to_string(),
         user_id: None,
     })
+    .unwrap()
 }
 
 fn finalize_body() -> Vec<u8> {
@@ -59,6 +60,7 @@ fn finalize_body() -> Vec<u8> {
         signed_request: "x".to_string(),
         authorized_claims: vec![],
     })
+    .unwrap()
 }
 
 /// Both routes reject a valid, active API key that lacks the `api_access`

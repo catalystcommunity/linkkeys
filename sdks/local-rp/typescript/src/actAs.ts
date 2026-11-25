@@ -51,11 +51,15 @@ export const ACT_AS_REFRESH_WINDOW_SECONDS = 300;
 /** The part of the key material that a grantee signature needs. */
 export type ActAsSigningMaterial = Pick<LocalRpKeyMaterial, "descriptor" | "fingerprint" | "signingPrivateKey">;
 
-/** Whole-second RFC3339 in UTC, ending in `Z` (`act_as::format_time`). */
-export function formatActAsTime(t: Date): string {
+/**
+ * `t` without its fraction of a second (rounded down). Act-as times are
+ * whole seconds (`timestamp::whole_seconds`); on the wire they are CBOR
+ * tag 0 RFC 3339 text in UTC.
+ */
+export function actAsTime(t: Date): Date {
   const ms = t.getTime();
   if (Number.isNaN(ms)) throw new InvalidInputError("invalid time");
-  return new Date(Math.floor(ms / 1000) * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
+  return new Date(Math.floor(ms / 1000) * 1000);
 }
 
 /** SHA-256 of `SignedActAsGrant.grant`. A presentation binds this value. */
@@ -173,8 +177,8 @@ export async function beginActAs(config: BeginActAsConfig): Promise<{
     requestedRenewalWindowSeconds: config.requestedRenewalWindowSeconds,
     callbackUrl: config.callbackUrl,
     nonce,
-    requestedAt: formatActAsTime(config.now),
-    expiresAt: formatActAsTime(new Date(config.now.getTime() + window * 1000)),
+    requestedAt: actAsTime(config.now),
+    expiresAt: actAsTime(new Date(config.now.getTime() + window * 1000)),
   };
   const signed = signActAsGrantRequest(request, config.keyMaterial);
   const dns = config.dns ?? defaultDnsResolver();
@@ -252,8 +256,8 @@ export async function refreshActAsGrant(
   const request: ActAsRefreshRequest = {
     grantId: config.grantId,
     grantee: localRpGrantee(config.keyMaterial),
-    requestedAt: formatActAsTime(config.now),
-    expiresAt: formatActAsTime(new Date(config.now.getTime() + ACT_AS_REFRESH_WINDOW_SECONDS * 1000)),
+    requestedAt: actAsTime(config.now),
+    expiresAt: actAsTime(new Date(config.now.getTime() + ACT_AS_REFRESH_WINDOW_SECONDS * 1000)),
     nonce: freshNonce(),
   };
   const signed = signActAsRefreshRequest(request, config.keyMaterial);
@@ -306,7 +310,7 @@ export function presentActAs(config: PresentActAsConfig): { credential: ActAsCre
     grantHash: actAsGrantHash(config.grant.grant),
     audience: config.audience,
     requestDigest: config.requestDigest,
-    presentedAt: formatActAsTime(config.now),
+    presentedAt: actAsTime(config.now),
     nonce: config.nonce,
   };
   const bytes = generated.toActAsPresentationCbor(presentation);

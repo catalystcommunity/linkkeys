@@ -88,12 +88,13 @@ defmodule LinkkeysLocalRp.LocalRp do
   # ---------------------------------------------------------------------
 
   @doc """
-  Check an `(issued_at, expires_at)` RFC3339 pair against `now`, tolerant
+  Check an `(issued_at, expires_at)` pair (each a `DateTime.t()` or RFC 3339
+  text) against `now`, tolerant
   of `skew_seconds` of clock skew in either direction. Boundaries are
   inclusive: exactly `now - skew == expires_at` still passes, one second
   past either boundary fails.
   """
-  @spec check_timestamps(String.t(), String.t(), DateTime.t(), integer) ::
+  @spec check_timestamps(DateTime.t() | String.t(), DateTime.t() | String.t(), DateTime.t(), integer) ::
           :ok | {:error, :not_yet_valid | :expired | :bad_timestamp}
   def check_timestamps(issued_at, expires_at, %DateTime{} = now, skew_seconds) do
     with {:ok, issued} <- safe_parse(issued_at),
@@ -113,6 +114,8 @@ defmodule LinkkeysLocalRp.LocalRp do
     end
   end
 
+  defp safe_parse(%DateTime{} = dt), do: {:ok, dt}
+
   defp safe_parse(s) do
     {:ok, Timeutil.parse_rfc3339(s)}
   rescue
@@ -127,7 +130,7 @@ defmodule LinkkeysLocalRp.LocalRp do
   advisory, day-granularity facts, not a replay/freshness security
   boundary.
   """
-  @spec check_expirations(String.t(), DateTime.t()) ::
+  @spec check_expirations(DateTime.t() | String.t(), DateTime.t()) ::
           {:ok, %{level: atom, expires_at: DateTime.t(), now: DateTime.t()}}
           | {:error, :bad_timestamp}
   def check_expirations(expires_at, %DateTime{} = now) do
@@ -324,15 +327,9 @@ defmodule LinkkeysLocalRp.LocalRp do
         {:error, {:key_revoked, key.key_id}}
 
       true ->
-        case safe_parse(key.expires_at) do
-          {:ok, expires} ->
-            if DateTime.compare(now, expires) == :gt,
-              do: {:error, {:key_expired, key.key_id}},
-              else: :ok
-
-          {:error, _} ->
-            {:error, {:key_expired, key.key_id}}
-        end
+        if DateTime.compare(now, key.expires_at) == :gt,
+          do: {:error, {:key_expired, key.key_id}},
+          else: :ok
     end
   end
 
@@ -358,14 +355,17 @@ defmodule LinkkeysLocalRp.LocalRp do
     with {:ok, key} <- find_key(domain_public_keys, signed.signing_key_id),
          :ok <- check_signing_key_valid(key, now),
          signature_input = envelope_signature_input(@ctx_callback, signed.payload),
-         :ok <- verify_sig(signature_input, signed.signature, key.public_key) do
-      payload = Types.local_rp_callback_payload_from_cbor(signed.payload)
-
-      case check_timestamps(payload.issued_at, payload.expires_at, now, skew_seconds) do
-        :ok -> {:ok, payload}
-        {:error, reason} -> {:error, reason}
-      end
+         :ok <- verify_sig(signature_input, signed.signature, key.public_key),
+         {:ok, payload} <- safe_decode_payload(signed.payload),
+         :ok <- check_timestamps(payload.issued_at, payload.expires_at, now, skew_seconds) do
+      {:ok, payload}
     end
+  end
+
+  defp safe_decode_payload(bytes) do
+    {:ok, Types.local_rp_callback_payload_from_cbor(bytes)}
+  rescue
+    _ -> {:error, :decode_failed}
   end
 
   defp find_key(keys, key_id) do
@@ -389,12 +389,23 @@ defmodule LinkkeysLocalRp.LocalRp do
   """
   def check_callback_header_matches_payload(%LocalRpCallbackHeader{} = header, %LocalRpCallbackPayload{} = payload) do
     cond do
-      header.fingerprint != payload.audience_fingerprint -> {:error, {:header_payload_mismatch, :fingerprint}}
-      header.nonce != payload.nonce -> {:error, {:header_payload_mismatch, :nonce}}
-      header.state != payload.state -> {:error, {:header_payload_mismatch, :state}}
-      header.issued_at != payload.issued_at -> {:error, {:header_payload_mismatch, :issued_at}}
-      header.expires_at != payload.expires_at -> {:error, {:header_payload_mismatch, :expires_at}}
-      true -> :ok
+      header.fingerprint != payload.audience_fingerprint ->
+        {:error, {:header_payload_mismatch, :fingerprint}}
+
+      header.nonce != payload.nonce ->
+        {:error, {:header_payload_mismatch, :nonce}}
+
+      header.state != payload.state ->
+        {:error, {:header_payload_mismatch, :state}}
+
+      DateTime.compare(header.issued_at, payload.issued_at) != :eq ->
+        {:error, {:header_payload_mismatch, :issued_at}}
+
+      DateTime.compare(header.expires_at, payload.expires_at) != :eq ->
+        {:error, {:header_payload_mismatch, :expires_at}}
+
+      true ->
+        :ok
     end
   end
 

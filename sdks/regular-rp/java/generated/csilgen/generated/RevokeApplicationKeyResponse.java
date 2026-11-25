@@ -2,7 +2,9 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
+
 public record RevokeApplicationKeyResponse(
-    String revokedAt /* wire: "revoked_at" */
+    Instant revokedAt /* wire: "revoked_at" */
 ) {
 }

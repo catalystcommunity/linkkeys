@@ -12,6 +12,11 @@ namespace Csilgen.Transport;
 public interface ICsilTransport
 {
     byte[] Call(string service, string op, byte[] request);
+
+    /// <summary>Performs a call to an op with several reply arms and returns the reply
+    /// variant with the payload bytes. The client selects the arm from the variant, so
+    /// the carrier must not drop it.</summary>
+    CsilWireReply CallReply(string service, string op, byte[] request);
 }
 
 /// <summary>Raised by a generated client when the transport reports a failure.</summary>
@@ -24,6 +29,10 @@ public sealed class CsilClientException : System.Exception
         Code = code;
     }
 }
+
+/// <summary>One RPC reply as the client transport received it. <c>Variant</c> is null when
+/// the reply carried none.</summary>
+public sealed record CsilWireReply(string? Variant, byte[] Payload);
 
 /// <summary>Typed RPC client for the Ops service. The client owns
 /// (de)serialization via the generated codec; the transport only moves bytes.</summary>
@@ -303,6 +312,22 @@ public sealed class AdminClient(ICsilTransport transport)
         Codec.Decode<RemoveAppAccessPolicyResponse>(transport.Call("Admin", "remove-app-access-policy", Codec.Encode(removeAppAccessPolicyRequest)));
     public PreviewAppAccessResponse PreviewAppAccess(PreviewAppAccessRequest previewAppAccessRequest) =>
         Codec.Decode<PreviewAppAccessResponse>(transport.Call("Admin", "preview-app-access", Codec.Encode(previewAppAccessRequest)));
+    public RenameUserResponse RenameUser(RenameUserRequest renameUserRequest) =>
+        Codec.Decode<RenameUserResponse>(transport.Call("Admin", "rename-user", Codec.Encode(renameUserRequest)));
+    public SetApplicationIdResponse SetApplicationId(SetApplicationIdRequest setApplicationIdRequest) =>
+        Codec.Decode<SetApplicationIdResponse>(transport.Call("Admin", "set-application-id", Codec.Encode(setApplicationIdRequest)));
+    public CreateApiKeyResponse CreateApiKey(CreateApiKeyRequest createApiKeyRequest) =>
+        Codec.Decode<CreateApiKeyResponse>(transport.Call("Admin", "create-api-key", Codec.Encode(createApiKeyRequest)));
+    public ListApiKeysResponse ListApiKeys(ListApiKeysRequest listApiKeysRequest) =>
+        Codec.Decode<ListApiKeysResponse>(transport.Call("Admin", "list-api-keys", Codec.Encode(listApiKeysRequest)));
+    public RevokeApiKeyResponse RevokeApiKey(RevokeApiKeyRequest revokeApiKeyRequest) =>
+        Codec.Decode<RevokeApiKeyResponse>(transport.Call("Admin", "revoke-api-key", Codec.Encode(revokeApiKeyRequest)));
+    public GetAccountLimitsResponse GetAccountLimits(GetAccountLimitsRequest getAccountLimitsRequest) =>
+        Codec.Decode<GetAccountLimitsResponse>(transport.Call("Admin", "get-account-limits", Codec.Encode(getAccountLimitsRequest)));
+    public SetAccountLimitsResponse SetAccountLimits(SetAccountLimitsRequest setAccountLimitsRequest) =>
+        Codec.Decode<SetAccountLimitsResponse>(transport.Call("Admin", "set-account-limits", Codec.Encode(setAccountLimitsRequest)));
+    public GetApplicationUsageResponse GetApplicationUsage(GetApplicationUsageRequest getApplicationUsageRequest) =>
+        Codec.Decode<GetApplicationUsageResponse>(transport.Call("Admin", "get-application-usage", Codec.Encode(getApplicationUsageRequest)));
 }
 
 /// <summary>Typed RPC client for the Account service. The client owns
@@ -357,14 +382,26 @@ public sealed class AttestationClient(ICsilTransport transport)
 /// (de)serialization via the generated codec; the transport only moves bytes.</summary>
 public sealed class RpClient(ICsilTransport transport)
 {
-    public RpSignResponse SignRequest(RpSignRequest rpSignRequest) =>
-        Codec.Decode<RpSignResponse>(transport.Call("Rp", "sign-request", Codec.Encode(rpSignRequest)));
-    public RpDecryptResponse DecryptToken(RpDecryptRequest rpDecryptRequest) =>
-        Codec.Decode<RpDecryptResponse>(transport.Call("Rp", "decrypt-token", Codec.Encode(rpDecryptRequest)));
-    public RpVerifyResponse VerifyAssertion(RpVerifyRequest rpVerifyRequest) =>
-        Codec.Decode<RpVerifyResponse>(transport.Call("Rp", "verify-assertion", Codec.Encode(rpVerifyRequest)));
-    public UserInfo UserinfoFetch(RpUserInfoRequest rpUserInfoRequest) =>
-        Codec.Decode<UserInfo>(transport.Call("Rp", "userinfo-fetch", Codec.Encode(rpUserInfoRequest)));
+    public RpSignResponse SignRequest(RpSignRequest rpSignRequest)
+    {
+        var reply = transport.CallReply("Rp", "sign-request", Codec.Encode(rpSignRequest));
+        return Codec.Decode<RpSignResponse>(Codec.ResolveRpcReply("Rp", "sign-request", reply.Variant, reply.Payload));
+    }
+    public RpDecryptResponse DecryptToken(RpDecryptRequest rpDecryptRequest)
+    {
+        var reply = transport.CallReply("Rp", "decrypt-token", Codec.Encode(rpDecryptRequest));
+        return Codec.Decode<RpDecryptResponse>(Codec.ResolveRpcReply("Rp", "decrypt-token", reply.Variant, reply.Payload));
+    }
+    public RpVerifyResponse VerifyAssertion(RpVerifyRequest rpVerifyRequest)
+    {
+        var reply = transport.CallReply("Rp", "verify-assertion", Codec.Encode(rpVerifyRequest));
+        return Codec.Decode<RpVerifyResponse>(Codec.ResolveRpcReply("Rp", "verify-assertion", reply.Variant, reply.Payload));
+    }
+    public UserInfo UserinfoFetch(RpUserInfoRequest rpUserInfoRequest)
+    {
+        var reply = transport.CallReply("Rp", "userinfo-fetch", Codec.Encode(rpUserInfoRequest));
+        return Codec.Decode<UserInfo>(Codec.ResolveRpcReply("Rp", "userinfo-fetch", reply.Variant, reply.Payload));
+    }
     public RpIssueAttestationResponse IssueAttestation(RpIssueAttestationRequest rpIssueAttestationRequest) =>
         Codec.Decode<RpIssueAttestationResponse>(transport.Call("Rp", "issue-attestation", Codec.Encode(rpIssueAttestationRequest)));
     public RpResolveDomainKeysResponse ResolveDomainKeys(RpResolveDomainKeysRequest rpResolveDomainKeysRequest) =>

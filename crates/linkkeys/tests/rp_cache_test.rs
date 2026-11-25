@@ -20,11 +20,11 @@ use common::net::{CannedRpc, StaticDns};
 use liblinkkeys::application_keys::{self as ak, ApplicationKeyRef, InstanceRef};
 use liblinkkeys::claims::ClaimSigner;
 use liblinkkeys::crypto::{self, SigningAlgorithm};
+use liblinkkeys::generated::types::RpCacheStatus;
 use liblinkkeys::generated::types::{
     ApplicationKeyRevocation, DomainPublicKey, GetApplicationKeysResponse, GetDomainKeysResponse,
     RpResolveApplicationKeysRequest, RpResolveDomainKeysRequest, SignedApplicationKeyAttestation,
 };
-use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::net::{DomainRpc, HttpResponse, Net, NetError};
 use linkkeys::services::rp_cache;
 use std::sync::Arc;
@@ -55,7 +55,7 @@ fn domain_fixture(domain: &str) -> DomainFixture {
     let (vk, sk) = crypto::generate_ed25519_keypair();
     let pk = vk.as_bytes().to_vec();
     let fp = crypto::fingerprint(&pk);
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     let key_id = format!("{domain}-sign-1");
     DomainFixture {
         domain: domain.to_string(),
@@ -64,10 +64,10 @@ fn domain_fixture(domain: &str) -> DomainFixture {
             key_id,
             public_key: pk,
             fingerprint: fp,
-            algorithm: "ed25519".to_string(),
-            key_usage: "sign".to_string(),
-            created_at: now.to_rfc3339(),
-            expires_at: (now + Duration::days(365)).to_rfc3339(),
+            algorithm: liblinkkeys::generated::types::KeyAlgorithm::Ed25519,
+            key_usage: liblinkkeys::generated::types::KeyUsage::Sign,
+            created_at: now,
+            expires_at: now + Duration::days(365),
             revoked_at: None,
             signed_by_key_id: None,
             key_signature: None,
@@ -94,6 +94,7 @@ fn domain_keys_response_bytes(domain: &DomainFixture) -> Vec<u8> {
         keys: vec![domain.public.clone()],
         recent_revocations_available: None,
     })
+    .unwrap()
 }
 
 struct AppKeyFixture {
@@ -105,16 +106,16 @@ fn app_signing_key(id: &str) -> AppKeyFixture {
     let (vk, sk) = crypto::generate_ed25519_keypair();
     let pk = vk.as_bytes().to_vec();
     let fp = crypto::fingerprint(&pk);
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     AppKeyFixture {
         key_ref: ApplicationKeyRef {
             key_id: id.to_string(),
-            key_usage: ak::KEY_USAGE_SIGN.to_string(),
-            algorithm: "ed25519".to_string(),
+            key_usage: ak::KEY_USAGE_SIGN,
+            algorithm: liblinkkeys::generated::types::KeyAlgorithm::Ed25519,
             public_key: pk,
             fingerprint: fp,
-            created_at: now.to_rfc3339(),
-            expires_at: (now + Duration::days(365)).to_rfc3339(),
+            created_at: now,
+            expires_at: now + Duration::days(365),
             revoked_at: None,
         },
         private_key: sk.to_bytes().to_vec(),
@@ -158,7 +159,7 @@ fn revoke(
         instance,
         &target.key_ref.key_id,
         &target.key_ref.fingerprint,
-        &revoked_at.to_rfc3339(),
+        &revoked_at,
         &signers,
     )
     .expect("sign revocation")
@@ -178,6 +179,7 @@ fn app_keys_response_bytes(
         keys,
         revocations,
     })
+    .unwrap()
 }
 
 /// A `DomainRpc` that counts every call it serves (keyed the same way
@@ -317,10 +319,10 @@ fn domain_key_cache_miss_fetches_verifies_stores_and_returns_refreshed() {
     )
     .expect("resolve domain keys");
 
-    assert_eq!(resp.cache_status, "refreshed");
+    assert_eq!(resp.cache_status, RpCacheStatus::Refreshed);
     assert_eq!(resp.keys.len(), 1);
     assert_eq!(resp.keys[0].key_id, d.key_id);
-    assert!(!resp.fetched_at.is_empty());
+    assert!(resp.fetched_at <= OffsetDateTime::now_utc());
 }
 
 #[test]
@@ -348,13 +350,13 @@ fn domain_key_cache_hit_returns_fresh_with_no_home_domain_call() {
     };
     let first =
         rp_cache::resolve_domain_keys(&pool, &net, rt.handle(), req()).expect("first resolve");
-    assert_eq!(first.cache_status, "refreshed");
+    assert_eq!(first.cache_status, RpCacheStatus::Refreshed);
     let after_first = counting.count_for("DomainKeys", "get-domain-keys");
     assert_eq!(after_first, 1);
 
     let second =
         rp_cache::resolve_domain_keys(&pool, &net, rt.handle(), req()).expect("second resolve");
-    assert_eq!(second.cache_status, "fresh");
+    assert_eq!(second.cache_status, RpCacheStatus::Fresh);
     assert_eq!(
         counting.count_for("DomainKeys", "get-domain-keys"),
         after_first,
@@ -393,7 +395,7 @@ fn domain_key_unreachable_with_valid_cache_returns_stale() {
     };
     let first =
         rp_cache::resolve_domain_keys(&pool, &net, rt.handle(), req(None)).expect("first resolve");
-    assert_eq!(first.cache_status, "refreshed");
+    assert_eq!(first.cache_status, RpCacheStatus::Refreshed);
 
     // Now the home domain is unreachable (DNS and RPC both dead -- the fetch
     // fails regardless of which layer trips first), but a stricter
@@ -402,7 +404,7 @@ fn domain_key_unreachable_with_valid_cache_returns_stale() {
     let dead = dead_net();
     let second = rp_cache::resolve_domain_keys(&pool, &dead, rt.handle(), req(Some(0)))
         .expect("stale fallback still succeeds");
-    assert_eq!(second.cache_status, "stale");
+    assert_eq!(second.cache_status, RpCacheStatus::Stale);
     // The stale path re-derives `keys` from the durable `peer_keys` cache,
     // which (by design -- see `peer_key_to_domain_public_key`) does not carry
     // the key's own `created_at`, only `expires_at`/`revoked_at`, which are
@@ -467,7 +469,7 @@ fn domain_key_stricter_max_age_forces_refetch_weaker_does_not_get_staler_data() 
         },
     )
     .expect("first resolve");
-    assert_eq!(first.cache_status, "refreshed");
+    assert_eq!(first.cache_status, RpCacheStatus::Refreshed);
     assert_eq!(count(), 1);
 
     // A weaker (larger) requested max age than policy must not serve staler
@@ -482,7 +484,7 @@ fn domain_key_stricter_max_age_forces_refetch_weaker_does_not_get_staler_data() 
         },
     )
     .expect("weaker request still resolves");
-    assert_eq!(weaker.cache_status, "fresh");
+    assert_eq!(weaker.cache_status, RpCacheStatus::Fresh);
     assert_eq!(count(), 1, "a weaker request must not force a refetch");
 
     // A stricter (max_cache_age_seconds=0) request forces a refetch.
@@ -496,7 +498,7 @@ fn domain_key_stricter_max_age_forces_refetch_weaker_does_not_get_staler_data() 
         },
     )
     .expect("stricter request still resolves");
-    assert_eq!(stricter.cache_status, "refreshed");
+    assert_eq!(stricter.cache_status, RpCacheStatus::Refreshed);
     assert_eq!(count(), 2, "a stricter request must force a refetch");
 }
 
@@ -565,7 +567,12 @@ fn application_key_cache_miss_fetches_verifies_stores_and_returns_refreshed() {
         instance_id: "instance-1",
     };
     let key = app_signing_key("k1");
-    let signed = attest(&d, &instance, &key, OffsetDateTime::now_utc());
+    let signed = attest(
+        &d,
+        &instance,
+        &key,
+        liblinkkeys::timestamp::now_whole_seconds(),
+    );
     let net = app_net(
         &d,
         app_keys_response_bytes(&subject, &d.domain, vec![signed.clone()], vec![]),
@@ -585,7 +592,7 @@ fn application_key_cache_miss_fetches_verifies_stores_and_returns_refreshed() {
     )
     .expect("resolve application keys");
 
-    assert_eq!(resp.cache_status, "refreshed");
+    assert_eq!(resp.cache_status, RpCacheStatus::Refreshed);
     assert_eq!(resp.application_keys.len(), 1);
     assert_eq!(resp.application_keys[0].attestation, signed.attestation);
     assert_eq!(
@@ -609,7 +616,12 @@ fn application_key_cache_hit_returns_fresh_with_no_home_domain_call() {
         instance_id: "instance-1",
     };
     let key = app_signing_key("k1");
-    let signed = attest(&d, &instance, &key, OffsetDateTime::now_utc());
+    let signed = attest(
+        &d,
+        &instance,
+        &key,
+        liblinkkeys::timestamp::now_whole_seconds(),
+    );
     let (net, counting) = app_net_counting(
         &d,
         app_keys_response_bytes(&subject, &d.domain, vec![signed], vec![]),
@@ -625,12 +637,12 @@ fn application_key_cache_hit_returns_fresh_with_no_home_domain_call() {
     };
     let first =
         rp_cache::resolve_application_keys(&pool, &net, rt.handle(), req()).expect("first resolve");
-    assert_eq!(first.cache_status, "refreshed");
+    assert_eq!(first.cache_status, RpCacheStatus::Refreshed);
     assert_eq!(count(), 1);
 
     let second = rp_cache::resolve_application_keys(&pool, &net, rt.handle(), req())
         .expect("second resolve");
-    assert_eq!(second.cache_status, "fresh");
+    assert_eq!(second.cache_status, RpCacheStatus::Fresh);
     assert_eq!(
         count(),
         1,
@@ -652,7 +664,12 @@ fn application_key_restart_persists_cached_signed_records() {
         instance_id: "instance-1",
     };
     let key = app_signing_key("k1");
-    let signed = attest(&d, &instance, &key, OffsetDateTime::now_utc());
+    let signed = attest(
+        &d,
+        &instance,
+        &key,
+        liblinkkeys::timestamp::now_whole_seconds(),
+    );
     let net = app_net(
         &d,
         app_keys_response_bytes(&subject, &d.domain, vec![signed.clone()], vec![]),
@@ -671,7 +688,7 @@ fn application_key_restart_persists_cached_signed_records() {
         },
     )
     .expect("first resolve");
-    assert_eq!(first.cache_status, "refreshed");
+    assert_eq!(first.cache_status, RpCacheStatus::Refreshed);
 
     // "Restart": build a new service view over the SAME pool (no in-process
     // struct to reconstruct -- the database is the persistence layer) and a
@@ -691,7 +708,7 @@ fn application_key_restart_persists_cached_signed_records() {
         },
     )
     .expect("stale fallback after restart");
-    assert_eq!(after_restart.cache_status, "stale");
+    assert_eq!(after_restart.cache_status, RpCacheStatus::Stale);
     assert_eq!(after_restart.application_keys.len(), 1);
     assert_eq!(
         after_restart.application_keys[0].attestation,
@@ -712,7 +729,12 @@ fn application_key_unreachable_with_valid_cache_returns_stale_not_current() {
         instance_id: "instance-1",
     };
     let key = app_signing_key("k1");
-    let signed = attest(&d, &instance, &key, OffsetDateTime::now_utc());
+    let signed = attest(
+        &d,
+        &instance,
+        &key,
+        liblinkkeys::timestamp::now_whole_seconds(),
+    );
     let net = app_net(
         &d,
         app_keys_response_bytes(&subject, &d.domain, vec![signed.clone()], vec![]),
@@ -730,8 +752,8 @@ fn application_key_unreachable_with_valid_cache_returns_stale_not_current() {
     let dead = dead_net();
     let stale = rp_cache::resolve_application_keys(&pool, &dead, rt.handle(), req(Some(0)))
         .expect("stale fallback");
-    assert_eq!(stale.cache_status, "stale");
-    assert_ne!(stale.cache_status, "fresh");
+    assert_eq!(stale.cache_status, RpCacheStatus::Stale);
+    assert_ne!(stale.cache_status, RpCacheStatus::Fresh);
     assert_eq!(stale.application_keys.len(), 1);
     assert_eq!(stale.application_keys[0].attestation, signed.attestation);
 }
@@ -779,7 +801,7 @@ fn attestation_that_does_not_verify_is_never_cached_or_returned() {
         &real_domain,
         &instance,
         &good_key,
-        OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_seconds(),
     );
 
     // "Signed" by a domain key the home domain does NOT publish -- this must
@@ -789,7 +811,7 @@ fn attestation_that_does_not_verify_is_never_cached_or_returned() {
         &attacker_domain,
         &instance,
         &bad_key,
-        OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_seconds(),
     );
 
     let net = app_net(
@@ -856,7 +878,7 @@ fn revocation_refresh_marks_key_revoked_and_later_read_reflects_it() {
     let target = app_signing_key("target");
     let sibling_a = app_signing_key("sibling-a");
     let sibling_b = app_signing_key("sibling-b");
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     let attestations = vec![
         attest(&d, &instance, &target, now),
         attest(&d, &instance, &sibling_a, now),
@@ -883,7 +905,7 @@ fn revocation_refresh_marks_key_revoked_and_later_read_reflects_it() {
         &instance,
         &target,
         &[&sibling_a, &sibling_b],
-        OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_seconds(),
     );
     let net2 = app_net(
         &d,
@@ -891,7 +913,7 @@ fn revocation_refresh_marks_key_revoked_and_later_read_reflects_it() {
     );
     let second = rp_cache::resolve_application_keys(&pool, &net2, rt.handle(), req(Some(0)))
         .expect("forced refetch sees the revocation");
-    assert_eq!(second.cache_status, "refreshed");
+    assert_eq!(second.cache_status, RpCacheStatus::Refreshed);
     assert_eq!(second.application_key_revocations.len(), 1);
     assert_eq!(
         second.application_key_revocations[0].target_key_id,
@@ -918,7 +940,12 @@ fn application_key_stricter_max_age_forces_refetch_weaker_does_not_get_staler_da
         instance_id: "instance-1",
     };
     let key = app_signing_key("k1");
-    let signed = attest(&d, &instance, &key, OffsetDateTime::now_utc());
+    let signed = attest(
+        &d,
+        &instance,
+        &key,
+        liblinkkeys::timestamp::now_whole_seconds(),
+    );
     let (net, counting) = app_net_counting(
         &d,
         app_keys_response_bytes(&subject, &d.domain, vec![signed], vec![]),
@@ -938,12 +965,12 @@ fn application_key_stricter_max_age_forces_refetch_weaker_does_not_get_staler_da
 
     let weaker = rp_cache::resolve_application_keys(&pool, &net, rt.handle(), req(Some(999_999)))
         .expect("weaker request still resolves");
-    assert_eq!(weaker.cache_status, "fresh");
+    assert_eq!(weaker.cache_status, RpCacheStatus::Fresh);
     assert_eq!(count(), 1, "a weaker request must not force a refetch");
 
     let stricter = rp_cache::resolve_application_keys(&pool, &net, rt.handle(), req(Some(0)))
         .expect("stricter request still resolves");
-    assert_eq!(stricter.cache_status, "refreshed");
+    assert_eq!(stricter.cache_status, RpCacheStatus::Refreshed);
     assert_eq!(count(), 2, "a stricter request must force a refetch");
 }
 
@@ -960,7 +987,12 @@ fn concurrent_refreshes_for_one_entry_coalesce_into_a_single_fetch() {
         instance_id: "instance-1",
     };
     let key = app_signing_key("k1");
-    let signed = attest(&d, &instance, &key, OffsetDateTime::now_utc());
+    let signed = attest(
+        &d,
+        &instance,
+        &key,
+        liblinkkeys::timestamp::now_whole_seconds(),
+    );
     let dns = dns_for(&d);
     let rpc = CannedRpc::new()
         .with(
@@ -1055,7 +1087,7 @@ fn cache_entries_do_not_bleed_across_instances_or_subjects() {
     let key_a2 = app_signing_key("a2");
     let key_b1 = app_signing_key("b1");
 
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     let signed_a1 = attest(&d, &instance_a1, &key_a1, now);
     let signed_a2 = attest(&d, &instance_a2, &key_a2, now);
     let signed_b1 = attest(&d, &instance_b1, &key_b1, now);
@@ -1143,7 +1175,12 @@ fn a_handle_change_does_not_move_the_cache_entry() {
         instance_id: "instance-1",
     };
     let key = app_signing_key("k1");
-    let signed = attest(&d, &instance, &key, OffsetDateTime::now_utc());
+    let signed = attest(
+        &d,
+        &instance,
+        &key,
+        liblinkkeys::timestamp::now_whole_seconds(),
+    );
     let net = app_net(
         &d,
         app_keys_response_bytes(&subject, &d.domain, vec![signed.clone()], vec![]),

@@ -163,7 +163,7 @@ class TestConformanceClaims < Minitest::Test
 
     assert_equal trr['user_id'], response.user_id
     assert_equal trr['user_domain'], response.user_domain
-    assert_equal trr['ticket_expires_at'], response.ticket_expires_at
+    assert_equal Time.iso8601(trr['ticket_expires_at']), Time.iso8601(response.ticket_expires_at)
     assert_equal claims_vector['cases'].length, response.claims.length
 
     reencoded = response.to_cbor.unpack1('H*')

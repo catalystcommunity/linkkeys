@@ -182,10 +182,10 @@ Future<VerifiedLocalLogin> _runScenario(_Scenario scenario) async {
     keyId: _domainKeyId,
     publicKey: domainSigning.publicKey,
     fingerprint: await Crypto.fingerprint(domainSigning.publicKey),
-    algorithm: 'ed25519',
-    keyUsage: 'sign',
-    createdAt: Rfc3339.format(now.subtract(const Duration(days: 30))),
-    expiresAt: Rfc3339.format(now.add(const Duration(days: 365))),
+    algorithm: KeyAlgorithm.ed25519,
+    keyUsage: KeyUsage.sign,
+    createdAt: Rfc3339.wholeSeconds(now.subtract(const Duration(days: 30))),
+    expiresAt: Rfc3339.wholeSeconds(now.add(const Duration(days: 365))),
   );
   domainKey = scenario.mutateDomainKey(domainKey);
   final revocationsForWire = scenario.revocationsBuilder != null
@@ -201,8 +201,8 @@ Future<VerifiedLocalLogin> _runScenario(_Scenario scenario) async {
     _callbackUrl,
     pending.nonce,
     pending.state,
-    Rfc3339.format(now),
-    Rfc3339.format(now.add(const Duration(minutes: 5))),
+    Rfc3339.wholeSeconds(now),
+    Rfc3339.wholeSeconds(now.add(const Duration(minutes: 5))),
   );
   payload = scenario.mutatePayload(payload);
 
@@ -228,7 +228,7 @@ Future<VerifiedLocalLogin> _runScenario(_Scenario scenario) async {
     claimValue: Uint8List.fromList(utf8.encode('flowtestuser')),
     userId: 'user-1',
     subjectDomain: _userDomain,
-    attestedAt: Rfc3339.format(now),
+    attestedAt: Rfc3339.wholeSeconds(now),
   );
   var claim = await claims_impl.signClaim(claimSpec, [
     claims_impl.ClaimSigner(
@@ -243,7 +243,7 @@ Future<VerifiedLocalLogin> _runScenario(_Scenario scenario) async {
     userId: 'user-1',
     userDomain: _userDomain,
     claims: claimsForWire,
-    ticketExpiresAt: Rfc3339.format(now.add(const Duration(hours: 1))),
+    ticketExpiresAt: Rfc3339.wholeSeconds(now.add(const Duration(hours: 1))),
   );
   redemptionResponse = scenario.mutateRedemption(redemptionResponse);
 
@@ -374,8 +374,8 @@ void main() {
           callbackUrl: p.callbackUrl,
           nonce: p.nonce,
           state: p.state,
-          issuedAt: Rfc3339.format(n.subtract(const Duration(hours: 2))),
-          expiresAt: Rfc3339.format(n.subtract(const Duration(hours: 1))),
+          issuedAt: Rfc3339.wholeSeconds(n.subtract(const Duration(hours: 2))),
+          expiresAt: Rfc3339.wholeSeconds(n.subtract(const Duration(hours: 1))),
         );
       };
       s.expectedRequests = 2;
@@ -402,7 +402,7 @@ void main() {
             keyUsage: k.keyUsage,
             createdAt: k.createdAt,
             expiresAt: k.expiresAt,
-            revokedAt: Rfc3339.format(DateTime.now().toUtc()),
+            revokedAt: Rfc3339.wholeSeconds(DateTime.now().toUtc()),
             signedByKeyId: k.signedByKeyId,
             keySignature: k.keySignature,
           );
@@ -513,19 +513,19 @@ void main() {
         keyId: sibling1KeyId,
         publicKey: sibling1.publicKey,
         fingerprint: await Crypto.fingerprint(sibling1.publicKey),
-        algorithm: 'ed25519',
-        keyUsage: 'sign',
-        createdAt: Rfc3339.format(now.subtract(const Duration(days: 30))),
-        expiresAt: Rfc3339.format(now.add(const Duration(days: 365))),
+        algorithm: KeyAlgorithm.ed25519,
+        keyUsage: KeyUsage.sign,
+        createdAt: Rfc3339.wholeSeconds(now.subtract(const Duration(days: 30))),
+        expiresAt: Rfc3339.wholeSeconds(now.add(const Duration(days: 365))),
       );
       final sibling2Key = DomainPublicKey(
         keyId: sibling2KeyId,
         publicKey: sibling2.publicKey,
         fingerprint: await Crypto.fingerprint(sibling2.publicKey),
-        algorithm: 'ed25519',
-        keyUsage: 'sign',
-        createdAt: Rfc3339.format(now.subtract(const Duration(days: 30))),
-        expiresAt: Rfc3339.format(now.add(const Duration(days: 365))),
+        algorithm: KeyAlgorithm.ed25519,
+        keyUsage: KeyUsage.sign,
+        createdAt: Rfc3339.wholeSeconds(now.subtract(const Duration(days: 30))),
+        expiresAt: Rfc3339.wholeSeconds(now.add(const Duration(days: 365))),
       );
 
       final s = _Scenario();
@@ -539,9 +539,12 @@ void main() {
       // `mutateDomainKey` it's allowed to be async, so the quorum-verified
       // revocation certificate targeting it can be signed here.
       s.revocationsBuilder = (domainKey) async {
-        final revokedAt = Rfc3339.format(now);
+        final revokedAt = Rfc3339.wholeSeconds(now);
         final payload = revocation_impl.revocationPayload(
-            domainKey.keyId, domainKey.fingerprint, revokedAt, _userDomain);
+            domainKey.keyId,
+            domainKey.fingerprint,
+            Rfc3339.signedSeconds(revokedAt)!,
+            _userDomain);
         final sig1 = await Crypto.signEd25519(payload, sibling1.privateKeySeed);
         final sig2 = await Crypto.signEd25519(payload, sibling2.privateKeySeed);
         return [

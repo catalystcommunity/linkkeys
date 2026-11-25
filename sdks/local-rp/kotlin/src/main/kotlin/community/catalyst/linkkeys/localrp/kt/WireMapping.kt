@@ -1,34 +1,16 @@
 package community.catalyst.linkkeys.localrp.kt
 
 import java.time.Instant
-import java.time.OffsetDateTime
-import java.time.format.DateTimeParseException
 import community.catalyst.linkkeys.localrp.wire.Types as JTypes
 
 /**
- * RFC3339 timestamp parse/format, and the mapping between this package's
- * idiomatic Kotlin data classes (using [Instant]) and the underlying Java
- * SDK's wire records (using RFC3339 `String`s -- see
- * `community.catalyst.linkkeys.localrp.wire.Types`). This is presentation
- * mapping only: no protocol logic is duplicated here, only
- * `Instant<->String` conversion at the Kotlin API boundary.
- *
- * Parsing accepts both the `Z` and `+00:00` UTC-offset spellings (matching
- * the underlying SDK's own `Rfc3339` helper), since [OffsetDateTime]'s ISO
- * offset parser accepts either.
+ * The mapping between this package's idiomatic Kotlin data classes and the
+ * underlying Java SDK's wire records
+ * (`community.catalyst.linkkeys.localrp.wire.Types`). Both sides use
+ * [Instant] for CSIL `timestamp` fields (CBOR tag 0 RFC 3339 text on the
+ * wire), so this is presentation mapping only: no protocol logic is
+ * duplicated here.
  */
-internal fun parseRfc3339(field: String, s: String): Instant =
-    try {
-        OffsetDateTime.parse(s).toInstant()
-    } catch (e: DateTimeParseException) {
-        throw LocalRpException.Protocol(ProtocolErrorKind.BAD_TIMESTAMP, "$field: ${e.message}", e)
-    }
-
-internal fun parseRfc3339OrNull(field: String, s: String?): Instant? = s?.let { parseRfc3339(field, it) }
-
-/** Always writes the seconds; `OffsetDateTime.toString()` drops them on a whole minute, which is not RFC3339. */
-internal fun formatRfc3339(instant: Instant): String = java.time.format.DateTimeFormatter.ISO_INSTANT.format(instant)
-
 /** Nullable-`ByteArray`-aware content equality, since `ByteArray?.equals` is reference equality by default. */
 private fun nullableContentEquals(a: ByteArray?, b: ByteArray?): Boolean =
     if (a == null || b == null) a === b else a.contentEquals(b)
@@ -100,10 +82,10 @@ internal fun JTypes.Claim.toKotlin(): Claim = Claim(
     claimType(),
     claimValue(),
     signatures().map { it.toKotlin() },
-    parseRfc3339("attested_at", attestedAt()),
-    parseRfc3339("created_at", createdAt()),
-    parseRfc3339OrNull("expires_at", expiresAt()),
-    parseRfc3339OrNull("revoked_at", revokedAt()),
+    attestedAt(),
+    createdAt(),
+    expiresAt(),
+    revokedAt(),
 )
 
 internal fun JTypes.DomainPublicKey.toKotlin(): DomainPublicKey = DomainPublicKey(
@@ -112,9 +94,9 @@ internal fun JTypes.DomainPublicKey.toKotlin(): DomainPublicKey = DomainPublicKe
     fingerprint(),
     algorithm(),
     keyUsage(),
-    parseRfc3339("created_at", createdAt()),
-    parseRfc3339("expires_at", expiresAt()),
-    parseRfc3339OrNull("revoked_at", revokedAt()),
+    createdAt(),
+    expiresAt(),
+    revokedAt(),
     signedByKeyId(),
     keySignature(),
 )
@@ -125,9 +107,9 @@ internal fun DomainPublicKey.toJava(): JTypes.DomainPublicKey = JTypes.DomainPub
     fingerprint,
     algorithm,
     keyUsage,
-    formatRfc3339(createdAt),
-    formatRfc3339(expiresAt),
-    revokedAt?.let { formatRfc3339(it) },
+    createdAt,
+    expiresAt,
+    revokedAt,
     signedByKeyId,
     keySignature,
 )

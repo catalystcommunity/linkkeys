@@ -28,6 +28,665 @@ class CheckResult
     }
 }
 
+final class KeyAlgorithm
+{
+    const ED25519 = 'ed25519';
+    const X25519 = 'x25519';
+
+    private static $byNumber = array(1 => self::ED25519, 2 => self::X25519);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown KeyAlgorithm member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown KeyAlgorithm number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class KeyUsage
+{
+    const SIGN = 'sign';
+    const ENCRYPT = 'encrypt';
+    const AGREE = 'agree';
+
+    private static $byNumber = array(1 => self::SIGN, 2 => self::ENCRYPT, 3 => self::AGREE);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown KeyUsage member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown KeyUsage number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class AeadSuite
+{
+    const AES_256_GCM = 'aes_256_gcm';
+    const CHACHA20_POLY1305 = 'chacha20_poly1305';
+
+    private static $byNumber = array(1 => self::AES_256_GCM, 2 => self::CHACHA20_POLY1305);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown AeadSuite member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown AeadSuite number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class ClaimValueType
+{
+    const TEXT = 'text';
+    const URL = 'url';
+    const EMAIL = 'email';
+    const BOOL = 'bool';
+    const INT = 'int';
+    const FLOAT = 'float';
+    const DECIMAL = 'decimal';
+    const DATE = 'date';
+    const TIMESTAMP = 'timestamp';
+    const OPAQUE = 'opaque';
+
+    private static $byNumber = array(1 => self::TEXT, 2 => self::URL, 3 => self::EMAIL, 4 => self::BOOL, 5 => self::INT, 6 => self::FLOAT, 7 => self::DECIMAL, 8 => self::DATE, 9 => self::TIMESTAMP, 10 => self::OPAQUE);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown ClaimValueType member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown ClaimValueType number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class SetRule
+{
+    const USER_SELF = 'user_self';
+    const IDP_ON_REQUEST = 'idp_on_request';
+    const TRUSTED_ISSUER_ONLY = 'trusted_issuer_only';
+    const ADMIN_ONLY = 'admin_only';
+    const DENY = 'deny';
+
+    private static $byNumber = array(1 => self::USER_SELF, 2 => self::IDP_ON_REQUEST, 3 => self::TRUSTED_ISSUER_ONLY, 4 => self::ADMIN_ONLY, 5 => self::DENY);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown SetRule member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown SetRule number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class SigningRule
+{
+    const SELF_SIGNED = 'self_signed';
+    const VERIFIED = 'verified';
+    const ATTESTED = 'attested';
+    const UNSIGNED = 'unsigned';
+
+    private static $byNumber = array(1 => self::SELF_SIGNED, 2 => self::VERIFIED, 3 => self::ATTESTED, 4 => self::UNSIGNED);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown SigningRule member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown SigningRule number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class SetClaimOutcome
+{
+    const SIGNED = 'signed';
+    const STORED_UNSIGNED = 'stored_unsigned';
+    const VERIFICATION_REQUIRED = 'verification_required';
+    const QUEUED = 'queued';
+
+    private static $byNumber = array(1 => self::SIGNED, 2 => self::STORED_UNSIGNED, 3 => self::VERIFICATION_REQUIRED, 4 => self::QUEUED);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown SetClaimOutcome member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown SetClaimOutcome number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class ReleaseDisposition
+{
+    const FORCED_ALLOW = 'forced_allow';
+    const FORCED_DENY = 'forced_deny';
+
+    private static $byNumber = array(1 => self::FORCED_ALLOW, 2 => self::FORCED_DENY);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown ReleaseDisposition member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown ReleaseDisposition number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class ConsentRowPolicy
+{
+    const USER = 'user';
+    const FORCED_ALLOW = 'forced_allow';
+    const FORCED_DENY = 'forced_deny';
+
+    private static $byNumber = array(1 => self::USER, 2 => self::FORCED_ALLOW, 3 => self::FORCED_DENY);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown ConsentRowPolicy member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown ConsentRowPolicy number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class ClaimApprovalStatus
+{
+    const PENDING = 'pending';
+    const APPROVED = 'approved';
+    const REJECTED = 'rejected';
+
+    private static $byNumber = array(1 => self::PENDING, 2 => self::APPROVED, 3 => self::REJECTED);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown ClaimApprovalStatus member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown ClaimApprovalStatus number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class PinRecheckOutcome
+{
+    const FIRST_SEEN = 'first_seen';
+    const UNCHANGED = 'unchanged';
+    const ROTATED = 'rotated';
+    const MISMATCH = 'mismatch';
+    const ERROR = 'error';
+
+    private static $byNumber = array(1 => self::FIRST_SEEN, 2 => self::UNCHANGED, 3 => self::ROTATED, 4 => self::MISMATCH, 5 => self::ERROR);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown PinRecheckOutcome member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown PinRecheckOutcome number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class NotificationPurpose
+{
+    const VERIFY_CONTACT = 'verify_contact';
+    const RESET_PASSWORD = 'reset_password';
+
+    private static $byNumber = array(1 => self::VERIFY_CONTACT, 2 => self::RESET_PASSWORD);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown NotificationPurpose member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown NotificationPurpose number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class NotificationChannel
+{
+    const EMAIL = 'email';
+
+    private static $byNumber = array(1 => self::EMAIL);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown NotificationChannel member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown NotificationChannel number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class DestinationKind
+{
+    const EMAIL = 'email';
+
+    private static $byNumber = array(1 => self::EMAIL);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown DestinationKind member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown DestinationKind number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class LocalRpPolicy
+{
+    const DISABLED = 'disabled';
+    const ADMIN_APPROVAL_REQUIRED = 'admin_approval_required';
+    const ALLOW_BY_DEFAULT = 'allow_by_default';
+
+    private static $byNumber = array(1 => self::DISABLED, 2 => self::ADMIN_APPROVAL_REQUIRED, 3 => self::ALLOW_BY_DEFAULT);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown LocalRpPolicy member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown LocalRpPolicy number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class LocalRpStatus
+{
+    const PENDING = 'pending';
+    const APPROVED = 'approved';
+    const DENIED = 'denied';
+    const REVOKED = 'revoked';
+
+    private static $byNumber = array(1 => self::PENDING, 2 => self::APPROVED, 3 => self::DENIED, 4 => self::REVOKED);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown LocalRpStatus member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown LocalRpStatus number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class LocalRpAdmission
+{
+    const CONSENT = 'consent';
+    const PENDING = 'pending';
+    const BLOCKED = 'blocked';
+
+    private static $byNumber = array(1 => self::CONSENT, 2 => self::PENDING, 3 => self::BLOCKED);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown LocalRpAdmission member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown LocalRpAdmission number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class AppAccessMode
+{
+    const ALLOW = 'allow';
+    const DENY = 'deny';
+
+    private static $byNumber = array(1 => self::ALLOW, 2 => self::DENY);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown AppAccessMode member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown AppAccessMode number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class AppAccessTargetKind
+{
+    const EVERYONE = 'everyone';
+    const USER = 'user';
+    const GROUP = 'group';
+    const CLAIM = 'claim';
+
+    private static $byNumber = array(1 => self::EVERYONE, 2 => self::USER, 3 => self::GROUP, 4 => self::CLAIM);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown AppAccessTargetKind member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown AppAccessTargetKind number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class ClaimOperator
+{
+    const PRESENT = 'present';
+    const ABSENT = 'absent';
+    const EQUALS = 'equals';
+    const AGE_UNDER = 'age_under';
+    const AGE_AT_LEAST = 'age_at_least';
+
+    private static $byNumber = array(1 => self::PRESENT, 2 => self::ABSENT, 3 => self::EQUALS, 4 => self::AGE_UNDER, 5 => self::AGE_AT_LEAST);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown ClaimOperator member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown ClaimOperator number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class ApplicationKeyChallengePurpose
+{
+    const ADD = 'add';
+    const RENEW = 'renew';
+
+    private static $byNumber = array(1 => self::ADD, 2 => self::RENEW);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown ApplicationKeyChallengePurpose member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown ApplicationKeyChallengePurpose number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class AuthFlow
+{
+    const LOGIN = 'login';
+    const CLAIMS_UPDATE = 'claims_update';
+
+    private static $byNumber = array(1 => self::LOGIN, 2 => self::CLAIMS_UPDATE);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown AuthFlow member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown AuthFlow number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class RpCacheStatus
+{
+    const FRESH = 'fresh';
+    const REFRESHED = 'refreshed';
+    const STALE = 'stale';
+
+    private static $byNumber = array(1 => self::FRESH, 2 => self::REFRESHED, 3 => self::STALE);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown RpCacheStatus member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown RpCacheStatus number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class AccountKind
+{
+    const HUMAN = 'human';
+    const APPLICATION = 'application';
+
+    private static $byNumber = array(1 => self::HUMAN, 2 => self::APPLICATION);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown AccountKind member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown AccountKind number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class RpErrorCode
+{
+    const NOT_APPLICATION_ACCOUNT = 'not_application_account';
+    const APPLICATION_MISMATCH = 'application_mismatch';
+    const APPLICATION_USER_LIMIT = 'application_user_limit';
+    const BAD_REQUEST = 'bad_request';
+    const UPSTREAM_FAILED = 'upstream_failed';
+    const INTERNAL = 'internal';
+
+    private static $byNumber = array(1 => self::NOT_APPLICATION_ACCOUNT, 2 => self::APPLICATION_MISMATCH, 3 => self::APPLICATION_USER_LIMIT, 4 => self::BAD_REQUEST, 5 => self::UPSTREAM_FAILED, 6 => self::INTERNAL);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown RpErrorCode member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown RpErrorCode number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+final class IssuedClaimOutcome
+{
+    const DEPOSITED = 'deposited';
+    const HANDOFF = 'handoff';
+    const SKIPPED = 'skipped';
+    const FAILED = 'failed';
+
+    private static $byNumber = array(1 => self::DEPOSITED, 2 => self::HANDOFF, 3 => self::SKIPPED, 4 => self::FAILED);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown IssuedClaimOutcome member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown IssuedClaimOutcome number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
 class HelloRequest
 {
     /** @var mixed */
@@ -411,11 +1070,15 @@ class PinRecheckResult
     /** @var mixed */
     public $outcome;
 
+    /** @var mixed */
+    public $message;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
         $this->domain = array_key_exists('domain', $values) ? $values['domain'] : null;
         $this->outcome = array_key_exists('outcome', $values) ? $values['outcome'] : null;
+        $this->message = array_key_exists('message', $values) ? $values['message'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -424,6 +1087,7 @@ class PinRecheckResult
         return array(
             'domain' => $this->domain,
             'outcome' => $this->outcome,
+            'message' => $this->message,
         );
     }
 }
@@ -1124,6 +1788,9 @@ class IdentityAssertion
     /** @var mixed */
     public $displayName;
 
+    /** @var mixed */
+    public $application;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
@@ -1135,6 +1802,7 @@ class IdentityAssertion
         $this->expiresAt = array_key_exists('expires_at', $values) ? $values['expires_at'] : null;
         $this->authorizedClaims = array_key_exists('authorized_claims', $values) ? $values['authorized_claims'] : null;
         $this->displayName = array_key_exists('display_name', $values) ? $values['display_name'] : null;
+        $this->application = array_key_exists('application', $values) ? $values['application'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -1149,6 +1817,7 @@ class IdentityAssertion
             'expires_at' => $this->expiresAt,
             'authorized_claims' => $this->authorizedClaims,
             'display_name' => $this->displayName,
+            'application' => $this->application,
         );
     }
 }
@@ -1605,6 +2274,12 @@ class AdminUser
     public $displayName;
 
     /** @var mixed */
+    public $kind;
+
+    /** @var mixed */
+    public $applicationId;
+
+    /** @var mixed */
     public $isActive;
 
     /** @var mixed */
@@ -1628,6 +2303,8 @@ class AdminUser
         $this->id = array_key_exists('id', $values) ? $values['id'] : null;
         $this->username = array_key_exists('username', $values) ? $values['username'] : null;
         $this->displayName = array_key_exists('display_name', $values) ? $values['display_name'] : null;
+        $this->kind = array_key_exists('kind', $values) ? $values['kind'] : null;
+        $this->applicationId = array_key_exists('application_id', $values) ? $values['application_id'] : null;
         $this->isActive = array_key_exists('is_active', $values) ? $values['is_active'] : null;
         $this->createdAt = array_key_exists('created_at', $values) ? $values['created_at'] : null;
         $this->updatedAt = array_key_exists('updated_at', $values) ? $values['updated_at'] : null;
@@ -1643,6 +2320,8 @@ class AdminUser
             'id' => $this->id,
             'username' => $this->username,
             'display_name' => $this->displayName,
+            'kind' => $this->kind,
+            'application_id' => $this->applicationId,
             'is_active' => $this->isActive,
             'created_at' => $this->createdAt,
             'updated_at' => $this->updatedAt,
@@ -1834,12 +2513,16 @@ class CreateUserRequest
     /** @var mixed */
     public $password;
 
+    /** @var mixed */
+    public $applicationId;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
         $this->username = array_key_exists('username', $values) ? $values['username'] : null;
         $this->displayName = array_key_exists('display_name', $values) ? $values['display_name'] : null;
         $this->password = array_key_exists('password', $values) ? $values['password'] : null;
+        $this->applicationId = array_key_exists('application_id', $values) ? $values['application_id'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -1849,6 +2532,7 @@ class CreateUserRequest
             'username' => $this->username,
             'display_name' => $this->displayName,
             'password' => $this->password,
+            'application_id' => $this->applicationId,
         );
     }
 }
@@ -1874,6 +2558,496 @@ class CreateUserResponse
         return array(
             'user' => $this->user,
             'api_key' => $this->apiKey,
+        );
+    }
+}
+
+class RenameUserRequest
+{
+    /** @var mixed */
+    public $userId;
+
+    /** @var mixed */
+    public $username;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->userId = array_key_exists('user_id', $values) ? $values['user_id'] : null;
+        $this->username = array_key_exists('username', $values) ? $values['username'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'user_id' => $this->userId,
+            'username' => $this->username,
+        );
+    }
+}
+
+class RenameUserResponse
+{
+    /** @var mixed */
+    public $user;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->user = array_key_exists('user', $values) ? $values['user'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'user' => $this->user,
+        );
+    }
+}
+
+class SetApplicationIdRequest
+{
+    /** @var mixed */
+    public $userId;
+
+    /** @var mixed */
+    public $applicationId;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->userId = array_key_exists('user_id', $values) ? $values['user_id'] : null;
+        $this->applicationId = array_key_exists('application_id', $values) ? $values['application_id'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'user_id' => $this->userId,
+            'application_id' => $this->applicationId,
+        );
+    }
+}
+
+class SetApplicationIdResponse
+{
+    /** @var mixed */
+    public $user;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->user = array_key_exists('user', $values) ? $values['user'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'user' => $this->user,
+        );
+    }
+}
+
+class ApiKeyInfo
+{
+    /** @var mixed */
+    public $keyId;
+
+    /** @var mixed */
+    public $name;
+
+    /** @var mixed */
+    public $hint;
+
+    /** @var mixed */
+    public $createdAt;
+
+    /** @var mixed */
+    public $lastUsedAt;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->keyId = array_key_exists('key_id', $values) ? $values['key_id'] : null;
+        $this->name = array_key_exists('name', $values) ? $values['name'] : null;
+        $this->hint = array_key_exists('hint', $values) ? $values['hint'] : null;
+        $this->createdAt = array_key_exists('created_at', $values) ? $values['created_at'] : null;
+        $this->lastUsedAt = array_key_exists('last_used_at', $values) ? $values['last_used_at'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'key_id' => $this->keyId,
+            'name' => $this->name,
+            'hint' => $this->hint,
+            'created_at' => $this->createdAt,
+            'last_used_at' => $this->lastUsedAt,
+        );
+    }
+}
+
+class CreateApiKeyRequest
+{
+    /** @var mixed */
+    public $userId;
+
+    /** @var mixed */
+    public $name;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->userId = array_key_exists('user_id', $values) ? $values['user_id'] : null;
+        $this->name = array_key_exists('name', $values) ? $values['name'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'user_id' => $this->userId,
+            'name' => $this->name,
+        );
+    }
+}
+
+class CreateApiKeyResponse
+{
+    /** @var mixed */
+    public $key;
+
+    /** @var mixed */
+    public $apiKey;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->key = array_key_exists('key', $values) ? $values['key'] : null;
+        $this->apiKey = array_key_exists('api_key', $values) ? $values['api_key'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'key' => $this->key,
+            'api_key' => $this->apiKey,
+        );
+    }
+}
+
+class ListApiKeysRequest
+{
+    /** @var mixed */
+    public $userId;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->userId = array_key_exists('user_id', $values) ? $values['user_id'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'user_id' => $this->userId,
+        );
+    }
+}
+
+class ListApiKeysResponse
+{
+    /** @var mixed */
+    public $keys;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->keys = array_key_exists('keys', $values) ? $values['keys'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'keys' => $this->keys,
+        );
+    }
+}
+
+class RevokeApiKeyRequest
+{
+    /** @var mixed */
+    public $userId;
+
+    /** @var mixed */
+    public $keyId;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->userId = array_key_exists('user_id', $values) ? $values['user_id'] : null;
+        $this->keyId = array_key_exists('key_id', $values) ? $values['key_id'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'user_id' => $this->userId,
+            'key_id' => $this->keyId,
+        );
+    }
+}
+
+class RevokeApiKeyResponse
+{
+    /** @var mixed */
+    public $revoked;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->revoked = array_key_exists('revoked', $values) ? $values['revoked'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'revoked' => $this->revoked,
+        );
+    }
+}
+
+class AccountLimits
+{
+    /** @var mixed */
+    public $maxApiKeys;
+
+    /** @var mixed */
+    public $maxDistinctUsers;
+
+    /** @var mixed */
+    public $distinctUserWindowDays;
+
+    /** @var mixed */
+    public $requestsPerMinute;
+
+    /** @var mixed */
+    public $requestBurst;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->maxApiKeys = array_key_exists('max_api_keys', $values) ? $values['max_api_keys'] : null;
+        $this->maxDistinctUsers = array_key_exists('max_distinct_users', $values) ? $values['max_distinct_users'] : null;
+        $this->distinctUserWindowDays = array_key_exists('distinct_user_window_days', $values) ? $values['distinct_user_window_days'] : null;
+        $this->requestsPerMinute = array_key_exists('requests_per_minute', $values) ? $values['requests_per_minute'] : null;
+        $this->requestBurst = array_key_exists('request_burst', $values) ? $values['request_burst'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'max_api_keys' => $this->maxApiKeys,
+            'max_distinct_users' => $this->maxDistinctUsers,
+            'distinct_user_window_days' => $this->distinctUserWindowDays,
+            'requests_per_minute' => $this->requestsPerMinute,
+            'request_burst' => $this->requestBurst,
+        );
+    }
+}
+
+class GetAccountLimitsRequest
+{
+    /** @var mixed */
+    public $userId;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->userId = array_key_exists('user_id', $values) ? $values['user_id'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'user_id' => $this->userId,
+        );
+    }
+}
+
+class GetAccountLimitsResponse
+{
+    /** @var mixed */
+    public $limits;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->limits = array_key_exists('limits', $values) ? $values['limits'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'limits' => $this->limits,
+        );
+    }
+}
+
+class SetAccountLimitsRequest
+{
+    /** @var mixed */
+    public $userId;
+
+    /** @var mixed */
+    public $limits;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->userId = array_key_exists('user_id', $values) ? $values['user_id'] : null;
+        $this->limits = array_key_exists('limits', $values) ? $values['limits'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'user_id' => $this->userId,
+            'limits' => $this->limits,
+        );
+    }
+}
+
+class SetAccountLimitsResponse
+{
+    /** @var mixed */
+    public $limits;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->limits = array_key_exists('limits', $values) ? $values['limits'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'limits' => $this->limits,
+        );
+    }
+}
+
+class RpUsageDay
+{
+    /** @var mixed */
+    public $day;
+
+    /** @var mixed */
+    public $operation;
+
+    /** @var mixed */
+    public $succeeded;
+
+    /** @var mixed */
+    public $failed;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->day = array_key_exists('day', $values) ? $values['day'] : null;
+        $this->operation = array_key_exists('operation', $values) ? $values['operation'] : null;
+        $this->succeeded = array_key_exists('succeeded', $values) ? $values['succeeded'] : null;
+        $this->failed = array_key_exists('failed', $values) ? $values['failed'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'day' => $this->day,
+            'operation' => $this->operation,
+            'succeeded' => $this->succeeded,
+            'failed' => $this->failed,
+        );
+    }
+}
+
+class GetApplicationUsageRequest
+{
+    /** @var mixed */
+    public $userId;
+
+    /** @var mixed */
+    public $firstDay;
+
+    /** @var mixed */
+    public $lastDay;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->userId = array_key_exists('user_id', $values) ? $values['user_id'] : null;
+        $this->firstDay = array_key_exists('first_day', $values) ? $values['first_day'] : null;
+        $this->lastDay = array_key_exists('last_day', $values) ? $values['last_day'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'user_id' => $this->userId,
+            'first_day' => $this->firstDay,
+            'last_day' => $this->lastDay,
+        );
+    }
+}
+
+class GetApplicationUsageResponse
+{
+    /** @var mixed */
+    public $distinctUsers;
+
+    /** @var mixed */
+    public $distinctUserWindowDays;
+
+    /** @var mixed */
+    public $maxDistinctUsers;
+
+    /** @var mixed */
+    public $days;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->distinctUsers = array_key_exists('distinct_users', $values) ? $values['distinct_users'] : null;
+        $this->distinctUserWindowDays = array_key_exists('distinct_user_window_days', $values) ? $values['distinct_user_window_days'] : null;
+        $this->maxDistinctUsers = array_key_exists('max_distinct_users', $values) ? $values['max_distinct_users'] : null;
+        $this->days = array_key_exists('days', $values) ? $values['days'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'distinct_users' => $this->distinctUsers,
+            'distinct_user_window_days' => $this->distinctUserWindowDays,
+            'max_distinct_users' => $this->maxDistinctUsers,
+            'days' => $this->days,
         );
     }
 }
@@ -5182,9 +6356,6 @@ class RpSignRequest
     public $nonce;
 
     /** @var mixed */
-    public $applicationId;
-
-    /** @var mixed */
     public $requestedClaims;
 
     /** @var mixed */
@@ -5198,7 +6369,6 @@ class RpSignRequest
     {
         $this->callbackUrl = array_key_exists('callback_url', $values) ? $values['callback_url'] : null;
         $this->nonce = array_key_exists('nonce', $values) ? $values['nonce'] : null;
-        $this->applicationId = array_key_exists('application_id', $values) ? $values['application_id'] : null;
         $this->requestedClaims = array_key_exists('requested_claims', $values) ? $values['requested_claims'] : null;
         $this->authenticationRequirements = array_key_exists('authentication_requirements', $values) ? $values['authentication_requirements'] : null;
         $this->flowContext = array_key_exists('flow_context', $values) ? $values['flow_context'] : null;
@@ -5210,7 +6380,6 @@ class RpSignRequest
         return array(
             'callback_url' => $this->callbackUrl,
             'nonce' => $this->nonce,
-            'application_id' => $this->applicationId,
             'requested_claims' => $this->requestedClaims,
             'authentication_requirements' => $this->authenticationRequirements,
             'flow_context' => $this->flowContext,
@@ -5354,6 +6523,31 @@ class RpUserInfoRequest
             'token' => $this->token,
             'api_base' => $this->apiBase,
             'domain' => $this->domain,
+        );
+    }
+}
+
+class RpError
+{
+    /** @var mixed */
+    public $code;
+
+    /** @var mixed */
+    public $message;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->code = array_key_exists('code', $values) ? $values['code'] : null;
+        $this->message = array_key_exists('message', $values) ? $values['message'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'code' => $this->code,
+            'message' => $this->message,
         );
     }
 }

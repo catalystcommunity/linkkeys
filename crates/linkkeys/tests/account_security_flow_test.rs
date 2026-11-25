@@ -132,7 +132,7 @@ fn verified_contact_and_recovery_are_single_use_and_revoke_sessions() {
     assert!(linkkeys::services::notification::capabilities()
         .capabilities
         .iter()
-        .any(|capability| capability.channel == "email"));
+        .any(|capability| capability.channel.as_str() == "email"));
 
     let mut same_domain_overrides = HashMap::new();
     same_domain_overrides.insert("username".to_string(), "domain-email-owner".into());
@@ -172,7 +172,8 @@ fn verified_contact_and_recovery_are_single_use_and_revoke_sessions() {
             &RequestPasswordRecoveryRequest {
                 identifier: identifier.to_string(),
             },
-        );
+        )
+        .unwrap();
         let (status, response) = linkkeys::tcp::dispatch_for_test(
             "Recovery",
             "request-password-recovery",
@@ -211,7 +212,8 @@ fn verified_contact_and_recovery_are_single_use_and_revoke_sessions() {
         &IntrospectBrowserSessionRequest {
             session_cookie: session_token.clone(),
         },
-    );
+    )
+    .unwrap();
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Session",
         "introspect",

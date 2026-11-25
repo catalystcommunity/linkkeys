@@ -23,7 +23,7 @@
 
 use liblinkkeys::claims::{self, ClaimError, DomainKeySet};
 use liblinkkeys::generated;
-use liblinkkeys::generated::types::DomainPublicKey;
+use liblinkkeys::generated::types::{DomainPublicKey, KeyAlgorithm, KeyUsage};
 use linkkeys_local_rp::{Claim, ClaimSignature, Error};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -33,6 +33,16 @@ fn load_claims() -> Value {
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("read {}: {} (run the generator?)", path.display(), e));
     serde_json::from_str(&text).unwrap_or_else(|e| panic!("parse {}: {}", path.display(), e))
+}
+
+fn ts(s: &str) -> time::OffsetDateTime {
+    liblinkkeys::timestamp::parse_rfc3339(s).unwrap_or_else(|e| panic!("bad RFC 3339 {s:?}: {e}"))
+}
+
+/// The signed-payload form of a fixture timestamp (whole Unix seconds).
+fn signed_time(s: &str) -> liblinkkeys::timestamp::SignedTime {
+    liblinkkeys::timestamp::SignedTime::new(&ts(s))
+        .unwrap_or_else(|e| panic!("unsignable {s:?}: {e}"))
 }
 
 fn hex_decode(s: &str) -> Vec<u8> {
@@ -64,11 +74,11 @@ fn parse_domain_keys(keys_value: &Value) -> Vec<DomainPublicKey> {
             key_id: k["key_id"].as_str().unwrap().to_string(),
             public_key: hex_decode(k["public_key_hex"].as_str().unwrap()),
             fingerprint: k["fingerprint_hex"].as_str().unwrap().to_string(),
-            algorithm: k["algorithm"].as_str().unwrap().to_string(),
-            key_usage: k["key_usage"].as_str().unwrap().to_string(),
-            created_at: k["created_at"].as_str().unwrap().to_string(),
-            expires_at: k["expires_at"].as_str().unwrap().to_string(),
-            revoked_at: k["revoked_at"].as_str().map(|s| s.to_string()),
+            algorithm: KeyAlgorithm::from_label(k["algorithm"].as_str().unwrap()).unwrap(),
+            key_usage: KeyUsage::from_label(k["key_usage"].as_str().unwrap()).unwrap(),
+            created_at: ts(k["created_at"].as_str().unwrap()),
+            expires_at: ts(k["expires_at"].as_str().unwrap()),
+            revoked_at: k["revoked_at"].as_str().map(ts),
             signed_by_key_id: None,
             key_signature: None,
         })
@@ -131,22 +141,22 @@ fn assert_claim_matches_fixture(claim: &Claim, jc: &Value, name: &str) {
     );
     assert_eq!(
         claim.attested_at,
-        jc["attested_at"].as_str().unwrap(),
+        ts(jc["attested_at"].as_str().unwrap()),
         "{name}"
     );
     assert_eq!(
         claim.created_at,
-        jc["created_at"].as_str().unwrap(),
+        ts(jc["created_at"].as_str().unwrap()),
         "{name}"
     );
     assert_eq!(
-        claim.expires_at.as_deref(),
-        jc["expires_at"].as_str(),
+        claim.expires_at,
+        jc["expires_at"].as_str().map(ts),
         "{name}"
     );
     assert_eq!(
-        claim.revoked_at.as_deref(),
-        jc["revoked_at"].as_str(),
+        claim.revoked_at,
+        jc["revoked_at"].as_str().map(ts),
         "{name}"
     );
     let jsigs = jc["signatures"].as_array().unwrap();
@@ -193,7 +203,7 @@ fn claims_positive_cases_wire_round_trip_byte_exact() {
         // encode of Claim (used by `redeem_claim_ticket`'s response and its
         // embedded LocalRpTicketRedemptionResponse.claims) must satisfy.
         assert_eq!(
-            generated::encode_claim(&claim),
+            generated::encode_claim(&claim).unwrap(),
             cbor,
             "{name}: re-encode is not byte-identical"
         );
@@ -226,8 +236,8 @@ fn claims_positive_cases_signature_payload_bytes_are_exact_and_verify() {
                 jc["user_id"].as_str().unwrap(),
                 subject_domain,
                 jsig["domain"].as_str().unwrap(),
-                jc["expires_at"].as_str(),
-                jc["attested_at"].as_str().unwrap(),
+                jc["expires_at"].as_str().map(signed_time),
+                signed_time(jc["attested_at"].as_str().unwrap()),
             );
             assert_eq!(
                 published, recomputed,
@@ -352,7 +362,7 @@ fn claims_ticket_redemption_response_round_trips_and_embedded_claims_verify() {
     assert_eq!(response.user_domain, r["user_domain"].as_str().unwrap());
     assert_eq!(
         response.ticket_expires_at,
-        r["ticket_expires_at"].as_str().unwrap()
+        ts(r["ticket_expires_at"].as_str().unwrap())
     );
 
     // The embedded claims must be byte-for-byte the three positive cases,
@@ -389,7 +399,7 @@ fn claims_ticket_redemption_response_round_trips_and_embedded_claims_verify() {
     // the exact wire bytes would mean this SDK can't safely relay/cache the
     // response either.
     assert_eq!(
-        generated::encode_local_rp_ticket_redemption_response(&response),
+        generated::encode_local_rp_ticket_redemption_response(&response).unwrap(),
         cbor,
         "response re-encode is not byte-identical"
     );

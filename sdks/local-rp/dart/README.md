@@ -395,6 +395,18 @@ the design doc's "SDK API Shape":
   more.
 - Every signature uses the envelope pattern with a mandatory,
   structure-specific context string; there is no signature versioning.
+- Wire types follow the CSIL rules. A `timestamp` is CBOR tag 0 around
+  RFC 3339 text in UTC (`c0 74 "2026-01-01T00:00:00Z"`); in Dart it is a
+  UTC `DateTime`. The decoder refuses a timestamp without tag 0. A closed
+  vocabulary is a CBOR unsigned integer: `KeyAlgorithm` (ed25519=1,
+  x25519=2), `KeyUsage` (sign=1, encrypt=2, agree=3), and `AeadSuite`
+  (aes-256-gcm=1, chacha20-poly1305=2). The decoder refuses a number that
+  is not in the registry. The callback-box KDF context still binds the
+  suite text id (`AeadSuite.wireId`).
+- A signed tuple payload (claim, key revocation, key vouch) carries each
+  timestamp as whole Unix seconds (a CBOR integer). A signed timestamp
+  with a fraction of a second fails verification; the SDK does not round
+  it.
 - The callback claim-signer domain count is capped at 8
   (`maxClaimSignerDomains`) to bound the DNS/TCP calls a malicious or
   compromised home IDP could otherwise induce this SDK to make against
@@ -420,7 +432,8 @@ dart test
 cases alike), plus identity/begin unit tests, the browser endpoint
 discovery tests (`test/browser_test.dart`, fake resolver, no live DNS), the
 TLS pin-check unit tests described above, and the flow tests. All green
-(67 tests as of this writing).
+(92 tests as of this writing). `test/wire_encoding_test.dart` covers the
+tag-0 timestamp, enum-number, and whole-second signed-time rules.
 
 ## Package layout
 
@@ -438,7 +451,7 @@ lib/
     revocation.dart              # sibling-signed revocation certificates
     encoding.dart                 # base64url URL-param helpers
     errors.dart                   # SdkException/LocalRpError/ClaimError/...
-    rfc3339.dart
+    rfc3339.dart                  # timestamp helpers (whole seconds, signed form)
     wire/                          # hand-written CBOR codec + CSIL types
       cbor.dart
       codec.dart
@@ -467,6 +480,7 @@ test/
   flow_test.dart
   act_as_test.dart
   tls_pinning_test.dart
+  wire_encoding_test.dart
 ```
 
 `lib/src/wire/`, `lib/src/crypto/`, and `lib/src/rpc/` are hand-written,

@@ -46,8 +46,9 @@ decrypts tokens; your Java app never touches key material, only an API key.
 Your app's `callback_url` must be an https URL. It can be on any host: the RP
 domain signs it, and that signature authorizes it. The IDP consent screen shows
 the display name of your API-key account, and the callback host when it is not
-in the RP domain. Standing consent is per application (your API-key account
-plus `application_id`, which defaults to the account username). The `demoappsite`/`linkidspec.com` reference deployment
+in the RP domain. Standing consent is per application. The RP server finds the
+application from the API key that calls it, so `Rp/sign-request` has no
+`application_id` field. The `demoappsite`/`linkidspec.com` reference deployment
 (`deploy/values-rp.yaml`, `deploy/values-demoappsite.yaml`) shares one hostname
 between the app and its RP server.
 
@@ -114,7 +115,8 @@ TCP CSIL-RPC, calling the CSIL `Rp` service (`csil/linkkeys.csil`), is the
 only way to complete this flow today:
 
 1. **`Rp/sign-request`** `{callback_url, nonce, ?requested_claims}` →
-   `{signed_request}`. Envelope auth carries your API key (the same `auth`
+   `{signed_request}`. The request has no `application_id`: the RP server
+   finds the application from your API key. Envelope auth carries your API key (the same `auth`
    field this SDK's own `RpcEnvelope.Request` already has —
    `crates/linkkeys/src/tcp/mod.rs`'s `authenticate_tcp_request` reads it).
 2. Redirect the browser to
@@ -123,7 +125,8 @@ only way to complete this flow today:
 3. The browser comes back to your callback URL with `?encrypted_token=<...>`.
 4. **`Rp/decrypt-token`** `{encrypted_token}` → `{signed_assertion}`.
 5. **`Rp/verify-assertion`** `{signed_assertion, expected_domain}` →
-   `{assertion, verified}`. **Nonce single-use is your app's job** — the
+   `{assertion, verified}`. The assertion always has an `application`
+   (`subject_user_id`, `subject_domain`, `application_id`). **Nonce single-use is your app's job** — the
    protocol doesn't enforce it for you.
 6. Optionally, **`Rp/userinfo-fetch`** `{token, api_base, domain}` → the
    user's claims.
@@ -131,6 +134,19 @@ only way to complete this flow today:
 This is exactly what `demoappsite/src/main.rs` (a real, running reference
 integration, just in Rust rather than Java) does via the `linkkeys-rpc-client`
 crate; the Java code below reproduces the same five calls.
+
+Each of the four `Rp` operations sends status 0 with one of two `variant`
+values: the result type (`RpSignResponse`, `RpDecryptResponse`,
+`RpVerifyResponse`, or `UserInfo`), or `RpError`. An `RpError` payload is
+`{code, message}`, where `code` is an `RpErrorCode` number. Always read the
+`variant` before you decode the payload. `RpRpc.call` below does this, and
+throws `RpRefusedException` for an `RpError`.
+
+Wire rules (see `docs/UPGRADING.md`, "Wire format: timestamps and enums"):
+a CSIL `timestamp` is CBOR tag 0 that holds RFC 3339 text in UTC, and a closed
+vocabulary (for example `ClaimValueType` or `RpErrorCode`) is an unsigned
+integer. The SDK's `Cbor.requireTimestamp` / `Cbor.putTimestamp` and
+`Cbor.WireEnum` do these conversions.
 
 ## The Java walkthrough
 
@@ -165,7 +181,10 @@ dependencies {
 ```java
 package example.rp.wire;
 
+import java.time.Instant;
 import java.util.List;
+
+import community.catalyst.linkkeys.localrp.wire.Types.ApplicationRef;
 
 /**
  * Hand-written wire types for the CSIL {@code Rp} service (the relying-party
@@ -188,6 +207,7 @@ import java.util.List;
 public final class RpWire {
     private RpWire() {}
 
+    /** {@code datatype} is a {@code ClaimValueType} label, for example {@code "text"}; see {@link RpCodec#CLAIM_VALUE_TYPE}. */
     public record RequestedClaim(String claimType, String datatype) {}
 
     public record ClaimRequest(List<RequestedClaim> required, List<RequestedClaim> optional) {}
@@ -195,6 +215,7 @@ public final class RpWire {
     /** {@code flow} is "login" or "claims_update"; {@code priorSession}/{@code requestReason} are optional. */
     public record AuthFlowContext(String flow, String priorSession, String requestReason) {}
 
+    /** The RP server finds the application from the API key that calls it, so there is no {@code application_id}. */
     public record RpSignRequest(
             String callbackUrl, String nonce, ClaimRequest requestedClaims, AuthFlowContext flowContext) {
         /** Convenience constructor for the common case: no claim override, no flow context. */
@@ -214,10 +235,11 @@ public final class RpWire {
             String domain,
             String audience,
             String nonce,
-            String issuedAt,
-            String expiresAt,
+            Instant issuedAt,
+            Instant expiresAt,
             List<String> authorizedClaims,
-            String displayName) {}
+            String displayName,
+            ApplicationRef application) {}
 
     public record RpVerifyRequest(String signedAssertion, String expectedDomain) {}
 
@@ -230,6 +252,9 @@ public final class RpWire {
             String domain,
             String displayName,
             List<community.catalyst.linkkeys.localrp.wire.Types.Claim> claims) {}
+
+    /** The typed refusal every {@code Rp} op can send instead of its result. {@code code} is an {@code RpErrorCode} label. */
+    public record RpError(String code, String message) {}
 }
 ```
 
@@ -254,6 +279,7 @@ import example.rp.wire.RpWire.IdentityAssertion;
 import example.rp.wire.RpWire.RequestedClaim;
 import example.rp.wire.RpWire.RpDecryptRequest;
 import example.rp.wire.RpWire.RpDecryptResponse;
+import example.rp.wire.RpWire.RpError;
 import example.rp.wire.RpWire.RpSignRequest;
 import example.rp.wire.RpWire.RpSignResponse;
 import example.rp.wire.RpWire.RpUserInfoRequest;
@@ -277,6 +303,24 @@ import example.rp.wire.RpWire.UserInfo;
 public final class RpCodec {
     private RpCodec() {}
 
+    // Closed CSIL vocabularies are numbers on the wire. In memory this app
+    // keeps the text label (for example "text" or "login").
+    public static final Cbor.WireEnum CLAIM_VALUE_TYPE = new Cbor.WireEnum(
+            "ClaimValueType",
+            new String[] {"text", "url", "email", "bool", "int", "float", "decimal", "date", "timestamp", "opaque"},
+            new long[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
+
+    public static final Cbor.WireEnum AUTH_FLOW =
+            new Cbor.WireEnum("AuthFlow", new String[] {"login", "claims_update"}, new long[] {1, 2});
+
+    public static final Cbor.WireEnum RP_ERROR_CODE = new Cbor.WireEnum(
+            "RpErrorCode",
+            new String[] {
+                "not_application_account", "application_mismatch", "application_user_limit",
+                "bad_request", "upstream_failed", "internal"
+            },
+            new long[] {1, 2, 3, 4, 5, 6});
+
     // -----------------------------------------------------------------
     // RequestedClaim / ClaimRequest / AuthFlowContext
     // -----------------------------------------------------------------
@@ -284,12 +328,13 @@ public final class RpCodec {
     static Value encRequestedClaim(RequestedClaim v) {
         List<Entry> e = new ArrayList<>();
         Cbor.putText(e, "claim_type", v.claimType());
-        Cbor.putText(e, "datatype", v.datatype());
+        e.add(Cbor.entry("datatype", CLAIM_VALUE_TYPE.encode(v.datatype())));
         return Cbor.vmap(e);
     }
 
     static RequestedClaim decRequestedClaim(Value m) {
-        return new RequestedClaim(Cbor.requireText(m, "claim_type"), Cbor.requireText(m, "datatype"));
+        return new RequestedClaim(
+                Cbor.requireText(m, "claim_type"), CLAIM_VALUE_TYPE.decode(Cbor.require(m, "datatype")));
     }
 
     static Value encClaimRequest(ClaimRequest v) {
@@ -307,7 +352,7 @@ public final class RpCodec {
 
     static Value encAuthFlowContext(AuthFlowContext v) {
         List<Entry> e = new ArrayList<>();
-        Cbor.putText(e, "flow", v.flow());
+        e.add(Cbor.entry("flow", AUTH_FLOW.encode(v.flow())));
         Cbor.putOptText(e, "prior_session", v.priorSession());
         Cbor.putOptText(e, "request_reason", v.requestReason());
         return Cbor.vmap(e);
@@ -361,10 +406,11 @@ public final class RpCodec {
                 Cbor.requireText(m, "domain"),
                 Cbor.requireText(m, "audience"),
                 Cbor.requireText(m, "nonce"),
-                Cbor.requireText(m, "issued_at"),
-                Cbor.requireText(m, "expires_at"),
+                Cbor.requireTimestamp(m, "issued_at"),
+                Cbor.requireTimestamp(m, "expires_at"),
                 authorized.stream().map(Cbor::asText).toList(),
-                Cbor.optText(m, "display_name"));
+                Cbor.optText(m, "display_name"),
+                Codec.decodeApplicationRef(Cbor.encode(Cbor.require(m, "application"))));
     }
 
     public static byte[] encodeRpVerifyRequest(RpVerifyRequest v) {
@@ -410,6 +456,15 @@ public final class RpCodec {
     }
 
     // -----------------------------------------------------------------
+    // RpError
+    // -----------------------------------------------------------------
+
+    public static RpError decodeRpError(byte[] data) {
+        Value m = Cbor.decode(data);
+        return new RpError(RP_ERROR_CODE.decode(Cbor.require(m, "code")), Cbor.requireText(m, "message"));
+    }
+
+    // -----------------------------------------------------------------
     // Array helpers
     // -----------------------------------------------------------------
 
@@ -452,6 +507,9 @@ import community.catalyst.linkkeys.localrp.rpc.StdTransport;
 import community.catalyst.linkkeys.localrp.rpc.TlsPinning;
 import community.catalyst.linkkeys.localrp.rpc.Transport;
 
+import example.rp.wire.RpCodec;
+import example.rp.wire.RpWire.RpError;
+
 /**
  * CSIL-RPC to OUR OWN co-located "Rp" server (see {@code
  * docs/DEPLOYING-RP.md}) — API-key authenticated, TLS-pinned to the RP
@@ -484,8 +542,27 @@ public final class RpRpc {
         this.apiKey = apiKey;
     }
 
-    /** One request/response round trip to the {@code Rp} service, over a fresh TLS connection. */
-    public byte[] call(String op, byte[] payload) {
+    /** The RP server refused the call with a typed {@code RpError}. {@link #code()} is an {@code RpErrorCode} label. */
+    public static final class RpRefusedException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        private final String code;
+
+        RpRefusedException(String op, RpError error) {
+            super("Rp/" + op + ": refused (" + error.code() + "): " + error.message());
+            this.code = error.code();
+        }
+
+        public String code() {
+            return code;
+        }
+    }
+
+    /**
+     * One request/response round trip to the {@code Rp} service, over a fresh
+     * TLS connection. {@code expectedVariant} is the op's result type name,
+     * for example {@code "RpSignResponse"}.
+     */
+    public byte[] call(String op, String expectedVariant, byte[] payload) {
         Socket raw = transport.dial(tcpAddr);
         String hostname = extractHostname(tcpAddr);
         try (SSLSocket tls = TlsPinning.connectPinned(raw, hostname, fingerprints)) {
@@ -499,6 +576,15 @@ public final class RpRpc {
 
             if (!resp.isOk()) {
                 throw new SdkException(resp.status(), resp.error() == null ? "unknown error" : resp.error());
+            }
+            // Status 0 has two arms: the op's result type, or a typed RpError.
+            // Read the variant. Do not decode the payload without this check.
+            if ("RpError".equals(resp.variant())) {
+                throw new RpRefusedException(op, RpCodec.decodeRpError(resp.payload()));
+            }
+            if (!expectedVariant.equals(resp.variant())) {
+                throw new SdkException(
+                        SdkException.Kind.PROTOCOL, "Rp/" + op + ": unexpected response variant " + resp.variant());
             }
             return resp.payload();
         } catch (IOException e) {
@@ -641,7 +727,7 @@ public final class RpServer {
 
         byte[] reqPayload =
                 RpCodec.encodeRpSignRequest(new RpSignRequest(callbackUrl, nonce, claimRequest, null));
-        byte[] respPayload = rp.call("sign-request", reqPayload);
+        byte[] respPayload = rp.call("sign-request", "RpSignResponse", reqPayload);
         RpSignResponse signResponse = RpCodec.decodeRpSignResponse(respPayload);
 
         pending.put(nonce, new PendingLogin(domain, apiBase));
@@ -681,12 +767,12 @@ public final class RpServer {
         byte[] decryptPayload =
                 RpCodec.encodeRpDecryptRequest(new RpDecryptRequest(encryptedToken));
         RpDecryptResponse decrypted =
-                RpCodec.decodeRpDecryptResponse(rp.call("decrypt-token", decryptPayload));
+                RpCodec.decodeRpDecryptResponse(rp.call("decrypt-token", "RpDecryptResponse", decryptPayload));
 
         byte[] verifyPayload = RpCodec.encodeRpVerifyRequest(
                 new RpVerifyRequest(decrypted.signedAssertion(), login.domain()));
         RpVerifyResponse verified =
-                RpCodec.decodeRpVerifyResponse(rp.call("verify-assertion", verifyPayload));
+                RpCodec.decodeRpVerifyResponse(rp.call("verify-assertion", "RpVerifyResponse", verifyPayload));
 
         if (!verified.verified()) {
             sendText(exchange, 400, "assertion did not verify");
@@ -706,7 +792,7 @@ public final class RpServer {
 
         byte[] userInfoPayload = RpCodec.encodeRpUserInfoRequest(
                 new RpUserInfoRequest(decrypted.signedAssertion(), login.apiBase(), login.domain()));
-        UserInfo userInfo = RpCodec.decodeUserInfo(rp.call("userinfo-fetch", userInfoPayload));
+        UserInfo userInfo = RpCodec.decodeUserInfo(rp.call("userinfo-fetch", "UserInfo", userInfoPayload));
 
         String sessionId = UUID.randomUUID().toString();
         sessions.put(
@@ -940,3 +1026,8 @@ S2S routes (`domain-keys`, `users/<id>/keys`, `handshake`, `userinfo`).
   `StdTransport`, `Cbor.*`, `Dns.*`, `SystemDnsResolver`, `Types.Claim`,
   `Codec.encodeClaim`/`.decodeClaim`) are exactly what's public in this
   SDK today — nothing here required changing this directory's code.
+- After the wire format change (tag-0 timestamps, number enums, the required
+  `IdentityAssertion.application`, and the `RpError` response arm), the code
+  above was changed to match. It uses the SDK's public `Cbor.requireTimestamp`,
+  `Cbor.WireEnum`, `Codec.decodeApplicationRef`, and
+  `RpcEnvelope.Response.variant()`.

@@ -646,6 +646,54 @@ pub trait Admin {
         ctx: &Self::Context,
         input: PreviewAppAccessRequest,
     ) -> Result<PreviewAppAccessResponse, ServiceError>;
+    /// rename-user (request/response).
+    fn rename_user(
+        &self,
+        ctx: &Self::Context,
+        input: RenameUserRequest,
+    ) -> Result<RenameUserResponse, ServiceError>;
+    /// set-application-id (request/response).
+    fn set_application_id(
+        &self,
+        ctx: &Self::Context,
+        input: SetApplicationIdRequest,
+    ) -> Result<SetApplicationIdResponse, ServiceError>;
+    /// create-api-key (request/response).
+    fn create_api_key(
+        &self,
+        ctx: &Self::Context,
+        input: CreateApiKeyRequest,
+    ) -> Result<CreateApiKeyResponse, ServiceError>;
+    /// list-api-keys (request/response).
+    fn list_api_keys(
+        &self,
+        ctx: &Self::Context,
+        input: ListApiKeysRequest,
+    ) -> Result<ListApiKeysResponse, ServiceError>;
+    /// revoke-api-key (request/response).
+    fn revoke_api_key(
+        &self,
+        ctx: &Self::Context,
+        input: RevokeApiKeyRequest,
+    ) -> Result<RevokeApiKeyResponse, ServiceError>;
+    /// get-account-limits (request/response).
+    fn get_account_limits(
+        &self,
+        ctx: &Self::Context,
+        input: GetAccountLimitsRequest,
+    ) -> Result<GetAccountLimitsResponse, ServiceError>;
+    /// set-account-limits (request/response).
+    fn set_account_limits(
+        &self,
+        ctx: &Self::Context,
+        input: SetAccountLimitsRequest,
+    ) -> Result<SetAccountLimitsResponse, ServiceError>;
+    /// get-application-usage (request/response).
+    fn get_application_usage(
+        &self,
+        ctx: &Self::Context,
+        input: GetApplicationUsageRequest,
+    ) -> Result<GetApplicationUsageResponse, ServiceError>;
 }
 
 /// Account service trait
@@ -769,30 +817,34 @@ pub trait Attestation {
 /// Rp service trait
 pub trait Rp {
     type Context;
+    #[allow(clippy::result_large_err)]
     /// sign-request (request/response).
     fn sign_request(
         &self,
         ctx: &Self::Context,
         input: RpSignRequest,
-    ) -> Result<RpSignResponse, ServiceError>;
+    ) -> Result<RpSignResponse, RpError>;
+    #[allow(clippy::result_large_err)]
     /// decrypt-token (request/response).
     fn decrypt_token(
         &self,
         ctx: &Self::Context,
         input: RpDecryptRequest,
-    ) -> Result<RpDecryptResponse, ServiceError>;
+    ) -> Result<RpDecryptResponse, RpError>;
+    #[allow(clippy::result_large_err)]
     /// verify-assertion (request/response).
     fn verify_assertion(
         &self,
         ctx: &Self::Context,
         input: RpVerifyRequest,
-    ) -> Result<RpVerifyResponse, ServiceError>;
+    ) -> Result<RpVerifyResponse, RpError>;
+    #[allow(clippy::result_large_err)]
     /// userinfo-fetch (request/response).
     fn userinfo_fetch(
         &self,
         ctx: &Self::Context,
         input: RpUserInfoRequest,
-    ) -> Result<UserInfo, ServiceError>;
+    ) -> Result<UserInfo, RpError>;
     /// issue-attestation (request/response).
     fn issue_attestation(
         &self,

@@ -2,10 +2,12 @@ pub mod account_security;
 pub mod act_as;
 pub mod app_access;
 pub mod application_keys;
+pub mod applications;
 pub mod auth_credentials;
 pub mod claim_policy;
 pub mod claims;
 pub mod consent_grants;
+pub mod db_time;
 pub mod domain_keys;
 pub mod domain_pins;
 pub mod guestbook;
@@ -107,6 +109,14 @@ pub fn migrate_pg(conn: &mut diesel::PgConnection) -> Result<usize, String> {
     conn.run_pending_migrations(PG_MIGRATIONS)
         .map(|v| v.len())
         .map_err(|e| e.to_string())
+}
+
+/// The embedded SQLite migrations, for tests that run them one at a time to
+/// check a data migration.
+#[cfg(feature = "sqlite")]
+#[doc(hidden)]
+pub fn sqlite_migrations() -> EmbeddedMigrations {
+    SQLITE_MIGRATIONS
 }
 
 /// Run pending schema migrations on a SQLite connection. Returns the number run.
@@ -415,11 +425,13 @@ impl DbPool {
 
     /// Replace an encryption key's vouch (signer id + signature). Used to
     /// re-vouch under the current vouch-tag epoch.
+    /// Store a new vouch for an encryption key, with the expiry it signs.
     pub fn update_domain_key_vouch(
         &self,
         key_id: &str,
         signed_by_key_id: &str,
         key_signature: &[u8],
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<models::DomainKey> {
         match self {
             #[cfg(feature = "postgres")]
@@ -428,6 +440,7 @@ impl DbPool {
                 key_id,
                 signed_by_key_id,
                 key_signature,
+                expires_at,
             ),
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => domain_keys::sqlite::update_vouch(
@@ -435,6 +448,7 @@ impl DbPool {
                 key_id,
                 signed_by_key_id,
                 key_signature,
+                expires_at,
             ),
         }
     }
@@ -1465,6 +1479,17 @@ impl DbPool {
     /// migration to profiles is value-preserving), plus a fresh never-leaked
     /// root anchor profile.
     pub fn create_user(&self, username: &str, display_name: &str) -> QueryResult<models::User> {
+        self.create_account(username, display_name, None)
+    }
+
+    /// Create an account with its root and default profiles. With
+    /// `application_id` it is an application account.
+    pub fn create_account(
+        &self,
+        username: &str,
+        display_name: &str,
+        application_id: Option<&str>,
+    ) -> QueryResult<models::User> {
         let domain = crate::conversions::get_domain_name();
         match self {
             #[cfg(feature = "postgres")]
@@ -1476,7 +1501,7 @@ impl DbPool {
                     )
                 })?;
                 conn.transaction(|conn| {
-                    let user = users::pg::create(conn, username, display_name)?;
+                    let user = users::pg::create(conn, username, display_name, application_id)?;
                     let account_id: uuid::Uuid = user
                         .id
                         .parse()
@@ -1502,7 +1527,7 @@ impl DbPool {
                     )
                 })?;
                 conn.transaction(|conn| {
-                    let user = users::sqlite::create(conn, username, display_name)?;
+                    let user = users::sqlite::create(conn, username, display_name, application_id)?;
                     profiles::sqlite::create(conn, &user.id, &user.id, &domain, false, None)?;
                     profiles::sqlite::create(
                         conn,
@@ -2487,6 +2512,36 @@ impl DbPool {
         }
     }
 
+    /// Every stored application-key attestation.
+    pub fn list_all_application_key_attestations(
+        &self,
+    ) -> QueryResult<Vec<models::ApplicationKeyAttestationRecord>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => application_keys::pg::list_all_attestations(&mut *pg_conn(p)?),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                application_keys::sqlite::list_all_attestations(&mut *sqlite_conn(p)?)
+            }
+        }
+    }
+
+    pub fn find_application_key_by_row_id(
+        &self,
+        row_id: &str,
+    ) -> QueryResult<Option<models::ApplicationKey>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => {
+                application_keys::pg::find_key_by_row_id(&mut *pg_conn(p)?, row_id)
+            }
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => {
+                application_keys::sqlite::find_key_by_row_id(&mut *sqlite_conn(p)?, row_id)
+            }
+        }
+    }
+
     pub fn list_application_keys(
         &self,
         instance_row_id: &str,
@@ -2775,7 +2830,7 @@ impl DbPool {
         &self,
         domain: &str,
         key_id: &str,
-        revoked_at: &str,
+        revoked_at: &time::OffsetDateTime,
     ) -> QueryResult<usize> {
         match self {
             #[cfg(feature = "postgres")]
@@ -3541,7 +3596,7 @@ impl DbPool {
                     )
                 })?;
                 conn.transaction(|conn| {
-                    let mut user = users::pg::create(conn, username, display_name)?;
+                    let mut user = users::pg::create(conn, username, display_name, None)?;
                     let uid: uuid::Uuid = user
                         .id
                         .parse()
@@ -3549,7 +3604,7 @@ impl DbPool {
                     diesel::update(crate::schema::pg::users::table.find(uid))
                         .set(crate::schema::pg::users::is_admin_account.eq(true))
                         .execute(conn)?;
-                    auth_credentials::pg::create(conn, uid, "password", password_hash)?;
+                    auth_credentials::pg::create(conn, uid, "password", password_hash, None, None)?;
                     relations::pg::create(conn, "user", &user.id, "admin", "domain", &domain)?;
                     user.is_admin_account = true;
                     Ok(user)
@@ -3564,11 +3619,18 @@ impl DbPool {
                     )
                 })?;
                 conn.transaction(|conn| {
-                    let mut user = users::sqlite::create(conn, username, display_name)?;
+                    let mut user = users::sqlite::create(conn, username, display_name, None)?;
                     diesel::update(crate::schema::sqlite::users::table.find(user.id.as_str()))
                         .set(crate::schema::sqlite::users::is_admin_account.eq(1))
                         .execute(conn)?;
-                    auth_credentials::sqlite::create(conn, &user.id, "password", password_hash)?;
+                    auth_credentials::sqlite::create(
+                        conn,
+                        &user.id,
+                        "password",
+                        password_hash,
+                        None,
+                        None,
+                    )?;
                     relations::sqlite::create(conn, "user", &user.id, "admin", "domain", &domain)?;
                     user.is_admin_account = true;
                     Ok(user)
@@ -3653,6 +3715,19 @@ impl DbPool {
         credential_type: &str,
         credential_hash: &str,
     ) -> QueryResult<models::AuthCredential> {
+        self.create_named_auth_credential(user_id, credential_type, credential_hash, None, None)
+    }
+
+    /// Store a credential with an owner-chosen name and a non-secret hint
+    /// (API keys).
+    pub fn create_named_auth_credential(
+        &self,
+        user_id: &str,
+        credential_type: &str,
+        credential_hash: &str,
+        name: Option<&str>,
+        hint: Option<&str>,
+    ) -> QueryResult<models::AuthCredential> {
         match self {
             #[cfg(feature = "postgres")]
             DbPool::Postgres(p) => {
@@ -3665,7 +3740,14 @@ impl DbPool {
                 let uid: uuid::Uuid = user_id
                     .parse()
                     .map_err(|_| diesel::result::Error::NotFound)?;
-                auth_credentials::pg::create(&mut conn, uid, credential_type, credential_hash)
+                auth_credentials::pg::create(
+                    &mut conn,
+                    uid,
+                    credential_type,
+                    credential_hash,
+                    name,
+                    hint,
+                )
             }
             #[cfg(feature = "sqlite")]
             DbPool::Sqlite(p) => {
@@ -3680,6 +3762,8 @@ impl DbPool {
                     user_id,
                     credential_type,
                     credential_hash,
+                    name,
+                    hint,
                 )
             }
         }
@@ -3851,8 +3935,8 @@ impl DbPool {
         requested_types: &[String],
         signed_grant: &[u8],
         offered_claims: Option<&[u8]>,
-        issued_at: &str,
-        expires_at: &str,
+        issued_at: time::OffsetDateTime,
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<()> {
         let claim_types_json = serde_json::to_string(claim_types)
             .map_err(|_| diesel::result::Error::RollbackTransaction)?;
@@ -3874,10 +3958,7 @@ impl DbPool {
                 let uid: uuid::Uuid = user_id
                     .parse()
                     .map_err(|_| diesel::result::Error::NotFound)?;
-                let issued = liblinkkeys::timestamp::parse_rfc3339(issued_at)
-                    .map_err(|_| diesel::result::Error::NotFound)?;
-                let expires = liblinkkeys::timestamp::parse_rfc3339(expires_at)
-                    .map_err(|_| diesel::result::Error::NotFound)?;
+                let (issued, expires) = (issued_at, expires_at);
                 consent_grants::pg::upsert(
                     &mut conn,
                     id,
@@ -3912,8 +3993,8 @@ impl DbPool {
                     &requested_types_json,
                     signed_grant,
                     offered_claims,
-                    issued_at,
-                    expires_at,
+                    &db_time::store(&issued_at),
+                    &db_time::store(&expires_at),
                 )
             }
         }
@@ -4067,7 +4148,8 @@ impl DbPool {
     pub fn resign_claim(
         &self,
         claim_id: &str,
-        attested_at: Option<&str>,
+        attested_at: Option<time::OffsetDateTime>,
+        expires_at: Option<time::OffsetDateTime>,
         signatures: &[liblinkkeys::generated::types::ClaimSignature],
     ) -> QueryResult<()> {
         match self {
@@ -4076,18 +4158,16 @@ impl DbPool {
                 let id: uuid::Uuid = claim_id
                     .parse()
                     .map_err(|_| diesel::result::Error::NotFound)?;
-                let at = attested_at
-                    .map(|s| {
-                        liblinkkeys::timestamp::parse_rfc3339(s)
-                            .map_err(|e| diesel::result::Error::SerializationError(Box::new(e)))
-                    })
-                    .transpose()?;
-                claims::pg::resign(&mut *pg_conn(p)?, id, at, signatures)
+                claims::pg::resign(&mut *pg_conn(p)?, id, attested_at, expires_at, signatures)
             }
             #[cfg(feature = "sqlite")]
-            DbPool::Sqlite(p) => {
-                claims::sqlite::resign(&mut *sqlite_conn(p)?, claim_id, attested_at, signatures)
-            }
+            DbPool::Sqlite(p) => claims::sqlite::resign(
+                &mut *sqlite_conn(p)?,
+                claim_id,
+                attested_at,
+                expires_at,
+                signatures,
+            ),
         }
     }
 
@@ -4487,22 +4567,23 @@ impl DbPool {
     }
 
     /// This domain's effective local-RP admission policy: the stored value,
-    /// or `local_rp::DEFAULT_POLICY` ("admin-approval-required") if unset.
-    pub fn effective_local_rp_policy(&self) -> QueryResult<String> {
+    /// or `local_rp::DEFAULT_POLICY` (admin approval required) if unset.
+    pub fn effective_local_rp_policy(
+        &self,
+    ) -> QueryResult<liblinkkeys::generated::types::LocalRpPolicy> {
         let domain = crate::conversions::get_domain_name();
         Ok(self
             .get_local_rp_domain_policy(&domain)?
-            .map(|p| p.policy)
-            .unwrap_or_else(|| local_rp::DEFAULT_POLICY.to_string()))
+            .map(|p| local_rp::stored_policy(&p.policy))
+            .unwrap_or(local_rp::DEFAULT_POLICY))
     }
 
-    /// Set this domain's local-RP admission policy. Validates `policy` against
-    /// the recognised vocabulary (`disabled` / `admin-approval-required` /
-    /// `allow-by-default`) before writing.
-    pub fn set_local_rp_domain_policy(&self, policy: &str) -> Result<usize, String> {
-        if !local_rp::is_valid_policy(policy) {
-            return Err(format!("invalid local RP policy: {}", policy));
-        }
+    /// Set this domain's local-RP admission policy. Stores the CSIL label.
+    pub fn set_local_rp_domain_policy(
+        &self,
+        policy: &liblinkkeys::generated::types::LocalRpPolicy,
+    ) -> Result<usize, String> {
+        let policy = policy.as_str();
         let domain = crate::conversions::get_domain_name();
         match self {
             #[cfg(feature = "postgres")]

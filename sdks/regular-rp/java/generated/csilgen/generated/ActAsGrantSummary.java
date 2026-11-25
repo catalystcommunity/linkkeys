@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.List;
 
 public record ActAsGrantSummary(
@@ -9,9 +10,9 @@ public record ActAsGrantSummary(
     GranteeRef grantee /* wire: "grantee" */,
     ApplicationRef audience /* wire: "audience" */,
     List<String> approvedScope /* wire: "approved_scope" */,
-    String issuedAt /* wire: "issued_at" */,
-    String expiresAt /* wire: "expires_at" */,
-    String renewableUntil /* wire: "renewable_until" */,
-    String revokedAt /* wire: "revoked_at" */
+    Instant issuedAt /* wire: "issued_at" */,
+    Instant expiresAt /* wire: "expires_at" */,
+    Instant renewableUntil /* wire: "renewable_until" */,
+    Instant revokedAt /* wire: "revoked_at" */
 ) {
 }

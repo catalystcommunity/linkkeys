@@ -5,7 +5,7 @@ import { t } from "../../i18n";
 import { comboBox, fill, h, link, markCurrent, nodes, textField, type Child, type FieldOptions } from "../../dom";
 import { Page } from "../../page";
 import type { PageProps } from "../../shared";
-import type { AdminUser, ClaimTypePolicy } from "../../generated/types.gen";
+import { ConsentRowPolicy, ReleaseDisposition, type AdminUser, type ClaimTypePolicy } from "../../generated/types.gen";
 import { authenticationFailed, serviceMessage } from "../../ui-logic";
 
 export type AdminContext = PageProps & { path: string };
@@ -16,13 +16,20 @@ export function list(text: string): string[] {
 }
 
 export function dispositionLabel(disposition: string): string {
-  if (disposition === "forced_allow") return t("app.policy.disposition_allow");
-  if (disposition === "forced_deny") return t("app.policy.disposition_deny");
+  if (disposition === ReleaseDisposition.FORCED_ALLOW || disposition === ConsentRowPolicy.FORCED_ALLOW) return t("app.policy.disposition_allow");
+  if (disposition === ReleaseDisposition.FORCED_DENY || disposition === ConsentRowPolicy.FORCED_DENY) return t("app.policy.disposition_deny");
   return t("app.policy.disposition_user");
 }
 
-export function when(value?: string): string {
-  return value ? new Date(value).toLocaleString() : t("app.admin_user.never");
+export function when(value?: Date): string {
+  return value ? value.toLocaleString() : t("app.admin_user.never");
+}
+
+/** The member that a fixed-choice combo box holds. The box offers only `members`. */
+export function chosen<T extends string>(members: readonly T[], value: string): T {
+  const found = members.find((member) => member === value);
+  if (found === undefined) throw new Error(`not a choice: ${value}`);
+  return found;
 }
 
 /** Options for a combo box that replaces a `<select>`. */

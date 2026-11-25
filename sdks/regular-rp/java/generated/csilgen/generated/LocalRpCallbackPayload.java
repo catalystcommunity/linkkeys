@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -13,8 +14,8 @@ public record LocalRpCallbackPayload(
     String callbackUrl /* wire: "callback_url" */,
     byte[] nonce /* wire: "nonce" */,
     byte[] state /* wire: "state" */,
-    String issuedAt /* wire: "issued_at" */,
-    String expiresAt /* wire: "expires_at" */
+    Instant issuedAt /* wire: "issued_at" */,
+    Instant expiresAt /* wire: "expires_at" */
 ) {
     @Override
     public boolean equals(Object obj) {

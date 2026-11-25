@@ -5,8 +5,8 @@
 //! generated `codec.gen.go` / `liblinkkeys::generated` code: a value-tree
 //! encoder/decoder covering exactly the shapes the local-RP protocol needs —
 //! unsigned/negative integers, bool, null, text strings, byte strings,
-//! definite-length arrays, definite-length maps, and tag-24 (for CSIL-RPC
-//! envelope payloads). No floats, no indefinite-length items: the protocol
+//! definite-length arrays, definite-length maps, tag 0 (CSIL `timestamp`),
+//! and tag-24 (for CSIL-RPC envelope payloads). No floats, no indefinite-length items: the protocol
 //! never uses them (mirrors the Go SDK's `cbor.go` doc comment making the
 //! same scoping call).
 //!
@@ -65,6 +65,21 @@ pub fn tagVal(number: u64, inner: *const Value) Value {
 /// the Go SDK's `cborOptText`).
 pub fn optText(s: ?[]const u8) Value {
     return if (s) |x| text(x) else nullVal;
+}
+/// A signed integer: major type 0 for `n >= 0`, major type 1 otherwise.
+pub fn int(n: i64) Value {
+    return if (n >= 0) uint(@intCast(n)) else .{ .nint = n };
+}
+
+/// CBOR tag 0 (RFC 8949 standard date/time string).
+pub const timestamp_tag: u64 = 0;
+
+/// A CSIL `timestamp` field: CBOR tag 0 that wraps RFC 3339 text. The
+/// caller gives UTC text with `Z` (see `local_rp.formatTimestamp`).
+pub fn timestampVal(allocator: std.mem.Allocator, s: []const u8) !Value {
+    const inner = try allocator.create(Value);
+    inner.* = text(s);
+    return tagVal(timestamp_tag, inner);
 }
 
 // ---------------------------------------------------------------------
@@ -345,6 +360,13 @@ pub fn require(v: Value, key: []const u8) AccessError!Value {
 
 pub fn asText(v: Value) AccessError![]const u8 {
     return if (v == .text) v.text else error.WrongType;
+}
+
+/// Reads a CSIL `timestamp` field: tag 0 that wraps text. Returns the text.
+/// Callers parse it with `local_rp.parseTimestamp`.
+pub fn asTimestamp(v: Value) AccessError![]const u8 {
+    if (v != .tag or v.tag.number != timestamp_tag) return error.WrongType;
+    return asText(v.tag.value.*);
 }
 
 pub fn asBytes(v: Value) AccessError![]const u8 {

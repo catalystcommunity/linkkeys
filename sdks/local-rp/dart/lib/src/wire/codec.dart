@@ -8,6 +8,7 @@ library;
 
 import 'dart:typed_data';
 
+import '../crypto/aead_suite.dart';
 import 'cbor.dart';
 import 'types.dart';
 
@@ -35,11 +36,11 @@ class Codec {
     Cbor.putText(e, 'key_id', v.keyId);
     Cbor.putBytes(e, 'public_key', v.publicKey);
     Cbor.putText(e, 'fingerprint', v.fingerprint);
-    Cbor.putText(e, 'algorithm', v.algorithm);
-    Cbor.putText(e, 'key_usage', v.keyUsage);
-    Cbor.putText(e, 'created_at', v.createdAt);
-    Cbor.putText(e, 'expires_at', v.expiresAt);
-    Cbor.putOptText(e, 'revoked_at', v.revokedAt);
+    Cbor.putEnum(e, 'algorithm', v.algorithm.number);
+    Cbor.putEnum(e, 'key_usage', v.keyUsage.number);
+    Cbor.putTime(e, 'created_at', v.createdAt);
+    Cbor.putTime(e, 'expires_at', v.expiresAt);
+    Cbor.putOptTime(e, 'revoked_at', v.revokedAt);
     Cbor.putOptText(e, 'signed_by_key_id', v.signedByKeyId);
     Cbor.putOptBytes(e, 'key_signature', v.keySignature);
     return Cbor.vmap(e);
@@ -50,11 +51,13 @@ class Codec {
       keyId: Cbor.requireText(m, 'key_id'),
       publicKey: Cbor.requireBytes(m, 'public_key'),
       fingerprint: Cbor.requireText(m, 'fingerprint'),
-      algorithm: Cbor.requireText(m, 'algorithm'),
-      keyUsage: Cbor.requireText(m, 'key_usage'),
-      createdAt: Cbor.requireText(m, 'created_at'),
-      expiresAt: Cbor.requireText(m, 'expires_at'),
-      revokedAt: Cbor.optText(m, 'revoked_at'),
+      algorithm: Cbor.requireEnum(
+          m, 'algorithm', 'KeyAlgorithm', KeyAlgorithm.fromNumber),
+      keyUsage:
+          Cbor.requireEnum(m, 'key_usage', 'KeyUsage', KeyUsage.fromNumber),
+      createdAt: Cbor.requireTime(m, 'created_at'),
+      expiresAt: Cbor.requireTime(m, 'expires_at'),
+      revokedAt: Cbor.optTime(m, 'revoked_at'),
       signedByKeyId: Cbor.optText(m, 'signed_by_key_id'),
       keySignature: Cbor.optBytes(m, 'key_signature'),
     );
@@ -98,13 +101,13 @@ class Codec {
 
   static Uint8List encodeGetRevocationsRequest(GetRevocationsRequest v) {
     final e = <CborMapEntry>[];
-    Cbor.putOptText(e, 'since', v.since);
+    Cbor.putOptTime(e, 'since', v.since);
     return Cbor.encode(Cbor.vmap(e));
   }
 
   static GetRevocationsRequest decodeGetRevocationsRequest(Uint8List data) {
     final m = Cbor.decode(data);
-    return GetRevocationsRequest(since: Cbor.optText(m, 'since'));
+    return GetRevocationsRequest(since: Cbor.optTime(m, 'since'));
   }
 
   static CborValue _encClaimSignature(ClaimSignature v) {
@@ -127,7 +130,7 @@ class Codec {
     final e = <CborMapEntry>[];
     Cbor.putText(e, 'target_key_id', v.targetKeyId);
     Cbor.putText(e, 'target_fingerprint', v.targetFingerprint);
-    Cbor.putText(e, 'revoked_at', v.revokedAt);
+    Cbor.putTime(e, 'revoked_at', v.revokedAt);
     e.add(Cbor.entry('signatures',
         Cbor.varray(v.signatures.map(_encClaimSignature).toList())));
     return Cbor.vmap(e);
@@ -137,7 +140,7 @@ class Codec {
     return RevocationCertificate(
       targetKeyId: Cbor.requireText(m, 'target_key_id'),
       targetFingerprint: Cbor.requireText(m, 'target_fingerprint'),
-      revokedAt: Cbor.requireText(m, 'revoked_at'),
+      revokedAt: Cbor.requireTime(m, 'revoked_at'),
       signatures: Cbor.asArray(Cbor.require(m, 'signatures'))
           .map(_decClaimSignature)
           .toList(),
@@ -172,10 +175,10 @@ class Codec {
     Cbor.putBytes(e, 'claim_value', v.claimValue);
     e.add(Cbor.entry('signatures',
         Cbor.varray(v.signatures.map(_encClaimSignature).toList())));
-    Cbor.putText(e, 'attested_at', v.attestedAt);
-    Cbor.putText(e, 'created_at', v.createdAt);
-    Cbor.putOptText(e, 'expires_at', v.expiresAt);
-    Cbor.putOptText(e, 'revoked_at', v.revokedAt);
+    Cbor.putTime(e, 'attested_at', v.attestedAt);
+    Cbor.putTime(e, 'created_at', v.createdAt);
+    Cbor.putOptTime(e, 'expires_at', v.expiresAt);
+    Cbor.putOptTime(e, 'revoked_at', v.revokedAt);
     return Cbor.vmap(e);
   }
 
@@ -188,10 +191,10 @@ class Codec {
       signatures: Cbor.asArray(Cbor.require(m, 'signatures'))
           .map(_decClaimSignature)
           .toList(),
-      attestedAt: Cbor.requireText(m, 'attested_at'),
-      createdAt: Cbor.requireText(m, 'created_at'),
-      expiresAt: Cbor.optText(m, 'expires_at'),
-      revokedAt: Cbor.optText(m, 'revoked_at'),
+      attestedAt: Cbor.requireTime(m, 'attested_at'),
+      createdAt: Cbor.requireTime(m, 'created_at'),
+      expiresAt: Cbor.optTime(m, 'expires_at'),
+      revokedAt: Cbor.optTime(m, 'revoked_at'),
     );
   }
 
@@ -210,10 +213,12 @@ class Codec {
     Cbor.putBytes(e, 'signing_public_key', v.signingPublicKey);
     Cbor.putBytes(e, 'encryption_public_key', v.encryptionPublicKey);
     Cbor.putText(e, 'fingerprint', v.fingerprint);
-    e.add(Cbor.entry('supported_suites',
-        Cbor.varray(v.supportedSuites.map(Cbor.vtext).toList())));
-    Cbor.putText(e, 'created_at', v.createdAt);
-    Cbor.putText(e, 'expires_at', v.expiresAt);
+    e.add(Cbor.entry(
+        'supported_suites',
+        Cbor.varray(
+            v.supportedSuites.map((s) => Cbor.vint(s.number)).toList())));
+    Cbor.putTime(e, 'created_at', v.createdAt);
+    Cbor.putTime(e, 'expires_at', v.expiresAt);
     return Cbor.vmap(e);
   }
 
@@ -225,9 +230,11 @@ class Codec {
       signingPublicKey: Cbor.requireBytes(m, 'signing_public_key'),
       encryptionPublicKey: Cbor.requireBytes(m, 'encryption_public_key'),
       fingerprint: Cbor.requireText(m, 'fingerprint'),
-      supportedSuites: suites.map(Cbor.asText).toList(),
-      createdAt: Cbor.requireText(m, 'created_at'),
-      expiresAt: Cbor.requireText(m, 'expires_at'),
+      supportedSuites: suites
+          .map((s) => Cbor.asEnum(s, 'AeadSuite', AeadSuite.fromNumber))
+          .toList(),
+      createdAt: Cbor.requireTime(m, 'created_at'),
+      expiresAt: Cbor.requireTime(m, 'expires_at'),
     );
   }
 
@@ -272,8 +279,8 @@ class Codec {
         Cbor.varray(v.requestedClaims.map(Cbor.vtext).toList())));
     e.add(Cbor.entry('required_claims',
         Cbor.varray(v.requiredClaims.map(Cbor.vtext).toList())));
-    Cbor.putText(e, 'issued_at', v.issuedAt);
-    Cbor.putText(e, 'expires_at', v.expiresAt);
+    Cbor.putTime(e, 'issued_at', v.issuedAt);
+    Cbor.putTime(e, 'expires_at', v.expiresAt);
     return Cbor.vmap(e);
   }
 
@@ -289,8 +296,8 @@ class Codec {
       requiredClaims: Cbor.asArray(Cbor.require(m, 'required_claims'))
           .map(Cbor.asText)
           .toList(),
-      issuedAt: Cbor.requireText(m, 'issued_at'),
-      expiresAt: Cbor.requireText(m, 'expires_at'),
+      issuedAt: Cbor.requireTime(m, 'issued_at'),
+      expiresAt: Cbor.requireTime(m, 'expires_at'),
     );
   }
 
@@ -331,11 +338,11 @@ class Codec {
     Cbor.putText(e, 'fingerprint', v.fingerprint);
     Cbor.putBytes(e, 'nonce', v.nonce);
     Cbor.putBytes(e, 'state', v.state);
-    Cbor.putText(e, 'suite', v.suite);
+    Cbor.putEnum(e, 'suite', v.suite.number);
     Cbor.putBytes(e, 'ephemeral_public_key', v.ephemeralPublicKey);
     Cbor.putBytes(e, 'aead_nonce', v.aeadNonce);
-    Cbor.putText(e, 'issued_at', v.issuedAt);
-    Cbor.putText(e, 'expires_at', v.expiresAt);
+    Cbor.putTime(e, 'issued_at', v.issuedAt);
+    Cbor.putTime(e, 'expires_at', v.expiresAt);
     return Cbor.vmap(e);
   }
 
@@ -344,11 +351,11 @@ class Codec {
       fingerprint: Cbor.requireText(m, 'fingerprint'),
       nonce: Cbor.requireBytes(m, 'nonce'),
       state: Cbor.requireBytes(m, 'state'),
-      suite: Cbor.requireText(m, 'suite'),
+      suite: Cbor.requireEnum(m, 'suite', 'AeadSuite', AeadSuite.fromNumber),
       ephemeralPublicKey: Cbor.requireBytes(m, 'ephemeral_public_key'),
       aeadNonce: Cbor.requireBytes(m, 'aead_nonce'),
-      issuedAt: Cbor.requireText(m, 'issued_at'),
-      expiresAt: Cbor.requireText(m, 'expires_at'),
+      issuedAt: Cbor.requireTime(m, 'issued_at'),
+      expiresAt: Cbor.requireTime(m, 'expires_at'),
     );
   }
 
@@ -392,8 +399,8 @@ class Codec {
     Cbor.putText(e, 'callback_url', v.callbackUrl);
     Cbor.putBytes(e, 'nonce', v.nonce);
     Cbor.putBytes(e, 'state', v.state);
-    Cbor.putText(e, 'issued_at', v.issuedAt);
-    Cbor.putText(e, 'expires_at', v.expiresAt);
+    Cbor.putTime(e, 'issued_at', v.issuedAt);
+    Cbor.putTime(e, 'expires_at', v.expiresAt);
     return Cbor.vmap(e);
   }
 
@@ -406,8 +413,8 @@ class Codec {
       callbackUrl: Cbor.requireText(m, 'callback_url'),
       nonce: Cbor.requireBytes(m, 'nonce'),
       state: Cbor.requireBytes(m, 'state'),
-      issuedAt: Cbor.requireText(m, 'issued_at'),
-      expiresAt: Cbor.requireText(m, 'expires_at'),
+      issuedAt: Cbor.requireTime(m, 'issued_at'),
+      expiresAt: Cbor.requireTime(m, 'expires_at'),
     );
   }
 
@@ -452,7 +459,7 @@ class Codec {
     final e = <CborMapEntry>[];
     Cbor.putBytes(e, 'claim_ticket', v.claimTicket);
     Cbor.putText(e, 'fingerprint', v.fingerprint);
-    Cbor.putText(e, 'issued_at', v.issuedAt);
+    Cbor.putTime(e, 'issued_at', v.issuedAt);
     return Cbor.vmap(e);
   }
 
@@ -461,7 +468,7 @@ class Codec {
     return LocalRpTicketRedemptionRequest(
       claimTicket: Cbor.requireBytes(m, 'claim_ticket'),
       fingerprint: Cbor.requireText(m, 'fingerprint'),
-      issuedAt: Cbor.requireText(m, 'issued_at'),
+      issuedAt: Cbor.requireTime(m, 'issued_at'),
     );
   }
 
@@ -507,7 +514,7 @@ class Codec {
     Cbor.putText(e, 'user_id', v.userId);
     Cbor.putText(e, 'user_domain', v.userDomain);
     e.add(Cbor.entry('claims', Cbor.varray(v.claims.map(_encClaim).toList())));
-    Cbor.putText(e, 'ticket_expires_at', v.ticketExpiresAt);
+    Cbor.putTime(e, 'ticket_expires_at', v.ticketExpiresAt);
     return Cbor.vmap(e);
   }
 
@@ -517,7 +524,7 @@ class Codec {
       userId: Cbor.requireText(m, 'user_id'),
       userDomain: Cbor.requireText(m, 'user_domain'),
       claims: Cbor.asArray(Cbor.require(m, 'claims')).map(_decClaim).toList(),
-      ticketExpiresAt: Cbor.requireText(m, 'ticket_expires_at'),
+      ticketExpiresAt: Cbor.requireTime(m, 'ticket_expires_at'),
     );
   }
 

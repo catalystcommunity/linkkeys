@@ -3,6 +3,8 @@ and negative (13) cases -- header-field-flip AAD tamper, unadvertised suite,
 unknown suite id, low-order ephemeral key, wrong recipient key, truncated
 ciphertext."""
 
+from datetime import datetime
+
 import pytest
 from conftest import hex_decode
 
@@ -12,7 +14,11 @@ from linkkeys_local_rp.local_rp import open_local_rp_callback
 
 
 def _allowed_suites(case: dict):
-    return [crypto.AeadSuite.parse_str(s) for s in case["allowed_suites"]]
+    return [crypto.aead_suite_from_kdf_label(s) for s in case["allowed_suites"]]
+
+
+def _rfc3339(s: str) -> datetime:
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
 def test_callback_box_positive_cases_open(callback_box):
@@ -28,12 +34,12 @@ def test_callback_box_positive_cases_open(callback_box):
         encrypted = LocalRpEncryptedCallback(header=header_bytes, ciphertext=ciphertext)
         header, signed_payload = open_local_rp_callback(encrypted, decrypt_key, allowed)
 
-        assert header.suite == case["suite"]
+        assert crypto.aead_suite_kdf_label(header.suite) == case["suite"]
         assert header.fingerprint == case["fingerprint"]
         assert header.nonce == hex_decode(case["nonce_hex"])
         assert header.state == hex_decode(case["state_hex"])
-        assert header.issued_at == case["issued_at"]
-        assert header.expires_at == case["expires_at"]
+        assert header.issued_at == _rfc3339(case["issued_at"])
+        assert header.expires_at == _rfc3339(case["expires_at"])
 
         plaintext = signed_payload.to_cbor()
         assert plaintext == hex_decode(case["plaintext_cbor_hex"])

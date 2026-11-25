@@ -4,6 +4,8 @@ package csilgen.generated;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -33,7 +35,16 @@ public final class CsilCbor {
     public record CborBytes(byte[] value) implements CborValue {}
     public record CborArray(List<CborValue> items) implements CborValue {}
     public record CborEntry(CborValue key, CborValue val) {}
-    public record CborMap(List<CborEntry> entries) implements CborValue {}
+    /**
+     * A map. {@code canonical} is false when a decoded map's encoded keys were not in
+     * strictly ascending bytewise order (RFC 8949 section 4.2.1); a dynamic map decoder
+     * rejects such a map, while a record accepts its fields in any order.
+     */
+    public record CborMap(List<CborEntry> entries, boolean canonical) implements CborValue {
+        public CborMap(List<CborEntry> entries) {
+            this(entries, true);
+        }
+    }
     public record CborTag(long num, CborValue inner) implements CborValue {}
 
     /**
@@ -42,6 +53,8 @@ public final class CsilCbor {
      * not a recoverable application error (those ride inside the decoded payload).
      */
     public static final class CsilCborException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
         public CsilCborException(String message) {
             super(message);
         }
@@ -141,6 +154,21 @@ public final class CsilCbor {
         }
     }
 
+    // Float.float16ToFloat needs JDK 20; the generated code targets JDK 17.
+    private static double halfToDouble(int h) {
+        int exp = (h >> 10) & 0x1f;
+        int mant = h & 0x3ff;
+        double magnitude;
+        if (exp == 0) {
+            magnitude = Math.scalb((double) mant, -24);
+        } else if (exp == 31) {
+            magnitude = mant == 0 ? Double.POSITIVE_INFINITY : Double.NaN;
+        } else {
+            magnitude = Math.scalb((double) (mant | 0x400), exp - 25);
+        }
+        return (h & 0x8000) != 0 ? -magnitude : magnitude;
+    }
+
     private static long readArg(byte[] b, int[] pos, int low) {
         if (low < 24) {
             pos[0] += 1;
@@ -219,6 +247,10 @@ public final class CsilCbor {
                 case 23:
                     pos[0] += 1;
                     return new CborNull();
+                case 25: {
+                    long bits = readArg(b, pos, low);
+                    return new CborFloat(halfToDouble((int) bits));
+                }
                 case 26: {
                     long bits = readArg(b, pos, low);
                     return new CborFloat(Float.intBitsToFloat((int) bits));
@@ -277,18 +309,72 @@ public final class CsilCbor {
                 }
                 int n = (int) arg;
                 List<CborEntry> entries = new ArrayList<>(Math.min(n, PREALLOC_LIMIT));
+                // Each key is compared with the one before it as raw bytes, so the order
+                // check is O(n). Only a map out of order can repeat a key, so the set of
+                // seen keys is built only then.
+                boolean ascending = true;
+                java.util.Set<java.nio.ByteBuffer> seen = null;
+                List<int[]> keyRanges = new ArrayList<>(Math.min(n, PREALLOC_LIMIT));
                 for (int i = 0; i < n; i++) {
+                    int keyStart = pos[0];
                     CborValue k = dec(b, pos, depth + 1);
+                    int keyEnd = pos[0];
+                    if (!shortestHead(b, keyStart)) {
+                        throw new CsilCborException("csil cbor: map key is not in shortest form");
+                    }
+                    if (i > 0 && ascending) {
+                        int[] prev = keyRanges.get(i - 1);
+                        if (Arrays.compareUnsigned(b, prev[0], prev[1], b, keyStart, keyEnd) >= 0) {
+                            ascending = false;
+                            seen = new java.util.HashSet<>();
+                            for (int[] r : keyRanges) {
+                                seen.add(java.nio.ByteBuffer.wrap(b, r[0], r[1] - r[0]));
+                            }
+                        }
+                    }
+                    if (!ascending && !seen.add(java.nio.ByteBuffer.wrap(b, keyStart, keyEnd - keyStart))) {
+                        throw new CsilCborException("csil cbor: duplicate key " + describeKey(k));
+                    }
+                    keyRanges.add(new int[] {keyStart, keyEnd});
                     CborValue val = dec(b, pos, depth + 1);
                     entries.add(new CborEntry(k, val));
                 }
-                return new CborMap(entries);
+                return new CborMap(entries, ascending);
             }
             case 6:
                 return new CborTag(arg, dec(b, pos, depth + 1));
             default:
                 throw new CsilCborException("csil cbor: unexpected major type");
         }
+    }
+
+    /** Whether the head at {@code at} uses the shortest argument for its value. A float
+     * head (major 7) carries no length, so it is not checked. */
+    private static boolean shortestHead(byte[] b, int at) {
+        int major = (b[at] & 0xff) >> 5;
+        int low = b[at] & 0x1f;
+        if (major == 7 || low < 24) {
+            return true;
+        }
+        int width = 1 << (low - 24);
+        long arg = 0;
+        for (int i = 1; i <= width; i++) {
+            arg = (arg << 8) | (b[at + i] & 0xffL);
+        }
+        long floor = low == 24 ? 24L : 1L << (8 * (width / 2));
+        return Long.compareUnsigned(arg, floor) >= 0;
+    }
+
+    private static String describeKey(CborValue k) {
+        if (k instanceof CborText t) {
+            return "\"" + t.value() + "\"";
+        }
+        return java.util.HexFormat.of().formatHex(encode(k));
+    }
+
+    @SuppressWarnings("unchecked")
+    static <T> T csilUnchecked(Object value) {
+        return (T) value;
     }
 
     public static long asI64(CborValue v) {
@@ -414,11 +500,25 @@ public final class CsilCbor {
     }
 
     public static <K, V> CborValue encMap(Map<K, V> m, Function<K, CborValue> kf, Function<V, CborValue> vf) {
+        // A dynamic map goes out in canonical key order: bytewise order of each key's
+        // encoding (RFC 8949 section 4.2.1), which is not the order of the Java keys.
+        List<byte[]> keys = new ArrayList<>(m.size());
         List<CborEntry> entries = new ArrayList<>(m.size());
         for (Map.Entry<K, V> e : m.entrySet()) {
-            entries.add(new CborEntry(kf.apply(e.getKey()), vf.apply(e.getValue())));
+            CborValue key = kf.apply(e.getKey());
+            keys.add(encode(key));
+            entries.add(new CborEntry(key, vf.apply(e.getValue())));
         }
-        return new CborMap(entries);
+        Integer[] order = new Integer[entries.size()];
+        for (int i = 0; i < order.length; i++) {
+            order[i] = i;
+        }
+        Arrays.sort(order, (x, y) -> Arrays.compareUnsigned(keys.get(x), keys.get(y)));
+        List<CborEntry> sorted = new ArrayList<>(entries.size());
+        for (int i : order) {
+            sorted.add(entries.get(i));
+        }
+        return new CborMap(sorted);
     }
 
     public static <E> List<E> decArray(CborValue v, Function<CborValue, E> f) {
@@ -431,12 +531,162 @@ public final class CsilCbor {
     }
 
     public static <K, V> Map<K, V> decMap(CborValue v, Function<CborValue, K> kf, Function<CborValue, V> vf) {
+        if (v instanceof CborMap x && !x.canonical()) {
+            throw new CsilCborException("csil cbor: map keys are not in canonical order");
+        }
         Map<K, V> out = new LinkedHashMap<>();
         for (CborEntry e : asMap(v)) {
             out.put(kf.apply(e.key()), vf.apply(e.val()));
         }
         return out;
     }
+
+    public static CborValue encDate(LocalDate date) {
+        String text = date.toString();
+        if (text.length() != 10) throw new CsilCborException("date requires a four-digit year");
+        return new CborTag(1004, new CborText(text));
+    }
+
+    public static LocalDate asDate(CborValue value) {
+        if (value instanceof CborTag tag && tag.num() == 1004 && tag.inner() instanceof CborText text
+                && text.value().length() == 10) {
+            return LocalDate.parse(text.value());
+        }
+        throw new CsilCborException("expected tag 1004 with YYYY-MM-DD text");
+    }
+
+    public static CborValue encTimestamp(Instant t) {
+        java.time.OffsetDateTime u = t.atOffset(java.time.ZoneOffset.UTC);
+        int year = u.getYear();
+        if (year < 1 || year > 9999) {
+            throw new CsilCborException("csil cbor: timestamp year outside 0001-9999");
+        }
+        StringBuilder b = new StringBuilder(30);
+        timestampDigits(b, year, 4).append('-');
+        timestampDigits(b, u.getMonthValue(), 2).append('-');
+        timestampDigits(b, u.getDayOfMonth(), 2).append('T');
+        timestampDigits(b, u.getHour(), 2).append(':');
+        timestampDigits(b, u.getMinute(), 2).append(':');
+        timestampDigits(b, u.getSecond(), 2);
+        int nano = u.getNano();
+        if (nano != 0) {
+            b.append('.');
+            if (nano % 1_000_000 == 0) {
+                timestampDigits(b, nano / 1_000_000, 3);
+            } else if (nano % 1_000 == 0) {
+                timestampDigits(b, nano / 1_000, 6);
+            } else {
+                timestampDigits(b, nano, 9);
+            }
+        }
+        b.append('Z');
+        return new CborTag(0, new CborText(b.toString()));
+    }
+
+    private static StringBuilder timestampDigits(StringBuilder b, int value, int width) {
+        String text = Integer.toString(value);
+        for (int i = text.length(); i < width; i++) {
+            b.append('0');
+        }
+        return b.append(text);
+    }
+
+    public static Instant asTimestamp(CborValue v) {
+        if (v instanceof CborTag t && t.num() == 0 && t.inner() instanceof CborText s) {
+            return parseTimestamp(s.value());
+        }
+        throw new CsilCborException("csil cbor: expected CBOR tag 0 timestamp");
+    }
+
+    private static int timestampField(String s, int at, int width) {
+        if (at + width > s.length()) {
+            throw new CsilCborException("csil cbor: invalid timestamp text");
+        }
+        int value = 0;
+        for (int i = at; i < at + width; i++) {
+            char c = s.charAt(i);
+            if (c < '0' || c > '9') {
+                throw new CsilCborException("csil cbor: invalid timestamp text");
+            }
+            value = value * 10 + (c - '0');
+        }
+        return value;
+    }
+
+    private static void timestampSeparator(String s, int at, char a, char b) {
+        if (at >= s.length() || (s.charAt(at) != a && s.charAt(at) != b)) {
+            throw new CsilCborException("csil cbor: invalid timestamp text");
+        }
+    }
+
+    private static Instant parseTimestamp(String s) {
+        int year = timestampField(s, 0, 4);
+        timestampSeparator(s, 4, '-', '-');
+        int month = timestampField(s, 5, 2);
+        timestampSeparator(s, 7, '-', '-');
+        int day = timestampField(s, 8, 2);
+        timestampSeparator(s, 10, 'T', 't');
+        int hour = timestampField(s, 11, 2);
+        timestampSeparator(s, 13, ':', ':');
+        int minute = timestampField(s, 14, 2);
+        timestampSeparator(s, 16, ':', ':');
+        int second = timestampField(s, 17, 2);
+        if (year < 1 || month < 1 || month > 12 || day < 1
+                || day > java.time.YearMonth.of(year, month).lengthOfMonth()
+                || hour > 23 || minute > 59 || second > 59) {
+            throw new CsilCborException("csil cbor: invalid timestamp value");
+        }
+        int at = 19;
+        int nano = 0;
+        if (at < s.length() && s.charAt(at) == '.') {
+            int start = ++at;
+            while (at < s.length() && s.charAt(at) >= '0' && s.charAt(at) <= '9') {
+                at++;
+            }
+            int digits = at - start;
+            if (digits < 1 || digits > 9) {
+                throw new CsilCborException("csil cbor: invalid timestamp fraction");
+            }
+            nano = timestampField(s, start, digits);
+            for (int i = digits; i < 9; i++) {
+                nano *= 10;
+            }
+        }
+        if (at >= s.length()) {
+            throw new CsilCborException("csil cbor: timestamp has no offset");
+        }
+        char zone = s.charAt(at);
+        int offset;
+        if (zone == 'Z' || zone == 'z') {
+            offset = 0;
+            at += 1;
+        } else if (zone == '+' || zone == '-') {
+            int offsetHour = timestampField(s, at + 1, 2);
+            timestampSeparator(s, at + 3, ':', ':');
+            int offsetMinute = timestampField(s, at + 4, 2);
+            if (offsetHour > 23 || offsetMinute > 59) {
+                throw new CsilCborException("csil cbor: invalid timestamp offset");
+            }
+            offset = (zone == '-' ? -1 : 1) * (offsetHour * 3600 + offsetMinute * 60);
+            at += 6;
+        } else {
+            throw new CsilCborException("csil cbor: invalid timestamp offset");
+        }
+        if (at != s.length()) {
+            throw new CsilCborException("csil cbor: trailing timestamp text");
+        }
+        long epoch = LocalDate.of(year, month, day).toEpochDay() * 86_400L
+            + hour * 3_600L + minute * 60L + second - offset;
+        // The range is checked again after conversion to UTC, because an offset can move
+        // a written year 0001 or 9999 value outside it.
+        if (epoch < TIMESTAMP_MIN_EPOCH || epoch >= TIMESTAMP_END_EPOCH) {
+            throw new CsilCborException("csil cbor: timestamp year outside 0001-9999");
+        }
+        return Instant.ofEpochSecond(epoch, nano);
+    }
+
+    private static final long TIMESTAMP_MIN_EPOCH = LocalDate.of(1, 1, 1).toEpochDay() * 86_400L;
+    private static final long TIMESTAMP_END_EPOCH = LocalDate.of(10000, 1, 1).toEpochDay() * 86_400L;
 
     static CborValue encCheckResult(CheckResult v) {
         List<CborEntry> csilEntries = new ArrayList<>(2);
@@ -507,16 +757,16 @@ public final class CsilCbor {
         List<CborEntry> csilEntries = new ArrayList<>(4);
         csilEntries.add(new CborEntry(new CborText("id"), new CborText(v.id())));
         csilEntries.add(new CborEntry(new CborText("name"), new CborText(v.name())));
-        csilEntries.add(new CborEntry(new CborText("created_at"), new CborText(v.createdAt())));
-        csilEntries.add(new CborEntry(new CborText("updated_at"), new CborText(v.updatedAt())));
+        csilEntries.add(new CborEntry(new CborText("created_at"), encTimestamp(v.createdAt())));
+        csilEntries.add(new CborEntry(new CborText("updated_at"), encTimestamp(v.updatedAt())));
         return new CborMap(csilEntries);
     }
 
     static GuestbookEntry decGuestbookEntry(CborValue csilRoot) {
         String id = asText(require(csilRoot, "id"));
         String name = asText(require(csilRoot, "name"));
-        String createdAt = asText(require(csilRoot, "created_at"));
-        String updatedAt = asText(require(csilRoot, "updated_at"));
+        Instant createdAt = asTimestamp(require(csilRoot, "created_at"));
+        Instant updatedAt = asTimestamp(require(csilRoot, "updated_at"));
         return new GuestbookEntry(id, name, createdAt, updatedAt);
     }
 
@@ -678,13 +928,13 @@ public final class CsilCbor {
     static CborValue encDomainPublicKey(DomainPublicKey v) {
         List<CborEntry> csilEntries = new ArrayList<>(10);
         csilEntries.add(new CborEntry(new CborText("key_id"), new CborText(v.keyId())));
-        csilEntries.add(new CborEntry(new CborText("algorithm"), new CborText(v.algorithm())));
-        csilEntries.add(new CborEntry(new CborText("key_usage"), new CborText(v.keyUsage())));
-        csilEntries.add(new CborEntry(new CborText("created_at"), new CborText(v.createdAt())));
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("algorithm"), encKeyAlgorithm(v.algorithm())));
+        csilEntries.add(new CborEntry(new CborText("key_usage"), encKeyUsage(v.keyUsage())));
+        csilEntries.add(new CborEntry(new CborText("created_at"), encTimestamp(v.createdAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         csilEntries.add(new CborEntry(new CborText("public_key"), new CborBytes(v.publicKey())));
         if (v.revokedAt() != null) {
-            csilEntries.add(new CborEntry(new CborText("revoked_at"), new CborText(v.revokedAt())));
+            csilEntries.add(new CborEntry(new CborText("revoked_at"), encTimestamp(v.revokedAt())));
         }
         csilEntries.add(new CborEntry(new CborText("fingerprint"), new CborText(v.fingerprint())));
         if (v.keySignature() != null) {
@@ -700,14 +950,14 @@ public final class CsilCbor {
         String keyId = asText(require(csilRoot, "key_id"));
         byte[] publicKey = asBytes(require(csilRoot, "public_key"));
         String fingerprint = asText(require(csilRoot, "fingerprint"));
-        String algorithm = asText(require(csilRoot, "algorithm"));
-        String keyUsage = asText(require(csilRoot, "key_usage"));
-        String createdAt = asText(require(csilRoot, "created_at"));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
-        String revokedAt;
+        KeyAlgorithm algorithm = decKeyAlgorithm(require(csilRoot, "algorithm"));
+        KeyUsage keyUsage = decKeyUsage(require(csilRoot, "key_usage"));
+        Instant createdAt = asTimestamp(require(csilRoot, "created_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
+        Instant revokedAt;
         {
             CborValue csilField = mapGet(csilRoot, "revoked_at");
-            revokedAt = csilField != null ? asText(csilField) : null;
+            revokedAt = csilField != null ? asTimestamp(csilField) : null;
         }
         String signedByKeyId;
         {
@@ -762,16 +1012,16 @@ public final class CsilCbor {
     static CborValue encGetRevocationsRequest(GetRevocationsRequest v) {
         List<CborEntry> csilEntries = new ArrayList<>(1);
         if (v.since() != null) {
-            csilEntries.add(new CborEntry(new CborText("since"), new CborText(v.since())));
+            csilEntries.add(new CborEntry(new CborText("since"), encTimestamp(v.since())));
         }
         return new CborMap(csilEntries);
     }
 
     static GetRevocationsRequest decGetRevocationsRequest(CborValue csilRoot) {
-        String since;
+        Instant since;
         {
             CborValue csilField = mapGet(csilRoot, "since");
-            since = csilField != null ? asText(csilField) : null;
+            since = csilField != null ? asTimestamp(csilField) : null;
         }
         return new GetRevocationsRequest(since);
     }
@@ -829,16 +1079,24 @@ public final class CsilCbor {
     }
 
     static CborValue encPinRecheckResult(PinRecheckResult v) {
-        List<CborEntry> csilEntries = new ArrayList<>(2);
+        List<CborEntry> csilEntries = new ArrayList<>(3);
         csilEntries.add(new CborEntry(new CborText("domain"), new CborText(v.domain())));
-        csilEntries.add(new CborEntry(new CborText("outcome"), new CborText(v.outcome())));
+        if (v.message() != null) {
+            csilEntries.add(new CborEntry(new CborText("message"), new CborText(v.message())));
+        }
+        csilEntries.add(new CborEntry(new CborText("outcome"), encPinRecheckOutcome(v.outcome())));
         return new CborMap(csilEntries);
     }
 
     static PinRecheckResult decPinRecheckResult(CborValue csilRoot) {
         String domain = asText(require(csilRoot, "domain"));
-        String outcome = asText(require(csilRoot, "outcome"));
-        return new PinRecheckResult(domain, outcome);
+        PinRecheckOutcome outcome = decPinRecheckOutcome(require(csilRoot, "outcome"));
+        String message;
+        {
+            CborValue csilField = mapGet(csilRoot, "message");
+            message = csilField != null ? asText(csilField) : null;
+        }
+        return new PinRecheckResult(domain, outcome, message);
     }
 
     public static byte[] encodePinRecheckResult(PinRecheckResult v) {
@@ -872,13 +1130,13 @@ public final class CsilCbor {
         List<CborEntry> csilEntries = new ArrayList<>(11);
         csilEntries.add(new CborEntry(new CborText("key_id"), new CborText(v.keyId())));
         csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
-        csilEntries.add(new CborEntry(new CborText("algorithm"), new CborText(v.algorithm())));
-        csilEntries.add(new CborEntry(new CborText("key_usage"), new CborText(v.keyUsage())));
-        csilEntries.add(new CborEntry(new CborText("created_at"), new CborText(v.createdAt())));
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("algorithm"), encKeyAlgorithm(v.algorithm())));
+        csilEntries.add(new CborEntry(new CborText("key_usage"), encKeyUsage(v.keyUsage())));
+        csilEntries.add(new CborEntry(new CborText("created_at"), encTimestamp(v.createdAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         csilEntries.add(new CborEntry(new CborText("public_key"), new CborBytes(v.publicKey())));
         if (v.revokedAt() != null) {
-            csilEntries.add(new CborEntry(new CborText("revoked_at"), new CborText(v.revokedAt())));
+            csilEntries.add(new CborEntry(new CborText("revoked_at"), encTimestamp(v.revokedAt())));
         }
         csilEntries.add(new CborEntry(new CborText("fingerprint"), new CborText(v.fingerprint())));
         if (v.keySignature() != null) {
@@ -895,14 +1153,14 @@ public final class CsilCbor {
         String userId = asText(require(csilRoot, "user_id"));
         byte[] publicKey = asBytes(require(csilRoot, "public_key"));
         String fingerprint = asText(require(csilRoot, "fingerprint"));
-        String algorithm = asText(require(csilRoot, "algorithm"));
-        String keyUsage = asText(require(csilRoot, "key_usage"));
-        String createdAt = asText(require(csilRoot, "created_at"));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
-        String revokedAt;
+        KeyAlgorithm algorithm = decKeyAlgorithm(require(csilRoot, "algorithm"));
+        KeyUsage keyUsage = decKeyUsage(require(csilRoot, "key_usage"));
+        Instant createdAt = asTimestamp(require(csilRoot, "created_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
+        Instant revokedAt;
         {
             CborValue csilField = mapGet(csilRoot, "revoked_at");
-            revokedAt = csilField != null ? asText(csilField) : null;
+            revokedAt = csilField != null ? asTimestamp(csilField) : null;
         }
         String signedByKeyId;
         {
@@ -992,7 +1250,7 @@ public final class CsilCbor {
 
     static CborValue encRevocationCertificate(RevocationCertificate v) {
         List<CborEntry> csilEntries = new ArrayList<>(4);
-        csilEntries.add(new CborEntry(new CborText("revoked_at"), new CborText(v.revokedAt())));
+        csilEntries.add(new CborEntry(new CborText("revoked_at"), encTimestamp(v.revokedAt())));
         csilEntries.add(new CborEntry(new CborText("signatures"), encArray(v.signatures(), csilElem0 -> encClaimSignature(csilElem0))));
         csilEntries.add(new CborEntry(new CborText("target_key_id"), new CborText(v.targetKeyId())));
         csilEntries.add(new CborEntry(new CborText("target_fingerprint"), new CborText(v.targetFingerprint())));
@@ -1002,7 +1260,7 @@ public final class CsilCbor {
     static RevocationCertificate decRevocationCertificate(CborValue csilRoot) {
         String targetKeyId = asText(require(csilRoot, "target_key_id"));
         String targetFingerprint = asText(require(csilRoot, "target_fingerprint"));
-        String revokedAt = asText(require(csilRoot, "revoked_at"));
+        Instant revokedAt = asTimestamp(require(csilRoot, "revoked_at"));
         List<ClaimSignature> signatures = decArray(require(csilRoot, "signatures"), csilE0 -> decClaimSignature(csilE0));
         return new RevocationCertificate(targetKeyId, targetFingerprint, revokedAt, signatures);
     }
@@ -1020,15 +1278,15 @@ public final class CsilCbor {
         csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
         csilEntries.add(new CborEntry(new CborText("claim_id"), new CborText(v.claimId())));
         csilEntries.add(new CborEntry(new CborText("claim_type"), new CborText(v.claimType())));
-        csilEntries.add(new CborEntry(new CborText("created_at"), new CborText(v.createdAt())));
+        csilEntries.add(new CborEntry(new CborText("created_at"), encTimestamp(v.createdAt())));
         if (v.expiresAt() != null) {
-            csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+            csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         }
         if (v.revokedAt() != null) {
-            csilEntries.add(new CborEntry(new CborText("revoked_at"), new CborText(v.revokedAt())));
+            csilEntries.add(new CborEntry(new CborText("revoked_at"), encTimestamp(v.revokedAt())));
         }
         csilEntries.add(new CborEntry(new CborText("signatures"), encArray(v.signatures(), csilElem0 -> encClaimSignature(csilElem0))));
-        csilEntries.add(new CborEntry(new CborText("attested_at"), new CborText(v.attestedAt())));
+        csilEntries.add(new CborEntry(new CborText("attested_at"), encTimestamp(v.attestedAt())));
         csilEntries.add(new CborEntry(new CborText("claim_value"), new CborBytes(v.claimValue())));
         return new CborMap(csilEntries);
     }
@@ -1039,17 +1297,17 @@ public final class CsilCbor {
         String claimType = asText(require(csilRoot, "claim_type"));
         byte[] claimValue = asBytes(require(csilRoot, "claim_value"));
         List<ClaimSignature> signatures = decArray(require(csilRoot, "signatures"), csilE0 -> decClaimSignature(csilE0));
-        String attestedAt = asText(require(csilRoot, "attested_at"));
-        String createdAt = asText(require(csilRoot, "created_at"));
-        String expiresAt;
+        Instant attestedAt = asTimestamp(require(csilRoot, "attested_at"));
+        Instant createdAt = asTimestamp(require(csilRoot, "created_at"));
+        Instant expiresAt;
         {
             CborValue csilField = mapGet(csilRoot, "expires_at");
-            expiresAt = csilField != null ? asText(csilField) : null;
+            expiresAt = csilField != null ? asTimestamp(csilField) : null;
         }
-        String revokedAt;
+        Instant revokedAt;
         {
             CborValue csilField = mapGet(csilRoot, "revoked_at");
-            revokedAt = csilField != null ? asText(csilField) : null;
+            revokedAt = csilField != null ? asTimestamp(csilField) : null;
         }
         return new Claim(claimId, userId, claimType, claimValue, signatures, attestedAt, createdAt, expiresAt, revokedAt);
     }
@@ -1108,14 +1366,14 @@ public final class CsilCbor {
 
     static CborValue encRequestedClaim(RequestedClaim v) {
         List<CborEntry> csilEntries = new ArrayList<>(2);
-        csilEntries.add(new CborEntry(new CborText("datatype"), new CborText(v.datatype())));
+        csilEntries.add(new CborEntry(new CborText("datatype"), encClaimValueType(v.datatype())));
         csilEntries.add(new CborEntry(new CborText("claim_type"), new CborText(v.claimType())));
         return new CborMap(csilEntries);
     }
 
     static RequestedClaim decRequestedClaim(CborValue csilRoot) {
         String claimType = asText(require(csilRoot, "claim_type"));
-        String datatype = asText(require(csilRoot, "datatype"));
+        ClaimValueType datatype = decClaimValueType(require(csilRoot, "datatype"));
         return new RequestedClaim(claimType, datatype);
     }
 
@@ -1169,7 +1427,7 @@ public final class CsilCbor {
 
     static CborValue encAuthFlowContext(AuthFlowContext v) {
         List<CborEntry> csilEntries = new ArrayList<>(3);
-        csilEntries.add(new CborEntry(new CborText("flow"), new CborText(v.flow())));
+        csilEntries.add(new CborEntry(new CborText("flow"), encAuthFlow(v.flow())));
         if (v.priorSession() != null) {
             csilEntries.add(new CborEntry(new CborText("prior_session"), new CborText(v.priorSession())));
         }
@@ -1180,7 +1438,7 @@ public final class CsilCbor {
     }
 
     static AuthFlowContext decAuthFlowContext(CborValue csilRoot) {
-        String flow = asText(require(csilRoot, "flow"));
+        AuthFlow flow = decAuthFlow(require(csilRoot, "flow"));
         String priorSession;
         {
             CborValue csilField = mapGet(csilRoot, "prior_session");
@@ -1207,10 +1465,10 @@ public final class CsilCbor {
         csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
         csilEntries.add(new CborEntry(new CborText("audience"), new CborText(v.audience())));
         csilEntries.add(new CborEntry(new CborText("grant_id"), new CborText(v.grantId())));
-        csilEntries.add(new CborEntry(new CborText("issued_at"), new CborText(v.issuedAt())));
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("issued_at"), encTimestamp(v.issuedAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         if (v.revokedAt() != null) {
-            csilEntries.add(new CborEntry(new CborText("revoked_at"), new CborText(v.revokedAt())));
+            csilEntries.add(new CborEntry(new CborText("revoked_at"), encTimestamp(v.revokedAt())));
         }
         if (v.application() != null) {
             csilEntries.add(new CborEntry(new CborText("application"), encApplicationRef(v.application())));
@@ -1226,12 +1484,12 @@ public final class CsilCbor {
         String subjectDomain = asText(require(csilRoot, "subject_domain"));
         String audience = asText(require(csilRoot, "audience"));
         List<String> claimTypes = decArray(require(csilRoot, "claim_types"), csilE0 -> asText(csilE0));
-        String issuedAt = asText(require(csilRoot, "issued_at"));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
-        String revokedAt;
+        Instant issuedAt = asTimestamp(require(csilRoot, "issued_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
+        Instant revokedAt;
         {
             CborValue csilField = mapGet(csilRoot, "revoked_at");
-            revokedAt = csilField != null ? asText(csilField) : null;
+            revokedAt = csilField != null ? asTimestamp(csilField) : null;
         }
         ApplicationRef application;
         {
@@ -1274,10 +1532,10 @@ public final class CsilCbor {
         List<CborEntry> csilEntries = new ArrayList<>(5);
         csilEntries.add(new CborEntry(new CborText("claim_type"), new CborText(v.claimType())));
         if (v.expiresAt() != null) {
-            csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+            csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         }
         csilEntries.add(new CborEntry(new CborText("signatures"), encArray(v.signatures(), csilElem0 -> encClaimSignature(csilElem0))));
-        csilEntries.add(new CborEntry(new CborText("attested_at"), new CborText(v.attestedAt())));
+        csilEntries.add(new CborEntry(new CborText("attested_at"), encTimestamp(v.attestedAt())));
         csilEntries.add(new CborEntry(new CborText("claim_value"), new CborBytes(v.claimValue())));
         return new CborMap(csilEntries);
     }
@@ -1286,11 +1544,11 @@ public final class CsilCbor {
         String claimType = asText(require(csilRoot, "claim_type"));
         byte[] claimValue = asBytes(require(csilRoot, "claim_value"));
         List<ClaimSignature> signatures = decArray(require(csilRoot, "signatures"), csilE0 -> decClaimSignature(csilE0));
-        String attestedAt = asText(require(csilRoot, "attested_at"));
-        String expiresAt;
+        Instant attestedAt = asTimestamp(require(csilRoot, "attested_at"));
+        Instant expiresAt;
         {
             CborValue csilField = mapGet(csilRoot, "expires_at");
-            expiresAt = csilField != null ? asText(csilField) : null;
+            expiresAt = csilField != null ? asTimestamp(csilField) : null;
         }
         return new DomainClaim(claimType, claimValue, signatures, attestedAt, expiresAt);
     }
@@ -1309,8 +1567,8 @@ public final class CsilCbor {
         if (v.callback() != null) {
             csilEntries.add(new CborEntry(new CborText("callback"), new CborText(v.callback())));
         }
-        csilEntries.add(new CborEntry(new CborText("issued_at"), new CborText(v.issuedAt())));
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("issued_at"), encTimestamp(v.issuedAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         csilEntries.add(new CborEntry(new CborText("request_id"), new CborText(v.requestId())));
         csilEntries.add(new CborEntry(new CborText("issuer_domain"), new CborText(v.issuerDomain())));
         csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
@@ -1326,8 +1584,8 @@ public final class CsilCbor {
         String issuerDomain = asText(require(csilRoot, "issuer_domain"));
         List<String> requestedClaimTypes = decArray(require(csilRoot, "requested_claim_types"), csilE0 -> asText(csilE0));
         String nonce = asText(require(csilRoot, "nonce"));
-        String issuedAt = asText(require(csilRoot, "issued_at"));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
+        Instant issuedAt = asTimestamp(require(csilRoot, "issued_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
         String callback;
         {
             CborValue csilField = mapGet(csilRoot, "callback");
@@ -1404,13 +1662,14 @@ public final class CsilCbor {
     }
 
     static CborValue encIdentityAssertion(IdentityAssertion v) {
-        List<CborEntry> csilEntries = new ArrayList<>(8);
+        List<CborEntry> csilEntries = new ArrayList<>(9);
         csilEntries.add(new CborEntry(new CborText("nonce"), new CborText(v.nonce())));
         csilEntries.add(new CborEntry(new CborText("domain"), new CborText(v.domain())));
         csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
         csilEntries.add(new CborEntry(new CborText("audience"), new CborText(v.audience())));
-        csilEntries.add(new CborEntry(new CborText("issued_at"), new CborText(v.issuedAt())));
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("issued_at"), encTimestamp(v.issuedAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("application"), encApplicationRef(v.application())));
         if (v.displayName() != null) {
             csilEntries.add(new CborEntry(new CborText("display_name"), new CborText(v.displayName())));
         }
@@ -1423,15 +1682,16 @@ public final class CsilCbor {
         String domain = asText(require(csilRoot, "domain"));
         String audience = asText(require(csilRoot, "audience"));
         String nonce = asText(require(csilRoot, "nonce"));
-        String issuedAt = asText(require(csilRoot, "issued_at"));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
+        Instant issuedAt = asTimestamp(require(csilRoot, "issued_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
         List<String> authorizedClaims = decArray(require(csilRoot, "authorized_claims"), csilE0 -> asText(csilE0));
         String displayName;
         {
             CborValue csilField = mapGet(csilRoot, "display_name");
             displayName = csilField != null ? asText(csilField) : null;
         }
-        return new IdentityAssertion(userId, domain, audience, nonce, issuedAt, expiresAt, authorizedClaims, displayName);
+        ApplicationRef application = decApplicationRef(require(csilRoot, "application"));
+        return new IdentityAssertion(userId, domain, audience, nonce, issuedAt, expiresAt, authorizedClaims, displayName, application);
     }
 
     public static byte[] encodeIdentityAssertion(IdentityAssertion v) {
@@ -1488,7 +1748,7 @@ public final class CsilCbor {
         List<CborEntry> csilEntries = new ArrayList<>(4);
         csilEntries.add(new CborEntry(new CborText("nonce"), new CborText(v.nonce())));
         csilEntries.add(new CborEntry(new CborText("token"), new CborBytes(v.token())));
-        csilEntries.add(new CborEntry(new CborText("timestamp"), new CborText(v.timestamp())));
+        csilEntries.add(new CborEntry(new CborText("timestamp"), encTimestamp(v.timestamp())));
         csilEntries.add(new CborEntry(new CborText("relying_party"), new CborText(v.relyingParty())));
         return new CborMap(csilEntries);
     }
@@ -1496,7 +1756,7 @@ public final class CsilCbor {
     static UserInfoRequest decUserInfoRequest(CborValue csilRoot) {
         byte[] token = asBytes(require(csilRoot, "token"));
         String relyingParty = asText(require(csilRoot, "relying_party"));
-        String timestamp = asText(require(csilRoot, "timestamp"));
+        Instant timestamp = asTimestamp(require(csilRoot, "timestamp"));
         String nonce = asText(require(csilRoot, "nonce"));
         return new UserInfoRequest(token, relyingParty, timestamp, nonce);
     }
@@ -1589,10 +1849,8 @@ public final class CsilCbor {
     static CborValue encAuthRequest(AuthRequest v) {
         List<CborEntry> csilEntries = new ArrayList<>(10);
         csilEntries.add(new CborEntry(new CborText("nonce"), new CborText(v.nonce())));
-        csilEntries.add(new CborEntry(new CborText("timestamp"), new CborText(v.timestamp())));
-        if (v.application() != null) {
-            csilEntries.add(new CborEntry(new CborText("application"), encRelyingPartyApplication(v.application())));
-        }
+        csilEntries.add(new CborEntry(new CborText("timestamp"), encTimestamp(v.timestamp())));
+        csilEntries.add(new CborEntry(new CborText("application"), encRelyingPartyApplication(v.application())));
         csilEntries.add(new CborEntry(new CborText("callback_url"), new CborText(v.callbackUrl())));
         if (v.flowContext() != null) {
             csilEntries.add(new CborEntry(new CborText("flow_context"), encAuthFlowContext(v.flowContext())));
@@ -1615,7 +1873,7 @@ public final class CsilCbor {
         String relyingParty = asText(require(csilRoot, "relying_party"));
         String callbackUrl = asText(require(csilRoot, "callback_url"));
         String nonce = asText(require(csilRoot, "nonce"));
-        String timestamp = asText(require(csilRoot, "timestamp"));
+        Instant timestamp = asTimestamp(require(csilRoot, "timestamp"));
         String signingKeyId = asText(require(csilRoot, "signing_key_id"));
         ClaimRequest requestedClaims;
         {
@@ -1637,11 +1895,7 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "relying_party_claims");
             relyingPartyClaims = csilField != null ? decArray(csilField, csilE0 -> decDomainClaim(csilE0)) : null;
         }
-        RelyingPartyApplication application;
-        {
-            CborValue csilField = mapGet(csilRoot, "application");
-            application = csilField != null ? decRelyingPartyApplication(csilField) : null;
-        }
+        RelyingPartyApplication application = decRelyingPartyApplication(require(csilRoot, "application"));
         return new AuthRequest(relyingParty, callbackUrl, nonce, timestamp, signingKeyId, requestedClaims, authenticationRequirements, flowContext, relyingPartyClaims, application);
     }
 
@@ -1680,7 +1934,7 @@ public final class CsilCbor {
         List<CborEntry> csilEntries = new ArrayList<>(4);
         csilEntries.add(new CborEntry(new CborText("nonce"), new CborBytes(v.nonce())));
         if (v.suite() != null) {
-            csilEntries.add(new CborEntry(new CborText("suite"), new CborText((v.suite()).value())));
+            csilEntries.add(new CborEntry(new CborText("suite"), encAeadSuite(v.suite())));
         }
         csilEntries.add(new CborEntry(new CborText("ciphertext"), new CborBytes(v.ciphertext())));
         csilEntries.add(new CborEntry(new CborText("ephemeral_public_key"), new CborBytes(v.ephemeralPublicKey())));
@@ -1694,7 +1948,7 @@ public final class CsilCbor {
         AeadSuite suite;
         {
             CborValue csilField = mapGet(csilRoot, "suite");
-            suite = csilField != null ? new AeadSuite(asText(csilField)) : null;
+            suite = csilField != null ? decAeadSuite(csilField) : null;
         }
         return new EncryptedToken(ephemeralPublicKey, ciphertext, nonce, suite);
     }
@@ -1709,19 +1963,19 @@ public final class CsilCbor {
 
     static CborValue encAlgorithmSupport(AlgorithmSupport v) {
         List<CborEntry> csilEntries = new ArrayList<>(2);
-        csilEntries.add(new CborEntry(new CborText("signing"), encArray(v.signing(), csilElem0 -> new CborText(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("signing"), encArray(v.signing(), csilElem0 -> encKeyAlgorithm(csilElem0))));
         if (v.encryption() != null) {
-            csilEntries.add(new CborEntry(new CborText("encryption"), encArray(v.encryption(), csilElem0 -> new CborText(csilElem0))));
+            csilEntries.add(new CborEntry(new CborText("encryption"), encArray(v.encryption(), csilElem0 -> encAeadSuite(csilElem0))));
         }
         return new CborMap(csilEntries);
     }
 
     static AlgorithmSupport decAlgorithmSupport(CborValue csilRoot) {
-        List<String> signing = decArray(require(csilRoot, "signing"), csilE0 -> asText(csilE0));
-        List<String> encryption;
+        List<KeyAlgorithm> signing = decArray(require(csilRoot, "signing"), csilE0 -> decKeyAlgorithm(csilE0));
+        List<AeadSuite> encryption;
         {
             CborValue csilField = mapGet(csilRoot, "encryption");
-            encryption = csilField != null ? decArray(csilField, csilE0 -> asText(csilE0)) : null;
+            encryption = csilField != null ? decArray(csilField, csilE0 -> decAeadSuite(csilE0)) : null;
         }
         return new AlgorithmSupport(signing, encryption);
     }
@@ -1781,9 +2035,9 @@ public final class CsilCbor {
         csilEntries.add(new CborEntry(new CborText("id"), new CborText(v.id())));
         csilEntries.add(new CborEntry(new CborText("relation"), new CborText(v.relation())));
         csilEntries.add(new CborEntry(new CborText("object_id"), new CborText(v.objectId())));
-        csilEntries.add(new CborEntry(new CborText("created_at"), new CborText(v.createdAt())));
+        csilEntries.add(new CborEntry(new CborText("created_at"), encTimestamp(v.createdAt())));
         if (v.removedAt() != null) {
-            csilEntries.add(new CborEntry(new CborText("removed_at"), new CborText(v.removedAt())));
+            csilEntries.add(new CborEntry(new CborText("removed_at"), encTimestamp(v.removedAt())));
         }
         csilEntries.add(new CborEntry(new CborText("subject_id"), new CborText(v.subjectId())));
         csilEntries.add(new CborEntry(new CborText("object_type"), new CborText(v.objectType())));
@@ -1798,11 +2052,11 @@ public final class CsilCbor {
         String relation = asText(require(csilRoot, "relation"));
         String objectType = asText(require(csilRoot, "object_type"));
         String objectId = asText(require(csilRoot, "object_id"));
-        String createdAt = asText(require(csilRoot, "created_at"));
-        String removedAt;
+        Instant createdAt = asTimestamp(require(csilRoot, "created_at"));
+        Instant removedAt;
         {
             CborValue csilField = mapGet(csilRoot, "removed_at");
-            removedAt = csilField != null ? asText(csilField) : null;
+            removedAt = csilField != null ? asTimestamp(csilField) : null;
         }
         return new Relation(id, subjectType, subjectId, relation, objectType, objectId, createdAt, removedAt);
     }
@@ -1816,18 +2070,22 @@ public final class CsilCbor {
     }
 
     static CborValue encAdminUser(AdminUser v) {
-        List<CborEntry> csilEntries = new ArrayList<>(9);
+        List<CborEntry> csilEntries = new ArrayList<>(11);
         csilEntries.add(new CborEntry(new CborText("id"), new CborText(v.id())));
+        csilEntries.add(new CborEntry(new CborText("kind"), encAccountKind(v.kind())));
         csilEntries.add(new CborEntry(new CborText("username"), new CborText(v.username())));
         csilEntries.add(new CborEntry(new CborText("is_active"), new CborBool(v.isActive())));
         if (v.purgedAt() != null) {
-            csilEntries.add(new CborEntry(new CborText("purged_at"), new CborText(v.purgedAt())));
+            csilEntries.add(new CborEntry(new CborText("purged_at"), encTimestamp(v.purgedAt())));
         }
-        csilEntries.add(new CborEntry(new CborText("created_at"), new CborText(v.createdAt())));
-        csilEntries.add(new CborEntry(new CborText("updated_at"), new CborText(v.updatedAt())));
+        csilEntries.add(new CborEntry(new CborText("created_at"), encTimestamp(v.createdAt())));
+        csilEntries.add(new CborEntry(new CborText("updated_at"), encTimestamp(v.updatedAt())));
         csilEntries.add(new CborEntry(new CborText("display_name"), new CborText(v.displayName())));
         if (v.purgeReason() != null) {
             csilEntries.add(new CborEntry(new CborText("purge_reason"), new CborText(v.purgeReason())));
+        }
+        if (v.applicationId() != null) {
+            csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
         }
         if (v.passwordLocked() != null) {
             csilEntries.add(new CborEntry(new CborText("password_locked"), new CborBool(v.passwordLocked())));
@@ -1839,13 +2097,19 @@ public final class CsilCbor {
         String id = asText(require(csilRoot, "id"));
         String username = asText(require(csilRoot, "username"));
         String displayName = asText(require(csilRoot, "display_name"));
+        AccountKind kind = decAccountKind(require(csilRoot, "kind"));
+        String applicationId;
+        {
+            CborValue csilField = mapGet(csilRoot, "application_id");
+            applicationId = csilField != null ? asText(csilField) : null;
+        }
         boolean isActive = asBool(require(csilRoot, "is_active"));
-        String createdAt = asText(require(csilRoot, "created_at"));
-        String updatedAt = asText(require(csilRoot, "updated_at"));
-        String purgedAt;
+        Instant createdAt = asTimestamp(require(csilRoot, "created_at"));
+        Instant updatedAt = asTimestamp(require(csilRoot, "updated_at"));
+        Instant purgedAt;
         {
             CborValue csilField = mapGet(csilRoot, "purged_at");
-            purgedAt = csilField != null ? asText(csilField) : null;
+            purgedAt = csilField != null ? asTimestamp(csilField) : null;
         }
         String purgeReason;
         {
@@ -1857,7 +2121,7 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "password_locked");
             passwordLocked = csilField != null ? asBool(csilField) : null;
         }
-        return new AdminUser(id, username, displayName, isActive, createdAt, updatedAt, purgedAt, purgeReason, passwordLocked);
+        return new AdminUser(id, username, displayName, kind, applicationId, isActive, createdAt, updatedAt, purgedAt, purgeReason, passwordLocked);
     }
 
     public static byte[] encodeAdminUser(AdminUser v) {
@@ -1970,10 +2234,10 @@ public final class CsilCbor {
         List<CborEntry> csilEntries = new ArrayList<>(5);
         csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
         if (v.lastSeenAt() != null) {
-            csilEntries.add(new CborEntry(new CborText("last_seen_at"), new CborText(v.lastSeenAt())));
+            csilEntries.add(new CborEntry(new CborText("last_seen_at"), encTimestamp(v.lastSeenAt())));
         }
         if (v.lastAuthenticatedAt() != null) {
-            csilEntries.add(new CborEntry(new CborText("last_authenticated_at"), new CborText(v.lastAuthenticatedAt())));
+            csilEntries.add(new CborEntry(new CborText("last_authenticated_at"), encTimestamp(v.lastAuthenticatedAt())));
         }
         csilEntries.add(new CborEntry(new CborText("active_browser_session_count"), new CborInt(v.activeBrowserSessionCount())));
         csilEntries.add(new CborEntry(new CborText("successful_authentication_count"), new CborInt(v.successfulAuthenticationCount())));
@@ -1982,15 +2246,15 @@ public final class CsilCbor {
 
     static UserAuthenticationActivity decUserAuthenticationActivity(CborValue csilRoot) {
         String userId = asText(require(csilRoot, "user_id"));
-        String lastAuthenticatedAt;
+        Instant lastAuthenticatedAt;
         {
             CborValue csilField = mapGet(csilRoot, "last_authenticated_at");
-            lastAuthenticatedAt = csilField != null ? asText(csilField) : null;
+            lastAuthenticatedAt = csilField != null ? asTimestamp(csilField) : null;
         }
-        String lastSeenAt;
+        Instant lastSeenAt;
         {
             CborValue csilField = mapGet(csilRoot, "last_seen_at");
-            lastSeenAt = csilField != null ? asText(csilField) : null;
+            lastSeenAt = csilField != null ? asTimestamp(csilField) : null;
         }
         long successfulAuthenticationCount = asI64(require(csilRoot, "successful_authentication_count"));
         long activeBrowserSessionCount = asI64(require(csilRoot, "active_browser_session_count"));
@@ -2044,12 +2308,15 @@ public final class CsilCbor {
     }
 
     static CborValue encCreateUserRequest(CreateUserRequest v) {
-        List<CborEntry> csilEntries = new ArrayList<>(3);
+        List<CborEntry> csilEntries = new ArrayList<>(4);
         if (v.password() != null) {
             csilEntries.add(new CborEntry(new CborText("password"), new CborText(v.password())));
         }
         csilEntries.add(new CborEntry(new CborText("username"), new CborText(v.username())));
         csilEntries.add(new CborEntry(new CborText("display_name"), new CborText(v.displayName())));
+        if (v.applicationId() != null) {
+            csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
+        }
         return new CborMap(csilEntries);
     }
 
@@ -2061,7 +2328,12 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "password");
             password = csilField != null ? asText(csilField) : null;
         }
-        return new CreateUserRequest(username, displayName, password);
+        String applicationId;
+        {
+            CborValue csilField = mapGet(csilRoot, "application_id");
+            applicationId = csilField != null ? asText(csilField) : null;
+        }
+        return new CreateUserRequest(username, displayName, password, applicationId);
     }
 
     public static byte[] encodeCreateUserRequest(CreateUserRequest v) {
@@ -2097,6 +2369,447 @@ public final class CsilCbor {
 
     public static CreateUserResponse decodeCreateUserResponse(byte[] data) {
         return decCreateUserResponse(decode(data));
+    }
+
+    static CborValue encRenameUserRequest(RenameUserRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
+        csilEntries.add(new CborEntry(new CborText("username"), new CborText(v.username())));
+        return new CborMap(csilEntries);
+    }
+
+    static RenameUserRequest decRenameUserRequest(CborValue csilRoot) {
+        String userId = asText(require(csilRoot, "user_id"));
+        String username = asText(require(csilRoot, "username"));
+        return new RenameUserRequest(userId, username);
+    }
+
+    public static byte[] encodeRenameUserRequest(RenameUserRequest v) {
+        return encode(encRenameUserRequest(v));
+    }
+
+    public static RenameUserRequest decodeRenameUserRequest(byte[] data) {
+        return decRenameUserRequest(decode(data));
+    }
+
+    static CborValue encRenameUserResponse(RenameUserResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("user"), encAdminUser(v.user())));
+        return new CborMap(csilEntries);
+    }
+
+    static RenameUserResponse decRenameUserResponse(CborValue csilRoot) {
+        AdminUser user = decAdminUser(require(csilRoot, "user"));
+        return new RenameUserResponse(user);
+    }
+
+    public static byte[] encodeRenameUserResponse(RenameUserResponse v) {
+        return encode(encRenameUserResponse(v));
+    }
+
+    public static RenameUserResponse decodeRenameUserResponse(byte[] data) {
+        return decRenameUserResponse(decode(data));
+    }
+
+    static CborValue encSetApplicationIdRequest(SetApplicationIdRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
+        csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
+        return new CborMap(csilEntries);
+    }
+
+    static SetApplicationIdRequest decSetApplicationIdRequest(CborValue csilRoot) {
+        String userId = asText(require(csilRoot, "user_id"));
+        String applicationId = asText(require(csilRoot, "application_id"));
+        return new SetApplicationIdRequest(userId, applicationId);
+    }
+
+    public static byte[] encodeSetApplicationIdRequest(SetApplicationIdRequest v) {
+        return encode(encSetApplicationIdRequest(v));
+    }
+
+    public static SetApplicationIdRequest decodeSetApplicationIdRequest(byte[] data) {
+        return decSetApplicationIdRequest(decode(data));
+    }
+
+    static CborValue encSetApplicationIdResponse(SetApplicationIdResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("user"), encAdminUser(v.user())));
+        return new CborMap(csilEntries);
+    }
+
+    static SetApplicationIdResponse decSetApplicationIdResponse(CborValue csilRoot) {
+        AdminUser user = decAdminUser(require(csilRoot, "user"));
+        return new SetApplicationIdResponse(user);
+    }
+
+    public static byte[] encodeSetApplicationIdResponse(SetApplicationIdResponse v) {
+        return encode(encSetApplicationIdResponse(v));
+    }
+
+    public static SetApplicationIdResponse decodeSetApplicationIdResponse(byte[] data) {
+        return decSetApplicationIdResponse(decode(data));
+    }
+
+    static CborValue encApiKeyInfo(ApiKeyInfo v) {
+        List<CborEntry> csilEntries = new ArrayList<>(5);
+        csilEntries.add(new CborEntry(new CborText("hint"), new CborText(v.hint())));
+        csilEntries.add(new CborEntry(new CborText("name"), new CborText(v.name())));
+        csilEntries.add(new CborEntry(new CborText("key_id"), new CborText(v.keyId())));
+        csilEntries.add(new CborEntry(new CborText("created_at"), encTimestamp(v.createdAt())));
+        if (v.lastUsedAt() != null) {
+            csilEntries.add(new CborEntry(new CborText("last_used_at"), encTimestamp(v.lastUsedAt())));
+        }
+        return new CborMap(csilEntries);
+    }
+
+    static ApiKeyInfo decApiKeyInfo(CborValue csilRoot) {
+        String keyId = asText(require(csilRoot, "key_id"));
+        String name = asText(require(csilRoot, "name"));
+        String hint = asText(require(csilRoot, "hint"));
+        Instant createdAt = asTimestamp(require(csilRoot, "created_at"));
+        Instant lastUsedAt;
+        {
+            CborValue csilField = mapGet(csilRoot, "last_used_at");
+            lastUsedAt = csilField != null ? asTimestamp(csilField) : null;
+        }
+        return new ApiKeyInfo(keyId, name, hint, createdAt, lastUsedAt);
+    }
+
+    public static byte[] encodeApiKeyInfo(ApiKeyInfo v) {
+        return encode(encApiKeyInfo(v));
+    }
+
+    public static ApiKeyInfo decodeApiKeyInfo(byte[] data) {
+        return decApiKeyInfo(decode(data));
+    }
+
+    static CborValue encCreateApiKeyRequest(CreateApiKeyRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("name"), new CborText(v.name())));
+        csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
+        return new CborMap(csilEntries);
+    }
+
+    static CreateApiKeyRequest decCreateApiKeyRequest(CborValue csilRoot) {
+        String userId = asText(require(csilRoot, "user_id"));
+        String name = asText(require(csilRoot, "name"));
+        return new CreateApiKeyRequest(userId, name);
+    }
+
+    public static byte[] encodeCreateApiKeyRequest(CreateApiKeyRequest v) {
+        return encode(encCreateApiKeyRequest(v));
+    }
+
+    public static CreateApiKeyRequest decodeCreateApiKeyRequest(byte[] data) {
+        return decCreateApiKeyRequest(decode(data));
+    }
+
+    static CborValue encCreateApiKeyResponse(CreateApiKeyResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("key"), encApiKeyInfo(v.key())));
+        csilEntries.add(new CborEntry(new CborText("api_key"), new CborText(v.apiKey())));
+        return new CborMap(csilEntries);
+    }
+
+    static CreateApiKeyResponse decCreateApiKeyResponse(CborValue csilRoot) {
+        ApiKeyInfo key = decApiKeyInfo(require(csilRoot, "key"));
+        String apiKey = asText(require(csilRoot, "api_key"));
+        return new CreateApiKeyResponse(key, apiKey);
+    }
+
+    public static byte[] encodeCreateApiKeyResponse(CreateApiKeyResponse v) {
+        return encode(encCreateApiKeyResponse(v));
+    }
+
+    public static CreateApiKeyResponse decodeCreateApiKeyResponse(byte[] data) {
+        return decCreateApiKeyResponse(decode(data));
+    }
+
+    static CborValue encListApiKeysRequest(ListApiKeysRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
+        return new CborMap(csilEntries);
+    }
+
+    static ListApiKeysRequest decListApiKeysRequest(CborValue csilRoot) {
+        String userId = asText(require(csilRoot, "user_id"));
+        return new ListApiKeysRequest(userId);
+    }
+
+    public static byte[] encodeListApiKeysRequest(ListApiKeysRequest v) {
+        return encode(encListApiKeysRequest(v));
+    }
+
+    public static ListApiKeysRequest decodeListApiKeysRequest(byte[] data) {
+        return decListApiKeysRequest(decode(data));
+    }
+
+    static CborValue encListApiKeysResponse(ListApiKeysResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("keys"), encArray(v.keys(), csilElem0 -> encApiKeyInfo(csilElem0))));
+        return new CborMap(csilEntries);
+    }
+
+    static ListApiKeysResponse decListApiKeysResponse(CborValue csilRoot) {
+        List<ApiKeyInfo> keys = decArray(require(csilRoot, "keys"), csilE0 -> decApiKeyInfo(csilE0));
+        return new ListApiKeysResponse(keys);
+    }
+
+    public static byte[] encodeListApiKeysResponse(ListApiKeysResponse v) {
+        return encode(encListApiKeysResponse(v));
+    }
+
+    public static ListApiKeysResponse decodeListApiKeysResponse(byte[] data) {
+        return decListApiKeysResponse(decode(data));
+    }
+
+    static CborValue encRevokeApiKeyRequest(RevokeApiKeyRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("key_id"), new CborText(v.keyId())));
+        csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
+        return new CborMap(csilEntries);
+    }
+
+    static RevokeApiKeyRequest decRevokeApiKeyRequest(CborValue csilRoot) {
+        String userId = asText(require(csilRoot, "user_id"));
+        String keyId = asText(require(csilRoot, "key_id"));
+        return new RevokeApiKeyRequest(userId, keyId);
+    }
+
+    public static byte[] encodeRevokeApiKeyRequest(RevokeApiKeyRequest v) {
+        return encode(encRevokeApiKeyRequest(v));
+    }
+
+    public static RevokeApiKeyRequest decodeRevokeApiKeyRequest(byte[] data) {
+        return decRevokeApiKeyRequest(decode(data));
+    }
+
+    static CborValue encRevokeApiKeyResponse(RevokeApiKeyResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("revoked"), new CborBool(v.revoked())));
+        return new CborMap(csilEntries);
+    }
+
+    static RevokeApiKeyResponse decRevokeApiKeyResponse(CborValue csilRoot) {
+        boolean revoked = asBool(require(csilRoot, "revoked"));
+        return new RevokeApiKeyResponse(revoked);
+    }
+
+    public static byte[] encodeRevokeApiKeyResponse(RevokeApiKeyResponse v) {
+        return encode(encRevokeApiKeyResponse(v));
+    }
+
+    public static RevokeApiKeyResponse decodeRevokeApiKeyResponse(byte[] data) {
+        return decRevokeApiKeyResponse(decode(data));
+    }
+
+    static CborValue encAccountLimits(AccountLimits v) {
+        List<CborEntry> csilEntries = new ArrayList<>(5);
+        if (v.maxApiKeys() != null) {
+            csilEntries.add(new CborEntry(new CborText("max_api_keys"), new CborInt(v.maxApiKeys())));
+        }
+        if (v.requestBurst() != null) {
+            csilEntries.add(new CborEntry(new CborText("request_burst"), new CborInt(v.requestBurst())));
+        }
+        if (v.maxDistinctUsers() != null) {
+            csilEntries.add(new CborEntry(new CborText("max_distinct_users"), new CborInt(v.maxDistinctUsers())));
+        }
+        if (v.requestsPerMinute() != null) {
+            csilEntries.add(new CborEntry(new CborText("requests_per_minute"), new CborInt(v.requestsPerMinute())));
+        }
+        csilEntries.add(new CborEntry(new CborText("distinct_user_window_days"), new CborInt(v.distinctUserWindowDays())));
+        return new CborMap(csilEntries);
+    }
+
+    static AccountLimits decAccountLimits(CborValue csilRoot) {
+        Long maxApiKeys;
+        {
+            CborValue csilField = mapGet(csilRoot, "max_api_keys");
+            maxApiKeys = csilField != null ? asI64(csilField) : null;
+        }
+        Long maxDistinctUsers;
+        {
+            CborValue csilField = mapGet(csilRoot, "max_distinct_users");
+            maxDistinctUsers = csilField != null ? asI64(csilField) : null;
+        }
+        long distinctUserWindowDays = asI64(require(csilRoot, "distinct_user_window_days"));
+        Long requestsPerMinute;
+        {
+            CborValue csilField = mapGet(csilRoot, "requests_per_minute");
+            requestsPerMinute = csilField != null ? asI64(csilField) : null;
+        }
+        Long requestBurst;
+        {
+            CborValue csilField = mapGet(csilRoot, "request_burst");
+            requestBurst = csilField != null ? asI64(csilField) : null;
+        }
+        return new AccountLimits(maxApiKeys, maxDistinctUsers, distinctUserWindowDays, requestsPerMinute, requestBurst);
+    }
+
+    public static byte[] encodeAccountLimits(AccountLimits v) {
+        return encode(encAccountLimits(v));
+    }
+
+    public static AccountLimits decodeAccountLimits(byte[] data) {
+        return decAccountLimits(decode(data));
+    }
+
+    static CborValue encGetAccountLimitsRequest(GetAccountLimitsRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
+        return new CborMap(csilEntries);
+    }
+
+    static GetAccountLimitsRequest decGetAccountLimitsRequest(CborValue csilRoot) {
+        String userId = asText(require(csilRoot, "user_id"));
+        return new GetAccountLimitsRequest(userId);
+    }
+
+    public static byte[] encodeGetAccountLimitsRequest(GetAccountLimitsRequest v) {
+        return encode(encGetAccountLimitsRequest(v));
+    }
+
+    public static GetAccountLimitsRequest decodeGetAccountLimitsRequest(byte[] data) {
+        return decGetAccountLimitsRequest(decode(data));
+    }
+
+    static CborValue encGetAccountLimitsResponse(GetAccountLimitsResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("limits"), encAccountLimits(v.limits())));
+        return new CborMap(csilEntries);
+    }
+
+    static GetAccountLimitsResponse decGetAccountLimitsResponse(CborValue csilRoot) {
+        AccountLimits limits = decAccountLimits(require(csilRoot, "limits"));
+        return new GetAccountLimitsResponse(limits);
+    }
+
+    public static byte[] encodeGetAccountLimitsResponse(GetAccountLimitsResponse v) {
+        return encode(encGetAccountLimitsResponse(v));
+    }
+
+    public static GetAccountLimitsResponse decodeGetAccountLimitsResponse(byte[] data) {
+        return decGetAccountLimitsResponse(decode(data));
+    }
+
+    static CborValue encSetAccountLimitsRequest(SetAccountLimitsRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("limits"), encAccountLimits(v.limits())));
+        csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
+        return new CborMap(csilEntries);
+    }
+
+    static SetAccountLimitsRequest decSetAccountLimitsRequest(CborValue csilRoot) {
+        String userId = asText(require(csilRoot, "user_id"));
+        AccountLimits limits = decAccountLimits(require(csilRoot, "limits"));
+        return new SetAccountLimitsRequest(userId, limits);
+    }
+
+    public static byte[] encodeSetAccountLimitsRequest(SetAccountLimitsRequest v) {
+        return encode(encSetAccountLimitsRequest(v));
+    }
+
+    public static SetAccountLimitsRequest decodeSetAccountLimitsRequest(byte[] data) {
+        return decSetAccountLimitsRequest(decode(data));
+    }
+
+    static CborValue encSetAccountLimitsResponse(SetAccountLimitsResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(1);
+        csilEntries.add(new CborEntry(new CborText("limits"), encAccountLimits(v.limits())));
+        return new CborMap(csilEntries);
+    }
+
+    static SetAccountLimitsResponse decSetAccountLimitsResponse(CborValue csilRoot) {
+        AccountLimits limits = decAccountLimits(require(csilRoot, "limits"));
+        return new SetAccountLimitsResponse(limits);
+    }
+
+    public static byte[] encodeSetAccountLimitsResponse(SetAccountLimitsResponse v) {
+        return encode(encSetAccountLimitsResponse(v));
+    }
+
+    public static SetAccountLimitsResponse decodeSetAccountLimitsResponse(byte[] data) {
+        return decSetAccountLimitsResponse(decode(data));
+    }
+
+    static CborValue encRpUsageDay(RpUsageDay v) {
+        List<CborEntry> csilEntries = new ArrayList<>(4);
+        csilEntries.add(new CborEntry(new CborText("day"), encDate(v.day())));
+        csilEntries.add(new CborEntry(new CborText("failed"), new CborInt(v.failed())));
+        csilEntries.add(new CborEntry(new CborText("operation"), new CborText(v.operation())));
+        csilEntries.add(new CborEntry(new CborText("succeeded"), new CborInt(v.succeeded())));
+        return new CborMap(csilEntries);
+    }
+
+    static RpUsageDay decRpUsageDay(CborValue csilRoot) {
+        LocalDate day = asDate(require(csilRoot, "day"));
+        String operation = asText(require(csilRoot, "operation"));
+        long succeeded = asI64(require(csilRoot, "succeeded"));
+        long failed = asI64(require(csilRoot, "failed"));
+        return new RpUsageDay(day, operation, succeeded, failed);
+    }
+
+    public static byte[] encodeRpUsageDay(RpUsageDay v) {
+        return encode(encRpUsageDay(v));
+    }
+
+    public static RpUsageDay decodeRpUsageDay(byte[] data) {
+        return decRpUsageDay(decode(data));
+    }
+
+    static CborValue encGetApplicationUsageRequest(GetApplicationUsageRequest v) {
+        List<CborEntry> csilEntries = new ArrayList<>(3);
+        csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
+        csilEntries.add(new CborEntry(new CborText("last_day"), encDate(v.lastDay())));
+        csilEntries.add(new CborEntry(new CborText("first_day"), encDate(v.firstDay())));
+        return new CborMap(csilEntries);
+    }
+
+    static GetApplicationUsageRequest decGetApplicationUsageRequest(CborValue csilRoot) {
+        String userId = asText(require(csilRoot, "user_id"));
+        LocalDate firstDay = asDate(require(csilRoot, "first_day"));
+        LocalDate lastDay = asDate(require(csilRoot, "last_day"));
+        return new GetApplicationUsageRequest(userId, firstDay, lastDay);
+    }
+
+    public static byte[] encodeGetApplicationUsageRequest(GetApplicationUsageRequest v) {
+        return encode(encGetApplicationUsageRequest(v));
+    }
+
+    public static GetApplicationUsageRequest decodeGetApplicationUsageRequest(byte[] data) {
+        return decGetApplicationUsageRequest(decode(data));
+    }
+
+    static CborValue encGetApplicationUsageResponse(GetApplicationUsageResponse v) {
+        List<CborEntry> csilEntries = new ArrayList<>(4);
+        csilEntries.add(new CborEntry(new CborText("days"), encArray(v.days(), csilElem0 -> encRpUsageDay(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("distinct_users"), new CborInt(v.distinctUsers())));
+        if (v.maxDistinctUsers() != null) {
+            csilEntries.add(new CborEntry(new CborText("max_distinct_users"), new CborInt(v.maxDistinctUsers())));
+        }
+        csilEntries.add(new CborEntry(new CborText("distinct_user_window_days"), new CborInt(v.distinctUserWindowDays())));
+        return new CborMap(csilEntries);
+    }
+
+    static GetApplicationUsageResponse decGetApplicationUsageResponse(CborValue csilRoot) {
+        long distinctUsers = asI64(require(csilRoot, "distinct_users"));
+        long distinctUserWindowDays = asI64(require(csilRoot, "distinct_user_window_days"));
+        Long maxDistinctUsers;
+        {
+            CborValue csilField = mapGet(csilRoot, "max_distinct_users");
+            maxDistinctUsers = csilField != null ? asI64(csilField) : null;
+        }
+        List<RpUsageDay> days = decArray(require(csilRoot, "days"), csilE0 -> decRpUsageDay(csilE0));
+        return new GetApplicationUsageResponse(distinctUsers, distinctUserWindowDays, maxDistinctUsers, days);
+    }
+
+    public static byte[] encodeGetApplicationUsageResponse(GetApplicationUsageResponse v) {
+        return encode(encGetApplicationUsageResponse(v));
+    }
+
+    public static GetApplicationUsageResponse decodeGetApplicationUsageResponse(byte[] data) {
+        return decGetApplicationUsageResponse(decode(data));
     }
 
     static CborValue encUpdateUserRequest(UpdateUserRequest v) {
@@ -2452,7 +3165,7 @@ public final class CsilCbor {
         csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
         csilEntries.add(new CborEntry(new CborText("claim_type"), new CborText(v.claimType())));
         if (v.expiresAt() != null) {
-            csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+            csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         }
         csilEntries.add(new CborEntry(new CborText("claim_value"), new CborText(v.claimValue())));
         return new CborMap(csilEntries);
@@ -2462,10 +3175,10 @@ public final class CsilCbor {
         String userId = asText(require(csilRoot, "user_id"));
         String claimType = asText(require(csilRoot, "claim_type"));
         String claimValue = asText(require(csilRoot, "claim_value"));
-        String expiresAt;
+        Instant expiresAt;
         {
             CborValue csilField = mapGet(csilRoot, "expires_at");
-            expiresAt = csilField != null ? asText(csilField) : null;
+            expiresAt = csilField != null ? asTimestamp(csilField) : null;
         }
         return new SetClaimRequest(userId, claimType, claimValue, expiresAt);
     }
@@ -2639,12 +3352,12 @@ public final class CsilCbor {
         if (v.claim() != null) {
             csilEntries.add(new CborEntry(new CborText("claim"), encClaim(v.claim())));
         }
-        csilEntries.add(new CborEntry(new CborText("outcome"), new CborText(v.outcome())));
+        csilEntries.add(new CborEntry(new CborText("outcome"), encSetClaimOutcome(v.outcome())));
         return new CborMap(csilEntries);
     }
 
     static SetUserClaimResponse decSetUserClaimResponse(CborValue csilRoot) {
-        String outcome = asText(require(csilRoot, "outcome"));
+        SetClaimOutcome outcome = decSetClaimOutcome(require(csilRoot, "outcome"));
         Claim claim;
         {
             CborValue csilField = mapGet(csilRoot, "claim");
@@ -2664,12 +3377,12 @@ public final class CsilCbor {
     static CborValue encSettableClaimPolicy(SettableClaimPolicy v) {
         List<CborEntry> csilEntries = new ArrayList<>(8);
         csilEntries.add(new CborEntry(new CborText("label"), new CborText(v.label())));
-        csilEntries.add(new CborEntry(new CborText("datatype"), new CborText(v.datatype())));
-        csilEntries.add(new CborEntry(new CborText("set_rule"), new CborText(v.setRule())));
+        csilEntries.add(new CborEntry(new CborText("datatype"), encClaimValueType(v.datatype())));
+        csilEntries.add(new CborEntry(new CborText("set_rule"), encSetRule(v.setRule())));
         csilEntries.add(new CborEntry(new CborText("max_bytes"), new CborInt(v.maxBytes())));
         csilEntries.add(new CborEntry(new CborText("claim_type"), new CborText(v.claimType())));
         csilEntries.add(new CborEntry(new CborText("description"), new CborText(v.description())));
-        csilEntries.add(new CborEntry(new CborText("signing_rule"), new CborText(v.signingRule())));
+        csilEntries.add(new CborEntry(new CborText("signing_rule"), encSigningRule(v.signingRule())));
         csilEntries.add(new CborEntry(new CborText("requires_approval"), new CborBool(v.requiresApproval())));
         return new CborMap(csilEntries);
     }
@@ -2678,11 +3391,11 @@ public final class CsilCbor {
         String claimType = asText(require(csilRoot, "claim_type"));
         String label = asText(require(csilRoot, "label"));
         String description = asText(require(csilRoot, "description"));
-        String datatype = asText(require(csilRoot, "datatype"));
+        ClaimValueType datatype = decClaimValueType(require(csilRoot, "datatype"));
         long maxBytes = asI64(require(csilRoot, "max_bytes"));
-        String setRule = asText(require(csilRoot, "set_rule"));
+        SetRule setRule = decSetRule(require(csilRoot, "set_rule"));
         boolean requiresApproval = asBool(require(csilRoot, "requires_approval"));
-        String signingRule = asText(require(csilRoot, "signing_rule"));
+        SigningRule signingRule = decSigningRule(require(csilRoot, "signing_rule"));
         return new SettableClaimPolicy(claimType, label, description, datatype, maxBytes, setRule, requiresApproval, signingRule);
     }
 
@@ -2716,13 +3429,13 @@ public final class CsilCbor {
     static CborValue encClaimTypePolicy(ClaimTypePolicy v) {
         List<CborEntry> csilEntries = new ArrayList<>(11);
         csilEntries.add(new CborEntry(new CborText("label"), new CborText(v.label())));
-        csilEntries.add(new CborEntry(new CborText("set_rule"), new CborText(v.setRule())));
+        csilEntries.add(new CborEntry(new CborText("set_rule"), encSetRule(v.setRule())));
         csilEntries.add(new CborEntry(new CborText("max_bytes"), new CborInt(v.maxBytes())));
         csilEntries.add(new CborEntry(new CborText("suggested"), new CborBool(v.suggested())));
         csilEntries.add(new CborEntry(new CborText("claim_type"), new CborText(v.claimType())));
-        csilEntries.add(new CborEntry(new CborText("value_type"), new CborText(v.valueType())));
+        csilEntries.add(new CborEntry(new CborText("value_type"), encClaimValueType(v.valueType())));
         csilEntries.add(new CborEntry(new CborText("description"), new CborText(v.description())));
-        csilEntries.add(new CborEntry(new CborText("signing_rule"), new CborText(v.signingRule())));
+        csilEntries.add(new CborEntry(new CborText("signing_rule"), encSigningRule(v.signingRule())));
         csilEntries.add(new CborEntry(new CborText("user_settable"), new CborBool(v.userSettable())));
         csilEntries.add(new CborEntry(new CborText("default_auto_sign"), new CborBool(v.defaultAutoSign())));
         csilEntries.add(new CborEntry(new CborText("requires_approval"), new CborBool(v.requiresApproval())));
@@ -2733,10 +3446,10 @@ public final class CsilCbor {
         String claimType = asText(require(csilRoot, "claim_type"));
         String label = asText(require(csilRoot, "label"));
         String description = asText(require(csilRoot, "description"));
-        String valueType = asText(require(csilRoot, "value_type"));
+        ClaimValueType valueType = decClaimValueType(require(csilRoot, "value_type"));
         long maxBytes = asI64(require(csilRoot, "max_bytes"));
-        String setRule = asText(require(csilRoot, "set_rule"));
-        String signingRule = asText(require(csilRoot, "signing_rule"));
+        SetRule setRule = decSetRule(require(csilRoot, "set_rule"));
+        SigningRule signingRule = decSigningRule(require(csilRoot, "signing_rule"));
         boolean requiresApproval = asBool(require(csilRoot, "requires_approval"));
         boolean userSettable = asBool(require(csilRoot, "user_settable"));
         boolean defaultAutoSign = asBool(require(csilRoot, "default_auto_sign"));
@@ -2774,15 +3487,15 @@ public final class CsilCbor {
     static CborValue encSetClaimTypeRequest(SetClaimTypeRequest v) {
         List<CborEntry> csilEntries = new ArrayList<>(11);
         csilEntries.add(new CborEntry(new CborText("label"), new CborText(v.label())));
-        csilEntries.add(new CborEntry(new CborText("set_rule"), new CborText(v.setRule())));
+        csilEntries.add(new CborEntry(new CborText("set_rule"), encSetRule(v.setRule())));
         csilEntries.add(new CborEntry(new CborText("max_bytes"), new CborInt(v.maxBytes())));
         csilEntries.add(new CborEntry(new CborText("suggested"), new CborBool(v.suggested())));
         csilEntries.add(new CborEntry(new CborText("claim_type"), new CborText(v.claimType())));
-        csilEntries.add(new CborEntry(new CborText("value_type"), new CborText(v.valueType())));
+        csilEntries.add(new CborEntry(new CborText("value_type"), encClaimValueType(v.valueType())));
         if (v.description() != null) {
             csilEntries.add(new CborEntry(new CborText("description"), new CborText(v.description())));
         }
-        csilEntries.add(new CborEntry(new CborText("signing_rule"), new CborText(v.signingRule())));
+        csilEntries.add(new CborEntry(new CborText("signing_rule"), encSigningRule(v.signingRule())));
         csilEntries.add(new CborEntry(new CborText("user_settable"), new CborBool(v.userSettable())));
         csilEntries.add(new CborEntry(new CborText("default_auto_sign"), new CborBool(v.defaultAutoSign())));
         csilEntries.add(new CborEntry(new CborText("requires_approval"), new CborBool(v.requiresApproval())));
@@ -2797,10 +3510,10 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "description");
             description = csilField != null ? asText(csilField) : null;
         }
-        String valueType = asText(require(csilRoot, "value_type"));
+        ClaimValueType valueType = decClaimValueType(require(csilRoot, "value_type"));
         long maxBytes = asI64(require(csilRoot, "max_bytes"));
-        String setRule = asText(require(csilRoot, "set_rule"));
-        String signingRule = asText(require(csilRoot, "signing_rule"));
+        SetRule setRule = decSetRule(require(csilRoot, "set_rule"));
+        SigningRule signingRule = decSigningRule(require(csilRoot, "signing_rule"));
         boolean userSettable = asBool(require(csilRoot, "user_settable"));
         boolean defaultAutoSign = asBool(require(csilRoot, "default_auto_sign"));
         boolean requiresApproval = asBool(require(csilRoot, "requires_approval"));
@@ -3137,14 +3850,14 @@ public final class CsilCbor {
         List<CborEntry> csilEntries = new ArrayList<>(3);
         csilEntries.add(new CborEntry(new CborText("audience"), new CborText(v.audience())));
         csilEntries.add(new CborEntry(new CborText("claim_type"), new CborText(v.claimType())));
-        csilEntries.add(new CborEntry(new CborText("disposition"), new CborText(v.disposition())));
+        csilEntries.add(new CborEntry(new CborText("disposition"), encReleaseDisposition(v.disposition())));
         return new CborMap(csilEntries);
     }
 
     static ReleaseRule decReleaseRule(CborValue csilRoot) {
         String audience = asText(require(csilRoot, "audience"));
         String claimType = asText(require(csilRoot, "claim_type"));
-        String disposition = asText(require(csilRoot, "disposition"));
+        ReleaseDisposition disposition = decReleaseDisposition(require(csilRoot, "disposition"));
         return new ReleaseRule(audience, claimType, disposition);
     }
 
@@ -3179,14 +3892,14 @@ public final class CsilCbor {
         List<CborEntry> csilEntries = new ArrayList<>(3);
         csilEntries.add(new CborEntry(new CborText("audience"), new CborText(v.audience())));
         csilEntries.add(new CborEntry(new CborText("claim_type"), new CborText(v.claimType())));
-        csilEntries.add(new CborEntry(new CborText("disposition"), new CborText(v.disposition())));
+        csilEntries.add(new CborEntry(new CborText("disposition"), encReleaseDisposition(v.disposition())));
         return new CborMap(csilEntries);
     }
 
     static SetReleaseRuleRequest decSetReleaseRuleRequest(CborValue csilRoot) {
         String audience = asText(require(csilRoot, "audience"));
         String claimType = asText(require(csilRoot, "claim_type"));
-        String disposition = asText(require(csilRoot, "disposition"));
+        ReleaseDisposition disposition = decReleaseDisposition(require(csilRoot, "disposition"));
         return new SetReleaseRuleRequest(audience, claimType, disposition);
     }
 
@@ -3260,13 +3973,13 @@ public final class CsilCbor {
     static CborValue encClaimApproval(ClaimApproval v) {
         List<CborEntry> csilEntries = new ArrayList<>(8);
         csilEntries.add(new CborEntry(new CborText("id"), new CborText(v.id())));
-        csilEntries.add(new CborEntry(new CborText("status"), new CborText(v.status())));
+        csilEntries.add(new CborEntry(new CborText("status"), encClaimApprovalStatus(v.status())));
         csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
         csilEntries.add(new CborEntry(new CborText("claim_type"), new CborText(v.claimType())));
-        csilEntries.add(new CborEntry(new CborText("created_at"), new CborText(v.createdAt())));
+        csilEntries.add(new CborEntry(new CborText("created_at"), encTimestamp(v.createdAt())));
         csilEntries.add(new CborEntry(new CborText("claim_value"), new CborBytes(v.claimValue())));
         if (v.resolvedAt() != null) {
-            csilEntries.add(new CborEntry(new CborText("resolved_at"), new CborText(v.resolvedAt())));
+            csilEntries.add(new CborEntry(new CborText("resolved_at"), encTimestamp(v.resolvedAt())));
         }
         if (v.resolvedBy() != null) {
             csilEntries.add(new CborEntry(new CborText("resolved_by"), new CborText(v.resolvedBy())));
@@ -3279,18 +3992,18 @@ public final class CsilCbor {
         String userId = asText(require(csilRoot, "user_id"));
         String claimType = asText(require(csilRoot, "claim_type"));
         byte[] claimValue = asBytes(require(csilRoot, "claim_value"));
-        String status = asText(require(csilRoot, "status"));
+        ClaimApprovalStatus status = decClaimApprovalStatus(require(csilRoot, "status"));
         String resolvedBy;
         {
             CborValue csilField = mapGet(csilRoot, "resolved_by");
             resolvedBy = csilField != null ? asText(csilField) : null;
         }
-        String resolvedAt;
+        Instant resolvedAt;
         {
             CborValue csilField = mapGet(csilRoot, "resolved_at");
-            resolvedAt = csilField != null ? asText(csilField) : null;
+            resolvedAt = csilField != null ? asTimestamp(csilField) : null;
         }
-        String createdAt = asText(require(csilRoot, "created_at"));
+        Instant createdAt = asTimestamp(require(csilRoot, "created_at"));
         return new ClaimApproval(id, userId, claimType, claimValue, status, resolvedBy, resolvedAt, createdAt);
     }
 
@@ -3724,12 +4437,12 @@ public final class CsilCbor {
         if (v.claim() != null) {
             csilEntries.add(new CborEntry(new CborText("claim"), encClaim(v.claim())));
         }
-        csilEntries.add(new CborEntry(new CborText("outcome"), new CborText(v.outcome())));
+        csilEntries.add(new CborEntry(new CborText("outcome"), encSetClaimOutcome(v.outcome())));
         return new CborMap(csilEntries);
     }
 
     static SetMyClaimResponse decSetMyClaimResponse(CborValue csilRoot) {
-        String outcome = asText(require(csilRoot, "outcome"));
+        SetClaimOutcome outcome = decSetClaimOutcome(require(csilRoot, "outcome"));
         Claim claim;
         {
             CborValue csilField = mapGet(csilRoot, "claim");
@@ -4047,18 +4760,18 @@ public final class CsilCbor {
     static CborValue encBrowserSessionInfo(BrowserSessionInfo v) {
         List<CborEntry> csilEntries = new ArrayList<>(5);
         csilEntries.add(new CborEntry(new CborText("user"), encAdminUser(v.user())));
-        csilEntries.add(new CborEntry(new CborText("issued_at"), new CborText(v.issuedAt())));
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
-        csilEntries.add(new CborEntry(new CborText("authenticated_at"), new CborText(v.authenticatedAt())));
+        csilEntries.add(new CborEntry(new CborText("issued_at"), encTimestamp(v.issuedAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("authenticated_at"), encTimestamp(v.authenticatedAt())));
         csilEntries.add(new CborEntry(new CborText("authentication_methods"), encArray(v.authenticationMethods(), csilElem0 -> new CborText(csilElem0))));
         return new CborMap(csilEntries);
     }
 
     static BrowserSessionInfo decBrowserSessionInfo(CborValue csilRoot) {
         AdminUser user = decAdminUser(require(csilRoot, "user"));
-        String issuedAt = asText(require(csilRoot, "issued_at"));
-        String authenticatedAt = asText(require(csilRoot, "authenticated_at"));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
+        Instant issuedAt = asTimestamp(require(csilRoot, "issued_at"));
+        Instant authenticatedAt = asTimestamp(require(csilRoot, "authenticated_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
         List<String> authenticationMethods = decArray(require(csilRoot, "authentication_methods"), csilE0 -> asText(csilE0));
         return new BrowserSessionInfo(user, issuedAt, authenticatedAt, expiresAt, authenticationMethods);
     }
@@ -4171,9 +4884,9 @@ public final class CsilCbor {
     static CborValue encIntrospectBrowserSessionResponse(IntrospectBrowserSessionResponse v) {
         List<CborEntry> csilEntries = new ArrayList<>(5);
         csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         csilEntries.add(new CborEntry(new CborText("user_domain"), new CborText(v.userDomain())));
-        csilEntries.add(new CborEntry(new CborText("authenticated_at"), new CborText(v.authenticatedAt())));
+        csilEntries.add(new CborEntry(new CborText("authenticated_at"), encTimestamp(v.authenticatedAt())));
         csilEntries.add(new CborEntry(new CborText("authentication_methods"), encArray(v.authenticationMethods(), csilElem0 -> new CborText(csilElem0))));
         return new CborMap(csilEntries);
     }
@@ -4181,8 +4894,8 @@ public final class CsilCbor {
     static IntrospectBrowserSessionResponse decIntrospectBrowserSessionResponse(CborValue csilRoot) {
         String userId = asText(require(csilRoot, "user_id"));
         String userDomain = asText(require(csilRoot, "user_domain"));
-        String authenticatedAt = asText(require(csilRoot, "authenticated_at"));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
+        Instant authenticatedAt = asTimestamp(require(csilRoot, "authenticated_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
         List<String> authenticationMethods = decArray(require(csilRoot, "authentication_methods"), csilE0 -> asText(csilE0));
         return new IntrospectBrowserSessionResponse(userId, userDomain, authenticatedAt, expiresAt, authenticationMethods);
     }
@@ -4197,16 +4910,16 @@ public final class CsilCbor {
 
     static CborValue encNotificationCapability(NotificationCapability v) {
         List<CborEntry> csilEntries = new ArrayList<>(3);
-        csilEntries.add(new CborEntry(new CborText("channel"), new CborText(v.channel())));
-        csilEntries.add(new CborEntry(new CborText("purpose"), new CborText(v.purpose())));
-        csilEntries.add(new CborEntry(new CborText("destination_kind"), new CborText(v.destinationKind())));
+        csilEntries.add(new CborEntry(new CborText("channel"), encNotificationChannel(v.channel())));
+        csilEntries.add(new CborEntry(new CborText("purpose"), encNotificationPurpose(v.purpose())));
+        csilEntries.add(new CborEntry(new CborText("destination_kind"), encDestinationKind(v.destinationKind())));
         return new CborMap(csilEntries);
     }
 
     static NotificationCapability decNotificationCapability(CborValue csilRoot) {
-        String purpose = asText(require(csilRoot, "purpose"));
-        String channel = asText(require(csilRoot, "channel"));
-        String destinationKind = asText(require(csilRoot, "destination_kind"));
+        NotificationPurpose purpose = decNotificationPurpose(require(csilRoot, "purpose"));
+        NotificationChannel channel = decNotificationChannel(require(csilRoot, "channel"));
+        DestinationKind destinationKind = decDestinationKind(require(csilRoot, "destination_kind"));
         return new NotificationCapability(purpose, channel, destinationKind);
     }
 
@@ -4240,26 +4953,26 @@ public final class CsilCbor {
     static CborValue encVerifiedContactMethod(VerifiedContactMethod v) {
         List<CborEntry> csilEntries = new ArrayList<>(6);
         csilEntries.add(new CborEntry(new CborText("id"), new CborText(v.id())));
-        csilEntries.add(new CborEntry(new CborText("channel"), new CborText(v.channel())));
-        csilEntries.add(new CborEntry(new CborText("purposes"), encArray(v.purposes(), csilElem0 -> new CborText(csilElem0))));
+        csilEntries.add(new CborEntry(new CborText("channel"), encNotificationChannel(v.channel())));
+        csilEntries.add(new CborEntry(new CborText("purposes"), encArray(v.purposes(), csilElem0 -> encNotificationPurpose(csilElem0))));
         if (v.revokedAt() != null) {
-            csilEntries.add(new CborEntry(new CborText("revoked_at"), new CborText(v.revokedAt())));
+            csilEntries.add(new CborEntry(new CborText("revoked_at"), encTimestamp(v.revokedAt())));
         }
         csilEntries.add(new CborEntry(new CborText("destination"), new CborText(v.destination())));
-        csilEntries.add(new CborEntry(new CborText("verified_at"), new CborText(v.verifiedAt())));
+        csilEntries.add(new CborEntry(new CborText("verified_at"), encTimestamp(v.verifiedAt())));
         return new CborMap(csilEntries);
     }
 
     static VerifiedContactMethod decVerifiedContactMethod(CborValue csilRoot) {
         String id = asText(require(csilRoot, "id"));
-        String channel = asText(require(csilRoot, "channel"));
+        NotificationChannel channel = decNotificationChannel(require(csilRoot, "channel"));
         String destination = asText(require(csilRoot, "destination"));
-        String verifiedAt = asText(require(csilRoot, "verified_at"));
-        List<String> purposes = decArray(require(csilRoot, "purposes"), csilE0 -> asText(csilE0));
-        String revokedAt;
+        Instant verifiedAt = asTimestamp(require(csilRoot, "verified_at"));
+        List<NotificationPurpose> purposes = decArray(require(csilRoot, "purposes"), csilE0 -> decNotificationPurpose(csilE0));
+        Instant revokedAt;
         {
             CborValue csilField = mapGet(csilRoot, "revoked_at");
-            revokedAt = csilField != null ? asText(csilField) : null;
+            revokedAt = csilField != null ? asTimestamp(csilField) : null;
         }
         return new VerifiedContactMethod(id, channel, destination, verifiedAt, purposes, revokedAt);
     }
@@ -4333,14 +5046,14 @@ public final class CsilCbor {
 
     static CborValue encRequestContactVerificationRequest(RequestContactVerificationRequest v) {
         List<CborEntry> csilEntries = new ArrayList<>(3);
-        csilEntries.add(new CborEntry(new CborText("channel"), new CborText(v.channel())));
+        csilEntries.add(new CborEntry(new CborText("channel"), encNotificationChannel(v.channel())));
         csilEntries.add(new CborEntry(new CborText("destination"), new CborText(v.destination())));
         csilEntries.add(new CborEntry(new CborText("current_password"), new CborText(v.currentPassword())));
         return new CborMap(csilEntries);
     }
 
     static RequestContactVerificationRequest decRequestContactVerificationRequest(CborValue csilRoot) {
-        String channel = asText(require(csilRoot, "channel"));
+        NotificationChannel channel = decNotificationChannel(require(csilRoot, "channel"));
         String destination = asText(require(csilRoot, "destination"));
         String currentPassword = asText(require(csilRoot, "current_password"));
         return new RequestContactVerificationRequest(channel, destination, currentPassword);
@@ -4356,12 +5069,12 @@ public final class CsilCbor {
 
     static CborValue encRequestContactVerificationResponse(RequestContactVerificationResponse v) {
         List<CborEntry> csilEntries = new ArrayList<>(1);
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         return new CborMap(csilEntries);
     }
 
     static RequestContactVerificationResponse decRequestContactVerificationResponse(CborValue csilRoot) {
-        String expiresAt = asText(require(csilRoot, "expires_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
         return new RequestContactVerificationResponse(expiresAt);
     }
 
@@ -4470,13 +5183,13 @@ public final class CsilCbor {
 
     static CborValue encValidatePasswordRecoveryResponse(ValidatePasswordRecoveryResponse v) {
         List<CborEntry> csilEntries = new ArrayList<>(2);
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         csilEntries.add(new CborEntry(new CborText("password_policy"), encPasswordPolicy(v.passwordPolicy())));
         return new CborMap(csilEntries);
     }
 
     static ValidatePasswordRecoveryResponse decValidatePasswordRecoveryResponse(CborValue csilRoot) {
-        String expiresAt = asText(require(csilRoot, "expires_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
         PasswordPolicy passwordPolicy = decPasswordPolicy(require(csilRoot, "password_policy"));
         return new ValidatePasswordRecoveryResponse(expiresAt, passwordPolicy);
     }
@@ -4551,8 +5264,8 @@ public final class CsilCbor {
     static CborValue encBrowserConsentClaim(BrowserConsentClaim v) {
         List<CborEntry> csilEntries = new ArrayList<>(11);
         csilEntries.add(new CborEntry(new CborText("label"), new CborText(v.label())));
-        csilEntries.add(new CborEntry(new CborText("policy"), new CborText(v.policy())));
-        csilEntries.add(new CborEntry(new CborText("datatype"), new CborText(v.datatype())));
+        csilEntries.add(new CborEntry(new CborText("policy"), encConsentRowPolicy(v.policy())));
+        csilEntries.add(new CborEntry(new CborText("datatype"), encClaimValueType(v.datatype())));
         csilEntries.add(new CborEntry(new CborText("required"), new CborBool(v.required())));
         csilEntries.add(new CborEntry(new CborText("available"), new CborBool(v.available())));
         csilEntries.add(new CborEntry(new CborText("max_bytes"), new CborInt(v.maxBytes())));
@@ -4569,11 +5282,11 @@ public final class CsilCbor {
     static BrowserConsentClaim decBrowserConsentClaim(CborValue csilRoot) {
         String claimType = asText(require(csilRoot, "claim_type"));
         String label = asText(require(csilRoot, "label"));
-        String datatype = asText(require(csilRoot, "datatype"));
+        ClaimValueType datatype = decClaimValueType(require(csilRoot, "datatype"));
         boolean required = asBool(require(csilRoot, "required"));
         boolean available = asBool(require(csilRoot, "available"));
         boolean defaultGranted = asBool(require(csilRoot, "default_granted"));
-        String policy = asText(require(csilRoot, "policy"));
+        ConsentRowPolicy policy = decConsentRowPolicy(require(csilRoot, "policy"));
         boolean userSettable = asBool(require(csilRoot, "user_settable"));
         long maxBytes = asI64(require(csilRoot, "max_bytes"));
         boolean requiresApproval = asBool(require(csilRoot, "requires_approval"));
@@ -4745,14 +5458,14 @@ public final class CsilCbor {
         List<CborEntry> csilEntries = new ArrayList<>(10);
         csilEntries.add(new CborEntry(new CborText("claims"), encArray(v.claims(), csilElem0 -> encBrowserConsentClaim(csilElem0))));
         csilEntries.add(new CborEntry(new CborText("app_name"), new CborText(v.appName())));
-        csilEntries.add(new CborEntry(new CborText("admission"), new CborText(v.admission())));
+        csilEntries.add(new CborEntry(new CborText("admission"), encLocalRpAdmission(v.admission())));
         csilEntries.add(new CborEntry(new CborText("fingerprint"), new CborText(v.fingerprint())));
         if (v.accessDenied() != null) {
             csilEntries.add(new CborEntry(new CborText("access_denied"), encAppAccessDenial(v.accessDenied())));
         }
         csilEntries.add(new CborEntry(new CborText("callback_host"), new CborText(v.callbackHost())));
         if (v.firstSeenAt() != null) {
-            csilEntries.add(new CborEntry(new CborText("first_seen_at"), new CborText(v.firstSeenAt())));
+            csilEntries.add(new CborEntry(new CborText("first_seen_at"), encTimestamp(v.firstSeenAt())));
         }
         if (v.requestReason() != null) {
             csilEntries.add(new CborEntry(new CborText("request_reason"), new CborText(v.requestReason())));
@@ -4767,14 +5480,14 @@ public final class CsilCbor {
     }
 
     static BrowserLocalRpInspectResponse decBrowserLocalRpInspectResponse(CborValue csilRoot) {
-        String admission = asText(require(csilRoot, "admission"));
+        LocalRpAdmission admission = decLocalRpAdmission(require(csilRoot, "admission"));
         String appName = asText(require(csilRoot, "app_name"));
         String fingerprint = asText(require(csilRoot, "fingerprint"));
         String callbackHost = asText(require(csilRoot, "callback_host"));
-        String firstSeenAt;
+        Instant firstSeenAt;
         {
             CborValue csilField = mapGet(csilRoot, "first_seen_at");
-            firstSeenAt = csilField != null ? asText(csilField) : null;
+            firstSeenAt = csilField != null ? asTimestamp(csilField) : null;
         }
         List<BrowserConsentClaim> claims = decArray(require(csilRoot, "claims"), csilE0 -> decBrowserConsentClaim(csilE0));
         String requestReason;
@@ -5011,14 +5724,11 @@ public final class CsilCbor {
     }
 
     static CborValue encRpSignRequest(RpSignRequest v) {
-        List<CborEntry> csilEntries = new ArrayList<>(6);
+        List<CborEntry> csilEntries = new ArrayList<>(5);
         csilEntries.add(new CborEntry(new CborText("nonce"), new CborText(v.nonce())));
         csilEntries.add(new CborEntry(new CborText("callback_url"), new CborText(v.callbackUrl())));
         if (v.flowContext() != null) {
             csilEntries.add(new CborEntry(new CborText("flow_context"), encAuthFlowContext(v.flowContext())));
-        }
-        if (v.applicationId() != null) {
-            csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
         }
         if (v.requestedClaims() != null) {
             csilEntries.add(new CborEntry(new CborText("requested_claims"), encClaimRequest(v.requestedClaims())));
@@ -5032,11 +5742,6 @@ public final class CsilCbor {
     static RpSignRequest decRpSignRequest(CborValue csilRoot) {
         String callbackUrl = asText(require(csilRoot, "callback_url"));
         String nonce = asText(require(csilRoot, "nonce"));
-        String applicationId;
-        {
-            CborValue csilField = mapGet(csilRoot, "application_id");
-            applicationId = csilField != null ? asText(csilField) : null;
-        }
         ClaimRequest requestedClaims;
         {
             CborValue csilField = mapGet(csilRoot, "requested_claims");
@@ -5052,7 +5757,7 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "flow_context");
             flowContext = csilField != null ? decAuthFlowContext(csilField) : null;
         }
-        return new RpSignRequest(callbackUrl, nonce, applicationId, requestedClaims, authenticationRequirements, flowContext);
+        return new RpSignRequest(callbackUrl, nonce, requestedClaims, authenticationRequirements, flowContext);
     }
 
     public static byte[] encodeRpSignRequest(RpSignRequest v) {
@@ -5183,6 +5888,27 @@ public final class CsilCbor {
 
     public static RpUserInfoRequest decodeRpUserInfoRequest(byte[] data) {
         return decRpUserInfoRequest(decode(data));
+    }
+
+    static CborValue encRpError(RpError v) {
+        List<CborEntry> csilEntries = new ArrayList<>(2);
+        csilEntries.add(new CborEntry(new CborText("code"), encRpErrorCode(v.code())));
+        csilEntries.add(new CborEntry(new CborText("message"), new CborText(v.message())));
+        return new CborMap(csilEntries);
+    }
+
+    static RpError decRpError(CborValue csilRoot) {
+        RpErrorCode code = decRpErrorCode(require(csilRoot, "code"));
+        String message = asText(require(csilRoot, "message"));
+        return new RpError(code, message);
+    }
+
+    public static byte[] encodeRpError(RpError v) {
+        return encode(encRpError(v));
+    }
+
+    public static RpError decodeRpError(byte[] data) {
+        return decRpError(decode(data));
     }
 
     static CborValue encRpIssueAttestationRequest(RpIssueAttestationRequest v) {
@@ -5385,10 +6111,10 @@ public final class CsilCbor {
     static CborValue encLocalRpDescriptor(LocalRpDescriptor v) {
         List<CborEntry> csilEntries = new ArrayList<>(8);
         csilEntries.add(new CborEntry(new CborText("app_name"), new CborText(v.appName())));
-        csilEntries.add(new CborEntry(new CborText("created_at"), new CborText(v.createdAt())));
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("created_at"), encTimestamp(v.createdAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         csilEntries.add(new CborEntry(new CborText("fingerprint"), new CborText(v.fingerprint())));
-        csilEntries.add(new CborEntry(new CborText("supported_suites"), encArray(v.supportedSuites(), csilElem0 -> new CborText((csilElem0).value()))));
+        csilEntries.add(new CborEntry(new CborText("supported_suites"), encArray(v.supportedSuites(), csilElem0 -> encAeadSuite(csilElem0))));
         if (v.localDomainHint() != null) {
             csilEntries.add(new CborEntry(new CborText("local_domain_hint"), new CborText(v.localDomainHint())));
         }
@@ -5407,9 +6133,9 @@ public final class CsilCbor {
         byte[] signingPublicKey = asBytes(require(csilRoot, "signing_public_key"));
         byte[] encryptionPublicKey = asBytes(require(csilRoot, "encryption_public_key"));
         String fingerprint = asText(require(csilRoot, "fingerprint"));
-        List<AeadSuite> supportedSuites = decArray(require(csilRoot, "supported_suites"), csilE0 -> new AeadSuite(asText(csilE0)));
-        String createdAt = asText(require(csilRoot, "created_at"));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
+        List<AeadSuite> supportedSuites = decArray(require(csilRoot, "supported_suites"), csilE0 -> decAeadSuite(csilE0));
+        Instant createdAt = asTimestamp(require(csilRoot, "created_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
         return new LocalRpDescriptor(appName, localDomainHint, signingPublicKey, encryptionPublicKey, fingerprint, supportedSuites, createdAt, expiresAt);
     }
 
@@ -5446,9 +6172,9 @@ public final class CsilCbor {
         List<CborEntry> csilEntries = new ArrayList<>(10);
         csilEntries.add(new CborEntry(new CborText("nonce"), new CborBytes(v.nonce())));
         csilEntries.add(new CborEntry(new CborText("state"), new CborBytes(v.state())));
-        csilEntries.add(new CborEntry(new CborText("issued_at"), new CborText(v.issuedAt())));
+        csilEntries.add(new CborEntry(new CborText("issued_at"), encTimestamp(v.issuedAt())));
         csilEntries.add(new CborEntry(new CborText("descriptor"), encSignedLocalRpDescriptor(v.descriptor())));
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         csilEntries.add(new CborEntry(new CborText("callback_url"), new CborText(v.callbackUrl())));
         if (v.flowContext() != null) {
             csilEntries.add(new CborEntry(new CborText("flow_context"), encAuthFlowContext(v.flowContext())));
@@ -5478,8 +6204,8 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "flow_context");
             flowContext = csilField != null ? decAuthFlowContext(csilField) : null;
         }
-        String issuedAt = asText(require(csilRoot, "issued_at"));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
+        Instant issuedAt = asTimestamp(require(csilRoot, "issued_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
         return new LocalRpLoginRequest(descriptor, callbackUrl, nonce, state, requestedClaims, requiredClaims, authenticationRequirements, flowContext, issuedAt, expiresAt);
     }
 
@@ -5516,10 +6242,10 @@ public final class CsilCbor {
         List<CborEntry> csilEntries = new ArrayList<>(8);
         csilEntries.add(new CborEntry(new CborText("nonce"), new CborBytes(v.nonce())));
         csilEntries.add(new CborEntry(new CborText("state"), new CborBytes(v.state())));
-        csilEntries.add(new CborEntry(new CborText("suite"), new CborText((v.suite()).value())));
-        csilEntries.add(new CborEntry(new CborText("issued_at"), new CborText(v.issuedAt())));
+        csilEntries.add(new CborEntry(new CborText("suite"), encAeadSuite(v.suite())));
+        csilEntries.add(new CborEntry(new CborText("issued_at"), encTimestamp(v.issuedAt())));
         csilEntries.add(new CborEntry(new CborText("aead_nonce"), new CborBytes(v.aeadNonce())));
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         csilEntries.add(new CborEntry(new CborText("fingerprint"), new CborText(v.fingerprint())));
         csilEntries.add(new CborEntry(new CborText("ephemeral_public_key"), new CborBytes(v.ephemeralPublicKey())));
         return new CborMap(csilEntries);
@@ -5529,11 +6255,11 @@ public final class CsilCbor {
         String fingerprint = asText(require(csilRoot, "fingerprint"));
         byte[] nonce = asBytes(require(csilRoot, "nonce"));
         byte[] state = asBytes(require(csilRoot, "state"));
-        AeadSuite suite = new AeadSuite(asText(require(csilRoot, "suite")));
+        AeadSuite suite = decAeadSuite(require(csilRoot, "suite"));
         byte[] ephemeralPublicKey = asBytes(require(csilRoot, "ephemeral_public_key"));
         byte[] aeadNonce = asBytes(require(csilRoot, "aead_nonce"));
-        String issuedAt = asText(require(csilRoot, "issued_at"));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
+        Instant issuedAt = asTimestamp(require(csilRoot, "issued_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
         return new LocalRpCallbackHeader(fingerprint, nonce, state, suite, ephemeralPublicKey, aeadNonce, issuedAt, expiresAt);
     }
 
@@ -5571,8 +6297,8 @@ public final class CsilCbor {
         csilEntries.add(new CborEntry(new CborText("nonce"), new CborBytes(v.nonce())));
         csilEntries.add(new CborEntry(new CborText("state"), new CborBytes(v.state())));
         csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
-        csilEntries.add(new CborEntry(new CborText("issued_at"), new CborText(v.issuedAt())));
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("issued_at"), encTimestamp(v.issuedAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         csilEntries.add(new CborEntry(new CborText("user_domain"), new CborText(v.userDomain())));
         csilEntries.add(new CborEntry(new CborText("callback_url"), new CborText(v.callbackUrl())));
         csilEntries.add(new CborEntry(new CborText("claim_ticket"), new CborBytes(v.claimTicket())));
@@ -5588,8 +6314,8 @@ public final class CsilCbor {
         String callbackUrl = asText(require(csilRoot, "callback_url"));
         byte[] nonce = asBytes(require(csilRoot, "nonce"));
         byte[] state = asBytes(require(csilRoot, "state"));
-        String issuedAt = asText(require(csilRoot, "issued_at"));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
+        Instant issuedAt = asTimestamp(require(csilRoot, "issued_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
         return new LocalRpCallbackPayload(userId, userDomain, claimTicket, audienceFingerprint, callbackUrl, nonce, state, issuedAt, expiresAt);
     }
 
@@ -5626,7 +6352,7 @@ public final class CsilCbor {
 
     static CborValue encLocalRpTicketRedemptionRequest(LocalRpTicketRedemptionRequest v) {
         List<CborEntry> csilEntries = new ArrayList<>(3);
-        csilEntries.add(new CborEntry(new CborText("issued_at"), new CborText(v.issuedAt())));
+        csilEntries.add(new CborEntry(new CborText("issued_at"), encTimestamp(v.issuedAt())));
         csilEntries.add(new CborEntry(new CborText("fingerprint"), new CborText(v.fingerprint())));
         csilEntries.add(new CborEntry(new CborText("claim_ticket"), new CborBytes(v.claimTicket())));
         return new CborMap(csilEntries);
@@ -5635,7 +6361,7 @@ public final class CsilCbor {
     static LocalRpTicketRedemptionRequest decLocalRpTicketRedemptionRequest(CborValue csilRoot) {
         byte[] claimTicket = asBytes(require(csilRoot, "claim_ticket"));
         String fingerprint = asText(require(csilRoot, "fingerprint"));
-        String issuedAt = asText(require(csilRoot, "issued_at"));
+        Instant issuedAt = asTimestamp(require(csilRoot, "issued_at"));
         return new LocalRpTicketRedemptionRequest(claimTicket, fingerprint, issuedAt);
     }
 
@@ -5673,7 +6399,7 @@ public final class CsilCbor {
         csilEntries.add(new CborEntry(new CborText("claims"), encArray(v.claims(), csilElem0 -> encClaim(csilElem0))));
         csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
         csilEntries.add(new CborEntry(new CborText("user_domain"), new CborText(v.userDomain())));
-        csilEntries.add(new CborEntry(new CborText("ticket_expires_at"), new CborText(v.ticketExpiresAt())));
+        csilEntries.add(new CborEntry(new CborText("ticket_expires_at"), encTimestamp(v.ticketExpiresAt())));
         return new CborMap(csilEntries);
     }
 
@@ -5681,7 +6407,7 @@ public final class CsilCbor {
         String userId = asText(require(csilRoot, "user_id"));
         String userDomain = asText(require(csilRoot, "user_domain"));
         List<Claim> claims = decArray(require(csilRoot, "claims"), csilE0 -> decClaim(csilE0));
-        String ticketExpiresAt = asText(require(csilRoot, "ticket_expires_at"));
+        Instant ticketExpiresAt = asTimestamp(require(csilRoot, "ticket_expires_at"));
         return new LocalRpTicketRedemptionResponse(userId, userDomain, claims, ticketExpiresAt);
     }
 
@@ -5695,19 +6421,19 @@ public final class CsilCbor {
 
     static CborValue encAdminLocalRp(AdminLocalRp v) {
         List<CborEntry> csilEntries = new ArrayList<>(11);
-        csilEntries.add(new CborEntry(new CborText("status"), new CborText(v.status())));
+        csilEntries.add(new CborEntry(new CborText("status"), encLocalRpStatus(v.status())));
         csilEntries.add(new CborEntry(new CborText("app_name"), new CborText(v.appName())));
-        csilEntries.add(new CborEntry(new CborText("created_at"), new CborText(v.createdAt())));
+        csilEntries.add(new CborEntry(new CborText("created_at"), encTimestamp(v.createdAt())));
         if (v.expiresAt() != null) {
-            csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+            csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         }
-        csilEntries.add(new CborEntry(new CborText("updated_at"), new CborText(v.updatedAt())));
+        csilEntries.add(new CborEntry(new CborText("updated_at"), encTimestamp(v.updatedAt())));
         if (v.adminNotes() != null) {
             csilEntries.add(new CborEntry(new CborText("admin_notes"), new CborText(v.adminNotes())));
         }
         csilEntries.add(new CborEntry(new CborText("fingerprint"), new CborText(v.fingerprint())));
         if (v.lastSeenAt() != null) {
-            csilEntries.add(new CborEntry(new CborText("last_seen_at"), new CborText(v.lastSeenAt())));
+            csilEntries.add(new CborEntry(new CborText("last_seen_at"), encTimestamp(v.lastSeenAt())));
         }
         if (v.localDomainHint() != null) {
             csilEntries.add(new CborEntry(new CborText("local_domain_hint"), new CborText(v.localDomainHint())));
@@ -5727,18 +6453,18 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "local_domain_hint");
             localDomainHint = csilField != null ? asText(csilField) : null;
         }
-        String status = asText(require(csilRoot, "status"));
-        String createdAt = asText(require(csilRoot, "created_at"));
-        String updatedAt = asText(require(csilRoot, "updated_at"));
-        String expiresAt;
+        LocalRpStatus status = decLocalRpStatus(require(csilRoot, "status"));
+        Instant createdAt = asTimestamp(require(csilRoot, "created_at"));
+        Instant updatedAt = asTimestamp(require(csilRoot, "updated_at"));
+        Instant expiresAt;
         {
             CborValue csilField = mapGet(csilRoot, "expires_at");
-            expiresAt = csilField != null ? asText(csilField) : null;
+            expiresAt = csilField != null ? asTimestamp(csilField) : null;
         }
-        String lastSeenAt;
+        Instant lastSeenAt;
         {
             CborValue csilField = mapGet(csilRoot, "last_seen_at");
-            lastSeenAt = csilField != null ? asText(csilField) : null;
+            lastSeenAt = csilField != null ? asTimestamp(csilField) : null;
         }
         String adminNotes;
         {
@@ -5765,7 +6491,7 @@ public final class CsilCbor {
             csilEntries.add(new CborEntry(new CborText("offset"), new CborInt(v.offset())));
         }
         if (v.status() != null) {
-            csilEntries.add(new CborEntry(new CborText("status"), new CborText(v.status())));
+            csilEntries.add(new CborEntry(new CborText("status"), encLocalRpStatus(v.status())));
         }
         return new CborMap(csilEntries);
     }
@@ -5781,10 +6507,10 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "limit");
             limit = csilField != null ? asI64(csilField) : null;
         }
-        String status;
+        LocalRpStatus status;
         {
             CborValue csilField = mapGet(csilRoot, "status");
-            status = csilField != null ? asText(csilField) : null;
+            status = csilField != null ? decLocalRpStatus(csilField) : null;
         }
         return new ListLocalRpsRequest(offset, limit, status);
     }
@@ -6011,12 +6737,12 @@ public final class CsilCbor {
 
     static CborValue encGetLocalRpPolicyResponse(GetLocalRpPolicyResponse v) {
         List<CborEntry> csilEntries = new ArrayList<>(1);
-        csilEntries.add(new CborEntry(new CborText("policy"), new CborText((v.policy()).value())));
+        csilEntries.add(new CborEntry(new CborText("policy"), encLocalRpPolicy(v.policy())));
         return new CborMap(csilEntries);
     }
 
     static GetLocalRpPolicyResponse decGetLocalRpPolicyResponse(CborValue csilRoot) {
-        LocalRpPolicy policy = new LocalRpPolicy(asText(require(csilRoot, "policy")));
+        LocalRpPolicy policy = decLocalRpPolicy(require(csilRoot, "policy"));
         return new GetLocalRpPolicyResponse(policy);
     }
 
@@ -6030,12 +6756,12 @@ public final class CsilCbor {
 
     static CborValue encSetLocalRpPolicyRequest(SetLocalRpPolicyRequest v) {
         List<CborEntry> csilEntries = new ArrayList<>(1);
-        csilEntries.add(new CborEntry(new CborText("policy"), new CborText((v.policy()).value())));
+        csilEntries.add(new CborEntry(new CborText("policy"), encLocalRpPolicy(v.policy())));
         return new CborMap(csilEntries);
     }
 
     static SetLocalRpPolicyRequest decSetLocalRpPolicyRequest(CborValue csilRoot) {
-        LocalRpPolicy policy = new LocalRpPolicy(asText(require(csilRoot, "policy")));
+        LocalRpPolicy policy = decLocalRpPolicy(require(csilRoot, "policy"));
         return new SetLocalRpPolicyRequest(policy);
     }
 
@@ -6049,12 +6775,12 @@ public final class CsilCbor {
 
     static CborValue encSetLocalRpPolicyResponse(SetLocalRpPolicyResponse v) {
         List<CborEntry> csilEntries = new ArrayList<>(1);
-        csilEntries.add(new CborEntry(new CborText("policy"), new CborText((v.policy()).value())));
+        csilEntries.add(new CborEntry(new CborText("policy"), encLocalRpPolicy(v.policy())));
         return new CborMap(csilEntries);
     }
 
     static SetLocalRpPolicyResponse decSetLocalRpPolicyResponse(CborValue csilRoot) {
-        LocalRpPolicy policy = new LocalRpPolicy(asText(require(csilRoot, "policy")));
+        LocalRpPolicy policy = decLocalRpPolicy(require(csilRoot, "policy"));
         return new SetLocalRpPolicyResponse(policy);
     }
 
@@ -6152,7 +6878,7 @@ public final class CsilCbor {
 
     static CborValue encAppAccessTarget(AppAccessTarget v) {
         List<CborEntry> csilEntries = new ArrayList<>(6);
-        csilEntries.add(new CborEntry(new CborText("kind"), new CborText(v.kind())));
+        csilEntries.add(new CborEntry(new CborText("kind"), encAppAccessTargetKind(v.kind())));
         if (v.userId() != null) {
             csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
         }
@@ -6166,13 +6892,13 @@ public final class CsilCbor {
             csilEntries.add(new CborEntry(new CborText("claim_value"), new CborText(v.claimValue())));
         }
         if (v.claimOperator() != null) {
-            csilEntries.add(new CborEntry(new CborText("claim_operator"), new CborText(v.claimOperator())));
+            csilEntries.add(new CborEntry(new CborText("claim_operator"), encClaimOperator(v.claimOperator())));
         }
         return new CborMap(csilEntries);
     }
 
     static AppAccessTarget decAppAccessTarget(CborValue csilRoot) {
-        String kind = asText(require(csilRoot, "kind"));
+        AppAccessTargetKind kind = decAppAccessTargetKind(require(csilRoot, "kind"));
         String userId;
         {
             CborValue csilField = mapGet(csilRoot, "user_id");
@@ -6188,10 +6914,10 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "claim_type");
             claimType = csilField != null ? asText(csilField) : null;
         }
-        String claimOperator;
+        ClaimOperator claimOperator;
         {
             CborValue csilField = mapGet(csilRoot, "claim_operator");
-            claimOperator = csilField != null ? asText(csilField) : null;
+            claimOperator = csilField != null ? decClaimOperator(csilField) : null;
         }
         String claimValue;
         {
@@ -6212,7 +6938,7 @@ public final class CsilCbor {
     static CborValue encAppAccessPolicy(AppAccessPolicy v) {
         List<CborEntry> csilEntries = new ArrayList<>(6);
         csilEntries.add(new CborEntry(new CborText("id"), new CborText(v.id())));
-        csilEntries.add(new CborEntry(new CborText("mode"), new CborText(v.mode())));
+        csilEntries.add(new CborEntry(new CborText("mode"), encAppAccessMode(v.mode())));
         csilEntries.add(new CborEntry(new CborText("name"), new CborText(v.name())));
         if (v.message() != null) {
             csilEntries.add(new CborEntry(new CborText("message"), new CborText(v.message())));
@@ -6225,7 +6951,7 @@ public final class CsilCbor {
     static AppAccessPolicy decAppAccessPolicy(CborValue csilRoot) {
         String id = asText(require(csilRoot, "id"));
         String name = asText(require(csilRoot, "name"));
-        String mode = asText(require(csilRoot, "mode"));
+        AppAccessMode mode = decAppAccessMode(require(csilRoot, "mode"));
         List<String> patterns = decArray(require(csilRoot, "patterns"), csilE0 -> asText(csilE0));
         String message;
         {
@@ -6268,7 +6994,7 @@ public final class CsilCbor {
         if (v.id() != null) {
             csilEntries.add(new CborEntry(new CborText("id"), new CborText(v.id())));
         }
-        csilEntries.add(new CborEntry(new CborText("mode"), new CborText(v.mode())));
+        csilEntries.add(new CborEntry(new CborText("mode"), encAppAccessMode(v.mode())));
         csilEntries.add(new CborEntry(new CborText("name"), new CborText(v.name())));
         if (v.message() != null) {
             csilEntries.add(new CborEntry(new CborText("message"), new CborText(v.message())));
@@ -6285,7 +7011,7 @@ public final class CsilCbor {
             id = csilField != null ? asText(csilField) : null;
         }
         String name = asText(require(csilRoot, "name"));
-        String mode = asText(require(csilRoot, "mode"));
+        AppAccessMode mode = decAppAccessMode(require(csilRoot, "mode"));
         List<String> patterns = decArray(require(csilRoot, "patterns"), csilE0 -> asText(csilE0));
         String message;
         {
@@ -6575,18 +7301,18 @@ public final class CsilCbor {
     static CborValue encApplicationKeyAttestation(ApplicationKeyAttestation v) {
         List<CborEntry> csilEntries = new ArrayList<>(13);
         csilEntries.add(new CborEntry(new CborText("key_id"), new CborText(v.keyId())));
-        csilEntries.add(new CborEntry(new CborText("algorithm"), new CborText(v.algorithm())));
-        csilEntries.add(new CborEntry(new CborText("key_usage"), new CborText(v.keyUsage())));
+        csilEntries.add(new CborEntry(new CborText("algorithm"), encKeyAlgorithm(v.algorithm())));
+        csilEntries.add(new CborEntry(new CborText("key_usage"), encKeyUsage(v.keyUsage())));
         csilEntries.add(new CborEntry(new CborText("public_key"), new CborBytes(v.publicKey())));
-        csilEntries.add(new CborEntry(new CborText("attested_at"), new CborText(v.attestedAt())));
+        csilEntries.add(new CborEntry(new CborText("attested_at"), encTimestamp(v.attestedAt())));
         csilEntries.add(new CborEntry(new CborText("fingerprint"), new CborText(v.fingerprint())));
         csilEntries.add(new CborEntry(new CborText("instance_id"), new CborText(v.instanceId())));
         csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
-        csilEntries.add(new CborEntry(new CborText("key_created_at"), new CborText(v.keyCreatedAt())));
-        csilEntries.add(new CborEntry(new CborText("key_expires_at"), new CborText(v.keyExpiresAt())));
+        csilEntries.add(new CborEntry(new CborText("key_created_at"), encTimestamp(v.keyCreatedAt())));
+        csilEntries.add(new CborEntry(new CborText("key_expires_at"), encTimestamp(v.keyExpiresAt())));
         csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
         csilEntries.add(new CborEntry(new CborText("subject_user_id"), new CborText(v.subjectUserId())));
-        csilEntries.add(new CborEntry(new CborText("attestation_expires_at"), new CborText(v.attestationExpiresAt())));
+        csilEntries.add(new CborEntry(new CborText("attestation_expires_at"), encTimestamp(v.attestationExpiresAt())));
         return new CborMap(csilEntries);
     }
 
@@ -6596,14 +7322,14 @@ public final class CsilCbor {
         String applicationId = asText(require(csilRoot, "application_id"));
         String instanceId = asText(require(csilRoot, "instance_id"));
         String keyId = asText(require(csilRoot, "key_id"));
-        String keyUsage = asText(require(csilRoot, "key_usage"));
-        String algorithm = asText(require(csilRoot, "algorithm"));
+        KeyUsage keyUsage = decKeyUsage(require(csilRoot, "key_usage"));
+        KeyAlgorithm algorithm = decKeyAlgorithm(require(csilRoot, "algorithm"));
         byte[] publicKey = asBytes(require(csilRoot, "public_key"));
         String fingerprint = asText(require(csilRoot, "fingerprint"));
-        String keyCreatedAt = asText(require(csilRoot, "key_created_at"));
-        String keyExpiresAt = asText(require(csilRoot, "key_expires_at"));
-        String attestedAt = asText(require(csilRoot, "attested_at"));
-        String attestationExpiresAt = asText(require(csilRoot, "attestation_expires_at"));
+        Instant keyCreatedAt = asTimestamp(require(csilRoot, "key_created_at"));
+        Instant keyExpiresAt = asTimestamp(require(csilRoot, "key_expires_at"));
+        Instant attestedAt = asTimestamp(require(csilRoot, "attested_at"));
+        Instant attestationExpiresAt = asTimestamp(require(csilRoot, "attestation_expires_at"));
         return new ApplicationKeyAttestation(subjectUserId, subjectDomain, applicationId, instanceId, keyId, keyUsage, algorithm, publicKey, fingerprint, keyCreatedAt, keyExpiresAt, attestedAt, attestationExpiresAt);
     }
 
@@ -6639,15 +7365,15 @@ public final class CsilCbor {
     static CborValue encApplicationKeyAddition(ApplicationKeyAddition v) {
         List<CborEntry> csilEntries = new ArrayList<>(14);
         csilEntries.add(new CborEntry(new CborText("key_id"), new CborText(v.keyId())));
-        csilEntries.add(new CborEntry(new CborText("algorithm"), new CborText(v.algorithm())));
+        csilEntries.add(new CborEntry(new CborText("algorithm"), encKeyAlgorithm(v.algorithm())));
         csilEntries.add(new CborEntry(new CborText("challenge"), new CborBytes(v.challenge())));
-        csilEntries.add(new CborEntry(new CborText("key_usage"), new CborText(v.keyUsage())));
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("key_usage"), encKeyUsage(v.keyUsage())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         csilEntries.add(new CborEntry(new CborText("public_key"), new CborBytes(v.publicKey())));
         csilEntries.add(new CborEntry(new CborText("fingerprint"), new CborText(v.fingerprint())));
         csilEntries.add(new CborEntry(new CborText("instance_id"), new CborText(v.instanceId())));
         csilEntries.add(new CborEntry(new CborText("challenge_id"), new CborText(v.challengeId())));
-        csilEntries.add(new CborEntry(new CborText("requested_at"), new CborText(v.requestedAt())));
+        csilEntries.add(new CborEntry(new CborText("requested_at"), encTimestamp(v.requestedAt())));
         csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
         csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
         csilEntries.add(new CborEntry(new CborText("subject_user_id"), new CborText(v.subjectUserId())));
@@ -6661,15 +7387,15 @@ public final class CsilCbor {
         String applicationId = asText(require(csilRoot, "application_id"));
         String instanceId = asText(require(csilRoot, "instance_id"));
         String keyId = asText(require(csilRoot, "key_id"));
-        String keyUsage = asText(require(csilRoot, "key_usage"));
-        String algorithm = asText(require(csilRoot, "algorithm"));
+        KeyUsage keyUsage = decKeyUsage(require(csilRoot, "key_usage"));
+        KeyAlgorithm algorithm = decKeyAlgorithm(require(csilRoot, "algorithm"));
         byte[] publicKey = asBytes(require(csilRoot, "public_key"));
         String fingerprint = asText(require(csilRoot, "fingerprint"));
         long requestedKeyLifetimeSeconds = asI64(require(csilRoot, "requested_key_lifetime_seconds"));
         String challengeId = asText(require(csilRoot, "challenge_id"));
         byte[] challenge = asBytes(require(csilRoot, "challenge"));
-        String requestedAt = asText(require(csilRoot, "requested_at"));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
+        Instant requestedAt = asTimestamp(require(csilRoot, "requested_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
         return new ApplicationKeyAddition(subjectUserId, subjectDomain, applicationId, instanceId, keyId, keyUsage, algorithm, publicKey, fingerprint, requestedKeyLifetimeSeconds, challengeId, challenge, requestedAt, expiresAt);
     }
 
@@ -6714,10 +7440,10 @@ public final class CsilCbor {
         List<CborEntry> csilEntries = new ArrayList<>(9);
         csilEntries.add(new CborEntry(new CborText("key_id"), new CborText(v.keyId())));
         csilEntries.add(new CborEntry(new CborText("challenge"), new CborBytes(v.challenge())));
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         csilEntries.add(new CborEntry(new CborText("instance_id"), new CborText(v.instanceId())));
         csilEntries.add(new CborEntry(new CborText("challenge_id"), new CborText(v.challengeId())));
-        csilEntries.add(new CborEntry(new CborText("requested_at"), new CborText(v.requestedAt())));
+        csilEntries.add(new CborEntry(new CborText("requested_at"), encTimestamp(v.requestedAt())));
         csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
         csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
         csilEntries.add(new CborEntry(new CborText("subject_user_id"), new CborText(v.subjectUserId())));
@@ -6732,8 +7458,8 @@ public final class CsilCbor {
         String keyId = asText(require(csilRoot, "key_id"));
         String challengeId = asText(require(csilRoot, "challenge_id"));
         byte[] challenge = asBytes(require(csilRoot, "challenge"));
-        String requestedAt = asText(require(csilRoot, "requested_at"));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
+        Instant requestedAt = asTimestamp(require(csilRoot, "requested_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
         return new ApplicationKeyRenewal(subjectUserId, subjectDomain, applicationId, instanceId, keyId, challengeId, challenge, requestedAt, expiresAt);
     }
 
@@ -6776,7 +7502,7 @@ public final class CsilCbor {
 
     static CborValue encApplicationKeyRevocation(ApplicationKeyRevocation v) {
         List<CborEntry> csilEntries = new ArrayList<>(8);
-        csilEntries.add(new CborEntry(new CborText("revoked_at"), new CborText(v.revokedAt())));
+        csilEntries.add(new CborEntry(new CborText("revoked_at"), encTimestamp(v.revokedAt())));
         csilEntries.add(new CborEntry(new CborText("signatures"), encArray(v.signatures(), csilElem0 -> encApplicationKeySignature(csilElem0))));
         csilEntries.add(new CborEntry(new CborText("instance_id"), new CborText(v.instanceId())));
         csilEntries.add(new CborEntry(new CborText("target_key_id"), new CborText(v.targetKeyId())));
@@ -6794,7 +7520,7 @@ public final class CsilCbor {
         String instanceId = asText(require(csilRoot, "instance_id"));
         String targetKeyId = asText(require(csilRoot, "target_key_id"));
         String targetFingerprint = asText(require(csilRoot, "target_fingerprint"));
-        String revokedAt = asText(require(csilRoot, "revoked_at"));
+        Instant revokedAt = asTimestamp(require(csilRoot, "revoked_at"));
         List<ApplicationKeySignature> signatures = decArray(require(csilRoot, "signatures"), csilE0 -> decApplicationKeySignature(csilE0));
         return new ApplicationKeyRevocation(subjectUserId, subjectDomain, applicationId, instanceId, targetKeyId, targetFingerprint, revokedAt, signatures);
     }
@@ -6809,9 +7535,9 @@ public final class CsilCbor {
 
     static CborValue encStartApplicationKeyChallengeRequest(StartApplicationKeyChallengeRequest v) {
         List<CborEntry> csilEntries = new ArrayList<>(7);
-        csilEntries.add(new CborEntry(new CborText("purpose"), new CborText(v.purpose())));
-        csilEntries.add(new CborEntry(new CborText("algorithm"), new CborText(v.algorithm())));
-        csilEntries.add(new CborEntry(new CborText("key_usage"), new CborText(v.keyUsage())));
+        csilEntries.add(new CborEntry(new CborText("purpose"), encApplicationKeyChallengePurpose(v.purpose())));
+        csilEntries.add(new CborEntry(new CborText("algorithm"), encKeyAlgorithm(v.algorithm())));
+        csilEntries.add(new CborEntry(new CborText("key_usage"), encKeyUsage(v.keyUsage())));
         csilEntries.add(new CborEntry(new CborText("public_key"), new CborBytes(v.publicKey())));
         csilEntries.add(new CborEntry(new CborText("instance_id"), new CborText(v.instanceId())));
         csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
@@ -6823,9 +7549,9 @@ public final class CsilCbor {
         String subjectUserId = asText(require(csilRoot, "subject_user_id"));
         String applicationId = asText(require(csilRoot, "application_id"));
         String instanceId = asText(require(csilRoot, "instance_id"));
-        String purpose = asText(require(csilRoot, "purpose"));
-        String keyUsage = asText(require(csilRoot, "key_usage"));
-        String algorithm = asText(require(csilRoot, "algorithm"));
+        ApplicationKeyChallengePurpose purpose = decApplicationKeyChallengePurpose(require(csilRoot, "purpose"));
+        KeyUsage keyUsage = decKeyUsage(require(csilRoot, "key_usage"));
+        KeyAlgorithm algorithm = decKeyAlgorithm(require(csilRoot, "algorithm"));
         byte[] publicKey = asBytes(require(csilRoot, "public_key"));
         return new StartApplicationKeyChallengeRequest(subjectUserId, applicationId, instanceId, purpose, keyUsage, algorithm, publicKey);
     }
@@ -6843,7 +7569,7 @@ public final class CsilCbor {
         if (v.challenge() != null) {
             csilEntries.add(new CborEntry(new CborText("challenge"), new CborBytes(v.challenge())));
         }
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         csilEntries.add(new CborEntry(new CborText("challenge_id"), new CborText(v.challengeId())));
         if (v.sealedChallenge() != null) {
             csilEntries.add(new CborEntry(new CborText("sealed_challenge"), new CborBytes(v.sealedChallenge())));
@@ -6863,7 +7589,7 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "sealed_challenge");
             sealedChallenge = csilField != null ? asBytes(csilField) : null;
         }
-        String expiresAt = asText(require(csilRoot, "expires_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
         return new StartApplicationKeyChallengeResponse(challengeId, challenge, sealedChallenge, expiresAt);
     }
 
@@ -6974,12 +7700,12 @@ public final class CsilCbor {
 
     static CborValue encRevokeApplicationKeyResponse(RevokeApplicationKeyResponse v) {
         List<CborEntry> csilEntries = new ArrayList<>(1);
-        csilEntries.add(new CborEntry(new CborText("revoked_at"), new CborText(v.revokedAt())));
+        csilEntries.add(new CborEntry(new CborText("revoked_at"), encTimestamp(v.revokedAt())));
         return new CborMap(csilEntries);
     }
 
     static RevokeApplicationKeyResponse decRevokeApplicationKeyResponse(CborValue csilRoot) {
-        String revokedAt = asText(require(csilRoot, "revoked_at"));
+        Instant revokedAt = asTimestamp(require(csilRoot, "revoked_at"));
         return new RevokeApplicationKeyResponse(revokedAt);
     }
 
@@ -7124,10 +7850,10 @@ public final class CsilCbor {
         List<CborEntry> csilEntries = new ArrayList<>(6);
         csilEntries.add(new CborEntry(new CborText("keys"), encArray(v.keys(), csilElem0 -> encDomainPublicKey(csilElem0))));
         csilEntries.add(new CborEntry(new CborText("domain"), new CborText(v.domain())));
-        csilEntries.add(new CborEntry(new CborText("fetched_at"), new CborText(v.fetchedAt())));
+        csilEntries.add(new CborEntry(new CborText("fetched_at"), encTimestamp(v.fetchedAt())));
         csilEntries.add(new CborEntry(new CborText("revocations"), encArray(v.revocations(), csilElem0 -> encRevocationCertificate(csilElem0))));
-        csilEntries.add(new CborEntry(new CborText("cache_status"), new CborText(v.cacheStatus())));
-        csilEntries.add(new CborEntry(new CborText("revocations_checked_at"), new CborText(v.revocationsCheckedAt())));
+        csilEntries.add(new CborEntry(new CborText("cache_status"), encRpCacheStatus(v.cacheStatus())));
+        csilEntries.add(new CborEntry(new CborText("revocations_checked_at"), encTimestamp(v.revocationsCheckedAt())));
         return new CborMap(csilEntries);
     }
 
@@ -7135,9 +7861,9 @@ public final class CsilCbor {
         String domain = asText(require(csilRoot, "domain"));
         List<DomainPublicKey> keys = decArray(require(csilRoot, "keys"), csilE0 -> decDomainPublicKey(csilE0));
         List<RevocationCertificate> revocations = decArray(require(csilRoot, "revocations"), csilE0 -> decRevocationCertificate(csilE0));
-        String fetchedAt = asText(require(csilRoot, "fetched_at"));
-        String revocationsCheckedAt = asText(require(csilRoot, "revocations_checked_at"));
-        String cacheStatus = asText(require(csilRoot, "cache_status"));
+        Instant fetchedAt = asTimestamp(require(csilRoot, "fetched_at"));
+        Instant revocationsCheckedAt = asTimestamp(require(csilRoot, "revocations_checked_at"));
+        RpCacheStatus cacheStatus = decRpCacheStatus(require(csilRoot, "cache_status"));
         return new RpResolveDomainKeysResponse(domain, keys, revocations, fetchedAt, revocationsCheckedAt, cacheStatus);
     }
 
@@ -7184,15 +7910,15 @@ public final class CsilCbor {
 
     static CborValue encRpResolveApplicationKeysResponse(RpResolveApplicationKeysResponse v) {
         List<CborEntry> csilEntries = new ArrayList<>(11);
-        csilEntries.add(new CborEntry(new CborText("fetched_at"), new CborText(v.fetchedAt())));
+        csilEntries.add(new CborEntry(new CborText("fetched_at"), encTimestamp(v.fetchedAt())));
         csilEntries.add(new CborEntry(new CborText("instance_id"), new CborText(v.instanceId())));
-        csilEntries.add(new CborEntry(new CborText("cache_status"), new CborText(v.cacheStatus())));
+        csilEntries.add(new CborEntry(new CborText("cache_status"), encRpCacheStatus(v.cacheStatus())));
         csilEntries.add(new CborEntry(new CborText("application_id"), new CborText(v.applicationId())));
         csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
         csilEntries.add(new CborEntry(new CborText("subject_user_id"), new CborText(v.subjectUserId())));
         csilEntries.add(new CborEntry(new CborText("application_keys"), encArray(v.applicationKeys(), csilElem0 -> encSignedApplicationKeyAttestation(csilElem0))));
         csilEntries.add(new CborEntry(new CborText("home_domain_keys"), encArray(v.homeDomainKeys(), csilElem0 -> encDomainPublicKey(csilElem0))));
-        csilEntries.add(new CborEntry(new CborText("revocations_checked_at"), new CborText(v.revocationsCheckedAt())));
+        csilEntries.add(new CborEntry(new CborText("revocations_checked_at"), encTimestamp(v.revocationsCheckedAt())));
         csilEntries.add(new CborEntry(new CborText("application_key_revocations"), encArray(v.applicationKeyRevocations(), csilElem0 -> encApplicationKeyRevocation(csilElem0))));
         csilEntries.add(new CborEntry(new CborText("home_domain_key_revocations"), encArray(v.homeDomainKeyRevocations(), csilElem0 -> encRevocationCertificate(csilElem0))));
         return new CborMap(csilEntries);
@@ -7207,9 +7933,9 @@ public final class CsilCbor {
         List<ApplicationKeyRevocation> applicationKeyRevocations = decArray(require(csilRoot, "application_key_revocations"), csilE0 -> decApplicationKeyRevocation(csilE0));
         List<DomainPublicKey> homeDomainKeys = decArray(require(csilRoot, "home_domain_keys"), csilE0 -> decDomainPublicKey(csilE0));
         List<RevocationCertificate> homeDomainKeyRevocations = decArray(require(csilRoot, "home_domain_key_revocations"), csilE0 -> decRevocationCertificate(csilE0));
-        String fetchedAt = asText(require(csilRoot, "fetched_at"));
-        String revocationsCheckedAt = asText(require(csilRoot, "revocations_checked_at"));
-        String cacheStatus = asText(require(csilRoot, "cache_status"));
+        Instant fetchedAt = asTimestamp(require(csilRoot, "fetched_at"));
+        Instant revocationsCheckedAt = asTimestamp(require(csilRoot, "revocations_checked_at"));
+        RpCacheStatus cacheStatus = decRpCacheStatus(require(csilRoot, "cache_status"));
         return new RpResolveApplicationKeysResponse(subjectUserId, subjectDomain, applicationId, instanceId, applicationKeys, applicationKeyRevocations, homeDomainKeys, homeDomainKeyRevocations, fetchedAt, revocationsCheckedAt, cacheStatus);
     }
 
@@ -7347,8 +8073,8 @@ public final class CsilCbor {
         if (v.language() != null) {
             csilEntries.add(new CborEntry(new CborText("language"), new CborText(v.language())));
         }
-        csilEntries.add(new CborEntry(new CborText("issued_at"), new CborText(v.issuedAt())));
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("issued_at"), encTimestamp(v.issuedAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         if (v.audienceHandleClaim() != null) {
             csilEntries.add(new CborEntry(new CborText("audience_handle_claim"), encClaim(v.audienceHandleClaim())));
         }
@@ -7369,8 +8095,8 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "audience_handle_claim");
             audienceHandleClaim = csilField != null ? decClaim(csilField) : null;
         }
-        String issuedAt = asText(require(csilRoot, "issued_at"));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
+        Instant issuedAt = asTimestamp(require(csilRoot, "issued_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
         return new ActAsScopeSet(audience, grantee, entries, language, audienceHandleClaim, issuedAt, expiresAt);
     }
 
@@ -7440,13 +8166,13 @@ public final class CsilCbor {
         csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
         csilEntries.add(new CborEntry(new CborText("audience"), encApplicationRef(v.audience())));
         csilEntries.add(new CborEntry(new CborText("grant_id"), new CborText(v.grantId())));
-        csilEntries.add(new CborEntry(new CborText("issued_at"), new CborText(v.issuedAt())));
+        csilEntries.add(new CborEntry(new CborText("issued_at"), encTimestamp(v.issuedAt())));
         csilEntries.add(new CborEntry(new CborText("scope_set"), encSignedActAsScopeSet(v.scopeSet())));
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         csilEntries.add(new CborEntry(new CborText("approved_scope"), encArray(v.approvedScope(), csilElem0 -> new CborText(csilElem0))));
         csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
-        csilEntries.add(new CborEntry(new CborText("renewable_until"), new CborText(v.renewableUntil())));
-        csilEntries.add(new CborEntry(new CborText("series_issued_at"), new CborText(v.seriesIssuedAt())));
+        csilEntries.add(new CborEntry(new CborText("renewable_until"), encTimestamp(v.renewableUntil())));
+        csilEntries.add(new CborEntry(new CborText("series_issued_at"), encTimestamp(v.seriesIssuedAt())));
         if (v.deviceFingerprint() != null) {
             csilEntries.add(new CborEntry(new CborText("device_fingerprint"), new CborText(v.deviceFingerprint())));
         }
@@ -7461,10 +8187,10 @@ public final class CsilCbor {
         ApplicationRef audience = decApplicationRef(require(csilRoot, "audience"));
         SignedActAsScopeSet scopeSet = decSignedActAsScopeSet(require(csilRoot, "scope_set"));
         List<String> approvedScope = decArray(require(csilRoot, "approved_scope"), csilE0 -> asText(csilE0));
-        String issuedAt = asText(require(csilRoot, "issued_at"));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
-        String seriesIssuedAt = asText(require(csilRoot, "series_issued_at"));
-        String renewableUntil = asText(require(csilRoot, "renewable_until"));
+        Instant issuedAt = asTimestamp(require(csilRoot, "issued_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
+        Instant seriesIssuedAt = asTimestamp(require(csilRoot, "series_issued_at"));
+        Instant renewableUntil = asTimestamp(require(csilRoot, "renewable_until"));
         String deviceFingerprint;
         {
             CborValue csilField = mapGet(csilRoot, "device_fingerprint");
@@ -7507,9 +8233,9 @@ public final class CsilCbor {
         csilEntries.add(new CborEntry(new CborText("nonce"), new CborText(v.nonce())));
         csilEntries.add(new CborEntry(new CborText("grantee"), encGranteeRef(v.grantee())));
         csilEntries.add(new CborEntry(new CborText("scope_set"), encSignedActAsScopeSet(v.scopeSet())));
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         csilEntries.add(new CborEntry(new CborText("callback_url"), new CborText(v.callbackUrl())));
-        csilEntries.add(new CborEntry(new CborText("requested_at"), new CborText(v.requestedAt())));
+        csilEntries.add(new CborEntry(new CborText("requested_at"), encTimestamp(v.requestedAt())));
         if (v.granteeHandleClaim() != null) {
             csilEntries.add(new CborEntry(new CborText("grantee_handle_claim"), encClaim(v.granteeHandleClaim())));
         }
@@ -7542,8 +8268,8 @@ public final class CsilCbor {
         }
         String callbackUrl = asText(require(csilRoot, "callback_url"));
         String nonce = asText(require(csilRoot, "nonce"));
-        String requestedAt = asText(require(csilRoot, "requested_at"));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
+        Instant requestedAt = asTimestamp(require(csilRoot, "requested_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
         return new ActAsGrantRequest(grantee, scopeSet, requestedLifetimeSeconds, requestedRenewalWindowSeconds, granteeHandleClaim, callbackUrl, nonce, requestedAt, expiresAt);
     }
 
@@ -7581,16 +8307,16 @@ public final class CsilCbor {
         csilEntries.add(new CborEntry(new CborText("nonce"), new CborText(v.nonce())));
         csilEntries.add(new CborEntry(new CborText("grantee"), encGranteeRef(v.grantee())));
         csilEntries.add(new CborEntry(new CborText("grant_id"), new CborText(v.grantId())));
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
-        csilEntries.add(new CborEntry(new CborText("requested_at"), new CborText(v.requestedAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("requested_at"), encTimestamp(v.requestedAt())));
         return new CborMap(csilEntries);
     }
 
     static ActAsRefreshRequest decActAsRefreshRequest(CborValue csilRoot) {
         String grantId = asText(require(csilRoot, "grant_id"));
         GranteeRef grantee = decGranteeRef(require(csilRoot, "grantee"));
-        String requestedAt = asText(require(csilRoot, "requested_at"));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
+        Instant requestedAt = asTimestamp(require(csilRoot, "requested_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
         String nonce = asText(require(csilRoot, "nonce"));
         return new ActAsRefreshRequest(grantId, grantee, requestedAt, expiresAt, nonce);
     }
@@ -7669,7 +8395,7 @@ public final class CsilCbor {
         csilEntries.add(new CborEntry(new CborText("nonce"), new CborBytes(v.nonce())));
         csilEntries.add(new CborEntry(new CborText("audience"), encApplicationRef(v.audience())));
         csilEntries.add(new CborEntry(new CborText("grant_hash"), new CborBytes(v.grantHash())));
-        csilEntries.add(new CborEntry(new CborText("presented_at"), new CborText(v.presentedAt())));
+        csilEntries.add(new CborEntry(new CborText("presented_at"), encTimestamp(v.presentedAt())));
         csilEntries.add(new CborEntry(new CborText("request_digest"), new CborBytes(v.requestDigest())));
         return new CborMap(csilEntries);
     }
@@ -7678,7 +8404,7 @@ public final class CsilCbor {
         byte[] grantHash = asBytes(require(csilRoot, "grant_hash"));
         ApplicationRef audience = decApplicationRef(require(csilRoot, "audience"));
         byte[] requestDigest = asBytes(require(csilRoot, "request_digest"));
-        String presentedAt = asText(require(csilRoot, "presented_at"));
+        Instant presentedAt = asTimestamp(require(csilRoot, "presented_at"));
         byte[] nonce = asBytes(require(csilRoot, "nonce"));
         return new ActAsPresentation(grantHash, audience, requestDigest, presentedAt, nonce);
     }
@@ -7737,7 +8463,7 @@ public final class CsilCbor {
         List<CborEntry> csilEntries = new ArrayList<>(4);
         csilEntries.add(new CborEntry(new CborText("user_id"), new CborText(v.userId())));
         csilEntries.add(new CborEntry(new CborText("grant_id"), new CborText(v.grantId())));
-        csilEntries.add(new CborEntry(new CborText("revoked_at"), new CborText(v.revokedAt())));
+        csilEntries.add(new CborEntry(new CborText("revoked_at"), encTimestamp(v.revokedAt())));
         csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
         return new CborMap(csilEntries);
     }
@@ -7746,7 +8472,7 @@ public final class CsilCbor {
         String grantId = asText(require(csilRoot, "grant_id"));
         String userId = asText(require(csilRoot, "user_id"));
         String subjectDomain = asText(require(csilRoot, "subject_domain"));
-        String revokedAt = asText(require(csilRoot, "revoked_at"));
+        Instant revokedAt = asTimestamp(require(csilRoot, "revoked_at"));
         return new ActAsGrantRevocation(grantId, userId, subjectDomain, revokedAt);
     }
 
@@ -8080,13 +8806,13 @@ public final class CsilCbor {
         csilEntries.add(new CborEntry(new CborText("grantee"), encGranteeRef(v.grantee())));
         csilEntries.add(new CborEntry(new CborText("audience"), encApplicationRef(v.audience())));
         csilEntries.add(new CborEntry(new CborText("grant_id"), new CborText(v.grantId())));
-        csilEntries.add(new CborEntry(new CborText("issued_at"), new CborText(v.issuedAt())));
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("issued_at"), encTimestamp(v.issuedAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         if (v.revokedAt() != null) {
-            csilEntries.add(new CborEntry(new CborText("revoked_at"), new CborText(v.revokedAt())));
+            csilEntries.add(new CborEntry(new CborText("revoked_at"), encTimestamp(v.revokedAt())));
         }
         csilEntries.add(new CborEntry(new CborText("approved_scope"), encArray(v.approvedScope(), csilElem0 -> new CborText(csilElem0))));
-        csilEntries.add(new CborEntry(new CborText("renewable_until"), new CborText(v.renewableUntil())));
+        csilEntries.add(new CborEntry(new CborText("renewable_until"), encTimestamp(v.renewableUntil())));
         return new CborMap(csilEntries);
     }
 
@@ -8095,13 +8821,13 @@ public final class CsilCbor {
         GranteeRef grantee = decGranteeRef(require(csilRoot, "grantee"));
         ApplicationRef audience = decApplicationRef(require(csilRoot, "audience"));
         List<String> approvedScope = decArray(require(csilRoot, "approved_scope"), csilE0 -> asText(csilE0));
-        String issuedAt = asText(require(csilRoot, "issued_at"));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
-        String renewableUntil = asText(require(csilRoot, "renewable_until"));
-        String revokedAt;
+        Instant issuedAt = asTimestamp(require(csilRoot, "issued_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
+        Instant renewableUntil = asTimestamp(require(csilRoot, "renewable_until"));
+        Instant revokedAt;
         {
             CborValue csilField = mapGet(csilRoot, "revoked_at");
-            revokedAt = csilField != null ? asText(csilField) : null;
+            revokedAt = csilField != null ? asTimestamp(csilField) : null;
         }
         return new ActAsGrantSummary(grantId, grantee, audience, approvedScope, issuedAt, expiresAt, renewableUntil, revokedAt);
     }
@@ -8154,12 +8880,12 @@ public final class CsilCbor {
 
     static CborValue encRevokeActAsGrantResponse(RevokeActAsGrantResponse v) {
         List<CborEntry> csilEntries = new ArrayList<>(1);
-        csilEntries.add(new CborEntry(new CborText("revoked_at"), new CborText(v.revokedAt())));
+        csilEntries.add(new CborEntry(new CborText("revoked_at"), encTimestamp(v.revokedAt())));
         return new CborMap(csilEntries);
     }
 
     static RevokeActAsGrantResponse decRevokeActAsGrantResponse(CborValue csilRoot) {
-        String revokedAt = asText(require(csilRoot, "revoked_at"));
+        Instant revokedAt = asTimestamp(require(csilRoot, "revoked_at"));
         return new RevokeActAsGrantResponse(revokedAt);
     }
 
@@ -8185,7 +8911,7 @@ public final class CsilCbor {
         }
         csilEntries.add(new CborEntry(new CborText("available_claims"), encArray(v.availableClaims(), csilElem0 -> new CborText(csilElem0))));
         if (v.tempDisposition() != null) {
-            csilEntries.add(new CborEntry(new CborText("temp_disposition"), new CborText(v.tempDisposition())));
+            csilEntries.add(new CborEntry(new CborText("temp_disposition"), encReleaseDisposition(v.tempDisposition())));
         }
         return new CborMap(csilEntries);
     }
@@ -8206,10 +8932,10 @@ public final class CsilCbor {
             CborValue csilField = mapGet(csilRoot, "temp_claim_type");
             tempClaimType = csilField != null ? asText(csilField) : null;
         }
-        String tempDisposition;
+        ReleaseDisposition tempDisposition;
         {
             CborValue csilField = mapGet(csilRoot, "temp_disposition");
-            tempDisposition = csilField != null ? asText(csilField) : null;
+            tempDisposition = csilField != null ? decReleaseDisposition(csilField) : null;
         }
         return new PreviewReleasePolicyRequest(audience, requiredClaims, optionalClaims, availableClaims, userChoices, tempAudience, tempClaimType, tempDisposition);
     }
@@ -8225,7 +8951,7 @@ public final class CsilCbor {
     static CborValue encPreviewReleaseRow(PreviewReleaseRow v) {
         List<CborEntry> csilEntries = new ArrayList<>(6);
         csilEntries.add(new CborEntry(new CborText("locked"), new CborBool(v.locked())));
-        csilEntries.add(new CborEntry(new CborText("policy"), new CborText(v.policy())));
+        csilEntries.add(new CborEntry(new CborText("policy"), encConsentRowPolicy(v.policy())));
         csilEntries.add(new CborEntry(new CborText("required"), new CborBool(v.required())));
         csilEntries.add(new CborEntry(new CborText("available"), new CborBool(v.available())));
         csilEntries.add(new CborEntry(new CborText("claim_type"), new CborText(v.claimType())));
@@ -8238,7 +8964,7 @@ public final class CsilCbor {
         boolean required = asBool(require(csilRoot, "required"));
         boolean available = asBool(require(csilRoot, "available"));
         boolean locked = asBool(require(csilRoot, "locked"));
-        String policy = asText(require(csilRoot, "policy"));
+        ConsentRowPolicy policy = decConsentRowPolicy(require(csilRoot, "policy"));
         boolean defaultGranted = asBool(require(csilRoot, "default_granted"));
         return new PreviewReleaseRow(claimType, required, available, locked, policy, defaultGranted);
     }
@@ -8383,7 +9109,7 @@ public final class CsilCbor {
 
     static CborValue encInspectSigningRequestResponse(InspectSigningRequestResponse v) {
         List<CborEntry> csilEntries = new ArrayList<>(5);
-        csilEntries.add(new CborEntry(new CborText("expires_at"), new CborText(v.expiresAt())));
+        csilEntries.add(new CborEntry(new CborText("expires_at"), encTimestamp(v.expiresAt())));
         csilEntries.add(new CborEntry(new CborText("subject_domain"), new CborText(v.subjectDomain())));
         csilEntries.add(new CborEntry(new CborText("subject_user_id"), new CborText(v.subjectUserId())));
         csilEntries.add(new CborEntry(new CborText("issuable_claim_types"), encArray(v.issuableClaimTypes(), csilElem0 -> new CborText(csilElem0))));
@@ -8395,7 +9121,7 @@ public final class CsilCbor {
         String subjectUserId = asText(require(csilRoot, "subject_user_id"));
         String subjectDomain = asText(require(csilRoot, "subject_domain"));
         List<String> requestedClaimTypes = decArray(require(csilRoot, "requested_claim_types"), csilE0 -> asText(csilE0));
-        String expiresAt = asText(require(csilRoot, "expires_at"));
+        Instant expiresAt = asTimestamp(require(csilRoot, "expires_at"));
         List<String> issuableClaimTypes = decArray(require(csilRoot, "issuable_claim_types"), csilE0 -> asText(csilE0));
         return new InspectSigningRequestResponse(subjectUserId, subjectDomain, requestedClaimTypes, expiresAt, issuableClaimTypes);
     }
@@ -8436,7 +9162,7 @@ public final class CsilCbor {
         if (v.message() != null) {
             csilEntries.add(new CborEntry(new CborText("message"), new CborText(v.message())));
         }
-        csilEntries.add(new CborEntry(new CborText("outcome"), new CborText(v.outcome())));
+        csilEntries.add(new CborEntry(new CborText("outcome"), encIssuedClaimOutcome(v.outcome())));
         if (v.claimCode() != null) {
             csilEntries.add(new CborEntry(new CborText("claim_code"), new CborText(v.claimCode())));
         }
@@ -8446,7 +9172,7 @@ public final class CsilCbor {
 
     static IssuedClaimResult decIssuedClaimResult(CborValue csilRoot) {
         String claimType = asText(require(csilRoot, "claim_type"));
-        String outcome = asText(require(csilRoot, "outcome"));
+        IssuedClaimOutcome outcome = decIssuedClaimOutcome(require(csilRoot, "outcome"));
         String message;
         {
             CborValue csilField = mapGet(csilRoot, "message");
@@ -8503,6 +9229,9 @@ public final class CsilCbor {
 
     static CheckValue decCheckValue(CborValue v) {
         List<CborValue> csilArr = asArray(v);
+        if (csilArr.size() != 2) {
+            throw new CsilCborException("csil cbor: CheckValue is not a [variant_index, value] pair");
+        }
         long csilIdx = asU64(csilArr.get(0));
         CborValue csilPayload = csilArr.get(1);
         if (csilIdx == 0L) {
@@ -8517,6 +9246,240 @@ public final class CsilCbor {
         throw new CsilCborException("csil cbor: CheckValue variant index " + csilIdx);
     }
 
+    static CborValue encKeyAlgorithm(KeyAlgorithm v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static KeyAlgorithm decKeyAlgorithm(CborValue root) {
+        try { return KeyAlgorithm.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encKeyUsage(KeyUsage v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static KeyUsage decKeyUsage(CborValue root) {
+        try { return KeyUsage.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encAeadSuite(AeadSuite v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static AeadSuite decAeadSuite(CborValue root) {
+        try { return AeadSuite.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encClaimValueType(ClaimValueType v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static ClaimValueType decClaimValueType(CborValue root) {
+        try { return ClaimValueType.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encSetRule(SetRule v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static SetRule decSetRule(CborValue root) {
+        try { return SetRule.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encSigningRule(SigningRule v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static SigningRule decSigningRule(CborValue root) {
+        try { return SigningRule.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encSetClaimOutcome(SetClaimOutcome v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static SetClaimOutcome decSetClaimOutcome(CborValue root) {
+        try { return SetClaimOutcome.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encReleaseDisposition(ReleaseDisposition v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static ReleaseDisposition decReleaseDisposition(CborValue root) {
+        try { return ReleaseDisposition.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encConsentRowPolicy(ConsentRowPolicy v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static ConsentRowPolicy decConsentRowPolicy(CborValue root) {
+        try { return ConsentRowPolicy.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encClaimApprovalStatus(ClaimApprovalStatus v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static ClaimApprovalStatus decClaimApprovalStatus(CborValue root) {
+        try { return ClaimApprovalStatus.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encPinRecheckOutcome(PinRecheckOutcome v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static PinRecheckOutcome decPinRecheckOutcome(CborValue root) {
+        try { return PinRecheckOutcome.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encNotificationPurpose(NotificationPurpose v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static NotificationPurpose decNotificationPurpose(CborValue root) {
+        try { return NotificationPurpose.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encNotificationChannel(NotificationChannel v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static NotificationChannel decNotificationChannel(CborValue root) {
+        try { return NotificationChannel.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encDestinationKind(DestinationKind v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static DestinationKind decDestinationKind(CborValue root) {
+        try { return DestinationKind.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encLocalRpPolicy(LocalRpPolicy v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static LocalRpPolicy decLocalRpPolicy(CborValue root) {
+        try { return LocalRpPolicy.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encLocalRpStatus(LocalRpStatus v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static LocalRpStatus decLocalRpStatus(CborValue root) {
+        try { return LocalRpStatus.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encLocalRpAdmission(LocalRpAdmission v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static LocalRpAdmission decLocalRpAdmission(CborValue root) {
+        try { return LocalRpAdmission.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encAppAccessMode(AppAccessMode v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static AppAccessMode decAppAccessMode(CborValue root) {
+        try { return AppAccessMode.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encAppAccessTargetKind(AppAccessTargetKind v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static AppAccessTargetKind decAppAccessTargetKind(CborValue root) {
+        try { return AppAccessTargetKind.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encClaimOperator(ClaimOperator v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static ClaimOperator decClaimOperator(CborValue root) {
+        try { return ClaimOperator.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encApplicationKeyChallengePurpose(ApplicationKeyChallengePurpose v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static ApplicationKeyChallengePurpose decApplicationKeyChallengePurpose(CborValue root) {
+        try { return ApplicationKeyChallengePurpose.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encAuthFlow(AuthFlow v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static AuthFlow decAuthFlow(CborValue root) {
+        try { return AuthFlow.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encRpCacheStatus(RpCacheStatus v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static RpCacheStatus decRpCacheStatus(CborValue root) {
+        try { return RpCacheStatus.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encAccountKind(AccountKind v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static AccountKind decAccountKind(CborValue root) {
+        try { return AccountKind.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encRpErrorCode(RpErrorCode v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static RpErrorCode decRpErrorCode(CborValue root) {
+        try { return RpErrorCode.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
+    static CborValue encIssuedClaimOutcome(IssuedClaimOutcome v) {
+        return new CborInt(v.toNumber());
+    }
+
+    static IssuedClaimOutcome decIssuedClaimOutcome(CborValue root) {
+        try { return IssuedClaimOutcome.fromNumber(asI64(root)); }
+        catch (IllegalArgumentException e) { throw new CsilCborException(e.getMessage()); }
+    }
+
     static CborValue encApiErrorCode(ApiErrorCode v) {
         return new CborInt(v.toNumber());
     }
@@ -8528,7 +9491,73 @@ public final class CsilCbor {
 
     public record RpcReply(String variant, byte[] payload) {}
 
+    public static final class RpErrorRefusal extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        public final RpError value;
+
+        public RpErrorRefusal(RpError value) {
+            super("RpError");
+            this.value = value;
+        }
+    }
+
+    public static RpcReply encodeRpSignRequestReply(java.util.function.Supplier<RpSignResponse> handler) {
+        try {
+            RpSignResponse value = handler.get();
+            return new RpcReply("RpSignResponse", encode(encRpSignResponse(value)));
+        } catch (RpErrorRefusal refusal) {
+            return new RpcReply("RpError", encode(encRpError(refusal.value)));
+        }
+    }
+
+    public static RpcReply encodeRpDecryptTokenReply(java.util.function.Supplier<RpDecryptResponse> handler) {
+        try {
+            RpDecryptResponse value = handler.get();
+            return new RpcReply("RpDecryptResponse", encode(encRpDecryptResponse(value)));
+        } catch (RpErrorRefusal refusal) {
+            return new RpcReply("RpError", encode(encRpError(refusal.value)));
+        }
+    }
+
+    public static RpcReply encodeRpVerifyAssertionReply(java.util.function.Supplier<RpVerifyResponse> handler) {
+        try {
+            RpVerifyResponse value = handler.get();
+            return new RpcReply("RpVerifyResponse", encode(encRpVerifyResponse(value)));
+        } catch (RpErrorRefusal refusal) {
+            return new RpcReply("RpError", encode(encRpError(refusal.value)));
+        }
+    }
+
+    public static RpcReply encodeRpUserinfoFetchReply(java.util.function.Supplier<UserInfo> handler) {
+        try {
+            UserInfo value = handler.get();
+            return new RpcReply("UserInfo", encode(encUserInfo(value)));
+        } catch (RpErrorRefusal refusal) {
+            return new RpcReply("RpError", encode(encRpError(refusal.value)));
+        }
+    }
+
     public static byte[] resolveRpcReply(String service, String op, String variant, byte[] payload) {
+        if ("Rp".equals(service) && "sign-request".equals(op)) {
+            if ("RpSignResponse".equals(variant)) return payload;
+            if ("RpError".equals(variant)) throw new RpErrorRefusal(decRpError(decode(payload)));
+            throw new CsilCborException("invalid RPC reply variant: " + variant);
+        }
+        if ("Rp".equals(service) && "decrypt-token".equals(op)) {
+            if ("RpDecryptResponse".equals(variant)) return payload;
+            if ("RpError".equals(variant)) throw new RpErrorRefusal(decRpError(decode(payload)));
+            throw new CsilCborException("invalid RPC reply variant: " + variant);
+        }
+        if ("Rp".equals(service) && "verify-assertion".equals(op)) {
+            if ("RpVerifyResponse".equals(variant)) return payload;
+            if ("RpError".equals(variant)) throw new RpErrorRefusal(decRpError(decode(payload)));
+            throw new CsilCborException("invalid RPC reply variant: " + variant);
+        }
+        if ("Rp".equals(service) && "userinfo-fetch".equals(op)) {
+            if ("UserInfo".equals(variant)) return payload;
+            if ("RpError".equals(variant)) throw new RpErrorRefusal(decRpError(decode(payload)));
+            throw new CsilCborException("invalid RPC reply variant: " + variant);
+        }
         return payload;
     }
 }

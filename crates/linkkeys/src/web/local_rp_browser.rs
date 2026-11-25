@@ -27,7 +27,6 @@
 //! browser app shows the matching catalog text (`app.error.reason.<code>`).
 
 use base64ct::{Base64UrlUnpadded, Encoding as _};
-use liblinkkeys::timestamp::Rfc3339 as _;
 use rand::Rng;
 use rocket::response::Redirect;
 use rocket::State;
@@ -40,7 +39,7 @@ use liblinkkeys::crypto::AeadSuite;
 use liblinkkeys::generated::services::ServiceError;
 use liblinkkeys::generated::types::{
     BrowserLocalRpCompleteRequest, BrowserLocalRpCompleteResponse, BrowserLocalRpInspectResponse,
-    ClaimRequest, LocalRpDescriptor, LocalRpLoginRequest, RequestedClaim,
+    ClaimRequest, LocalRpAdmission, LocalRpDescriptor, LocalRpLoginRequest, RequestedClaim,
 };
 use liblinkkeys::local_rp::LocalRpError;
 
@@ -300,8 +299,8 @@ fn build_claim_request(pool: &DbPool, requested: &[String], required: &[String])
                 .find_claim_policy(ct)
                 .ok()
                 .flatten()
-                .map(|p| p.value_type)
-                .unwrap_or_else(|| "text".to_string()),
+                .and_then(|p| liblinkkeys::claim_policy::ValueType::parse(&p.value_type))
+                .unwrap_or(liblinkkeys::claim_policy::ValueType::Text),
         };
         if required_set.contains(ct.as_str()) {
             req_list.push(rc);
@@ -326,11 +325,9 @@ fn silent_authorization(
     req: &ClaimRequest,
     policy: &liblinkkeys::consent::DomainPolicy,
 ) -> Option<Vec<String>> {
-    if request
-        .flow_context
-        .as_ref()
-        .is_some_and(|context| context.flow == "claims_update")
-    {
+    if request.flow_context.as_ref().is_some_and(|context| {
+        context.flow == liblinkkeys::generated::types::AuthFlow::ClaimsUpdate
+    }) {
         return None;
     }
     let prior = pool
@@ -423,7 +420,7 @@ pub(super) fn inspect(
     // account does not register the app.
     if let Some(denial) = crate::services::app_access::denial_for(pool, &user.id, None)? {
         return Ok(BrowserLocalRpInspectResponse {
-            admission: "blocked".to_string(),
+            admission: LocalRpAdmission::Blocked,
             app_name: descriptor.app_name,
             fingerprint: descriptor.fingerprint,
             callback_host,
@@ -439,7 +436,7 @@ pub(super) fn inspect(
         Admission::Refused(r) => return Err(refused(403, r)),
         Admission::Pending => {
             return Ok(BrowserLocalRpInspectResponse {
-                admission: "pending".to_string(),
+                admission: LocalRpAdmission::Pending,
                 app_name: descriptor.app_name,
                 fingerprint: descriptor.fingerprint,
                 callback_host,
@@ -465,7 +462,7 @@ pub(super) fn inspect(
         &policy,
     );
     Ok(BrowserLocalRpInspectResponse {
-        admission: "consent".to_string(),
+        admission: LocalRpAdmission::Consent,
         claims: super::consent_claims(pool, &user.id, &descriptor.fingerprint, None, &req, &policy),
         app_name: descriptor.app_name,
         fingerprint: descriptor.fingerprint,
@@ -615,9 +612,9 @@ fn finalize_local_rp_login(
 
     let requested = super::requested_types(req);
     if !requested.is_empty() {
-        let now = time::OffsetDateTime::now_utc();
-        let issued_at = now.to_rfc3339();
-        let expires_at = (now + time::Duration::seconds(super::consent_ttl_seconds())).to_rfc3339();
+        // Both times are signed, so whole seconds.
+        let issued_at = liblinkkeys::timestamp::now_whole_seconds();
+        let expires_at = issued_at + time::Duration::seconds(super::consent_ttl_seconds());
         let grant_id = uuid::Uuid::now_v7().to_string();
         let signed = super::sign_consent_grant_for_user(
             pool,
@@ -626,11 +623,12 @@ fn finalize_local_rp_login(
             &descriptor.fingerprint,
             None,
             authorized_claims,
-            &issued_at,
-            &expires_at,
+            issued_at,
+            expires_at,
         )
         .map_err(|_| refused(500, reason::INTERNAL))?;
-        let grant_bytes = liblinkkeys::generated::encode_signed_consent_grant(&signed);
+        let grant_bytes = liblinkkeys::generated::encode_signed_consent_grant(&signed)
+            .map_err(|_| refused(500, reason::INTERNAL))?;
         pool.upsert_consent_grant(
             &grant_id,
             &user.id,
@@ -641,8 +639,8 @@ fn finalize_local_rp_login(
             &requested,
             &grant_bytes,
             None,
-            &issued_at,
-            &expires_at,
+            issued_at,
+            expires_at,
         )
         .map_err(internal)?;
     }
@@ -666,8 +664,8 @@ fn finalize_local_rp_login(
     .map_err(|_| refused(500, reason::INTERNAL))?;
 
     let now = time::OffsetDateTime::now_utc();
-    let issued_at = now.to_rfc3339();
-    let expires_at = (now + time::Duration::seconds(LOCAL_RP_CALLBACK_TTL_SECONDS)).to_rfc3339();
+    let issued_at = now;
+    let expires_at = now + time::Duration::seconds(LOCAL_RP_CALLBACK_TTL_SECONDS);
     let payload = liblinkkeys::local_rp::build_local_rp_callback_payload(
         &user.id,
         &get_domain_name(),
@@ -676,8 +674,8 @@ fn finalize_local_rp_login(
         &request.callback_url,
         request.nonce.clone(),
         request.state.clone(),
-        &issued_at,
-        &expires_at,
+        issued_at,
+        expires_at,
     );
 
     let domain_keys = pool.list_active_domain_keys().map_err(internal)?;
@@ -687,7 +685,7 @@ fn finalize_local_rp_login(
     let sk_bytes =
         liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes())
             .map_err(|_| refused(500, reason::INTERNAL))?;
-    let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm)
+    let algorithm = crate::conversions::stored_signing_algorithm(&dk.algorithm)
         .ok_or(refused(500, reason::INTERNAL))?;
     let signed_payload = liblinkkeys::local_rp::sign_local_rp_callback_payload(
         &payload, &dk.id, algorithm, &sk_bytes,
@@ -701,13 +699,13 @@ fn finalize_local_rp_login(
         .map_err(|_| refused(500, reason::INTERNAL))?;
     let encrypted = liblinkkeys::local_rp::seal_local_rp_callback(
         &signed_payload,
-        suite,
+        &suite,
         &enc_pk,
         &descriptor.fingerprint,
         request.nonce.clone(),
         request.state.clone(),
-        &issued_at,
-        &expires_at,
+        issued_at,
+        expires_at,
     )
     .map_err(|_| refused(500, reason::INTERNAL))?;
     let encoded = liblinkkeys::encoding::local_rp_encrypted_callback_to_url_param(&encrypted)

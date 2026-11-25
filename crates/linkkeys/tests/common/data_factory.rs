@@ -3,7 +3,6 @@
 // every helper — Rust treats each test binary as its own crate, so any
 // unused helper would otherwise be flagged per-binary.
 
-use liblinkkeys::timestamp::Rfc3339 as _;
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -83,15 +82,11 @@ pub fn create_domain_encryption_key(pool: &DbPool, signing_key: &DomainKey) -> (
     let enc_priv_encrypted =
         liblinkkeys::crypto::encrypt_private_key(&enc_priv, b"test-passphrase")
             .expect("encrypt test encryption key");
-    // Whole-second expiry, as production does: the vouch signs this exact
-    // string, and only whole seconds round-trip byte-identically through
-    // pg timestamptz (which truncates nanoseconds).
-    let expires = (time::OffsetDateTime::now_utc() + time::Duration::days(365))
-        .replace_nanosecond(0)
-        .expect("zeroing nanoseconds cannot fail");
+    // Whole-second expiry, as production does: the vouch signs it.
+    let expires = liblinkkeys::timestamp::now_whole_seconds() + time::Duration::days(365);
     let vouch = liblinkkeys::dns::sign_key_vouch(
         &enc_fp,
-        &expires.to_rfc3339(),
+        &expires,
         liblinkkeys::crypto::SigningAlgorithm::Ed25519,
         &sk_bytes,
     )
@@ -544,7 +539,6 @@ fn extract_str(overrides: &DataMap, key: &str, default: impl Fn() -> String) -> 
 /// lifetime), `renewable_until` (default expires_at).
 #[allow(dead_code)]
 pub fn create_act_as_grant(pool: &DbPool, overrides: &DataMap) -> ActAsGrantRecord {
-    use liblinkkeys::act_as::format_time;
     let user_id = match overrides.get("user_id").and_then(|v| v.as_str()) {
         Some(uid) => uid.to_string(),
         None => create_user(pool, &DataMap::new()).id,
@@ -585,11 +579,11 @@ pub fn create_act_as_grant(pool: &DbPool, overrides: &DataMap) -> ActAsGrantReco
         audience_application_id: format!("audience-app-{}", rand_suffix()),
         approved_scope,
         lifetime_seconds,
-        series_issued_at: format_time(issued_at),
-        renewable_until: format_time(renewable_until),
+        series_issued_at: liblinkkeys::timestamp::whole_seconds(issued_at),
+        renewable_until: liblinkkeys::timestamp::whole_seconds(renewable_until),
         signed_grant: b"placeholder-signed-grant".to_vec(),
-        issued_at: format_time(issued_at),
-        expires_at: format_time(expires_at),
+        issued_at: liblinkkeys::timestamp::whole_seconds(issued_at),
+        expires_at: liblinkkeys::timestamp::whole_seconds(expires_at),
         revoked_at: None,
         signed_revocation: None,
     };

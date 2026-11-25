@@ -209,12 +209,12 @@ func fixedKeyMaterial(t *testing.T, now time.Time) *localrp.LocalRpKeyMaterial {
 	var encPub [32]byte
 	copy(encPub[:], x25519Priv.PublicKey().Bytes())
 
-	createdAt := now.Add(-24 * time.Hour).UTC().Format(time.RFC3339Nano)
-	expiresAt := now.Add(3650 * 24 * time.Hour).UTC().Format(time.RFC3339Nano)
+	createdAt := now.Add(-24 * time.Hour).UTC()
+	expiresAt := now.Add(3650 * 24 * time.Hour).UTC()
 
-	descriptor := localrp.BuildLocalRpDescriptor("Flow Test App", nil, signingPub, encPub, []string{"aes-256-gcm", "chacha20-poly1305"}, createdAt, expiresAt)
+	descriptor := localrp.BuildLocalRpDescriptor("Flow Test App", nil, signingPub, encPub, []localrp.AeadSuite{localrp.AeadSuiteAES256GCM, localrp.AeadSuiteChaCha20Poly1305}, createdAt, expiresAt)
 	fingerprint := descriptor.Fingerprint
-	signedDescriptor := localrp.SignLocalRpDescriptor(descriptor, localRPSigningSeed)
+	signedDescriptor := must[api.SignedLocalRpDescriptor](t)(localrp.SignLocalRpDescriptor(descriptor, localRPSigningSeed))
 
 	return &localrp.LocalRpKeyMaterial{
 		SigningPrivateKey:    localRPSigningSeed,
@@ -240,10 +240,10 @@ func domainSigningKeyWithSeed(seed [32]byte, keyID string) api.DomainPublicKey {
 		KeyId:       keyID,
 		PublicKey:   []byte(pub),
 		Fingerprint: localrp.Fingerprint([]byte(pub)),
-		Algorithm:   "ed25519",
-		KeyUsage:    "sign",
-		CreatedAt:   time.Now().Add(-30 * 24 * time.Hour).UTC().Format(time.RFC3339Nano),
-		ExpiresAt:   time.Now().Add(365 * 24 * time.Hour).UTC().Format(time.RFC3339Nano),
+		Algorithm:   api.KeyAlgorithmEd25519,
+		KeyUsage:    api.KeyUsageSign,
+		CreatedAt:   time.Now().Add(-30 * 24 * time.Hour).UTC(),
+		ExpiresAt:   time.Now().Add(365 * 24 * time.Hour).UTC(),
 	}
 }
 
@@ -323,11 +323,11 @@ func runScenario(t *testing.T, sc scenario) (*localrp.VerifiedLocalLogin, error)
 	payload := localrp.BuildLocalRpCallbackPayload(
 		"user-1", userDomainFlowTest, claimTicket, keyMaterial.Fingerprint, callbackURLFlowTest,
 		pending.Nonce, pending.State,
-		now.UTC().Format(time.RFC3339Nano), now.Add(5*time.Minute).UTC().Format(time.RFC3339Nano),
+		now.UTC(), now.Add(5*time.Minute).UTC(),
 	)
 	sc.mutatePayload(&payload)
 
-	signedPayload := localrp.SignLocalRpCallbackPayload(payload, domainKeyIDFlowTest, domainSigningSeedFlowTest)
+	signedPayload := must[api.SignedLocalRpCallbackPayload](t)(localrp.SignLocalRpCallbackPayload(payload, domainKeyIDFlowTest, domainSigningSeedFlowTest))
 
 	encrypted, err := localrp.SealLocalRpCallback(
 		signedPayload, localrp.AeadSuiteAES256GCM, keyMaterial.EncryptionPublicKey,
@@ -336,20 +336,23 @@ func runScenario(t *testing.T, sc scenario) (*localrp.VerifiedLocalLogin, error)
 	if err != nil {
 		t.Fatalf("seal callback: %v", err)
 	}
-	encryptedToken := localrp.LocalRpEncryptedCallbackToURLParam(encrypted)
+	encryptedToken := must[string](t)(localrp.LocalRpEncryptedCallbackToURLParam(encrypted))
 	arrivedURL := fmt.Sprintf("%s?encrypted_token=%s", callbackURLFlowTest, encryptedToken)
 
-	claim := localrp.SignClaim(localrp.ClaimSpec{
+	claim, err := localrp.SignClaim(localrp.ClaimSpec{
 		ClaimID:       "claim-1",
 		ClaimType:     "handle",
 		ClaimValue:    []byte("flowtestuser"),
 		UserID:        "user-1",
 		SubjectDomain: userDomainFlowTest,
-		AttestedAt:    now.UTC().Format(time.RFC3339Nano),
+		AttestedAt:    now.UTC().Truncate(time.Second),
 	}, []localrp.ClaimSigner{{Domain: userDomainFlowTest, KeyID: domainKeyIDFlowTest, PrivateKeySeed: domainSigningSeedFlowTest}})
+	if err != nil {
+		t.Fatalf("sign claim: %v", err)
+	}
 	sc.mutateClaim(&claim)
 
-	ticketExpiresAt := now.Add(1 * time.Hour).UTC().Format(time.RFC3339Nano)
+	ticketExpiresAt := now.Add(1 * time.Hour).UTC()
 	redemptionResponse := api.LocalRpTicketRedemptionResponse{
 		UserId:          "user-1",
 		UserDomain:      userDomainFlowTest,
@@ -359,13 +362,15 @@ func runScenario(t *testing.T, sc scenario) (*localrp.VerifiedLocalLogin, error)
 	sc.mutateRedemption(&redemptionResponse)
 
 	domainKeysForWire := append([]api.DomainPublicKey{domainKey}, sc.extraDomainKeys...)
-	revocationsForWire := sc.revocations
-	redemptionForWire := redemptionResponse
+	// Encode the wire replies here, on the test goroutine: the handler runs
+	// on the fake IDP's goroutine, where t.Fatal is not allowed.
+	domainKeysBytes := must[[]byte](t)(api.EncodeGetDomainKeysResponse(api.GetDomainKeysResponse{Domain: userDomainFlowTest, Keys: domainKeysForWire}))
+	revocationsBytes := must[[]byte](t)(api.EncodeGetRevocationsResponse(api.GetRevocationsResponse{Revocations: sc.revocations}))
+	redemptionBytes := must[[]byte](t)(api.EncodeLocalRpTicketRedemptionResponse(redemptionResponse))
 	addr := spawnFakeIDP(t, domainSigningSeedFlowTest, sc.expectedRequests, sc.dropOp, func(service, op string, _ []byte) rpctransport.RpcResponse {
 		switch {
 		case service == "DomainKeys" && op == "get-domain-keys":
-			resp := api.GetDomainKeysResponse{Domain: userDomainFlowTest, Keys: domainKeysForWire}
-			return rpctransport.NewRpcResponseOk("GetDomainKeysResponse", api.EncodeGetDomainKeysResponse(resp))
+			return rpctransport.NewRpcResponseOk("GetDomainKeysResponse", domainKeysBytes)
 		case service == "DomainKeys" && op == "get-revocations":
 			if sc.revocationsRPCFails {
 				return rpctransport.NewRpcResponseTransportError(rpctransport.StatusInternal, "fake IDP: revocations fetch intentionally failing")
@@ -373,10 +378,9 @@ func runScenario(t *testing.T, sc scenario) (*localrp.VerifiedLocalLogin, error)
 			if sc.revocationsGarbage {
 				return rpctransport.NewRpcResponseOk("GetRevocationsResponse", []byte{0xFF, 0xFF, 0xFF})
 			}
-			resp := api.GetRevocationsResponse{Revocations: revocationsForWire}
-			return rpctransport.NewRpcResponseOk("GetRevocationsResponse", api.EncodeGetRevocationsResponse(resp))
+			return rpctransport.NewRpcResponseOk("GetRevocationsResponse", revocationsBytes)
 		case service == "LocalRp" && op == "redeem-claim-ticket":
-			return rpctransport.NewRpcResponseOk("LocalRpTicketRedemptionResponse", api.EncodeLocalRpTicketRedemptionResponse(redemptionForWire))
+			return rpctransport.NewRpcResponseOk("LocalRpTicketRedemptionResponse", redemptionBytes)
 		default:
 			return rpctransport.NewRpcResponseTransportError(rpctransport.StatusUnknownServiceOrOp, fmt.Sprintf("fake IDP has no handler for %s/%s", service, op))
 		}
@@ -513,8 +517,8 @@ func TestExpiredCallbackPayloadIsRejected(t *testing.T) {
 	sc := defaultScenario()
 	sc.mutatePayload = func(p *api.LocalRpCallbackPayload) {
 		n := time.Now()
-		p.IssuedAt = n.Add(-2 * time.Hour).UTC().Format(time.RFC3339Nano)
-		p.ExpiresAt = n.Add(-1 * time.Hour).UTC().Format(time.RFC3339Nano)
+		p.IssuedAt = n.Add(-2 * time.Hour).UTC()
+		p.ExpiresAt = n.Add(-1 * time.Hour).UTC()
 	}
 	sc.expectedRequests = requestsForOneKeyFetch
 	_, err := runScenario(t, sc)
@@ -537,7 +541,7 @@ func TestDNSFingerprintPinMismatchIsRejected(t *testing.T) {
 func TestRevokedSigningKeyIsRejected(t *testing.T) {
 	sc := defaultScenario()
 	sc.mutateDomainKey = func(k *api.DomainPublicKey) {
-		revokedAt := time.Now().UTC().Format(time.RFC3339Nano)
+		revokedAt := time.Now().UTC()
 		k.RevokedAt = &revokedAt
 	}
 	sc.expectedRequests = requestsForOneKeyFetch
@@ -705,15 +709,32 @@ func TestCertificateRevokedSigningKeyIsRejected(t *testing.T) {
 	siblingB := domainSigningKeyWithSeed(domainSigningSeedSiblingB, domainKeyIDSiblingBFlowTest)
 	siblingC := domainSigningKeyWithSeed(domainSigningSeedSiblingC, domainKeyIDSiblingCFlowTest)
 
-	cert := localrp.SignRevocationCertificate(domainKeyIDFlowTest, targetFingerprint, "2020-01-01T00:00:00Z", []localrp.RevocationSigner{
+	cert, err := localrp.SignRevocationCertificate(domainKeyIDFlowTest, targetFingerprint, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), []localrp.RevocationSigner{
 		{Domain: userDomainFlowTest, KeyID: domainKeyIDSiblingBFlowTest, PrivateKeySeed: domainSigningSeedSiblingB},
 		{Domain: userDomainFlowTest, KeyID: domainKeyIDSiblingCFlowTest, PrivateKeySeed: domainSigningSeedSiblingC},
 	})
+	if err != nil {
+		t.Fatalf("sign revocation: %v", err)
+	}
 
 	sc := defaultScenario()
 	sc.extraDomainKeys = []api.DomainPublicKey{siblingB, siblingC}
 	sc.revocations = []api.RevocationCertificate{cert}
 	sc.expectedRequests = requestsForOneKeyFetch // fails during envelope verification; never reaches redemption
-	_, err := runScenario(t, sc)
+	_, err = runScenario(t, sc)
 	expectLocalRpErrorKind(t, err, localrp.ErrKindKeyNotFound)
+}
+
+// A value with no wire form (here a timestamp after year 9999) is an
+// *EncodeError from the signing function, never a panic or empty bytes.
+func TestSignLocalRpLoginRequestEncodeError(t *testing.T) {
+	now := time.Now()
+	km := fixedKeyMaterial(t, now)
+	farFuture := time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC)
+	request := localrp.BuildLocalRpLoginRequest(km.Descriptor, callbackURLFlowTest, bytes.Repeat([]byte{1}, 32), bytes.Repeat([]byte{2}, 32), nil, nil, now.UTC(), farFuture)
+	_, err := localrp.SignLocalRpLoginRequest(request, km.SigningPrivateKey)
+	var encodeErr *localrp.EncodeError
+	if !errors.As(err, &encodeErr) {
+		t.Fatalf("want *localrp.EncodeError, got %T: %v", err, err)
+	}
 }

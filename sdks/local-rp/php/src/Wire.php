@@ -11,6 +11,8 @@ use Csilgen\Generated\EmptyRequest;
 use Csilgen\Generated\GetDomainKeysResponse;
 use Csilgen\Generated\GetRevocationsRequest;
 use Csilgen\Generated\GetRevocationsResponse;
+use Csilgen\Generated\KeyAlgorithm;
+use Csilgen\Generated\KeyUsage;
 use Csilgen\Generated\LocalRpCallbackHeader;
 use Csilgen\Generated\LocalRpCallbackPayload;
 use Csilgen\Generated\LocalRpDescriptor;
@@ -69,13 +71,13 @@ final class Wire
             'key_id' => $v->keyId,
             'public_key' => Cbor::bytes($v->publicKey),
             'fingerprint' => $v->fingerprint,
-            'algorithm' => $v->algorithm,
-            'key_usage' => $v->keyUsage,
-            'created_at' => $v->createdAt,
-            'expires_at' => $v->expiresAt,
+            'algorithm' => self::keyAlgorithmToWire($v->algorithm),
+            'key_usage' => self::keyUsageToWire($v->keyUsage),
+            'created_at' => Time::toWire($v->createdAt),
+            'expires_at' => Time::toWire($v->expiresAt),
         ];
         if ($v->revokedAt !== null) {
-            $out['revoked_at'] = $v->revokedAt;
+            $out['revoked_at'] = Time::toWire($v->revokedAt);
         }
         if ($v->signedByKeyId !== null) {
             $out['signed_by_key_id'] = $v->signedByKeyId;
@@ -98,11 +100,11 @@ final class Wire
             'key_id' => $m['key_id'] ?? null,
             'public_key' => $m['public_key'] ?? null,
             'fingerprint' => $m['fingerprint'] ?? null,
-            'algorithm' => $m['algorithm'] ?? null,
-            'key_usage' => $m['key_usage'] ?? null,
-            'created_at' => $m['created_at'] ?? null,
-            'expires_at' => $m['expires_at'] ?? null,
-            'revoked_at' => $m['revoked_at'] ?? null,
+            'algorithm' => self::keyAlgorithmFromWire($m['algorithm'] ?? null),
+            'key_usage' => self::keyUsageFromWire($m['key_usage'] ?? null),
+            'created_at' => Time::fromWire($m['created_at'] ?? null, 'created_at'),
+            'expires_at' => Time::fromWire($m['expires_at'] ?? null, 'expires_at'),
+            'revoked_at' => Time::fromWireOptional($m['revoked_at'] ?? null, 'revoked_at'),
             'signed_by_key_id' => $m['signed_by_key_id'] ?? null,
             'key_signature' => $m['key_signature'] ?? null,
         ]);
@@ -127,7 +129,7 @@ final class Wire
     {
         $out = [];
         if ($v->since !== null) {
-            $out['since'] = $v->since;
+            $out['since'] = Time::toWire($v->since);
         }
         return Cbor::encodeMap($out);
     }
@@ -179,7 +181,7 @@ final class Wire
         return [
             'target_key_id' => $v->targetKeyId,
             'target_fingerprint' => $v->targetFingerprint,
-            'revoked_at' => $v->revokedAt,
+            'revoked_at' => Time::toWire($v->revokedAt),
             'signatures' => array_map(fn ($s) => self::encodeClaimSignature($s), $v->signatures ?? []),
         ];
     }
@@ -196,7 +198,7 @@ final class Wire
         return new RevocationCertificate([
             'target_key_id' => $m['target_key_id'] ?? null,
             'target_fingerprint' => $m['target_fingerprint'] ?? null,
-            'revoked_at' => $m['revoked_at'] ?? null,
+            'revoked_at' => Time::fromWire($m['revoked_at'] ?? null, 'revoked_at'),
             'signatures' => $sigs,
         ]);
     }
@@ -238,10 +240,10 @@ final class Wire
             'claim_type' => $m['claim_type'] ?? null,
             'claim_value' => $m['claim_value'] ?? null,
             'signatures' => $sigs,
-            'attested_at' => $m['attested_at'] ?? null,
-            'created_at' => $m['created_at'] ?? null,
-            'expires_at' => $m['expires_at'] ?? null,
-            'revoked_at' => $m['revoked_at'] ?? null,
+            'attested_at' => Time::fromWire($m['attested_at'] ?? null, 'attested_at'),
+            'created_at' => Time::fromWire($m['created_at'] ?? null, 'created_at'),
+            'expires_at' => Time::fromWireOptional($m['expires_at'] ?? null, 'expires_at'),
+            'revoked_at' => Time::fromWireOptional($m['revoked_at'] ?? null, 'revoked_at'),
         ]);
     }
 
@@ -266,16 +268,16 @@ final class Wire
             'user_id' => $v->userId,
             'claim_id' => $v->claimId,
             'claim_type' => $v->claimType,
-            'created_at' => $v->createdAt,
+            'created_at' => Time::toWire($v->createdAt),
         ];
         if ($v->expiresAt !== null) {
-            $out['expires_at'] = $v->expiresAt;
+            $out['expires_at'] = Time::toWire($v->expiresAt);
         }
         if ($v->revokedAt !== null) {
-            $out['revoked_at'] = $v->revokedAt;
+            $out['revoked_at'] = Time::toWire($v->revokedAt);
         }
         $out['signatures'] = array_map(fn ($s) => self::encodeClaimSignature($s), $v->signatures ?? []);
-        $out['attested_at'] = $v->attestedAt;
+        $out['attested_at'] = Time::toWire($v->attestedAt);
         $out['claim_value'] = Cbor::bytes($v->claimValue);
         return $out;
     }
@@ -295,9 +297,9 @@ final class Wire
         $out['signing_public_key'] = Cbor::bytes($v->signingPublicKey);
         $out['encryption_public_key'] = Cbor::bytes($v->encryptionPublicKey);
         $out['fingerprint'] = $v->fingerprint;
-        $out['supported_suites'] = $v->supportedSuites ?? [];
-        $out['created_at'] = $v->createdAt;
-        $out['expires_at'] = $v->expiresAt;
+        $out['supported_suites'] = array_map(fn ($s) => self::aeadSuiteToWire($s), $v->supportedSuites ?? []);
+        $out['created_at'] = Time::toWire($v->createdAt);
+        $out['expires_at'] = Time::toWire($v->expiresAt);
         return Cbor::encodeMap($out);
     }
 
@@ -310,9 +312,9 @@ final class Wire
             'signing_public_key' => $m['signing_public_key'] ?? null,
             'encryption_public_key' => $m['encryption_public_key'] ?? null,
             'fingerprint' => $m['fingerprint'] ?? null,
-            'supported_suites' => $m['supported_suites'] ?? [],
-            'created_at' => $m['created_at'] ?? null,
-            'expires_at' => $m['expires_at'] ?? null,
+            'supported_suites' => self::aeadSuitesFromWire($m['supported_suites'] ?? null),
+            'created_at' => Time::fromWire($m['created_at'] ?? null, 'created_at'),
+            'expires_at' => Time::fromWire($m['expires_at'] ?? null, 'expires_at'),
         ]);
     }
 
@@ -346,8 +348,8 @@ final class Wire
             'state' => Cbor::bytes($v->state),
             'requested_claims' => $v->requestedClaims ?? [],
             'required_claims' => $v->requiredClaims ?? [],
-            'issued_at' => $v->issuedAt,
-            'expires_at' => $v->expiresAt,
+            'issued_at' => Time::toWire($v->issuedAt),
+            'expires_at' => Time::toWire($v->expiresAt),
         ];
         return Cbor::encodeMap($out);
     }
@@ -376,8 +378,8 @@ final class Wire
             'state' => $m['state'] ?? null,
             'requested_claims' => $m['requested_claims'] ?? [],
             'required_claims' => $m['required_claims'] ?? [],
-            'issued_at' => $m['issued_at'] ?? null,
-            'expires_at' => $m['expires_at'] ?? null,
+            'issued_at' => Time::fromWire($m['issued_at'] ?? null, 'issued_at'),
+            'expires_at' => Time::fromWire($m['expires_at'] ?? null, 'expires_at'),
         ]);
     }
 
@@ -408,11 +410,11 @@ final class Wire
             'fingerprint' => $v->fingerprint,
             'nonce' => Cbor::bytes($v->nonce),
             'state' => Cbor::bytes($v->state),
-            'suite' => $v->suite,
+            'suite' => self::aeadSuiteToWire($v->suite),
             'ephemeral_public_key' => Cbor::bytes($v->ephemeralPublicKey),
             'aead_nonce' => Cbor::bytes($v->aeadNonce),
-            'issued_at' => $v->issuedAt,
-            'expires_at' => $v->expiresAt,
+            'issued_at' => Time::toWire($v->issuedAt),
+            'expires_at' => Time::toWire($v->expiresAt),
         ]);
     }
 
@@ -423,11 +425,11 @@ final class Wire
             'fingerprint' => $m['fingerprint'] ?? null,
             'nonce' => $m['nonce'] ?? null,
             'state' => $m['state'] ?? null,
-            'suite' => $m['suite'] ?? null,
+            'suite' => self::aeadSuiteFromWire($m['suite'] ?? null),
             'ephemeral_public_key' => $m['ephemeral_public_key'] ?? null,
             'aead_nonce' => $m['aead_nonce'] ?? null,
-            'issued_at' => $m['issued_at'] ?? null,
-            'expires_at' => $m['expires_at'] ?? null,
+            'issued_at' => Time::fromWire($m['issued_at'] ?? null, 'issued_at'),
+            'expires_at' => Time::fromWire($m['expires_at'] ?? null, 'expires_at'),
         ]);
     }
 
@@ -458,8 +460,8 @@ final class Wire
             'callback_url' => $v->callbackUrl,
             'nonce' => Cbor::bytes($v->nonce),
             'state' => Cbor::bytes($v->state),
-            'issued_at' => $v->issuedAt,
-            'expires_at' => $v->expiresAt,
+            'issued_at' => Time::toWire($v->issuedAt),
+            'expires_at' => Time::toWire($v->expiresAt),
         ]);
     }
 
@@ -474,8 +476,8 @@ final class Wire
             'callback_url' => $m['callback_url'] ?? null,
             'nonce' => $m['nonce'] ?? null,
             'state' => $m['state'] ?? null,
-            'issued_at' => $m['issued_at'] ?? null,
-            'expires_at' => $m['expires_at'] ?? null,
+            'issued_at' => Time::fromWire($m['issued_at'] ?? null, 'issued_at'),
+            'expires_at' => Time::fromWire($m['expires_at'] ?? null, 'expires_at'),
         ]);
     }
 
@@ -513,7 +515,7 @@ final class Wire
         return Cbor::encodeMap([
             'claim_ticket' => Cbor::bytes($v->claimTicket),
             'fingerprint' => $v->fingerprint,
-            'issued_at' => $v->issuedAt,
+            'issued_at' => Time::toWire($v->issuedAt),
         ]);
     }
 
@@ -523,7 +525,7 @@ final class Wire
         return new LocalRpTicketRedemptionRequest([
             'claim_ticket' => $m['claim_ticket'] ?? null,
             'fingerprint' => $m['fingerprint'] ?? null,
-            'issued_at' => $m['issued_at'] ?? null,
+            'issued_at' => Time::fromWire($m['issued_at'] ?? null, 'issued_at'),
         ]);
     }
 
@@ -571,7 +573,7 @@ final class Wire
             'user_id' => $m['user_id'] ?? null,
             'user_domain' => $m['user_domain'] ?? null,
             'claims' => $claims,
-            'ticket_expires_at' => $m['ticket_expires_at'] ?? null,
+            'ticket_expires_at' => Time::fromWire($m['ticket_expires_at'] ?? null, 'ticket_expires_at'),
         ]);
     }
 
@@ -583,7 +585,88 @@ final class Wire
             'claims' => array_map(fn ($c) => self::claimToMap($c), $v->claims ?? []),
             'user_id' => $v->userId,
             'user_domain' => $v->userDomain,
-            'ticket_expires_at' => $v->ticketExpiresAt,
+            'ticket_expires_at' => Time::toWire($v->ticketExpiresAt),
         ]);
+    }
+
+    // -------------------------------------------------------------------
+    // Named-number enums (a CBOR unsigned integer on the wire)
+    // -------------------------------------------------------------------
+
+    /**
+     * `AeadSuite` numbers. In memory the SDK keeps the suite text id
+     * (`aes-256-gcm`), because the callback box KDF context binds that text.
+     */
+    private const AEAD_SUITE_NUMBERS = [
+        Crypto::AEAD_SUITE_AES_256_GCM => 1,
+        Crypto::AEAD_SUITE_CHACHA20_POLY1305 => 2,
+    ];
+
+    public static function aeadSuiteToWire(string $suite): int
+    {
+        if (!isset(self::AEAD_SUITE_NUMBERS[$suite])) {
+            throw new UnsupportedAlgorithmError($suite);
+        }
+        return self::AEAD_SUITE_NUMBERS[$suite];
+    }
+
+    /** @param mixed $number */
+    public static function aeadSuiteFromWire($number): string
+    {
+        $suite = is_int($number) ? array_search($number, self::AEAD_SUITE_NUMBERS, true) : false;
+        if ($suite === false) {
+            throw new CborException('suite: unknown AeadSuite number');
+        }
+        return $suite;
+    }
+
+    /**
+     * @param mixed $numbers
+     * @return string[]
+     */
+    private static function aeadSuitesFromWire($numbers): array
+    {
+        if (!is_array($numbers) || ($numbers !== [] && !array_is_list($numbers))) {
+            throw new CborException('supported_suites: expected an array');
+        }
+        return array_map(fn ($n) => self::aeadSuiteFromWire($n), $numbers);
+    }
+
+    public static function keyAlgorithmToWire(string $algorithm): int
+    {
+        try {
+            return KeyAlgorithm::toNumber($algorithm);
+        } catch (\InvalidArgumentException $e) {
+            throw new UnsupportedAlgorithmError($algorithm);
+        }
+    }
+
+    /** @param mixed $number */
+    public static function keyAlgorithmFromWire($number): string
+    {
+        try {
+            return KeyAlgorithm::fromNumber($number);
+        } catch (\InvalidArgumentException $e) {
+            throw new CborException('algorithm: unknown KeyAlgorithm number', 0, $e);
+        }
+    }
+
+    public static function keyUsageToWire(string $usage): int
+    {
+        try {
+            return KeyUsage::toNumber($usage);
+        } catch (\InvalidArgumentException $e) {
+            throw new CborException('key_usage: unknown KeyUsage member', 0, $e);
+        }
+    }
+
+    /** @param mixed $number */
+    public static function keyUsageFromWire($number): string
+    {
+        try {
+            return KeyUsage::fromNumber($number);
+        } catch (\InvalidArgumentException $e) {
+            throw new CborException('key_usage: unknown KeyUsage number', 0, $e);
+        }
     }
 }

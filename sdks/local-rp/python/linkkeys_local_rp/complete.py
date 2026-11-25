@@ -47,7 +47,7 @@ from .dns import DnsResolver
 from .generated.types import Claim, DomainPublicKey
 from .begin import PendingLogin
 from .identity import LocalRpKeyMaterial
-from .timeutil import parse_rfc3339, to_rfc3339
+from .timeutil import to_utc
 from .transport import Transport
 
 # Bound on the number of distinct claim-signer domains `complete_local_login`
@@ -147,7 +147,7 @@ def complete_local_login(
     from .generated.types import LocalRpDescriptor
 
     own_descriptor = LocalRpDescriptor.from_cbor(key_material.descriptor.descriptor)
-    allowed_suites = [s for s in (AeadSuite.parse_str(x) for x in own_descriptor.supported_suites) if s is not None]
+    allowed_suites: List[AeadSuite] = list(own_descriptor.supported_suites)
     header, signed_payload = local_rp.open_local_rp_callback(
         encrypted, key_material.encryption_private_key, allowed_suites
     )
@@ -186,7 +186,7 @@ def complete_local_login(
     # 7. Redeem the claim ticket over TCP CSIL-RPC, signed with the local
     # RP's own key (the possession proof a stolen ticket can't satisfy).
     redemption_request = local_rp.build_local_rp_ticket_redemption_request(
-        payload.claim_ticket, key_material.fingerprint, to_rfc3339(now)
+        payload.claim_ticket, key_material.fingerprint, to_utc(now)
     )
     signed_redemption = local_rp.sign_local_rp_ticket_redemption_request(
         redemption_request, key_material.signing_private_key
@@ -265,7 +265,7 @@ def complete_local_login(
         claims=redemption.claims,
         domain_public_keys=user_domain_keys,
         local_rp_fingerprint=key_material.fingerprint,
-        issued_at=parse_rfc3339(payload.issued_at),
-        expires_at=parse_rfc3339(payload.expires_at),
-        ticket_expires_at=parse_rfc3339(redemption.ticket_expires_at),
+        issued_at=to_utc(payload.issued_at),
+        expires_at=to_utc(payload.expires_at),
+        ticket_expires_at=to_utc(redemption.ticket_expires_at),
     )

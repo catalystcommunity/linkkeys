@@ -48,7 +48,7 @@ async fn disabled_password_auth_is_not_advertised_or_accepted() {
         .body(envelope(
             "Session",
             "login-password",
-            liblinkkeys::generated::encode_session_password_login_request(&login),
+            liblinkkeys::generated::encode_session_password_login_request(&login).unwrap(),
         ))
         .dispatch()
         .await;
@@ -64,7 +64,8 @@ async fn disabled_password_auth_is_not_advertised_or_accepted() {
             "get-configuration",
             liblinkkeys::generated::encode_empty_request(
                 &liblinkkeys::generated::types::EmptyRequest {},
-            ),
+            )
+            .unwrap(),
         ))
         .dispatch()
         .await;

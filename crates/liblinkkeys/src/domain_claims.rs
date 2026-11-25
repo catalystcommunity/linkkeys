@@ -15,9 +15,10 @@
 //! drift from claim/consent verification. Pure: no I/O. The caller resolves each
 //! signing domain's keys before verifying.
 
-use crate::claims::{verify_signature_quorum, ClaimError, ClaimSigner, DomainKeySet};
+use crate::claims::{signed_times, verify_signature_quorum, ClaimError, ClaimSigner, DomainKeySet};
 use crate::crypto::CryptoError;
 use crate::generated::types::{ClaimSignature, DomainClaim};
+use crate::timestamp::SignedTime;
 use time::OffsetDateTime;
 
 /// Domain-separation tag + version for the domain-claim signature payload.
@@ -33,8 +34,8 @@ fn domain_claim_sign_payload(
     claim_value: &[u8],
     subject_domain: &str,
     signing_domain: &str,
-    expires_at: Option<&str>,
-    attested_at: &str,
+    expires_at: Option<SignedTime>,
+    attested_at: SignedTime,
 ) -> Vec<u8> {
     let payload = (
         DOMAIN_CLAIM_PAYLOAD_TAG,
@@ -57,11 +58,11 @@ pub struct DomainClaimSpec<'a> {
     pub claim_value: &'a [u8],
     /// The domain the claim is about. Bound into every signature.
     pub subject_domain: &'a str,
-    pub expires_at: Option<&'a str>,
-    /// The signed attestation time (RFC3339 UTC) — when this claim is being
-    /// signed. Normalized to whole seconds by the caller so it round-trips
-    /// byte-identically through storage, exactly as `Claim::attested_at` is.
-    pub attested_at: &'a str,
+    /// Whole seconds, like `attested_at`.
+    pub expires_at: Option<OffsetDateTime>,
+    /// The signed attestation time — when this claim is being signed. Whole
+    /// seconds, exactly as `Claim::attested_at`.
+    pub attested_at: OffsetDateTime,
 }
 
 /// Sign a domain claim with one or more keys, producing a [`DomainClaim`] with
@@ -72,6 +73,8 @@ pub fn sign_domain_claim(
     spec: &DomainClaimSpec<'_>,
     signers: &[ClaimSigner<'_>],
 ) -> Result<DomainClaim, CryptoError> {
+    let (expires_at, attested_at) = signed_times(spec.expires_at.as_ref(), &spec.attested_at)
+        .map_err(|e| CryptoError::SigningFailed(e.to_string()))?;
     let mut signatures = Vec::with_capacity(signers.len());
     for signer in signers {
         let payload = domain_claim_sign_payload(
@@ -79,8 +82,8 @@ pub fn sign_domain_claim(
             spec.claim_value,
             spec.subject_domain,
             signer.domain,
-            spec.expires_at,
-            spec.attested_at,
+            expires_at,
+            attested_at,
         );
         let signature = crate::crypto::sign_with_algorithm(
             signer.algorithm,
@@ -98,8 +101,8 @@ pub fn sign_domain_claim(
         claim_type: spec.claim_type.to_string(),
         claim_value: spec.claim_value.to_vec(),
         signatures,
-        attested_at: spec.attested_at.to_string(),
-        expires_at: spec.expires_at.map(|s| s.to_string()),
+        attested_at: spec.attested_at,
+        expires_at: spec.expires_at,
     })
 }
 
@@ -115,24 +118,24 @@ pub fn verify_domain_claim(
     subject_domain: &str,
     domain_keys: &[DomainKeySet],
 ) -> Result<(), ClaimError> {
+    let (expires_at, attested_at) = signed_times(claim.expires_at.as_ref(), &claim.attested_at)?;
     verify_signature_quorum(
         &claim.signatures,
         domain_keys,
-        Some(claim.attested_at.as_str()),
+        Some(&claim.attested_at),
         |signing_domain| {
             domain_claim_sign_payload(
                 &claim.claim_type,
                 &claim.claim_value,
                 subject_domain,
                 signing_domain,
-                claim.expires_at.as_deref(),
-                &claim.attested_at,
+                expires_at,
+                attested_at,
             )
         },
     )?;
 
-    if let Some(exp) = claim.expires_at.as_deref() {
-        let expires = crate::timestamp::parse_rfc3339(exp).map_err(|_| ClaimError::BadExpiry)?;
+    if let Some(expires) = claim.expires_at {
         if OffsetDateTime::now_utc() > expires {
             return Err(ClaimError::Expired);
         }
@@ -157,12 +160,13 @@ pub fn attesting_domains(claim: &DomainClaim) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::{fingerprint, generate_keypair, SigningAlgorithm, ALGORITHM_ED25519};
+    use crate::crypto::{fingerprint, generate_keypair, SigningAlgorithm};
     use crate::generated::types::DomainPublicKey;
-    use crate::timestamp::Rfc3339 as _;
 
     /// Fixed attestation instant, inside every test key's validity window.
-    const ATTESTED: &str = "2020-01-01T00:00:00+00:00";
+    fn attested() -> OffsetDateTime {
+        crate::timestamp::parse_rfc3339("2020-01-01T00:00:00+00:00").unwrap()
+    }
     const RP: &str = "us-forestry-service.example";
     const GOV: &str = "us.gov";
 
@@ -171,12 +175,12 @@ mod tests {
             key_id: key_id.to_string(),
             public_key: pk_bytes.to_vec(),
             fingerprint: fingerprint(pk_bytes),
-            algorithm: ALGORITHM_ED25519.to_string(),
-            key_usage: "sign".to_string(),
+            algorithm: crate::generated::types::KeyAlgorithm::Ed25519,
+            key_usage: crate::generated::types::KeyUsage::Sign,
             signed_by_key_id: None,
             key_signature: None,
-            created_at: OffsetDateTime::now_utc().to_rfc3339(),
-            expires_at: (OffsetDateTime::now_utc() + time::Duration::days(400)).to_rfc3339(),
+            created_at: OffsetDateTime::now_utc(),
+            expires_at: OffsetDateTime::now_utc() + time::Duration::days(400),
             revoked_at: None,
         }
     }
@@ -199,7 +203,7 @@ mod tests {
                 claim_value: b"GDPR-strict-v1",
                 subject_domain: RP,
                 expires_at: None,
-                attested_at: ATTESTED,
+                attested_at: attested(),
             },
             &[signer(RP, "rp-1", &sk)],
         )
@@ -223,7 +227,7 @@ mod tests {
                 claim_value: b"true",
                 subject_domain: RP,
                 expires_at: None,
-                attested_at: ATTESTED,
+                attested_at: attested(),
             },
             &[signer(GOV, "gov-1", &gov_sk)],
         )
@@ -248,7 +252,7 @@ mod tests {
                 claim_value: b"true",
                 subject_domain: RP,
                 expires_at: None,
-                attested_at: ATTESTED,
+                attested_at: attested(),
             },
             &[signer(GOV, "gov-1", &gov_sk)],
         )
@@ -272,7 +276,7 @@ mod tests {
                 claim_value: b"false",
                 subject_domain: RP,
                 expires_at: None,
-                attested_at: ATTESTED,
+                attested_at: attested(),
             },
             &[signer(GOV, "gov-1", &sk)],
         )
@@ -296,7 +300,7 @@ mod tests {
                 claim_value: b"y",
                 subject_domain: RP,
                 expires_at: None,
-                attested_at: ATTESTED,
+                attested_at: attested(),
             },
             &[],
         )
@@ -310,14 +314,14 @@ mod tests {
     #[test]
     fn test_expired_rejected() {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
-        let past = (OffsetDateTime::now_utc() - time::Duration::hours(1)).to_rfc3339();
+        let past = crate::timestamp::now_whole_seconds() - time::Duration::hours(1);
         let claim = sign_domain_claim(
             &DomainClaimSpec {
                 claim_type: "privacy_policy",
                 claim_value: b"v1",
                 subject_domain: RP,
-                expires_at: Some(&past),
-                attested_at: ATTESTED,
+                expires_at: Some(past),
+                attested_at: attested(),
             },
             &[signer(RP, "rp-1", &sk)],
         )
@@ -341,7 +345,7 @@ mod tests {
                 claim_value: b"true",
                 subject_domain: RP,
                 expires_at: None,
-                attested_at: ATTESTED,
+                attested_at: attested(),
             },
             &[signer(GOV, "gov-1", &sk)],
         )

@@ -6,6 +6,7 @@
 import { fingerprint, verifyEd25519 } from "./crypto.ts";
 import { encodeCborTuple, text } from "./cborTuple.ts";
 import type { DomainPublicKey } from "./generated/types.gen.ts";
+import { isValidDate, signedTime } from "./timestamp.ts";
 
 /** Default TCP port for the LinkKeys protocol service. */
 export const DEFAULT_TCP_PORT = 4987;
@@ -118,15 +119,15 @@ export function pinKeysToFingerprints(
 const KEY_VOUCH_TAG = "linkkeys-key-vouch-v1alpha";
 
 /** Canonical bytes a signing key signs to vouch for an encryption key. */
-export function keyVouchPayload(encFingerprint: string, encExpiresAt: string): Uint8Array {
-  return encodeCborTuple([text(KEY_VOUCH_TAG), text(encFingerprint), text(encExpiresAt)]);
+/** `encExpiresAt` is a CBOR integer of whole Unix seconds; a fraction of a second throws `TimestampError`. */
+export function keyVouchPayload(encFingerprint: string, encExpiresAt: Date): Uint8Array {
+  return encodeCborTuple([text(KEY_VOUCH_TAG), text(encFingerprint), signedTime(encExpiresAt)]);
 }
 
 function signingKeyValidity(key: DomainPublicKey, now: Date): "valid" | "revoked" | "expired" {
   if (key.revokedAt !== undefined) return "revoked";
-  const expires = new Date(key.expiresAt);
-  if (Number.isNaN(expires.getTime())) return "expired";
-  return now.getTime() > expires.getTime() ? "expired" : "valid";
+  if (!isValidDate(key.expiresAt)) return "expired";
+  return now.getTime() > key.expiresAt.getTime() ? "expired" : "valid";
 }
 
 /** Verify that `signingKey` vouches for `encKey`. The wire `fingerprint` field is never trusted — it is recomputed. */
@@ -141,6 +142,7 @@ export function verifyKeyVouch(
   const sig = encKey.keySignature;
   if (!sig) return false;
   const recomputedFp = fingerprint(encKey.publicKey);
+  if (!isValidDate(encKey.expiresAt) || encKey.expiresAt.getTime() % 1000 !== 0) return false;
   const payload = keyVouchPayload(recomputedFp, encKey.expiresAt);
   return verifyEd25519(payload, sig, signingKey.publicKey);
 }

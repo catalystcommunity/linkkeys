@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -9,11 +10,11 @@ public record DomainPublicKey(
     String keyId /* wire: "key_id" */,
     byte[] publicKey /* wire: "public_key" */,
     String fingerprint /* wire: "fingerprint" */,
-    String algorithm /* wire: "algorithm" */,
-    String keyUsage /* wire: "key_usage" */,
-    String createdAt /* wire: "created_at" */,
-    String expiresAt /* wire: "expires_at" */,
-    String revokedAt /* wire: "revoked_at" */,
+    KeyAlgorithm algorithm /* wire: "algorithm" */,
+    KeyUsage keyUsage /* wire: "key_usage" */,
+    Instant createdAt /* wire: "created_at" */,
+    Instant expiresAt /* wire: "expires_at" */,
+    Instant revokedAt /* wire: "revoked_at" */,
     String signedByKeyId /* wire: "signed_by_key_id" */,
     byte[] keySignature /* wire: "key_signature" */
 ) {

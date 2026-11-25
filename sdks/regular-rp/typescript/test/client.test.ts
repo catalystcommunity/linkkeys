@@ -39,8 +39,8 @@ function claim(): Claim {
     claimType: "email",
     claimValue: new TextEncoder().encode("user@example.com"),
     signatures: [{ domain: "id.example", signedByKeyId: "key-1", signature: new Uint8Array(64) }],
-    attestedAt: NOW.toISOString(),
-    createdAt: NOW.toISOString(),
+    attestedAt: NOW,
+    createdAt: NOW,
   };
 }
 
@@ -54,10 +54,11 @@ function operations(store: RecordingStore, changes: Partial<IdentityAssertion> =
         domain: "id.example",
         audience: "app.example",
         nonce: store.latest!.nonce,
-        issuedAt: NOW.toISOString(),
-        expiresAt: new Date(NOW.getTime() + 5 * 60_000).toISOString(),
+        issuedAt: NOW,
+        expiresAt: new Date(NOW.getTime() + 5 * 60_000),
         authorizedClaims: ["email"],
         displayName: "Alice",
+        application: { subjectUserId: "app-account-1", subjectDomain: "app.example", applicationId: "grafana" },
         ...changes,
       };
       return { assertion, verified: true };
@@ -138,11 +139,9 @@ test("accepts an HTTPS callback on another domain and passes the application id"
   await sdk.beginLogin({
     identity: "id.example",
     callbackUrl: "https://grafana.other.test/callback",
-    applicationId: "grafana",
     sessionBinding: "browser-session-1",
   });
   assert.equal(new URL(sent[0]!.callbackUrl).hostname, "grafana.other.test");
-  assert.equal(sent[0]!.applicationId, "grafana");
 });
 
 test("rejects a callback that is not HTTPS", async () => {

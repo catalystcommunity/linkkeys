@@ -6,6 +6,10 @@ use time::{Date, Month};
 const HOME: &str = "home.example";
 const SKEW: i64 = 60;
 
+fn at(s: &str) -> OffsetDateTime {
+    crate::timestamp::parse_rfc3339(s).unwrap()
+}
+
 fn now() -> OffsetDateTime {
     Date::from_calendar_date(2026, Month::October, 6)
         .unwrap()
@@ -32,12 +36,12 @@ fn key(id: &str) -> Key {
 fn app_key_ref(k: &Key) -> ApplicationKeyRef {
     ApplicationKeyRef {
         key_id: k.id.clone(),
-        key_usage: "sign".into(),
-        algorithm: "ed25519".into(),
+        key_usage: crate::generated::types::KeyUsage::Sign,
+        algorithm: crate::generated::types::KeyAlgorithm::Ed25519,
         public_key: k.public.clone(),
         fingerprint: fingerprint(&k.public),
-        created_at: "2026-01-01T00:00:00Z".into(),
-        expires_at: "2027-01-01T00:00:00Z".into(),
+        created_at: at("2026-01-01T00:00:00Z"),
+        expires_at: at("2027-01-01T00:00:00Z"),
         revoked_at: None,
     }
 }
@@ -55,11 +59,11 @@ fn domain_public(k: &Key) -> DomainPublicKey {
         key_id: k.id.clone(),
         public_key: k.public.clone(),
         fingerprint: fingerprint(&k.public),
-        algorithm: "ed25519".into(),
-        key_usage: "sign".into(),
-        created_at: String::new(),
+        algorithm: crate::generated::types::KeyAlgorithm::Ed25519,
+        key_usage: crate::generated::types::KeyUsage::Sign,
+        created_at: at("2026-01-01T00:00:00Z"),
         // Domain key validity is checked against wall-clock time.
-        expires_at: "2126-01-01T00:00:00Z".into(),
+        expires_at: at("2126-01-01T00:00:00Z"),
         revoked_at: None,
         signed_by_key_id: None,
         key_signature: None,
@@ -131,8 +135,8 @@ impl World {
                 .collect(),
             language: Some("en-US".into()),
             audience_handle_claim: None,
-            issued_at: "2026-10-06T11:55:00Z".into(),
-            expires_at: "2026-10-06T12:10:00Z".into(),
+            issued_at: at("2026-10-06T11:55:00Z"),
+            expires_at: at("2026-10-06T12:10:00Z"),
         };
         sign_scope_set(&set, "d-inst", &[app_signer(&self.d_key)]).unwrap()
     }
@@ -217,8 +221,8 @@ fn full_flow_request_grant_present_verify() {
         grantee_handle_claim: None,
         callback_url: "https://c.example/act-as/callback".into(),
         nonce: "n-1".into(),
-        requested_at: "2026-10-06T11:59:00Z".into(),
-        expires_at: "2026-10-06T12:09:00Z".into(),
+        requested_at: at("2026-10-06T11:59:00Z"),
+        expires_at: at("2026-10-06T12:09:00Z"),
     };
     let signed_request = sign_grant_request(&request, &w.c_signer()).unwrap();
 
@@ -332,8 +336,8 @@ fn scope_set_with_repeated_scope_cannot_be_signed() {
         ],
         language: None,
         audience_handle_claim: None,
-        issued_at: "2026-10-06T11:55:00Z".into(),
-        expires_at: "2026-10-06T12:10:00Z".into(),
+        issued_at: at("2026-10-06T11:55:00Z"),
+        expires_at: at("2026-10-06T12:10:00Z"),
     };
     assert!(matches!(
         sign_scope_set(&set, "d-inst", &[app_signer(&w.d_key)]),
@@ -415,10 +419,10 @@ fn a_grant_whose_approved_scope_leaves_the_scope_set_fails_at_the_audience() {
         audience: audience_d(),
         scope_set,
         approved_scope: vec!["read".into(), "admin".into()],
-        issued_at: "2026-10-06T12:00:00Z".into(),
-        expires_at: "2026-10-06T13:00:00Z".into(),
-        series_issued_at: "2026-10-06T12:00:00Z".into(),
-        renewable_until: "2026-10-06T13:00:00Z".into(),
+        issued_at: at("2026-10-06T12:00:00Z"),
+        expires_at: at("2026-10-06T13:00:00Z"),
+        series_issued_at: at("2026-10-06T12:00:00Z"),
+        renewable_until: at("2026-10-06T13:00:00Z"),
         device_fingerprint: None,
     };
     let signed = sign_grant(&grant, &[domain_signer(&w.home_key, HOME)]).unwrap();
@@ -496,7 +500,7 @@ fn a_tampered_grant_is_refused() {
     let mut grant = w.grant(&["read"], 3600, 0);
     let mut decoded = decode_grant(&grant).unwrap();
     decoded.approved_scope = vec!["read".into(), "write".into()];
-    grant.grant = crate::generated::encode_act_as_grant(&decoded);
+    grant.grant = crate::generated::encode_act_as_grant(&decoded).unwrap();
     assert_eq!(
         verify_default(&w, &presented(&w, &grant)),
         Err(ActAsError::UntrustedSigner)
@@ -591,7 +595,7 @@ fn a_revoked_grant_is_refused() {
             grant_id: "grant-1".into(),
             user_id: "user-1".into(),
             subject_domain: HOME.into(),
-            revoked_at: "2026-10-06T12:01:00Z".into(),
+            revoked_at: at("2026-10-06T12:01:00Z"),
         },
         &[domain_signer(&w.home_key, HOME)],
     )
@@ -617,7 +621,7 @@ fn a_revocation_from_another_domain_is_ignored() {
             grant_id: "grant-1".into(),
             user_id: "user-1".into(),
             subject_domain: HOME.into(),
-            revoked_at: "2026-10-06T12:01:00Z".into(),
+            revoked_at: at("2026-10-06T12:01:00Z"),
         },
         &[domain_signer(&stranger, HOME)],
     )
@@ -678,8 +682,8 @@ fn grant_request(w: &World) -> ActAsGrantRequest {
         grantee_handle_claim: None,
         callback_url: "https://c.example/cb".into(),
         nonce: "n".into(),
-        requested_at: "2026-10-06T11:59:00Z".into(),
-        expires_at: "2026-10-06T12:09:00Z".into(),
+        requested_at: at("2026-10-06T11:59:00Z"),
+        expires_at: at("2026-10-06T12:09:00Z"),
     }
 }
 
@@ -751,9 +755,9 @@ fn local_rp() -> (SignedLocalRpDescriptor, String, Vec<u8>) {
         signing_public_key: public,
         encryption_public_key: vec![7u8; 32],
         fingerprint: fp.clone(),
-        supported_suites: vec!["chacha20-poly1305".into()],
-        created_at: "2026-01-01T00:00:00Z".into(),
-        expires_at: "2027-01-01T00:00:00Z".into(),
+        supported_suites: vec![crate::generated::types::AeadSuite::Chacha20Poly1305],
+        created_at: at("2026-01-01T00:00:00Z"),
+        expires_at: at("2027-01-01T00:00:00Z"),
     };
     let signed = crate::local_rp::sign_local_rp_descriptor(&descriptor, &private).unwrap();
     (signed, fp, private)
@@ -875,10 +879,10 @@ fn domain_bounds_validate() {
 fn build_grant_sets_the_series_end() {
     let w = World::new();
     let grant = decode_grant(&w.grant(&["read"], 3600, 7200)).unwrap();
-    assert_eq!(grant.issued_at, "2026-10-06T12:00:00Z");
-    assert_eq!(grant.expires_at, "2026-10-06T13:00:00Z");
-    assert_eq!(grant.series_issued_at, "2026-10-06T12:00:00Z");
-    assert_eq!(grant.renewable_until, "2026-10-06T15:00:00Z");
+    assert_eq!(grant.issued_at, at("2026-10-06T12:00:00Z"));
+    assert_eq!(grant.expires_at, at("2026-10-06T13:00:00Z"));
+    assert_eq!(grant.series_issued_at, at("2026-10-06T12:00:00Z"));
+    assert_eq!(grant.renewable_until, at("2026-10-06T15:00:00Z"));
 }
 
 // ---------------------------------------------------------------------------
@@ -920,8 +924,8 @@ fn refresh_renews_after_half_life_and_caps_at_the_series_end() {
     assert_eq!(
         decision,
         RefreshDecision::Renew {
-            issued_at: "2026-10-06T12:40:00Z".into(),
-            expires_at: "2026-10-06T13:30:00Z".into(),
+            issued_at: at("2026-10-06T12:40:00Z"),
+            expires_at: at("2026-10-06T13:30:00Z"),
         }
     );
     let RefreshDecision::Renew {
@@ -953,8 +957,8 @@ fn a_refresh_request_from_another_grantee_is_refused() {
             application: Some(app_ref("e", "e.example", "app-e")),
             local_rp_descriptor_fingerprint: None,
         },
-        requested_at: "2026-10-06T11:59:00Z".into(),
-        expires_at: "2026-10-06T12:09:00Z".into(),
+        requested_at: at("2026-10-06T11:59:00Z"),
+        expires_at: at("2026-10-06T12:09:00Z"),
         nonce: "n".into(),
     };
     let signed = sign_refresh_request(&request, &w.c_signer()).unwrap();
@@ -987,8 +991,8 @@ fn multi_signed(w: &World, second: &Key) -> SignedActAsScopeSet {
         }],
         language: None,
         audience_handle_claim: None,
-        issued_at: "2026-10-06T11:55:00Z".into(),
-        expires_at: "2026-10-06T12:10:00Z".into(),
+        issued_at: at("2026-10-06T11:55:00Z"),
+        expires_at: at("2026-10-06T12:10:00Z"),
     };
     sign_scope_set(&set, "d-inst", &[app_signer(&w.d_key), app_signer(second)]).unwrap()
 }
@@ -1000,7 +1004,7 @@ fn one_valid_signature_is_enough_when_another_key_expired() {
     let signed = multi_signed(&w, &second);
     assert_eq!(signed.signatures.len(), 2);
     let mut expired = app_key_ref(&w.d_key);
-    expired.expires_at = "2026-01-02T00:00:00Z".into();
+    expired.expires_at = at("2026-01-02T00:00:00Z");
     let keys = [expired, app_key_ref(&second)];
     assert!(verify_scope_set(&signed, &audience_d(), &keys, RevokedKeyPolicy::default()).is_ok());
 }
@@ -1017,12 +1021,12 @@ fn a_key_revoked_after_signing_is_accepted_by_default_and_refused_on_request() {
         }],
         language: None,
         audience_handle_claim: None,
-        issued_at: "2026-10-06T11:55:00Z".into(),
-        expires_at: "2026-10-06T12:10:00Z".into(),
+        issued_at: at("2026-10-06T11:55:00Z"),
+        expires_at: at("2026-10-06T12:10:00Z"),
     };
     let signed = sign_scope_set(&set, "d-inst", &[app_signer(&w.d_key)]).unwrap();
     let mut revoked = app_key_ref(&w.d_key);
-    revoked.revoked_at = Some("2026-10-06T12:30:00Z".into());
+    revoked.revoked_at = Some(at("2026-10-06T12:30:00Z"));
     let keys = [revoked.clone()];
     assert!(verify_scope_set(
         &signed,
@@ -1043,7 +1047,7 @@ fn a_key_revoked_after_signing_is_accepted_by_default_and_refused_on_request() {
         "{err:?}"
     );
     // Revoked before it signed: refused under either policy, with the reason.
-    revoked.revoked_at = Some("2026-10-06T11:00:00Z".into());
+    revoked.revoked_at = Some(at("2026-10-06T11:00:00Z"));
     let err = verify_scope_set(
         &signed,
         &audience_d(),
@@ -1069,8 +1073,8 @@ fn signing_needs_distinct_keys() {
         }],
         language: None,
         audience_handle_claim: None,
-        issued_at: "2026-10-06T11:55:00Z".into(),
-        expires_at: "2026-10-06T12:10:00Z".into(),
+        issued_at: at("2026-10-06T11:55:00Z"),
+        expires_at: at("2026-10-06T12:10:00Z"),
     };
     assert!(sign_scope_set(&set, "d-inst", &[]).is_err());
     assert!(sign_scope_set(
@@ -1100,7 +1104,7 @@ fn handle_claim(
             user_id,
             subject_domain: domain,
             expires_at: None,
-            attested_at: "2026-10-06T10:00:00Z",
+            attested_at: at("2026-10-06T10:00:00Z"),
         },
         &[domain_signer(signer, domain)],
     )
@@ -1184,7 +1188,7 @@ fn a_key_created_within_the_clock_skew_after_issued_at_counts() {
     // The set is issued at 11:55. The home domain recorded the key as created
     // later: inside the skew it counts, beyond the skew it does not.
     let mut inside = app_key_ref(&w.d_key);
-    inside.created_at = "2026-10-06T11:59:00Z".into();
+    inside.created_at = at("2026-10-06T11:59:00Z");
     assert!(verify_scope_set(
         &signed,
         &audience_d(),
@@ -1193,7 +1197,7 @@ fn a_key_created_within_the_clock_skew_after_issued_at_counts() {
     )
     .is_ok());
     let mut beyond = app_key_ref(&w.d_key);
-    beyond.created_at = "2026-10-06T12:00:01Z".into();
+    beyond.created_at = at("2026-10-06T12:00:01Z");
     let err = verify_scope_set(
         &signed,
         &audience_d(),

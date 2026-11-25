@@ -63,7 +63,7 @@ fn list_pending_claim_approvals_requires_admin() {
     let pool = setup();
     let subject = create_user(&pool, &DataMap::new());
     create_pending_approval(&pool, &subject.id, "display_name", b"Ada");
-    let payload = liblinkkeys::generated::encode_empty_request(&EmptyRequest {});
+    let payload = liblinkkeys::generated::encode_empty_request(&EmptyRequest {}).unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -92,7 +92,7 @@ fn list_pending_claim_approvals_requires_admin() {
     assert_eq!(resp.approvals[0].user_id, subject.id);
     assert_eq!(resp.approvals[0].claim_type, "display_name");
     assert_eq!(resp.approvals[0].claim_value, b"Ada");
-    assert_eq!(resp.approvals[0].status, "pending");
+    assert_eq!(resp.approvals[0].status.as_str(), "pending");
 }
 
 // ---------------------------------------------------------------------
@@ -106,7 +106,8 @@ fn approve_claim_requires_admin() {
     let approval_id = create_pending_approval(&pool, &subject.id, "display_name", b"Ada");
     let payload = liblinkkeys::generated::encode_approve_claim_request(&ApproveClaimRequest {
         approval_id: approval_id.clone(),
-    });
+    })
+    .unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -156,7 +157,8 @@ fn approve_claim_moves_it_out_of_the_queue_and_signs_it() {
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "approve-claim",
-        liblinkkeys::generated::encode_approve_claim_request(&ApproveClaimRequest { approval_id }),
+        liblinkkeys::generated::encode_approve_claim_request(&ApproveClaimRequest { approval_id })
+            .unwrap(),
         Some(&admin_key),
         &pool,
         None,
@@ -187,7 +189,8 @@ fn approve_claim_rejects_unknown_id() {
     let admin_key = make_caller(&pool, true);
     let payload = liblinkkeys::generated::encode_approve_claim_request(&ApproveClaimRequest {
         approval_id: uuid::Uuid::now_v7().to_string(),
-    });
+    })
+    .unwrap();
 
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
@@ -211,7 +214,8 @@ fn reject_claim_requires_admin() {
     let approval_id = create_pending_approval(&pool, &subject.id, "display_name", b"Ada");
     let payload = liblinkkeys::generated::encode_reject_claim_request(&RejectClaimRequest {
         approval_id: approval_id.clone(),
-    });
+    })
+    .unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -254,7 +258,8 @@ fn reject_claim_moves_it_out_of_the_queue_without_signing_it() {
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "reject-claim",
-        liblinkkeys::generated::encode_reject_claim_request(&RejectClaimRequest { approval_id }),
+        liblinkkeys::generated::encode_reject_claim_request(&RejectClaimRequest { approval_id })
+            .unwrap(),
         Some(&admin_key),
         &pool,
         None,
@@ -288,7 +293,8 @@ fn admin_issue_attestation_requires_admin() {
             claim_type: "age_over_21".to_string(),
             claim_value: b"true".to_vec(),
         },
-    );
+    )
+    .unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -341,7 +347,8 @@ fn admin_issue_attestation_stores_a_verifiable_signed_claim() {
                 claim_type: "age_over_21".to_string(),
                 claim_value: b"true".to_vec(),
             },
-        ),
+        )
+        .unwrap(),
         Some(&admin_key),
         &pool,
         None,
@@ -379,7 +386,8 @@ fn admin_issue_attestation_rejects_unknown_user() {
             claim_type: "age_over_21".to_string(),
             claim_value: b"true".to_vec(),
         },
-    );
+    )
+    .unwrap();
 
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",

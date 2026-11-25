@@ -31,6 +31,7 @@ use liblinkkeys::generated::{
     },
 };
 use liblinkkeys::local_rp::envelope_signature_input;
+use liblinkkeys::timestamp::Rfc3339;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use time::{Duration, OffsetDateTime};
@@ -65,6 +66,11 @@ const REQUEST_DIGEST: &[u8] = b"conformance-request-digest";
 
 fn t(s: &str) -> OffsetDateTime {
     liblinkkeys::timestamp::parse_rfc3339(s).unwrap()
+}
+
+/// The JSON form of a timestamp: whole-second RFC 3339 with `Z`.
+fn ts(t: &OffsetDateTime) -> String {
+    t.to_rfc3339_secs_z()
 }
 
 fn base() -> OffsetDateTime {
@@ -111,12 +117,12 @@ impl Fixture {
     fn key_ref(&self) -> ApplicationKeyRef {
         ApplicationKeyRef {
             key_id: self.key_id.into(),
-            key_usage: "sign".into(),
-            algorithm: "ed25519".into(),
+            key_usage: liblinkkeys::generated::types::KeyUsage::Sign,
+            algorithm: liblinkkeys::generated::types::KeyAlgorithm::Ed25519,
             public_key: self.public.to_vec(),
             fingerprint: crypto::fingerprint(&self.public),
-            created_at: "2026-01-01T00:00:00Z".into(),
-            expires_at: "2027-01-01T00:00:00Z".into(),
+            created_at: t("2026-01-01T00:00:00Z"),
+            expires_at: t("2027-01-01T00:00:00Z"),
             revoked_at: None,
         }
     }
@@ -126,10 +132,10 @@ impl Fixture {
             key_id: self.key_id.into(),
             public_key: self.public.to_vec(),
             fingerprint: crypto::fingerprint(&self.public),
-            algorithm: "ed25519".into(),
-            key_usage: "sign".into(),
-            created_at: "2026-01-01T00:00:00Z".into(),
-            expires_at: DOMAIN_KEY_FAR_EXPIRES.into(),
+            algorithm: liblinkkeys::generated::types::KeyAlgorithm::Ed25519,
+            key_usage: liblinkkeys::generated::types::KeyUsage::Sign,
+            created_at: t("2026-01-01T00:00:00Z"),
+            expires_at: t(DOMAIN_KEY_FAR_EXPIRES),
             revoked_at: None,
             signed_by_key_id: None,
             key_signature: None,
@@ -149,25 +155,25 @@ impl Fixture {
 fn key_ref_json(k: &ApplicationKeyRef) -> Value {
     json!({
         "key_id": k.key_id,
-        "key_usage": k.key_usage,
-        "algorithm": k.algorithm,
+        "key_usage": k.key_usage.as_str(),
+        "algorithm": k.algorithm.as_str(),
         "public_key_hex": hex(&k.public_key),
         "fingerprint": k.fingerprint,
-        "created_at": k.created_at,
-        "expires_at": k.expires_at,
-        "revoked_at": k.revoked_at,
+        "created_at": ts(&k.created_at),
+        "expires_at": ts(&k.expires_at),
+        "revoked_at": k.revoked_at.as_ref().map(ts),
     })
 }
 
 fn domain_key_json(k: &DomainPublicKey) -> Value {
     json!({
         "key_id": k.key_id,
-        "key_usage": k.key_usage,
-        "algorithm": k.algorithm,
+        "key_usage": k.key_usage.as_str(),
+        "algorithm": k.algorithm.as_str(),
         "public_key_hex": hex(&k.public_key),
         "fingerprint": k.fingerprint,
-        "created_at": k.created_at,
-        "expires_at": k.expires_at,
+        "created_at": ts(&k.created_at),
+        "expires_at": ts(&k.expires_at),
     })
 }
 
@@ -261,8 +267,8 @@ impl World {
                 .collect(),
             language: Some("en-US".into()),
             audience_handle_claim: None,
-            issued_at: "2026-10-06T11:55:00Z".into(),
-            expires_at: "2026-10-06T12:10:00Z".into(),
+            issued_at: t("2026-10-06T11:55:00Z"),
+            expires_at: t("2026-10-06T12:10:00Z"),
         }
     }
 
@@ -328,7 +334,7 @@ fn signature_vectors(w: &World) -> Value {
     // Scope set.
     let set = w.scope_set_value(grantee(), &["read", "write"]);
     let scope_set = act_as::sign_scope_set(&set, AUDIENCE_INSTANCE, &w.audience_signers()).unwrap();
-    let scope_set_cbor = generated::encode_signed_act_as_scope_set(&scope_set);
+    let scope_set_cbor = generated::encode_signed_act_as_scope_set(&scope_set).unwrap();
     let mut tampered = scope_set.clone();
     let last = tampered.scope_set.len() - 1;
     tampered.scope_set[last] ^= 0x01;
@@ -347,20 +353,20 @@ fn signature_vectors(w: &World) -> Value {
     // Key-state variants for the revoked-key policy cases. The set was
     // issued at 11:55.
     let mut key1_expired = w.audience.key_ref();
-    key1_expired.expires_at = "2026-01-02T00:00:00Z".into();
+    key1_expired.expires_at = t("2026-01-02T00:00:00Z");
     let mut key1_revoked_after = w.audience.key_ref();
-    key1_revoked_after.revoked_at = Some("2026-10-06T12:30:00Z".into());
+    key1_revoked_after.revoked_at = Some(t("2026-10-06T12:30:00Z"));
     // The home domain recorded key 1 as created after the set's issued_at:
     // 4 minutes later (inside the 5-minute skew) and 5 minutes 1 second later.
     let mut key1_created_inside_skew = w.audience.key_ref();
-    key1_created_inside_skew.created_at = "2026-10-06T11:59:00Z".into();
+    key1_created_inside_skew.created_at = t("2026-10-06T11:59:00Z");
     let mut key1_created_beyond_skew = w.audience.key_ref();
-    key1_created_beyond_skew.created_at = "2026-10-06T12:00:01Z".into();
+    key1_created_beyond_skew.created_at = t("2026-10-06T12:00:01Z");
     let mut key1_revoked_before = w.audience.key_ref();
-    key1_revoked_before.revoked_at = Some("2026-10-06T11:00:00Z".into());
+    key1_revoked_before.revoked_at = Some(t("2026-10-06T11:00:00Z"));
     let only_key1 =
         act_as::sign_scope_set(&set, AUDIENCE_INSTANCE, &[w.audience.app_signer()]).unwrap();
-    let only_key1_cbor = hex(&generated::encode_signed_act_as_scope_set(&only_key1));
+    let only_key1_cbor = hex(&generated::encode_signed_act_as_scope_set(&only_key1).unwrap());
     let keys_json = |keys: &[ApplicationKeyRef]| keys.iter().map(key_ref_json).collect::<Vec<_>>();
 
     // Handle claims about the audience's enrolling account.
@@ -374,13 +380,13 @@ fn signature_vectors(w: &World) -> Value {
                 user_id: user,
                 subject_domain: &party.subject_domain,
                 expires_at: None,
-                attested_at: "2026-10-06T10:00:00Z",
+                attested_at: t("2026-10-06T10:00:00Z"),
             },
             &[signer.domain_signer(domain)],
         )
         .unwrap()
     };
-    let claim_hex = |c: &generated::types::Claim| hex(&generated::encode_claim(c));
+    let claim_hex = |c: &generated::types::Claim| hex(&generated::encode_claim(c).unwrap());
     let good_claim = claim(
         &party.subject_user_id,
         "handle",
@@ -421,8 +427,8 @@ fn signature_vectors(w: &World) -> Value {
         grantee_handle_claim: None,
         callback_url: "https://grantee.conformance.example/act-as/callback".into(),
         nonce: "grant-request-nonce".into(),
-        requested_at: "2026-10-06T11:59:00Z".into(),
-        expires_at: "2026-10-06T12:09:00Z".into(),
+        requested_at: t("2026-10-06T11:59:00Z"),
+        expires_at: t("2026-10-06T12:09:00Z"),
     };
     let signed_request = act_as::sign_grant_request(&request, &w.grantee_signer()).unwrap();
     let thief_request = act_as::sign_grant_request(
@@ -438,8 +444,8 @@ fn signature_vectors(w: &World) -> Value {
     let refresh = ActAsRefreshRequest {
         grant_id: "grant-1".into(),
         grantee: grantee(),
-        requested_at: "2026-10-06T12:40:00Z".into(),
-        expires_at: "2026-10-06T12:45:00Z".into(),
+        requested_at: t("2026-10-06T12:40:00Z"),
+        expires_at: t("2026-10-06T12:45:00Z"),
         nonce: "refresh-nonce".into(),
     };
     let signed_refresh = act_as::sign_refresh_request(&refresh, &w.grantee_signer()).unwrap();
@@ -462,7 +468,7 @@ fn signature_vectors(w: &World) -> Value {
             grant_id: "grant-1".into(),
             user_id: "018f3333-0000-7000-8000-0000000000a1".into(),
             subject_domain: HOME_DOMAIN.into(),
-            revoked_at: "2026-10-06T12:30:00Z".into(),
+            revoked_at: t("2026-10-06T12:30:00Z"),
         },
         &[w.home.domain_signer(HOME_DOMAIN)],
     )
@@ -472,7 +478,7 @@ fn signature_vectors(w: &World) -> Value {
             grant_id: "grant-1".into(),
             user_id: "018f3333-0000-7000-8000-0000000000a1".into(),
             subject_domain: HOME_DOMAIN.into(),
-            revoked_at: "2026-10-06T12:30:00Z".into(),
+            revoked_at: t("2026-10-06T12:30:00Z"),
         },
         &[w.stranger_domain.domain_signer(HOME_DOMAIN)],
     )
@@ -506,9 +512,9 @@ fn signature_vectors(w: &World) -> Value {
             "signature_input_cbor_hex": hex(&envelope_signature_input(act_as::SCOPE_SET_TAG, &scope_set.scope_set)),
             "cases": [{"name": "audience_signed", "signed_cbor_hex": hex(&scope_set_cbor), "expected_valid": true}],
             "negative_cases": [
-                {"name": "tampered_scope_set_byte", "signed_cbor_hex": hex(&generated::encode_signed_act_as_scope_set(&tampered)), "expected_valid": false},
-                {"name": "signed_under_grant_tag", "signed_cbor_hex": hex(&generated::encode_signed_act_as_scope_set(&wrong_tag_set)), "expected_valid": false},
-                {"name": "signed_by_a_key_that_is_not_the_audiences", "signed_cbor_hex": hex(&generated::encode_signed_act_as_scope_set(&act_as::sign_scope_set(&set, AUDIENCE_INSTANCE, &[w.stranger_audience.app_signer()]).unwrap())), "expected_valid": false},
+                {"name": "tampered_scope_set_byte", "signed_cbor_hex": hex(&generated::encode_signed_act_as_scope_set(&tampered).unwrap()), "expected_valid": false},
+                {"name": "signed_under_grant_tag", "signed_cbor_hex": hex(&generated::encode_signed_act_as_scope_set(&wrong_tag_set).unwrap()), "expected_valid": false},
+                {"name": "signed_by_a_key_that_is_not_the_audiences", "signed_cbor_hex": hex(&generated::encode_signed_act_as_scope_set(&act_as::sign_scope_set(&set, AUDIENCE_INSTANCE, &[w.stranger_audience.app_signer()]).unwrap()).unwrap()), "expected_valid": false},
                 {"name": "verified_against_another_audience", "signed_cbor_hex": hex(&scope_set_cbor), "expected_audience": app_ref_json(&app_ref("x", "x.example", "x-app")), "expected_valid": false},
                 {"name": "only_signer_revoked_before_it_signed", "signed_cbor_hex": only_key1_cbor, "audience_keys": keys_json(std::slice::from_ref(&key1_revoked_before)), "expected_valid": false},
                 {"name": "only_signer_created_beyond_the_clock_skew", "signed_cbor_hex": only_key1_cbor, "audience_keys": keys_json(std::slice::from_ref(&key1_created_beyond_skew)), "expected_valid": false},
@@ -533,34 +539,34 @@ fn signature_vectors(w: &World) -> Value {
             ],
         },
         "grant_request": {
-            "signed_cbor_hex": hex(&generated::encode_signed_act_as_grant_request(&signed_request)),
+            "signed_cbor_hex": hex(&generated::encode_signed_act_as_grant_request(&signed_request).unwrap()),
             "request_cbor_hex": hex(&signed_request.request),
             "signature_input_cbor_hex": hex(&envelope_signature_input(act_as::GRANT_REQUEST_TAG, &signed_request.request)),
-            "cases": [{"name": "grantee_signed", "signed_cbor_hex": hex(&generated::encode_signed_act_as_grant_request(&signed_request)), "expected_valid": true}],
+            "cases": [{"name": "grantee_signed", "signed_cbor_hex": hex(&generated::encode_signed_act_as_grant_request(&signed_request).unwrap()), "expected_valid": true}],
             "negative_cases": [
-                {"name": "signed_by_a_key_that_is_not_the_grantees", "signed_cbor_hex": hex(&generated::encode_signed_act_as_grant_request(&thief_request)), "expected_valid": false},
-                {"name": "verified_after_the_request_window", "signed_cbor_hex": hex(&generated::encode_signed_act_as_grant_request(&signed_request)), "now": "2026-10-06T13:00:00Z", "expected_valid": false},
+                {"name": "signed_by_a_key_that_is_not_the_grantees", "signed_cbor_hex": hex(&generated::encode_signed_act_as_grant_request(&thief_request).unwrap()), "expected_valid": false},
+                {"name": "verified_after_the_request_window", "signed_cbor_hex": hex(&generated::encode_signed_act_as_grant_request(&signed_request).unwrap()), "now": "2026-10-06T13:00:00Z", "expected_valid": false},
             ],
         },
         "refresh_request": {
-            "signed_cbor_hex": hex(&generated::encode_signed_act_as_refresh_request(&signed_refresh)),
+            "signed_cbor_hex": hex(&generated::encode_signed_act_as_refresh_request(&signed_refresh).unwrap()),
             "grant_grantee": grantee_json(&grantee()),
             "now": "2026-10-06T12:41:00Z",
-            "cases": [{"name": "grantee_signed", "signed_cbor_hex": hex(&generated::encode_signed_act_as_refresh_request(&signed_refresh)), "expected_valid": true}],
+            "cases": [{"name": "grantee_signed", "signed_cbor_hex": hex(&generated::encode_signed_act_as_refresh_request(&signed_refresh).unwrap()), "expected_valid": true}],
             "negative_cases": [
-                {"name": "names_another_grantee", "signed_cbor_hex": hex(&generated::encode_signed_act_as_refresh_request(&other_grantee_refresh)), "expected_valid": false},
+                {"name": "names_another_grantee", "signed_cbor_hex": hex(&generated::encode_signed_act_as_refresh_request(&other_grantee_refresh).unwrap()), "expected_valid": false},
             ],
         },
         "grant": {
-            "signed_cbor_hex": hex(&generated::encode_signed_act_as_grant(&grant)),
+            "signed_cbor_hex": hex(&generated::encode_signed_act_as_grant(&grant).unwrap()),
             "grant_cbor_hex": hex(&grant.grant),
             "signature_input_cbor_hex": hex(&envelope_signature_input(act_as::GRANT_TAG, &grant.grant)),
             "grant_hash_hex": hex(&act_as::grant_hash(&grant.grant)),
         },
         "revocation": {
-            "cases": [{"name": "home_domain_signed", "signed_cbor_hex": hex(&generated::encode_signed_act_as_grant_revocation(&revocation)), "expected_grant_id": "grant-1", "expected_valid": true}],
+            "cases": [{"name": "home_domain_signed", "signed_cbor_hex": hex(&generated::encode_signed_act_as_grant_revocation(&revocation).unwrap()), "expected_grant_id": "grant-1", "expected_valid": true}],
             "negative_cases": [
-                {"name": "signed_by_a_key_that_is_not_the_home_domains", "signed_cbor_hex": hex(&generated::encode_signed_act_as_grant_revocation(&forged_revocation)), "expected_valid": false},
+                {"name": "signed_by_a_key_that_is_not_the_home_domains", "signed_cbor_hex": hex(&generated::encode_signed_act_as_grant_revocation(&forged_revocation).unwrap()), "expected_valid": false},
             ],
         },
     })
@@ -590,7 +596,9 @@ fn credential_vectors(w: &World) -> Value {
         &w.grantee_signer(),
     )
     .unwrap();
-    let enc = |c: &generated::types::ActAsCredential| hex(&generated::encode_act_as_credential(c));
+    let enc = |c: &generated::types::ActAsCredential| {
+        hex(&generated::encode_act_as_credential(c).unwrap())
+    };
 
     let thief_credential = act_as::present(
         &grant,
@@ -620,10 +628,10 @@ fn credential_vectors(w: &World) -> Value {
             audience: audience(),
             scope_set,
             approved_scope: vec!["read".into(), "admin".into()],
-            issued_at: "2026-10-06T12:00:00Z".into(),
-            expires_at: "2026-10-06T13:00:00Z".into(),
-            series_issued_at: "2026-10-06T12:00:00Z".into(),
-            renewable_until: "2026-10-06T13:00:00Z".into(),
+            issued_at: t("2026-10-06T12:00:00Z"),
+            expires_at: t("2026-10-06T13:00:00Z"),
+            series_issued_at: t("2026-10-06T12:00:00Z"),
+            renewable_until: t("2026-10-06T13:00:00Z"),
             device_fingerprint: None,
         };
         let signed = act_as::sign_grant(&g, &[w.home.domain_signer(HOME_DOMAIN)]).unwrap();
@@ -759,9 +767,9 @@ fn local_rp_fixture(seed: [u8; 32]) -> LocalRpFixture {
         signing_public_key: public.to_vec(),
         encryption_public_key: vec![0x77; 32],
         fingerprint: fingerprint.clone(),
-        supported_suites: vec!["chacha20-poly1305".into()],
-        created_at: "2026-01-01T00:00:00Z".into(),
-        expires_at: "2027-01-01T00:00:00Z".into(),
+        supported_suites: vec![generated::types::AeadSuite::Chacha20Poly1305],
+        created_at: t("2026-01-01T00:00:00Z"),
+        expires_at: t("2027-01-01T00:00:00Z"),
     };
     let signed =
         liblinkkeys::local_rp::sign_local_rp_descriptor(&descriptor, &sk.to_bytes()).unwrap();
@@ -835,14 +843,14 @@ fn terms_vectors() -> Value {
             signatures: vec![],
         },
         approved_scope: vec!["read".into()],
-        issued_at: "2026-10-06T12:00:00Z".into(),
-        expires_at: "2026-10-06T13:00:00Z".into(),
-        series_issued_at: "2026-10-06T12:00:00Z".into(),
-        renewable_until: "2026-10-06T13:30:00Z".into(),
+        issued_at: t("2026-10-06T12:00:00Z"),
+        expires_at: t("2026-10-06T13:00:00Z"),
+        series_issued_at: t("2026-10-06T12:00:00Z"),
+        renewable_until: t("2026-10-06T13:30:00Z"),
         device_fingerprint: None,
     };
     let no_window = generated::types::ActAsGrant {
-        renewable_until: "2026-10-06T13:00:00Z".into(),
+        renewable_until: t("2026-10-06T13:00:00Z"),
         ..grant.clone()
     };
     let refresh_case = |name: &str, g: &generated::types::ActAsGrant, now: &str| -> Value {
@@ -852,15 +860,17 @@ fn terms_vectors() -> Value {
             Ok(act_as::RefreshDecision::Renew {
                 issued_at,
                 expires_at,
-            }) => json!({"decision": "renew", "issued_at": issued_at, "expires_at": expires_at}),
+            }) => {
+                json!({"decision": "renew", "issued_at": ts(&issued_at), "expires_at": ts(&expires_at)})
+            }
             Err(_) => json!({"decision": "expired"}),
         };
         json!({
             "name": name,
             "grant": {
-                "issued_at": g.issued_at,
-                "expires_at": g.expires_at,
-                "renewable_until": g.renewable_until,
+                "issued_at": ts(&g.issued_at),
+                "expires_at": ts(&g.expires_at),
+                "renewable_until": ts(&g.renewable_until),
             },
             "lifetime_seconds": 3600,
             "now": now,
@@ -921,15 +931,15 @@ fn grantee_signing_vectors(w: &World) -> Value {
             grantee_handle_claim: None,
             callback_url: "http://app.lan:8080/act-as/callback".into(),
             nonce: "grantee-signing-nonce".into(),
-            requested_at: "2026-10-06T11:59:00Z".into(),
-            expires_at: "2026-10-06T12:04:00Z".into(),
+            requested_at: t("2026-10-06T11:59:00Z"),
+            expires_at: t("2026-10-06T12:04:00Z"),
         };
         let signed_request = act_as::sign_grant_request(&request, signer).unwrap();
         let refresh = ActAsRefreshRequest {
             grant_id: "grant-1".into(),
             grantee: grantee.clone(),
-            requested_at: "2026-10-06T12:40:00Z".into(),
-            expires_at: "2026-10-06T12:45:00Z".into(),
+            requested_at: t("2026-10-06T12:40:00Z"),
+            expires_at: t("2026-10-06T12:45:00Z"),
             nonce: "refresh-nonce".into(),
         };
         let signed_refresh = act_as::sign_refresh_request(&refresh, signer).unwrap();
@@ -948,32 +958,32 @@ fn grantee_signing_vectors(w: &World) -> Value {
             "grantee": grantee_json(grantee),
             "grant_request": {
                 "inputs": {
-                    "scope_set_signed_cbor_hex": hex(&generated::encode_signed_act_as_scope_set(&scope_set)),
+                    "scope_set_signed_cbor_hex": hex(&generated::encode_signed_act_as_scope_set(&scope_set).unwrap()),
                     "requested_lifetime_seconds": 1800,
                     "requested_renewal_window_seconds": null,
                     "callback_url": request.callback_url,
                     "nonce": request.nonce,
-                    "requested_at": request.requested_at,
-                    "expires_at": request.expires_at,
+                    "requested_at": ts(&request.requested_at),
+                    "expires_at": ts(&request.expires_at),
                 },
                 "request_cbor_hex": hex(&signed_request.request),
                 "signature_input_cbor_hex": hex(&envelope_signature_input(act_as::GRANT_REQUEST_TAG, &signed_request.request)),
-                "signed_cbor_hex": hex(&generated::encode_signed_act_as_grant_request(&signed_request)),
-                "url_param": base64url(&generated::encode_signed_act_as_grant_request(&signed_request)),
+                "signed_cbor_hex": hex(&generated::encode_signed_act_as_grant_request(&signed_request).unwrap()),
+                "url_param": base64url(&generated::encode_signed_act_as_grant_request(&signed_request).unwrap()),
             },
             "refresh_request": {
                 "inputs": {
                     "grant_id": refresh.grant_id,
-                    "requested_at": refresh.requested_at,
-                    "expires_at": refresh.expires_at,
+                    "requested_at": ts(&refresh.requested_at),
+                    "expires_at": ts(&refresh.expires_at),
                     "nonce": refresh.nonce,
                 },
                 "request_cbor_hex": hex(&signed_refresh.request),
-                "signed_cbor_hex": hex(&generated::encode_signed_act_as_refresh_request(&signed_refresh)),
+                "signed_cbor_hex": hex(&generated::encode_signed_act_as_refresh_request(&signed_refresh).unwrap()),
             },
             "presentation": {
                 "inputs": {
-                    "grant_signed_cbor_hex": hex(&generated::encode_signed_act_as_grant(&grant)),
+                    "grant_signed_cbor_hex": hex(&generated::encode_signed_act_as_grant(&grant).unwrap()),
                     "audience": app_ref_json(&audience()),
                     "request_digest_hex": hex(REQUEST_DIGEST),
                     "presented_at": "2026-10-06T12:05:00Z",
@@ -981,7 +991,7 @@ fn grantee_signing_vectors(w: &World) -> Value {
                 },
                 "grant_hash_hex": hex(&act_as::grant_hash(&grant.grant)),
                 "presentation_cbor_hex": hex(&credential.presentation.presentation),
-                "credential_cbor_hex": hex(&generated::encode_act_as_credential(&credential)),
+                "credential_cbor_hex": hex(&generated::encode_act_as_credential(&credential).unwrap()),
             },
         })
     };
@@ -1000,7 +1010,7 @@ fn grantee_signing_vectors(w: &World) -> Value {
         "local_rp_grantee": {
             "signing_private_key_hex": hex(&local.private),
             "fingerprint": local.fingerprint,
-            "signed_descriptor_cbor_hex": hex(&generated::encode_signed_local_rp_descriptor(&local.signed)),
+            "signed_descriptor_cbor_hex": hex(&generated::encode_signed_local_rp_descriptor(&local.signed).unwrap()),
         },
         "cases": [
             case("application_grantee", &grantee(), &app_signer),

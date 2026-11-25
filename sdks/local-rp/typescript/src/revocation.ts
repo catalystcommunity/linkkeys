@@ -6,6 +6,7 @@
 import { encodeCborTuple, text } from "./cborTuple.ts";
 import { verifyEd25519 } from "./crypto.ts";
 import type { DomainPublicKey, RevocationCertificate } from "./generated/types.gen.ts";
+import { isValidDate, signedTime } from "./timestamp.ts";
 
 /** Minimum number of distinct sibling signatures required to revoke a key. */
 export const REVOCATION_QUORUM = 2;
@@ -20,29 +21,30 @@ export const REVOCATION_TAG = "linkkeys-key-revocation-v1alpha";
  * tag first (the older house tuple pattern; NOT the local-RP envelopes'
  * two-element `CBOR([context, payload])` framing). The signing domain is
  * bound per-signature so a signature can never be replayed for another
- * domain. Exported so conformance tests can byte-compare against
+ * domain. `revokedAt` is a CBOR integer of whole Unix seconds; a time with
+ * a fraction of a second throws `TimestampError`. Exported so conformance
+ * tests can byte-compare against
  * `revocations.json`'s `signed_payload_cbor_hex`.
  */
 export function revocationPayload(
   targetKeyId: string,
   targetFingerprint: string,
-  revokedAt: string,
+  revokedAt: Date,
   signingDomain: string,
 ): Uint8Array {
   return encodeCborTuple([
     text(REVOCATION_TAG),
     text(targetKeyId),
     text(targetFingerprint),
-    text(revokedAt),
+    signedTime(revokedAt),
     text(signingDomain),
   ]);
 }
 
 function signingKeyValidity(key: DomainPublicKey, now: Date): "valid" | "revoked" | "expired" {
   if (key.revokedAt !== undefined) return "revoked";
-  const expires = new Date(key.expiresAt);
-  if (Number.isNaN(expires.getTime())) return "expired";
-  return now.getTime() > expires.getTime() ? "expired" : "valid";
+  if (!isValidDate(key.expiresAt)) return "expired";
+  return now.getTime() > key.expiresAt.getTime() ? "expired" : "valid";
 }
 
 /**
@@ -68,6 +70,9 @@ export function countRevocationCertificateSigners(
   now: Date = new Date(),
 ): number {
   const validSigners = new Set<string>();
+  // A revocation time with a fraction of a second cannot have been signed
+  // (`SignedTime::new` refuses it), so no signature on it counts.
+  if (!isValidDate(cert.revokedAt) || cert.revokedAt.getTime() % 1000 !== 0) return 0;
 
   for (const sig of cert.signatures) {
     // A key can never authorize its own revocation.

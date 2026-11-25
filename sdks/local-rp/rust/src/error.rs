@@ -14,6 +14,9 @@ pub enum Error {
     InvalidInput(String),
     /// CBOR decoding of a stored or wire structure failed.
     Decode(String),
+    /// A value has no CBOR wire form (for example, a timestamp outside UTC
+    /// years 0001 to 9999), so it cannot be signed or sent.
+    Encode(String),
     /// DNS TXT lookup or record parsing failed for a domain.
     Dns(String),
     /// The TCP transport could not reach a domain's endpoint.
@@ -59,6 +62,7 @@ impl fmt::Display for Error {
         match self {
             Error::InvalidInput(msg) => write!(f, "invalid input: {msg}"),
             Error::Decode(msg) => write!(f, "decode error: {msg}"),
+            Error::Encode(msg) => write!(f, "encode error: {msg}"),
             Error::Dns(msg) => write!(f, "DNS error: {msg}"),
             Error::Transport(msg) => write!(f, "transport error: {msg}"),
             Error::Tls(msg) => write!(f, "TLS error: {msg}"),
@@ -131,5 +135,11 @@ impl From<crate::transport::TransportError> for Error {
 impl From<crate::dns::DnsLookupError> for Error {
     fn from(e: crate::dns::DnsLookupError) -> Self {
         Error::Dns(e.to_string())
+    }
+}
+
+impl From<liblinkkeys::generated::CsilCborError> for Error {
+    fn from(e: liblinkkeys::generated::CsilCborError) -> Self {
+        Error::Encode(e.to_string())
     }
 }

@@ -8,6 +8,8 @@ import { encodeCborTuple, text, bytes as tupleBytes } from "./cborTuple.ts";
 import {
   aeadDecrypt,
   aeadEncrypt,
+  aeadSuiteFromWire,
+  aeadSuiteToWire,
   constantTimeEqual,
   derivePublicKeyFromX25519PrivateKey,
   fingerprint,
@@ -34,6 +36,7 @@ import type {
   SignedLocalRpLoginRequest,
   SignedLocalRpTicketRedemptionRequest,
 } from "./generated/types.gen.ts";
+import { isValidDate } from "./timestamp.ts";
 
 export const CTX_LOCAL_RP_DESCRIPTOR = "linkkeys-local-rp-descriptor-v1alpha";
 export const CTX_LOCAL_RP_LOGIN_REQUEST = "linkkeys-local-rp-login-request-v1alpha";
@@ -90,23 +93,22 @@ export function envelopeSignatureInput(context: string, payloadBytes: Uint8Array
   return encodeCborTuple([text(context), tupleBytes(payloadBytes)]);
 }
 
-function parseTimestamp(s: string): Date {
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) {
-    throw new LocalRpError("bad-timestamp", `invalid RFC3339 timestamp: ${s}`);
+function requireValidTime(what: string, d: Date): Date {
+  if (!isValidDate(d)) {
+    throw new LocalRpError("bad-timestamp", `invalid ${what} timestamp`);
   }
   return d;
 }
 
 /** Check `(issuedAt, expiresAt)` against `now`, tolerant of `skewSeconds` clock skew in either direction. Boundaries are inclusive. */
 export function checkTimestamps(
-  issuedAt: string,
-  expiresAt: string,
+  issuedAt: Date,
+  expiresAt: Date,
   now: Date,
   skewSeconds: number,
 ): void {
-  const issued = parseTimestamp(issuedAt);
-  const expires = parseTimestamp(expiresAt);
+  const issued = requireValidTime("issuedAt", issuedAt);
+  const expires = requireValidTime("expiresAt", expiresAt);
   const skewMs = skewSeconds * 1000;
 
   if (now.getTime() + skewMs < issued.getTime()) {
@@ -134,8 +136,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * tolerance (advisory, day-scale thresholds, not a freshness security
  * boundary).
  */
-export function checkExpirations(expiresAt: string, now: Date): ExpirationStatus {
-  const expires = parseTimestamp(expiresAt);
+export function checkExpirations(expiresAt: Date, now: Date): ExpirationStatus {
+  const expires = requireValidTime("expiresAt", expiresAt);
   const remainingMs = expires.getTime() - now.getTime();
   let level: ExpirationLevel;
   if (now.getTime() >= expires.getTime()) {
@@ -200,16 +202,21 @@ export function buildLocalRpDescriptor(
   signingPublicKey: Uint8Array,
   encryptionPublicKey: Uint8Array,
   supportedSuites: readonly string[],
-  createdAt: string,
-  expiresAt: string,
+  createdAt: Date,
+  expiresAt: Date,
 ): LocalRpDescriptor {
+  const wireSuites = supportedSuites.map((s) => {
+    const suite = parseAeadSuite(s);
+    if (!suite) throw new LocalRpError("unsupported-suite", s);
+    return aeadSuiteToWire(suite);
+  });
   return {
     appName,
     localDomainHint,
     signingPublicKey,
     encryptionPublicKey,
     fingerprint: fingerprint(signingPublicKey),
-    supportedSuites: [...supportedSuites],
+    supportedSuites: wireSuites,
     createdAt,
     expiresAt,
   };
@@ -269,8 +276,8 @@ export function buildLocalRpLoginRequest(
   state: Uint8Array,
   requestedClaims: readonly string[],
   requiredClaims: readonly string[],
-  issuedAt: string,
-  expiresAt: string,
+  issuedAt: Date,
+  expiresAt: Date,
 ): LocalRpLoginRequest {
   return {
     descriptor,
@@ -327,7 +334,7 @@ export function verifyLocalRpLoginRequest(
 export function buildLocalRpTicketRedemptionRequest(
   claimTicket: Uint8Array,
   fp: string,
-  issuedAt: string,
+  issuedAt: Date,
 ): LocalRpTicketRedemptionRequest {
   return { claimTicket, fingerprint: fp, issuedAt };
 }
@@ -356,8 +363,8 @@ export function buildLocalRpCallbackPayload(
   callbackUrl: string,
   nonce: Uint8Array,
   state: Uint8Array,
-  issuedAt: string,
-  expiresAt: string,
+  issuedAt: Date,
+  expiresAt: Date,
 ): LocalRpCallbackPayload {
   return {
     userId,
@@ -389,9 +396,8 @@ export function signLocalRpCallbackPayload(
 /** Validity of a signing key at `now`: revoked keys reject outright; `expiresAt` is the automatic backstop. Mirrors `crypto::signing_key_validity`. */
 function isSigningKeyCurrentlyValid(key: DomainPublicKey, now: Date): "valid" | "revoked" | "expired" {
   if (key.revokedAt !== undefined) return "revoked";
-  const expires = new Date(key.expiresAt);
-  if (Number.isNaN(expires.getTime())) return "expired";
-  return now.getTime() > expires.getTime() ? "expired" : "valid";
+  if (!isValidDate(key.expiresAt)) return "expired";
+  return now.getTime() > key.expiresAt.getTime() ? "expired" : "valid";
 }
 
 function checkSigningKeyValid(key: DomainPublicKey, now: Date): void {
@@ -461,10 +467,10 @@ export function checkCallbackHeaderMatchesPayload(
   if (!constantTimeEqual(header.state, payload.state)) {
     throw new LocalRpError("header-payload-mismatch", "state");
   }
-  if (header.issuedAt !== payload.issuedAt) {
+  if (header.issuedAt.getTime() !== payload.issuedAt.getTime()) {
     throw new LocalRpError("header-payload-mismatch", "issuedAt");
   }
-  if (header.expiresAt !== payload.expiresAt) {
+  if (header.expiresAt.getTime() !== payload.expiresAt.getTime()) {
     throw new LocalRpError("header-payload-mismatch", "expiresAt");
   }
 }
@@ -476,7 +482,9 @@ export function checkCallbackHeaderMatchesPayload(
 /**
  * Derive the AEAD key and KDF `info`/AAD-prefix context for the local-RP
  * callback sealed box: `tag || suite_id_utf8 || ephemeral_public(32) ||
- * recipient_public(32)`. HKDF-SHA256, no salt, expanded to 32 bytes.
+ * recipient_public(32)`. HKDF-SHA256, no salt, expanded to 32 bytes. The
+ * KDF binds the suite TEXT id (`aes-256-gcm`), even though the header
+ * carries the suite as a CSIL number.
  */
 function localRpCallbackKdf(
   suite: AeadSuite,
@@ -520,8 +528,8 @@ export function sealLocalRpCallback(
   fp: string,
   nonce: Uint8Array,
   state: Uint8Array,
-  issuedAt: string,
-  expiresAt: string,
+  issuedAt: Date,
+  expiresAt: Date,
 ): LocalRpEncryptedCallback {
   const ephemeral = generateX25519KeyPair();
   const aeadNonce = randomBytes(12);
@@ -546,8 +554,8 @@ function sealLocalRpCallbackInner(
   fp: string,
   nonce: Uint8Array,
   state: Uint8Array,
-  issuedAt: string,
-  expiresAt: string,
+  issuedAt: Date,
+  expiresAt: Date,
   ephemeral: { publicKey: Uint8Array; privateKey: Uint8Array },
   aeadNonce: Uint8Array,
 ): LocalRpEncryptedCallback {
@@ -559,7 +567,7 @@ function sealLocalRpCallbackInner(
     fingerprint: fp,
     nonce,
     state,
-    suite,
+    suite: aeadSuiteToWire(suite),
     ephemeralPublicKey: ephemeral.publicKey,
     aeadNonce,
     issuedAt,
@@ -603,7 +611,7 @@ export function openLocalRpCallback(
     throw new LocalRpError("decode", `callback header: ${e}`, { cause: e });
   }
 
-  const suite = parseAeadSuite(header.suite);
+  const suite = aeadSuiteFromWire(header.suite);
   if (!suite) {
     throw new LocalRpError("unsupported-suite", header.suite);
   }

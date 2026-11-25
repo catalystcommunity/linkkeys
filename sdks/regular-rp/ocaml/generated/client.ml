@@ -5,12 +5,21 @@ open Types
 (* The transport seam is supplied by the consumer: [call] performs the RPC named
    by (service, op) over its carrier and returns the raw reply payload, or an
    error string. The generated client owns serialization (it encodes the typed
-   request and decodes the typed reply via [Codec]); the carrier only moves bytes. *)
+   request and decodes the typed reply via [Codec]); the carrier only moves bytes.
+
+   This spec has operations with more than one reply arm, so the seam also needs
+   [call_reply]: it performs the same RPC and returns the CSIL-RPC response
+   envelope's [variant] (None when absent) with the reply payload. The client
+   picks the arm from the variant: the success arm returns [Ok], a declared error
+   arm returns its [Error] tag, and a missing or unknown variant returns
+   [Error (`Decode _)]. *)
 type client = {
   call : service:string -> op:string -> payload:bytes -> (bytes, string) result;
+  call_reply :
+    service:string -> op:string -> payload:bytes -> (string option * bytes, string) result;
 }
 
-let make_client ~call = { call }
+let make_client ~call ~call_reply = { call; call_reply }
 
 module Ops = struct
   let healthcheck (c : client) (req : empty_request) : (check_result, string) result =
@@ -502,6 +511,46 @@ module Admin = struct
     match c.call ~service:"Admin" ~op:"preview-app-access" ~payload:(Codec.encode_preview_app_access_request_bytes req) with
     | Ok payload -> Ok (Codec.decode_preview_app_access_response_bytes payload)
     | Error _ as e -> e
+
+  let rename_user (c : client) (req : rename_user_request) : (rename_user_response, string) result =
+    match c.call ~service:"Admin" ~op:"rename-user" ~payload:(Codec.encode_rename_user_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_rename_user_response_bytes payload)
+    | Error _ as e -> e
+
+  let set_application_id (c : client) (req : set_application_id_request) : (set_application_id_response, string) result =
+    match c.call ~service:"Admin" ~op:"set-application-id" ~payload:(Codec.encode_set_application_id_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_set_application_id_response_bytes payload)
+    | Error _ as e -> e
+
+  let create_api_key (c : client) (req : create_api_key_request) : (create_api_key_response, string) result =
+    match c.call ~service:"Admin" ~op:"create-api-key" ~payload:(Codec.encode_create_api_key_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_create_api_key_response_bytes payload)
+    | Error _ as e -> e
+
+  let list_api_keys (c : client) (req : list_api_keys_request) : (list_api_keys_response, string) result =
+    match c.call ~service:"Admin" ~op:"list-api-keys" ~payload:(Codec.encode_list_api_keys_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_list_api_keys_response_bytes payload)
+    | Error _ as e -> e
+
+  let revoke_api_key (c : client) (req : revoke_api_key_request) : (revoke_api_key_response, string) result =
+    match c.call ~service:"Admin" ~op:"revoke-api-key" ~payload:(Codec.encode_revoke_api_key_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_revoke_api_key_response_bytes payload)
+    | Error _ as e -> e
+
+  let get_account_limits (c : client) (req : get_account_limits_request) : (get_account_limits_response, string) result =
+    match c.call ~service:"Admin" ~op:"get-account-limits" ~payload:(Codec.encode_get_account_limits_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_get_account_limits_response_bytes payload)
+    | Error _ as e -> e
+
+  let set_account_limits (c : client) (req : set_account_limits_request) : (set_account_limits_response, string) result =
+    match c.call ~service:"Admin" ~op:"set-account-limits" ~payload:(Codec.encode_set_account_limits_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_set_account_limits_response_bytes payload)
+    | Error _ as e -> e
+
+  let get_application_usage (c : client) (req : get_application_usage_request) : (get_application_usage_response, string) result =
+    match c.call ~service:"Admin" ~op:"get-application-usage" ~payload:(Codec.encode_get_application_usage_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_get_application_usage_response_bytes payload)
+    | Error _ as e -> e
 end
 
 module Account = struct
@@ -599,25 +648,45 @@ module Attestation = struct
 end
 
 module Rp = struct
-  let sign_request (c : client) (req : rp_sign_request) : (rp_sign_response, string) result =
-    match c.call ~service:"Rp" ~op:"sign-request" ~payload:(Codec.encode_rp_sign_request_bytes req) with
-    | Ok payload -> Ok (Codec.decode_rp_sign_response_bytes payload)
-    | Error _ as e -> e
+  let sign_request (c : client) (req : rp_sign_request) =
+    try
+      match c.call_reply ~service:"Rp" ~op:"sign-request" ~payload:(Codec.encode_rp_sign_request_request req) with
+      | Ok (variant, bytes) ->
+        Ok (Codec.decode_rp_sign_request_success (Codec.resolve_rpc_reply ~service:"Rp" ~op:"sign-request" ~variant bytes))
+      | Error e -> Error (`Transport e)
+    with
+    | Codec.Rp_error_refusal value -> Error (`Rp_error value)
+    | Failure e | Invalid_argument e -> Error (`Decode e)
 
-  let decrypt_token (c : client) (req : rp_decrypt_request) : (rp_decrypt_response, string) result =
-    match c.call ~service:"Rp" ~op:"decrypt-token" ~payload:(Codec.encode_rp_decrypt_request_bytes req) with
-    | Ok payload -> Ok (Codec.decode_rp_decrypt_response_bytes payload)
-    | Error _ as e -> e
+  let decrypt_token (c : client) (req : rp_decrypt_request) =
+    try
+      match c.call_reply ~service:"Rp" ~op:"decrypt-token" ~payload:(Codec.encode_rp_decrypt_token_request req) with
+      | Ok (variant, bytes) ->
+        Ok (Codec.decode_rp_decrypt_token_success (Codec.resolve_rpc_reply ~service:"Rp" ~op:"decrypt-token" ~variant bytes))
+      | Error e -> Error (`Transport e)
+    with
+    | Codec.Rp_error_refusal value -> Error (`Rp_error value)
+    | Failure e | Invalid_argument e -> Error (`Decode e)
 
-  let verify_assertion (c : client) (req : rp_verify_request) : (rp_verify_response, string) result =
-    match c.call ~service:"Rp" ~op:"verify-assertion" ~payload:(Codec.encode_rp_verify_request_bytes req) with
-    | Ok payload -> Ok (Codec.decode_rp_verify_response_bytes payload)
-    | Error _ as e -> e
+  let verify_assertion (c : client) (req : rp_verify_request) =
+    try
+      match c.call_reply ~service:"Rp" ~op:"verify-assertion" ~payload:(Codec.encode_rp_verify_assertion_request req) with
+      | Ok (variant, bytes) ->
+        Ok (Codec.decode_rp_verify_assertion_success (Codec.resolve_rpc_reply ~service:"Rp" ~op:"verify-assertion" ~variant bytes))
+      | Error e -> Error (`Transport e)
+    with
+    | Codec.Rp_error_refusal value -> Error (`Rp_error value)
+    | Failure e | Invalid_argument e -> Error (`Decode e)
 
-  let userinfo_fetch (c : client) (req : rp_user_info_request) : (user_info, string) result =
-    match c.call ~service:"Rp" ~op:"userinfo-fetch" ~payload:(Codec.encode_rp_user_info_request_bytes req) with
-    | Ok payload -> Ok (Codec.decode_user_info_bytes payload)
-    | Error _ as e -> e
+  let userinfo_fetch (c : client) (req : rp_user_info_request) =
+    try
+      match c.call_reply ~service:"Rp" ~op:"userinfo-fetch" ~payload:(Codec.encode_rp_userinfo_fetch_request req) with
+      | Ok (variant, bytes) ->
+        Ok (Codec.decode_rp_userinfo_fetch_success (Codec.resolve_rpc_reply ~service:"Rp" ~op:"userinfo-fetch" ~variant bytes))
+      | Error e -> Error (`Transport e)
+    with
+    | Codec.Rp_error_refusal value -> Error (`Rp_error value)
+    | Failure e | Invalid_argument e -> Error (`Decode e)
 
   let issue_attestation (c : client) (req : rp_issue_attestation_request) : (rp_issue_attestation_response, string) result =
     match c.call ~service:"Rp" ~op:"issue-attestation" ~payload:(Codec.encode_rp_issue_attestation_request_bytes req) with

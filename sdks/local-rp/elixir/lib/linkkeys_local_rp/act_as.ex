@@ -209,8 +209,8 @@ defmodule LinkkeysLocalRp.ActAs do
       requested_renewal_window_seconds: renewal,
       callback_url: callback_url,
       nonce: nonce,
-      requested_at: Timeutil.to_rfc3339(now),
-      expires_at: Timeutil.to_rfc3339(DateTime.add(now, window, :second))
+      requested_at: Timeutil.whole_seconds(now),
+      expires_at: Timeutil.whole_seconds(DateTime.add(now, window, :second))
     }
 
     param = request |> sign_grant_request(km) |> signed_grant_request_to_url_param()
@@ -318,8 +318,8 @@ defmodule LinkkeysLocalRp.ActAs do
         %ActAsRefreshRequest{
           grant_id: grant_id,
           grantee: grantee_ref(km),
-          requested_at: Timeutil.to_rfc3339(now),
-          expires_at: Timeutil.to_rfc3339(DateTime.add(now, @refresh_request_window_seconds, :second)),
+          requested_at: Timeutil.whole_seconds(now),
+          expires_at: Timeutil.whole_seconds(DateTime.add(now, @refresh_request_window_seconds, :second)),
           nonce: Encoding.b64url_encode(:crypto.strong_rand_bytes(32))
         },
         km
@@ -389,7 +389,7 @@ defmodule LinkkeysLocalRp.ActAs do
         grant_hash: grant_hash(grant.grant),
         audience: audience,
         request_digest: request_digest,
-        presented_at: Timeutil.to_rfc3339(now),
+        presented_at: Timeutil.whole_seconds(now),
         nonce: nonce
       })
 

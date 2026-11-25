@@ -78,6 +78,9 @@ pub enum LocalRpError {
     Crypto(CryptoError),
     /// CBOR decoding of an embedded payload failed.
     Decode(String),
+    /// A value to sign or seal has no CBOR wire form (for example, a
+    /// timestamp outside UTC years 0001 to 9999).
+    Encode(String),
     /// A raw key/nonce field was not the expected fixed length.
     InvalidKeyLength,
     /// The structure's `fingerprint` field does not equal
@@ -87,9 +90,6 @@ pub enum LocalRpError {
     NotYetValid,
     /// A timestamp is further in the past than `now - skew` allows.
     Expired,
-    /// A `created_at`/`issued_at`/`expires_at` field could not be parsed as
-    /// RFC3339.
-    BadTimestamp(String),
     /// Nonce did not match the caller-supplied expected value (pending-login
     /// state, or protocol nonce echoed in a callback).
     NonceMismatch,
@@ -104,9 +104,6 @@ pub enum LocalRpError {
     /// Callback `callback_url` did not match the URL the callback actually
     /// arrived at.
     CallbackUrlMismatch,
-    /// The callback header advertises a suite id outside the AEAD suite
-    /// registry entirely (not even a recognized id).
-    UnsupportedSuite(String),
     /// The callback header advertises a suite id that IS in the registry but
     /// was not in the caller's own advertised/allowed list — decrypting with
     /// it would trust a suite the local RP never offered.
@@ -125,19 +122,18 @@ impl fmt::Display for LocalRpError {
             LocalRpError::Verify(e) => write!(f, "{}", e),
             LocalRpError::Crypto(e) => write!(f, "{}", e),
             LocalRpError::Decode(msg) => write!(f, "CBOR decode failed: {}", msg),
+            LocalRpError::Encode(msg) => write!(f, "CBOR encode failed: {}", msg),
             LocalRpError::InvalidKeyLength => write!(f, "invalid key or nonce length"),
             LocalRpError::FingerprintMismatch => {
                 write!(f, "fingerprint does not match the signing public key")
             }
             LocalRpError::NotYetValid => write!(f, "timestamp is not yet valid"),
             LocalRpError::Expired => write!(f, "timestamp has expired"),
-            LocalRpError::BadTimestamp(msg) => write!(f, "invalid timestamp: {}", msg),
             LocalRpError::NonceMismatch => write!(f, "nonce does not match"),
             LocalRpError::StateMismatch => write!(f, "state does not match"),
             LocalRpError::AudienceMismatch => write!(f, "audience fingerprint does not match"),
             LocalRpError::IssuerMismatch => write!(f, "issuing domain does not match"),
             LocalRpError::CallbackUrlMismatch => write!(f, "callback URL does not match"),
-            LocalRpError::UnsupportedSuite(id) => write!(f, "unsupported AEAD suite: {}", id),
             LocalRpError::SuiteNotAdvertised(id) => {
                 write!(f, "AEAD suite was not advertised/allowed: {}", id)
             }
@@ -155,6 +151,12 @@ impl std::error::Error for LocalRpError {}
 impl From<VerifyError> for LocalRpError {
     fn from(e: VerifyError) -> Self {
         LocalRpError::Verify(e)
+    }
+}
+
+impl From<crate::generated::CsilCborError> for LocalRpError {
+    fn from(e: crate::generated::CsilCborError) -> Self {
+        LocalRpError::Encode(e.to_string())
     }
 }
 
@@ -186,22 +188,17 @@ pub fn envelope_signature_input(context: &str, payload_bytes: &[u8]) -> Vec<u8> 
     out
 }
 
-fn parse_timestamp(s: &str) -> Result<OffsetDateTime, LocalRpError> {
-    crate::timestamp::parse_rfc3339(s).map_err(|e| LocalRpError::BadTimestamp(e.to_string()))
-}
-
 /// Check a `(issued_at, expires_at)` pair against `now`, tolerant of
 /// `skew_seconds` of clock skew in either direction. Boundaries are
 /// inclusive: exactly `now - skew == expires_at` still passes, and exactly
 /// one second past either boundary fails.
 pub fn check_timestamps(
-    issued_at: &str,
-    expires_at: &str,
+    issued_at: OffsetDateTime,
+    expires_at: OffsetDateTime,
     now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<(), LocalRpError> {
-    let issued = parse_timestamp(issued_at)?;
-    let expires = parse_timestamp(expires_at)?;
+    let (issued, expires) = (issued_at, expires_at);
     let skew = time::Duration::seconds(skew_seconds);
 
     if now + skew < issued {
@@ -266,7 +263,7 @@ pub struct ExpirationStatus {
 
 /// `check_expirations(identity, now) -> ExpirationStatus` from the design
 /// doc's "Expiration Helper" and "SDK API Shape" sections. Takes the local RP
-/// identity's `expires_at` (RFC3339) directly rather than a full identity
+/// identity's `expires_at` directly rather than a full identity
 /// struct, since that is the only field this pure check needs — callers pass
 /// `descriptor.expires_at` (or the signing/encryption key's own expiry, for
 /// SDKs that track them separately).
@@ -276,11 +273,8 @@ pub struct ExpirationStatus {
 /// replay/freshness security boundary, so a few seconds of clock drift at a
 /// day-scale threshold is immaterial and skew tolerance would only add
 /// surprising boundary behavior for no benefit.
-pub fn check_expirations(
-    expires_at: &str,
-    now: OffsetDateTime,
-) -> Result<ExpirationStatus, LocalRpError> {
-    let expires = parse_timestamp(expires_at)?;
+pub fn check_expirations(expires_at: OffsetDateTime, now: OffsetDateTime) -> ExpirationStatus {
+    let expires = expires_at;
     let remaining = expires - now;
     let level = if now >= expires {
         ExpirationLevel::Expired
@@ -293,11 +287,11 @@ pub fn check_expirations(
     } else {
         ExpirationLevel::Ok
     };
-    Ok(ExpirationStatus {
+    ExpirationStatus {
         level,
         expires_at: expires,
         now,
-    })
+    }
 }
 
 /// Verify a nonce/state pair against the caller-supplied expected values
@@ -377,9 +371,9 @@ pub fn build_local_rp_descriptor(
     local_domain_hint: Option<&str>,
     signing_public_key: &[u8; 32],
     encryption_public_key: &[u8; 32],
-    supported_suites: Vec<String>,
-    created_at: &str,
-    expires_at: &str,
+    supported_suites: Vec<AeadSuite>,
+    created_at: OffsetDateTime,
+    expires_at: OffsetDateTime,
 ) -> LocalRpDescriptor {
     LocalRpDescriptor {
         app_name: app_name.to_string(),
@@ -388,8 +382,8 @@ pub fn build_local_rp_descriptor(
         encryption_public_key: encryption_public_key.to_vec(),
         fingerprint: crypto::fingerprint(signing_public_key),
         supported_suites,
-        created_at: created_at.to_string(),
-        expires_at: expires_at.to_string(),
+        created_at,
+        expires_at,
     }
 }
 
@@ -401,7 +395,7 @@ pub fn sign_local_rp_descriptor(
     descriptor: &LocalRpDescriptor,
     private_key_bytes: &[u8],
 ) -> Result<SignedLocalRpDescriptor, CryptoError> {
-    let descriptor_bytes = crate::generated::encode_local_rp_descriptor(descriptor);
+    let descriptor_bytes = crate::generated::encode_local_rp_descriptor(descriptor)?;
     let signature_input = envelope_signature_input(CTX_LOCAL_RP_DESCRIPTOR, &descriptor_bytes);
     let signature = crypto::sign_with_algorithm(
         SigningAlgorithm::Ed25519,
@@ -460,8 +454,8 @@ pub fn verify_local_rp_descriptor(
     )?;
 
     check_timestamps(
-        &descriptor.created_at,
-        &descriptor.expires_at,
+        descriptor.created_at,
+        descriptor.expires_at,
         now,
         skew_seconds,
     )?;
@@ -483,8 +477,8 @@ pub fn build_local_rp_login_request(
     state: Vec<u8>,
     requested_claims: Vec<String>,
     required_claims: Vec<String>,
-    issued_at: &str,
-    expires_at: &str,
+    issued_at: OffsetDateTime,
+    expires_at: OffsetDateTime,
 ) -> LocalRpLoginRequest {
     LocalRpLoginRequest {
         descriptor,
@@ -495,8 +489,8 @@ pub fn build_local_rp_login_request(
         required_claims,
         authentication_requirements: None,
         flow_context: None,
-        issued_at: issued_at.to_string(),
-        expires_at: expires_at.to_string(),
+        issued_at,
+        expires_at,
     }
 }
 
@@ -506,7 +500,7 @@ pub fn sign_local_rp_login_request(
     request: &LocalRpLoginRequest,
     private_key_bytes: &[u8],
 ) -> Result<SignedLocalRpLoginRequest, CryptoError> {
-    let request_bytes = crate::generated::encode_local_rp_login_request(request);
+    let request_bytes = crate::generated::encode_local_rp_login_request(request)?;
     let signature_input = envelope_signature_input(CTX_LOCAL_RP_LOGIN_REQUEST, &request_bytes);
     let signature = crypto::sign_with_algorithm(
         SigningAlgorithm::Ed25519,
@@ -542,7 +536,7 @@ pub fn verify_local_rp_login_request(
         &descriptor.signing_public_key,
     )?;
 
-    check_timestamps(&request.issued_at, &request.expires_at, now, skew_seconds)?;
+    check_timestamps(request.issued_at, request.expires_at, now, skew_seconds)?;
 
     Ok(request)
 }
@@ -555,12 +549,12 @@ pub fn verify_local_rp_login_request(
 pub fn build_local_rp_ticket_redemption_request(
     claim_ticket: Vec<u8>,
     fingerprint: &str,
-    issued_at: &str,
+    issued_at: OffsetDateTime,
 ) -> LocalRpTicketRedemptionRequest {
     LocalRpTicketRedemptionRequest {
         claim_ticket,
         fingerprint: fingerprint.to_string(),
-        issued_at: issued_at.to_string(),
+        issued_at,
     }
 }
 
@@ -570,7 +564,7 @@ pub fn sign_local_rp_ticket_redemption_request(
     request: &LocalRpTicketRedemptionRequest,
     private_key_bytes: &[u8],
 ) -> Result<SignedLocalRpTicketRedemptionRequest, CryptoError> {
-    let request_bytes = crate::generated::encode_local_rp_ticket_redemption_request(request);
+    let request_bytes = crate::generated::encode_local_rp_ticket_redemption_request(request)?;
     let signature_input = envelope_signature_input(CTX_LOCAL_RP_TICKET_REDEMPTION, &request_bytes);
     let signature = crypto::sign_with_algorithm(
         SigningAlgorithm::Ed25519,
@@ -630,8 +624,8 @@ pub fn build_local_rp_callback_payload(
     callback_url: &str,
     nonce: Vec<u8>,
     state: Vec<u8>,
-    issued_at: &str,
-    expires_at: &str,
+    issued_at: OffsetDateTime,
+    expires_at: OffsetDateTime,
 ) -> LocalRpCallbackPayload {
     LocalRpCallbackPayload {
         user_id: user_id.to_string(),
@@ -641,8 +635,8 @@ pub fn build_local_rp_callback_payload(
         callback_url: callback_url.to_string(),
         nonce,
         state,
-        issued_at: issued_at.to_string(),
-        expires_at: expires_at.to_string(),
+        issued_at,
+        expires_at,
     }
 }
 
@@ -655,7 +649,7 @@ pub fn sign_local_rp_callback_payload(
     algorithm: SigningAlgorithm,
     private_key_bytes: &[u8],
 ) -> Result<SignedLocalRpCallbackPayload, CryptoError> {
-    let payload_bytes = crate::generated::encode_local_rp_callback_payload(payload);
+    let payload_bytes = crate::generated::encode_local_rp_callback_payload(payload)?;
     let signature_input = envelope_signature_input(CTX_LOCAL_RP_CALLBACK, &payload_bytes);
     let signature = crypto::sign_with_algorithm(algorithm, &signature_input, private_key_bytes)?;
     Ok(SignedLocalRpCallbackPayload {
@@ -701,7 +695,7 @@ pub fn verify_local_rp_callback_payload(
     let payload = crate::generated::decode_local_rp_callback_payload(&signed.payload)
         .map_err(|e| LocalRpError::Decode(e.to_string()))?;
 
-    check_timestamps(&payload.issued_at, &payload.expires_at, now, skew_seconds)?;
+    check_timestamps(payload.issued_at, payload.expires_at, now, skew_seconds)?;
 
     Ok(payload)
 }
@@ -745,12 +739,12 @@ pub fn check_callback_header_matches_payload(
 /// the suite id inserted after the tag. HKDF-SHA256 with no salt, expanded to
 /// 32 bytes.
 fn local_rp_callback_kdf(
-    suite: AeadSuite,
+    suite: &AeadSuite,
     ephemeral_public: &[u8; 32],
     recipient_public: &[u8; 32],
     shared_secret: &[u8],
 ) -> Result<([u8; 32], Vec<u8>), CryptoError> {
-    let suite_id = suite.as_str().as_bytes();
+    let suite_id = suite.kdf_label().as_bytes();
     let mut context = Vec::with_capacity(LOCAL_RP_CALLBACK_BOX_TAG.len() + suite_id.len() + 64);
     context.extend_from_slice(LOCAL_RP_CALLBACK_BOX_TAG);
     context.extend_from_slice(suite_id);
@@ -788,13 +782,13 @@ fn local_rp_callback_kdf(
 #[allow(clippy::too_many_arguments)]
 pub fn seal_local_rp_callback(
     signed_payload: &SignedLocalRpCallbackPayload,
-    suite: AeadSuite,
+    suite: &AeadSuite,
     recipient_encryption_public_key: &[u8; 32],
     fingerprint: &str,
     nonce: Vec<u8>,
     state: Vec<u8>,
-    issued_at: &str,
-    expires_at: &str,
+    issued_at: OffsetDateTime,
+    expires_at: OffsetDateTime,
 ) -> Result<LocalRpEncryptedCallback, LocalRpError> {
     let ephemeral_secret = X25519StaticSecret::random_from_rng(OsRng);
     let aead_nonce: [u8; 12] = rand::random();
@@ -826,13 +820,13 @@ pub fn seal_local_rp_callback(
 #[allow(clippy::too_many_arguments)]
 pub fn seal_local_rp_callback_with_randomness(
     signed_payload: &SignedLocalRpCallbackPayload,
-    suite: AeadSuite,
+    suite: &AeadSuite,
     recipient_encryption_public_key: &[u8; 32],
     fingerprint: &str,
     nonce: Vec<u8>,
     state: Vec<u8>,
-    issued_at: &str,
-    expires_at: &str,
+    issued_at: OffsetDateTime,
+    expires_at: OffsetDateTime,
     ephemeral_private_key: &[u8; 32],
     aead_nonce: &[u8; 12],
 ) -> Result<LocalRpEncryptedCallback, LocalRpError> {
@@ -857,17 +851,17 @@ pub fn seal_local_rp_callback_with_randomness(
 #[allow(clippy::too_many_arguments)]
 fn seal_local_rp_callback_inner(
     signed_payload: &SignedLocalRpCallbackPayload,
-    suite: AeadSuite,
+    suite: &AeadSuite,
     recipient_encryption_public_key: &[u8; 32],
     fingerprint: &str,
     nonce: Vec<u8>,
     state: Vec<u8>,
-    issued_at: &str,
-    expires_at: &str,
+    issued_at: OffsetDateTime,
+    expires_at: OffsetDateTime,
     ephemeral_secret: X25519StaticSecret,
     aead_nonce: [u8; 12],
 ) -> Result<LocalRpEncryptedCallback, LocalRpError> {
-    let plaintext = crate::generated::encode_signed_local_rp_callback_payload(signed_payload);
+    let plaintext = crate::generated::encode_signed_local_rp_callback_payload(signed_payload)?;
 
     let recipient_pk = X25519PublicKey::from(*recipient_encryption_public_key);
     let ephemeral_public = X25519PublicKey::from(&ephemeral_secret);
@@ -879,13 +873,13 @@ fn seal_local_rp_callback_inner(
         fingerprint: fingerprint.to_string(),
         nonce,
         state,
-        suite: suite.as_str().to_string(),
+        suite: *suite,
         ephemeral_public_key: ephemeral_public.as_bytes().to_vec(),
         aead_nonce: aead_nonce.to_vec(),
-        issued_at: issued_at.to_string(),
-        expires_at: expires_at.to_string(),
+        issued_at,
+        expires_at,
     };
-    let header_bytes = crate::generated::encode_local_rp_callback_header(&header);
+    let header_bytes = crate::generated::encode_local_rp_callback_header(&header)?;
 
     let (aead_key, kdf_context) = local_rp_callback_kdf(
         suite,
@@ -924,10 +918,9 @@ pub fn open_local_rp_callback(
     let header = crate::generated::decode_local_rp_callback_header(&encrypted.header)
         .map_err(|e| LocalRpError::Decode(e.to_string()))?;
 
-    let suite = AeadSuite::parse_str(&header.suite)
-        .ok_or_else(|| LocalRpError::UnsupportedSuite(header.suite.clone()))?;
+    let suite = header.suite;
     if !allowed_suites.contains(&suite) {
-        return Err(LocalRpError::SuiteNotAdvertised(header.suite.clone()));
+        return Err(LocalRpError::SuiteNotAdvertised(suite.as_str().to_string()));
     }
 
     let ephemeral_pk_bytes: [u8; 32] = header
@@ -950,7 +943,7 @@ pub fn open_local_rp_callback(
     crypto::reject_low_order(shared_secret.as_bytes())?;
 
     let (aead_key, kdf_context) = local_rp_callback_kdf(
-        suite,
+        &suite,
         &ephemeral_pk_bytes,
         recipient_public.as_bytes(),
         shared_secret.as_bytes(),
@@ -960,7 +953,7 @@ pub fn open_local_rp_callback(
     aad.extend_from_slice(&encrypted.header);
 
     let plaintext =
-        crypto::aead_decrypt(suite, &aead_key, &aead_nonce, &aad, &encrypted.ciphertext)?;
+        crypto::aead_decrypt(&suite, &aead_key, &aead_nonce, &aad, &encrypted.ciphertext)?;
 
     let signed_payload = crate::generated::decode_signed_local_rp_callback_payload(&plaintext)
         .map_err(|e| LocalRpError::Decode(e.to_string()))?;
@@ -972,15 +965,10 @@ pub fn open_local_rp_callback(
 mod tests {
     use super::*;
     use crate::crypto::{fingerprint, generate_ed25519_keypair, generate_x25519_keypair};
-    use crate::timestamp::Rfc3339 as _;
     use time::Duration;
 
     fn now() -> OffsetDateTime {
         OffsetDateTime::now_utc()
-    }
-
-    fn rfc3339(dt: OffsetDateTime) -> String {
-        dt.to_rfc3339()
     }
 
     fn make_domain_key(key_id: &str, pk_bytes: &[u8]) -> DomainPublicKey {
@@ -988,12 +976,12 @@ mod tests {
             key_id: key_id.to_string(),
             public_key: pk_bytes.to_vec(),
             fingerprint: fingerprint(pk_bytes),
-            algorithm: "ed25519".to_string(),
-            key_usage: "sign".to_string(),
+            algorithm: crate::generated::types::KeyAlgorithm::Ed25519,
+            key_usage: crate::generated::types::KeyUsage::Sign,
             signed_by_key_id: None,
             key_signature: None,
-            created_at: OffsetDateTime::now_utc().to_rfc3339(),
-            expires_at: (OffsetDateTime::now_utc() + Duration::hours(1)).to_rfc3339(),
+            created_at: OffsetDateTime::now_utc(),
+            expires_at: OffsetDateTime::now_utc() + Duration::hours(1),
             revoked_at: None,
         }
     }
@@ -1002,7 +990,7 @@ mod tests {
         signing_pk: &[u8],
         signing_sk: &[u8],
         enc_pk: &[u8],
-        suites: Vec<String>,
+        suites: Vec<AeadSuite>,
         created_at: OffsetDateTime,
         expires_at: OffsetDateTime,
     ) -> SignedLocalRpDescriptor {
@@ -1014,8 +1002,8 @@ mod tests {
             &signing_pk_arr,
             &enc_pk_arr,
             suites,
-            &rfc3339(created_at),
-            &rfc3339(expires_at),
+            created_at,
+            expires_at,
         );
         sign_local_rp_descriptor(&descriptor, signing_sk).unwrap()
     }
@@ -1034,8 +1022,8 @@ mod tests {
             "http://localhost/callback",
             b"nonce".to_vec(),
             b"state".to_vec(),
-            &rfc3339(n),
-            &rfc3339(n + Duration::minutes(5)),
+            n,
+            n + Duration::minutes(5),
         );
         sign_local_rp_callback_payload(&payload, key_id, SigningAlgorithm::Ed25519, domain_sk)
             .unwrap()
@@ -1087,38 +1075,29 @@ mod tests {
     fn check_timestamps_skew_boundaries_are_exact() {
         let n = now();
         let skew = DEFAULT_CLOCK_SKEW_SECONDS;
-        let issued = rfc3339(n - Duration::minutes(10));
-        let far_expires = rfc3339(n + Duration::days(1));
+        let issued = n - Duration::minutes(10);
+        let far_expires = n + Duration::days(1);
 
         // Expired exactly at the skew boundary: allowed.
-        let expires_at_boundary = rfc3339(n - Duration::seconds(skew));
-        assert!(check_timestamps(&issued, &expires_at_boundary, n, skew).is_ok());
+        let expires_at_boundary = n - Duration::seconds(skew);
+        assert!(check_timestamps(issued, expires_at_boundary, n, skew).is_ok());
 
         // One second past the boundary: rejected.
-        let expires_at_past = rfc3339(n - Duration::seconds(skew + 1));
+        let expires_at_past = n - Duration::seconds(skew + 1);
         assert!(matches!(
-            check_timestamps(&issued, &expires_at_past, n, skew),
+            check_timestamps(issued, expires_at_past, n, skew),
             Err(LocalRpError::Expired)
         ));
 
         // Not-yet-valid exactly at the boundary: allowed.
-        let issued_at_boundary = rfc3339(n + Duration::seconds(skew));
-        assert!(check_timestamps(&issued_at_boundary, &far_expires, n, skew).is_ok());
+        let issued_at_boundary = n + Duration::seconds(skew);
+        assert!(check_timestamps(issued_at_boundary, far_expires, n, skew).is_ok());
 
         // One second past the not-yet-valid boundary: rejected.
-        let issued_at_future = rfc3339(n + Duration::seconds(skew + 1));
+        let issued_at_future = n + Duration::seconds(skew + 1);
         assert!(matches!(
-            check_timestamps(&issued_at_future, &far_expires, n, skew),
+            check_timestamps(issued_at_future, far_expires, n, skew),
             Err(LocalRpError::NotYetValid)
-        ));
-    }
-
-    #[test]
-    fn check_timestamps_bad_rfc3339_fails() {
-        let n = now();
-        assert!(matches!(
-            check_timestamps("not-a-timestamp", &rfc3339(n), n, 300),
-            Err(LocalRpError::BadTimestamp(_))
         ));
     }
 
@@ -1146,7 +1125,7 @@ mod tests {
 
         for (remaining, expected) in cases {
             let n = expires - *remaining;
-            let status = check_expirations(&rfc3339(expires), n).unwrap();
+            let status = check_expirations(expires, n);
             assert_eq!(
                 status.level, *expected,
                 "remaining={remaining:?} now={n} expires={expires}"
@@ -1154,14 +1133,6 @@ mod tests {
             assert_eq!(status.expires_at, expires);
             assert_eq!(status.now, n);
         }
-    }
-
-    #[test]
-    fn check_expirations_bad_rfc3339_fails() {
-        assert!(matches!(
-            check_expirations("not-a-timestamp", now()),
-            Err(LocalRpError::BadTimestamp(_))
-        ));
     }
 
     // -----------------------------------------------------------------
@@ -1177,7 +1148,7 @@ mod tests {
             pk.as_bytes(),
             &sk.to_bytes(),
             &enc_pk,
-            vec!["aes-256-gcm".to_string()],
+            vec![AeadSuite::Aes256Gcm],
             n - Duration::minutes(1),
             n + Duration::days(3650),
         );
@@ -1195,7 +1166,7 @@ mod tests {
             pk.as_bytes(),
             &sk.to_bytes(),
             &enc_pk,
-            vec!["aes-256-gcm".to_string()],
+            vec![AeadSuite::Aes256Gcm],
             n - Duration::minutes(1),
             n + Duration::days(3650),
         );
@@ -1213,7 +1184,7 @@ mod tests {
             pk.as_bytes(),
             &sk.to_bytes(),
             &enc_pk,
-            vec!["aes-256-gcm".to_string()],
+            vec![AeadSuite::Aes256Gcm],
             n - Duration::minutes(1),
             n + Duration::days(3650),
         );
@@ -1232,7 +1203,7 @@ mod tests {
             pk.as_bytes(),
             &sk.to_bytes(),
             &enc_pk,
-            vec!["aes-256-gcm".to_string()],
+            vec![AeadSuite::Aes256Gcm],
             n - Duration::minutes(1),
             n + Duration::days(3650),
         );
@@ -1252,7 +1223,7 @@ mod tests {
             pk.as_bytes(),
             &sk.to_bytes(),
             &enc_pk,
-            vec!["aes-256-gcm".to_string()],
+            vec![AeadSuite::Aes256Gcm],
             n - Duration::minutes(1),
             n + Duration::days(3650),
         );
@@ -1264,7 +1235,7 @@ mod tests {
         let mut descriptor =
             crate::generated::decode_local_rp_descriptor(&signed.descriptor).unwrap();
         descriptor.encryption_public_key = other_enc_pk;
-        signed.descriptor = crate::generated::encode_local_rp_descriptor(&descriptor);
+        signed.descriptor = crate::generated::encode_local_rp_descriptor(&descriptor).unwrap();
 
         assert!(verify_local_rp_descriptor(&signed, n, DEFAULT_CLOCK_SKEW_SECONDS).is_err());
     }
@@ -1278,7 +1249,7 @@ mod tests {
             pk.as_bytes(),
             &sk.to_bytes(),
             &enc_pk,
-            vec!["aes-256-gcm".to_string()],
+            vec![AeadSuite::Aes256Gcm],
             n - Duration::days(400),
             n - Duration::seconds(DEFAULT_CLOCK_SKEW_SECONDS + 1),
         );
@@ -1297,7 +1268,7 @@ mod tests {
             pk.as_bytes(),
             &sk.to_bytes(),
             &enc_pk,
-            vec!["aes-256-gcm".to_string()],
+            vec![AeadSuite::Aes256Gcm],
             n - Duration::minutes(1),
             n + Duration::days(3650),
         );
@@ -1326,7 +1297,7 @@ mod tests {
             pk.as_bytes(),
             &sk.to_bytes(),
             &enc_pk,
-            vec!["aes-256-gcm".to_string()],
+            vec![AeadSuite::Aes256Gcm],
             n - Duration::minutes(1),
             n + Duration::days(3650),
         );
@@ -1354,7 +1325,7 @@ mod tests {
             signing_pk,
             signing_sk,
             enc_pk,
-            vec!["aes-256-gcm".to_string()],
+            vec![AeadSuite::Aes256Gcm],
             n - Duration::minutes(1),
             n + Duration::days(3650),
         );
@@ -1365,8 +1336,8 @@ mod tests {
             b"state456".to_vec(),
             vec!["email".to_string()],
             vec!["handle".to_string()],
-            &rfc3339(n),
-            &rfc3339(n + Duration::minutes(5)),
+            n,
+            n + Duration::minutes(5),
         );
         sign_local_rp_login_request(&request, signing_sk).unwrap()
     }
@@ -1416,7 +1387,7 @@ mod tests {
             pk.as_bytes(),
             &sk.to_bytes(),
             &enc_pk,
-            vec!["aes-256-gcm".to_string()],
+            vec![AeadSuite::Aes256Gcm],
             n - Duration::minutes(1),
             n + Duration::days(3650),
         );
@@ -1427,8 +1398,8 @@ mod tests {
             b"state".to_vec(),
             vec![],
             vec![],
-            &rfc3339(n - Duration::minutes(10)),
-            &rfc3339(n - Duration::seconds(DEFAULT_CLOCK_SKEW_SECONDS + 1)),
+            n - Duration::minutes(10),
+            n - Duration::seconds(DEFAULT_CLOCK_SKEW_SECONDS + 1),
         );
         let signed = sign_local_rp_login_request(&request, &sk.to_bytes()).unwrap();
         assert!(matches!(
@@ -1445,7 +1416,7 @@ mod tests {
     fn ticket_redemption_sign_verify_roundtrip() {
         let (pk, sk) = generate_ed25519_keypair();
         let fp = fingerprint(pk.as_bytes());
-        let request = build_local_rp_ticket_redemption_request(vec![1u8; 32], &fp, &rfc3339(now()));
+        let request = build_local_rp_ticket_redemption_request(vec![1u8; 32], &fp, now());
         let signed = sign_local_rp_ticket_redemption_request(&request, &sk.to_bytes()).unwrap();
         let verified =
             verify_local_rp_ticket_redemption_request(&signed, pk.as_bytes(), &fp).unwrap();
@@ -1456,7 +1427,7 @@ mod tests {
     fn ticket_redemption_tampered_signature_fails() {
         let (pk, sk) = generate_ed25519_keypair();
         let fp = fingerprint(pk.as_bytes());
-        let request = build_local_rp_ticket_redemption_request(vec![1u8; 32], &fp, &rfc3339(now()));
+        let request = build_local_rp_ticket_redemption_request(vec![1u8; 32], &fp, now());
         let mut signed = sign_local_rp_ticket_redemption_request(&request, &sk.to_bytes()).unwrap();
         if let Some(b) = signed.signature.first_mut() {
             *b ^= 0xff;
@@ -1469,7 +1440,7 @@ mod tests {
         let (pk1, sk1) = generate_ed25519_keypair();
         let (pk2, _sk2) = generate_ed25519_keypair();
         let fp = fingerprint(pk1.as_bytes());
-        let request = build_local_rp_ticket_redemption_request(vec![1u8; 32], &fp, &rfc3339(now()));
+        let request = build_local_rp_ticket_redemption_request(vec![1u8; 32], &fp, now());
         let signed = sign_local_rp_ticket_redemption_request(&request, &sk1.to_bytes()).unwrap();
         // A stolen request cannot be "redeemed" against a different key: the
         // signature was produced by sk1, so verifying against pk2 must fail.
@@ -1481,7 +1452,7 @@ mod tests {
         let (pk, sk) = generate_ed25519_keypair();
         let fp = fingerprint(pk.as_bytes());
         let other_fp = "0".repeat(64);
-        let request = build_local_rp_ticket_redemption_request(vec![1u8; 32], &fp, &rfc3339(now()));
+        let request = build_local_rp_ticket_redemption_request(vec![1u8; 32], &fp, now());
         let signed = sign_local_rp_ticket_redemption_request(&request, &sk.to_bytes()).unwrap();
         // signing_public_key matches the signature, but the caller resolved
         // it under a DIFFERENT fingerprint than the request claims.
@@ -1550,8 +1521,8 @@ mod tests {
             "http://localhost/callback",
             b"nonce".to_vec(),
             b"state".to_vec(),
-            &rfc3339(n - Duration::minutes(10)),
-            &rfc3339(n - Duration::seconds(DEFAULT_CLOCK_SKEW_SECONDS + 1)),
+            n - Duration::minutes(10),
+            n - Duration::seconds(DEFAULT_CLOCK_SKEW_SECONDS + 1),
         );
         let signed = sign_local_rp_callback_payload(
             &payload,
@@ -1624,20 +1595,20 @@ mod tests {
         let signed_payload = make_callback_signed_payload(domain_sk, "key-1", n, "rp-fp");
         seal_local_rp_callback(
             &signed_payload,
-            suite,
+            &suite,
             enc_pk,
             "rp-fp",
             b"nonce".to_vec(),
             b"state".to_vec(),
-            &rfc3339(n),
-            &rfc3339(n + Duration::minutes(5)),
+            n,
+            n + Duration::minutes(5),
         )
         .unwrap()
     }
 
     #[test]
     fn callback_seal_open_roundtrip_both_suites() {
-        for suite in [AeadSuite::Aes256Gcm, AeadSuite::ChaCha20Poly1305] {
+        for suite in [AeadSuite::Aes256Gcm, AeadSuite::Chacha20Poly1305] {
             let (domain_pk, domain_sk) = generate_ed25519_keypair();
             let (enc_pk, enc_sk) = generate_x25519_keypair();
             let n = now();
@@ -1649,10 +1620,10 @@ mod tests {
             let (header, opened_signed_payload) = open_local_rp_callback(
                 &sealed,
                 &enc_sk_arr,
-                &[AeadSuite::Aes256Gcm, AeadSuite::ChaCha20Poly1305],
+                &[AeadSuite::Aes256Gcm, AeadSuite::Chacha20Poly1305],
             )
             .unwrap();
-            assert_eq!(header.suite, suite.as_str());
+            assert_eq!(header.suite, suite);
 
             let domain_key = make_domain_key("key-1", domain_pk.as_bytes());
             let payload = verify_local_rp_callback_payload(
@@ -1715,7 +1686,7 @@ mod tests {
         let mut header = crate::generated::decode_local_rp_callback_header(&sealed.header).unwrap();
         mutate(&mut header);
         let mut tampered = sealed;
-        tampered.header = crate::generated::encode_local_rp_callback_header(&header);
+        tampered.header = crate::generated::encode_local_rp_callback_header(&header).unwrap();
 
         open_local_rp_callback(&tampered, &enc_sk_arr, allowed_suites)
     }
@@ -1753,8 +1724,8 @@ mod tests {
         // swapping it changes the derived key too — this proves the chosen
         // suite is cryptographically bound, not merely advisory metadata.
         let result = open_with_tampered_header(
-            |h| h.suite = crypto::AEAD_SUITE_CHACHA20_POLY1305.to_string(),
-            &[AeadSuite::Aes256Gcm, AeadSuite::ChaCha20Poly1305],
+            |h| h.suite = AeadSuite::Chacha20Poly1305,
+            &[AeadSuite::Aes256Gcm, AeadSuite::Chacha20Poly1305],
         );
         assert!(result.is_err());
     }
@@ -1768,7 +1739,7 @@ mod tests {
         let enc_sk_arr: [u8; 32] = enc_sk.try_into().unwrap();
 
         let sealed = seal_for_test(
-            AeadSuite::ChaCha20Poly1305,
+            AeadSuite::Chacha20Poly1305,
             &domain_sk.to_bytes(),
             &enc_pk_arr,
             n,
@@ -1784,12 +1755,38 @@ mod tests {
     }
 
     #[test]
-    fn callback_open_rejects_unrecognized_suite_id() {
-        let result = open_with_tampered_header(
-            |h| h.suite = "made-up-suite".to_string(),
-            &[AeadSuite::Aes256Gcm, AeadSuite::ChaCha20Poly1305],
+    fn callback_open_rejects_unrecognized_suite_number() {
+        // A suite number outside the registry cannot become an AeadSuite, so
+        // the header fails to decode before any key derivation.
+        let (_domain_pk, domain_sk) = generate_ed25519_keypair();
+        let (enc_pk, enc_sk) = generate_x25519_keypair();
+        let enc_pk_arr: [u8; 32] = enc_pk.try_into().unwrap();
+        let enc_sk_arr: [u8; 32] = enc_sk.try_into().unwrap();
+        let mut sealed = seal_for_test(
+            AeadSuite::Aes256Gcm,
+            &domain_sk.to_bytes(),
+            &enc_pk_arr,
+            now(),
         );
-        assert!(matches!(result, Err(LocalRpError::UnsupportedSuite(_))));
+
+        let mut header: ciborium::Value = ciborium::de::from_reader(&sealed.header[..]).unwrap();
+        let entries = header.as_map_mut().unwrap();
+        let suite = entries
+            .iter_mut()
+            .find(|(k, _)| k.as_text() == Some("suite"))
+            .unwrap();
+        suite.1 = ciborium::Value::Integer(99.into());
+        sealed.header.clear();
+        ciborium::ser::into_writer(&header, &mut sealed.header).unwrap();
+
+        assert!(matches!(
+            open_local_rp_callback(
+                &sealed,
+                &enc_sk_arr,
+                &[AeadSuite::Aes256Gcm, AeadSuite::Chacha20Poly1305]
+            ),
+            Err(LocalRpError::Decode(_))
+        ));
     }
 
     #[test]
@@ -1807,11 +1804,11 @@ mod tests {
             fingerprint: "fp-a".to_string(),
             nonce: b"n".to_vec(),
             state: b"s".to_vec(),
-            suite: crypto::AEAD_SUITE_AES_256_GCM.to_string(),
+            suite: AeadSuite::Aes256Gcm,
             ephemeral_public_key: vec![1u8; 32],
             aead_nonce: vec![2u8; 12],
-            issued_at: "2020-01-01T00:00:00+00:00".to_string(),
-            expires_at: "2020-01-01T00:05:00+00:00".to_string(),
+            issued_at: crate::timestamp::parse_rfc3339("2020-01-01T00:00:00+00:00").unwrap(),
+            expires_at: crate::timestamp::parse_rfc3339("2020-01-01T00:05:00+00:00").unwrap(),
         };
         let mut payload = LocalRpCallbackPayload {
             user_id: "u".to_string(),
@@ -1821,8 +1818,8 @@ mod tests {
             callback_url: "http://localhost/cb".to_string(),
             nonce: b"n".to_vec(),
             state: b"s".to_vec(),
-            issued_at: "2020-01-01T00:00:00+00:00".to_string(),
-            expires_at: "2020-01-01T00:05:00+00:00".to_string(),
+            issued_at: crate::timestamp::parse_rfc3339("2020-01-01T00:00:00+00:00").unwrap(),
+            expires_at: crate::timestamp::parse_rfc3339("2020-01-01T00:05:00+00:00").unwrap(),
         };
         assert!(check_callback_header_matches_payload(&header, &payload).is_ok());
 

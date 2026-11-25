@@ -100,20 +100,12 @@ func actAsMismatch(field string) *ActAsError {
 	return &ActAsError{Kind: ErrActAsMismatch, Field: field}
 }
 
-func parseActAsTime(s string) (time.Time, error) {
-	t, err := time.Parse(time.RFC3339, s)
-	if err != nil {
-		return time.Time{}, actAsErr(ErrActAsBadTimestamp, err.Error())
-	}
-	return t, nil
-}
-
-// FormatActAsTime formats t as whole-second RFC3339 in UTC with a trailing
-// "Z", so a timestamp survives storage unchanged. Sub-second precision is
-// truncated. Mirrors `liblinkkeys::act_as::format_time`. Use it for every
-// timestamp you put in an act-as request.
-func FormatActAsTime(t time.Time) string {
-	return t.UTC().Truncate(time.Second).Format("2006-01-02T15:04:05Z")
+// ActAsTime returns t in UTC without its fraction of a second, so a
+// timestamp survives storage unchanged. Mirrors
+// `liblinkkeys::timestamp::whole_seconds`. Use it for every timestamp you put
+// in an act-as request.
+func ActAsTime(t time.Time) time.Time {
+	return t.UTC().Truncate(time.Second)
 }
 
 // maxDurationSeconds is the largest whole-second count a time.Duration can
@@ -131,15 +123,7 @@ func skewDuration(skewSeconds int64) time.Duration {
 	return time.Duration(max(min(skewSeconds, maxDurationSeconds), -maxDurationSeconds)) * time.Second
 }
 
-func checkActAsWindow(startsAt, endsAt string, now time.Time, skewSeconds int64) error {
-	start, err := parseActAsTime(startsAt)
-	if err != nil {
-		return err
-	}
-	end, err := parseActAsTime(endsAt)
-	if err != nil {
-		return err
-	}
+func checkActAsWindow(start, end time.Time, now time.Time, skewSeconds int64) error {
 	if !end.After(start) {
 		return actAsErr(ErrActAsRequestExpired, "")
 	}
@@ -281,14 +265,7 @@ func verifyLocalRpDescriptor(signed api.SignedLocalRpDescriptor, now time.Time, 
 	if !verifyEd25519(descriptor.SigningPublicKey, envelopeSignatureInput(localRpDescriptorTag, signed.Descriptor), signed.Signature) {
 		return api.LocalRpDescriptor{}, actAsErr(ErrActAsBadSignature, "local RP descriptor")
 	}
-	created, err := parseActAsTime(descriptor.CreatedAt)
-	if err != nil {
-		return api.LocalRpDescriptor{}, err
-	}
-	expires, err := parseActAsTime(descriptor.ExpiresAt)
-	if err != nil {
-		return api.LocalRpDescriptor{}, err
-	}
+	created, expires := descriptor.CreatedAt, descriptor.ExpiresAt
 	skew := skewDuration(skewSeconds)
 	if now.Add(skew).Before(created) || now.Add(-skew).After(expires) {
 		return api.LocalRpDescriptor{}, actAsErr(ErrActAsRequestExpired, "local RP descriptor")
@@ -429,10 +406,7 @@ func validAtWithSkew(key ApplicationKeyRef, signedAt time.Time) bool {
 	if key.WasValidAt(signedAt) {
 		return true
 	}
-	created, err := time.Parse(time.RFC3339Nano, key.CreatedAt)
-	if err != nil {
-		return false
-	}
+	created := key.CreatedAt
 	return created.After(signedAt) &&
 		!created.After(signedAt.Add(KeyClockSkewSeconds*time.Second)) &&
 		key.WasValidAt(created)
@@ -445,11 +419,11 @@ func keyRefusal(key ApplicationKeyRef, signedAt time.Time, policy RevokedKeyPoli
 		return "not a signing key"
 	}
 	if policy == RefuseRevoked && key.RevokedAt != nil {
-		return fmt.Sprintf("revoked at %s; this verifier refuses revoked keys", *key.RevokedAt)
+		return fmt.Sprintf("revoked at %s; this verifier refuses revoked keys", key.RevokedAt.UTC().Format(time.RFC3339Nano))
 	}
 	if !validAtWithSkew(key, signedAt) {
 		if key.RevokedAt != nil {
-			return fmt.Sprintf("revoked at %s, before it signed", *key.RevokedAt)
+			return fmt.Sprintf("revoked at %s, before it signed", key.RevokedAt.UTC().Format(time.RFC3339Nano))
 		}
 		return "not inside its validity window when it signed"
 	}
@@ -461,8 +435,8 @@ func keyRefusal(key ApplicationKeyRef, signedAt time.Time, policy RevokedKeyPoli
 // ---------------------------------------------------------------------------
 
 // CheckScopeSetShape checks a scope set's shape: a valid grantee, 1 to
-// MaxScopeEntries entries, bounded strings, no repeated scope, a handle claim
-// (when present) about the audience's own account, and RFC3339 times.
+// MaxScopeEntries entries, bounded strings, no repeated scope, and a handle
+// claim (when present) about the audience's own account.
 func CheckScopeSetShape(set api.ActAsScopeSet) error {
 	if err := CheckGrantee(set.Grantee); err != nil {
 		return err
@@ -491,12 +465,6 @@ func CheckScopeSetShape(set api.ActAsScopeSet) error {
 			return err
 		}
 	}
-	if _, err := parseActAsTime(set.IssuedAt); err != nil {
-		return err
-	}
-	if _, err := parseActAsTime(set.ExpiresAt); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -519,7 +487,10 @@ func SignScopeSet(set api.ActAsScopeSet, signerInstanceID string, signers []Appl
 		}
 		seen[signer.KeyID] = true
 	}
-	setBytes := api.EncodeActAsScopeSet(set)
+	setBytes, err := api.EncodeActAsScopeSet(set)
+	if err != nil {
+		return api.SignedActAsScopeSet{}, encodeFailed("ActAsScopeSet", err)
+	}
 	message := envelopeSignatureInput(ScopeSetTag, setBytes)
 	signatures := make([]api.ApplicationKeySignature, 0, len(signers))
 	for _, signer := range signers {
@@ -567,10 +538,7 @@ func VerifyScopeSet(signed api.SignedActAsScopeSet, expectedAudience api.Applica
 	if len(signed.Signatures) == 0 {
 		return api.ActAsScopeSet{}, actAsErr(ErrActAsNoValidSignature, "the scope set is unsigned")
 	}
-	issuedAt, err := parseActAsTime(set.IssuedAt)
-	if err != nil {
-		return api.ActAsScopeSet{}, err
-	}
+	issuedAt := set.IssuedAt
 	message := envelopeSignatureInput(ScopeSetTag, signed.ScopeSet)
 	refusals := make([]string, 0, len(signed.Signatures))
 	for _, sig := range signed.Signatures {
@@ -677,7 +645,7 @@ func CheckApprovedScope(set api.ActAsScopeSet, approved []string) error {
 // ---------------------------------------------------------------------------
 
 // SignGrantRequest is the grantee's signature over a grant request. Use
-// FormatActAsTime for RequestedAt and ExpiresAt. Send the result to the
+// ActAsTime for RequestedAt and ExpiresAt. Send the result to the
 // user's browser with GrantRequestURL.
 //
 // request.GranteeHandleClaim is optional. Set it to a signed `handle` claim,
@@ -694,7 +662,10 @@ func SignGrantRequest(request api.ActAsGrantRequest, signer GranteeSigner) (api.
 	if err := checkGranteeHandleClaim(request); err != nil {
 		return api.SignedActAsGrantRequest{}, err
 	}
-	requestBytes := api.EncodeActAsGrantRequest(request)
+	requestBytes, err := api.EncodeActAsGrantRequest(request)
+	if err != nil {
+		return api.SignedActAsGrantRequest{}, encodeFailed("ActAsGrantRequest", err)
+	}
 	proof, err := signer.Prove(envelopeSignatureInput(GrantRequestTag, requestBytes))
 	if err != nil {
 		return api.SignedActAsGrantRequest{}, err
@@ -895,8 +866,8 @@ func VerifyGrantSignature(signed api.SignedActAsGrant, domainKeys []api.DomainPu
 // true, it signs a renewed grant with IssuedAt and ExpiresAt.
 type RefreshDecision struct {
 	Renew     bool
-	IssuedAt  string
-	ExpiresAt string
+	IssuedAt  time.Time
+	ExpiresAt time.Time
 }
 
 // DecideRefresh decides whether a refresh renews the grant. Mirrors
@@ -911,18 +882,7 @@ type RefreshDecision struct {
 // would extend the expiry. A renewed grant expires at
 // min(now + lifetime, renewable_until).
 func DecideRefresh(grant api.ActAsGrant, lifetimeSeconds int64, now time.Time) (RefreshDecision, error) {
-	issued, err := parseActAsTime(grant.IssuedAt)
-	if err != nil {
-		return RefreshDecision{}, err
-	}
-	expires, err := parseActAsTime(grant.ExpiresAt)
-	if err != nil {
-		return RefreshDecision{}, err
-	}
-	renewableUntil, err := parseActAsTime(grant.RenewableUntil)
-	if err != nil {
-		return RefreshDecision{}, err
-	}
+	issued, expires, renewableUntil := grant.IssuedAt, grant.ExpiresAt, grant.RenewableUntil
 	if !now.Before(expires) {
 		return RefreshDecision{}, actAsErr(ErrActAsGrantExpired, "")
 	}
@@ -940,17 +900,20 @@ func DecideRefresh(grant api.ActAsGrant, lifetimeSeconds int64, now time.Time) (
 	if !newExpires.After(expires) {
 		return RefreshDecision{}, nil
 	}
-	return RefreshDecision{Renew: true, IssuedAt: FormatActAsTime(now), ExpiresAt: FormatActAsTime(newExpires)}, nil
+	return RefreshDecision{Renew: true, IssuedAt: ActAsTime(now), ExpiresAt: ActAsTime(newExpires)}, nil
 }
 
 // SignRefreshRequest is the grantee's signature over a refresh request. Use
-// FormatActAsTime for RequestedAt and ExpiresAt. Send the result with
+// ActAsTime for RequestedAt and ExpiresAt. Send the result with
 // RefreshGrant.
 func SignRefreshRequest(request api.ActAsRefreshRequest, signer GranteeSigner) (api.SignedActAsRefreshRequest, error) {
 	if err := CheckGrantee(request.Grantee); err != nil {
 		return api.SignedActAsRefreshRequest{}, err
 	}
-	requestBytes := api.EncodeActAsRefreshRequest(request)
+	requestBytes, err := api.EncodeActAsRefreshRequest(request)
+	if err != nil {
+		return api.SignedActAsRefreshRequest{}, encodeFailed("ActAsRefreshRequest", err)
+	}
 	proof, err := signer.Prove(envelopeSignatureInput(RefreshRequestTag, requestBytes))
 	if err != nil {
 		return api.SignedActAsRefreshRequest{}, err
@@ -990,10 +953,13 @@ func Present(grant api.SignedActAsGrant, audience api.ApplicationRef, requestDig
 		GrantHash:     GrantHash(grant.Grant),
 		Audience:      audience,
 		RequestDigest: requestDigest,
-		PresentedAt:   FormatActAsTime(presentedAt),
+		PresentedAt:   ActAsTime(presentedAt),
 		Nonce:         nonce,
 	}
-	presentationBytes := api.EncodeActAsPresentation(presentation)
+	presentationBytes, err := api.EncodeActAsPresentation(presentation)
+	if err != nil {
+		return api.ActAsCredential{}, encodeFailed("ActAsPresentation", err)
+	}
 	proof, err := signer.Prove(envelopeSignatureInput(PresentationTag, presentationBytes))
 	if err != nil {
 		return api.ActAsCredential{}, err
@@ -1051,7 +1017,7 @@ type VerifiedActAs struct {
 	// ApprovedScope is the only scope the audience's policy may act on.
 	// Never use the full scope set.
 	ApprovedScope []string
-	ExpiresAt     string
+	ExpiresAt     time.Time
 	// Nonce is the presentation nonce. The audience owns replay protection:
 	// record it until MaxPresentationAgeSeconds (plus skew) has passed, and
 	// refuse a nonce it already holds.
@@ -1104,14 +1070,7 @@ func VerifyCredential(credential api.ActAsCredential, ctx AudienceContext) (Veri
 		return VerifiedActAs{}, actAsMismatch("audience")
 	}
 	// 3
-	issued, err := parseActAsTime(grant.IssuedAt)
-	if err != nil {
-		return VerifiedActAs{}, err
-	}
-	expires, err := parseActAsTime(grant.ExpiresAt)
-	if err != nil {
-		return VerifiedActAs{}, err
-	}
+	issued, expires := grant.IssuedAt, grant.ExpiresAt
 	skew := skewDuration(ctx.SkewSeconds)
 	if ctx.Now.Add(skew).Before(issued) {
 		return VerifiedActAs{}, actAsErr(ErrActAsRequestExpired, "grant is not yet valid")
@@ -1139,10 +1098,7 @@ func VerifyCredential(credential api.ActAsCredential, ctx AudienceContext) (Veri
 	if !bytes.Equal(presentation.RequestDigest, ctx.ExpectedRequestDigest) {
 		return VerifiedActAs{}, actAsMismatch("request_digest")
 	}
-	presentedAt, err := parseActAsTime(presentation.PresentedAt)
-	if err != nil {
-		return VerifiedActAs{}, err
-	}
+	presentedAt := presentation.PresentedAt
 	if presentedAt.After(ctx.Now.Add(skew)) ||
 		addSeconds(presentedAt, ctx.MaxPresentationAgeSeconds).Add(skew).Before(ctx.Now) {
 		return VerifiedActAs{}, actAsErr(ErrActAsRequestExpired, "presentation")
@@ -1189,9 +1145,6 @@ func VerifyGrantRevocation(signed api.SignedActAsGrantRevocation, domainKeys []a
 	}
 	if revocation.SubjectDomain != expectedDomain {
 		return api.ActAsGrantRevocation{}, actAsMismatch("subject_domain")
-	}
-	if _, err := parseActAsTime(revocation.RevokedAt); err != nil {
-		return api.ActAsGrantRevocation{}, err
 	}
 	if err := verifyActAsDomainSignature(envelopeSignatureInput(GrantRevocationTag, signed.Revocation), signed.Signatures, domainKeys, expectedDomain); err != nil {
 		return api.ActAsGrantRevocation{}, err

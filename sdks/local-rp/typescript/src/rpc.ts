@@ -393,7 +393,7 @@ export async function fetchDomainKeys(
     throw new NoTrustedDomainKeysError(domain);
   }
 
-  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const reqPayload = generated.toGetRevocationsRequestCbor({ since });
   // No try/catch: any failure here (RPC error status, transport/decode
   // failure) propagates as a fatal error out of this function. Revocation

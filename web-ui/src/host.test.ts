@@ -14,7 +14,7 @@ function makeHost(getSession: () => BrowserSessionInfo | undefined = () => undef
 
 const signedInSession = {
   user: { id: "user-1" },
-  issuedAt: "2026-09-01T12:00:00Z",
+  issuedAt: new Date("2026-09-01T12:00:00Z"),
 } as BrowserSessionInfo;
 
 beforeEach(() => {

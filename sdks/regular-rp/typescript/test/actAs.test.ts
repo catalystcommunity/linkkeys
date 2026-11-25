@@ -88,8 +88,8 @@ function keyRefs(v: any[]): ApplicationKeyRef[] {
     algorithm: k.algorithm,
     publicKey: hex(k.public_key_hex),
     fingerprint: k.fingerprint,
-    createdAt: k.created_at,
-    expiresAt: k.expires_at,
+    createdAt: new Date(k.created_at),
+    expiresAt: new Date(k.expires_at),
   }));
 }
 
@@ -99,8 +99,8 @@ const HOME_KEYS: DomainPublicKey[] = V.home_domain_keys.map((k: any) => ({
   fingerprint: k.fingerprint,
   algorithm: k.algorithm,
   keyUsage: k.key_usage,
-  createdAt: k.created_at,
-  expiresAt: k.expires_at,
+  createdAt: new Date(k.created_at),
+  expiresAt: new Date(k.expires_at),
 }));
 const HOME_PRIVATE = hex(V.keys.home.private_key_hex);
 const AUDIENCE = appRef(V.audience);
@@ -125,7 +125,7 @@ function homeSign(grant: ActAsGrant): SignedActAsGrant {
 }
 
 function homeRevoke(grantId: string): SignedActAsGrantRevocation {
-  const bytes = toActAsGrantRevocationCbor({ grantId, userId: "user-a", subjectDomain: HOME, revokedAt: "2026-10-06T12:30:00Z" });
+  const bytes = toActAsGrantRevocationCbor({ grantId, userId: "user-a", subjectDomain: HOME, revokedAt: new Date("2026-10-06T12:30:00Z") });
   return {
     revocation: bytes,
     signatures: [{ domain: HOME, signedByKeyId: V.keys.home.key_id, signature: signEd25519(actAsSignatureInput(ACT_AS_GRANT_REVOCATION_TAG, bytes), HOME_PRIVATE) }],
@@ -143,8 +143,8 @@ const SECOND_KEY: ApplicationKeyRef = {
   algorithm: "ed25519",
   publicKey: derivePublicKeyFromEd25519PrivateKey(SECOND_SEED),
   fingerprint: fingerprint(derivePublicKeyFromEd25519PrivateKey(SECOND_SEED)),
-  createdAt: "2026-01-01T00:00:00Z",
-  expiresAt: "2027-01-01T00:00:00Z",
+  createdAt: new Date("2026-01-01T00:00:00Z"),
+  expiresAt: new Date("2027-01-01T00:00:00Z"),
 };
 const FIRST_KEY = AUDIENCE_KEYS.find((k) => k.keyId === AUDIENCE_SIGNER.keyId)!;
 
@@ -154,8 +154,8 @@ function scopeSetBody(overrides: Partial<ActAsScopeSet> = {}): ActAsScopeSet {
     grantee: GRANTEE,
     entries: [{ scope: "read", description: "Read" }, { scope: "write" }],
     language: "en-US",
-    issuedAt: "2026-10-06T11:55:00Z",
-    expiresAt: "2026-10-06T12:10:00Z",
+    issuedAt: new Date("2026-10-06T11:55:00Z"),
+    expiresAt: new Date("2026-10-06T12:10:00Z"),
     ...overrides,
   };
 }
@@ -170,10 +170,10 @@ function flow(overrides: Partial<ActAsGrant> = {}) {
     audience: AUDIENCE,
     scopeSet,
     approvedScope: ["read"],
-    issuedAt: "2026-10-06T12:00:00Z",
-    expiresAt: "2026-10-06T13:00:00Z",
-    seriesIssuedAt: "2026-10-06T12:00:00Z",
-    renewableUntil: "2026-10-06T13:00:00Z",
+    issuedAt: new Date("2026-10-06T12:00:00Z"),
+    expiresAt: new Date("2026-10-06T13:00:00Z"),
+    seriesIssuedAt: new Date("2026-10-06T12:00:00Z"),
+    renewableUntil: new Date("2026-10-06T13:00:00Z"),
     ...overrides,
   });
   return { scopeSet, grant };
@@ -219,8 +219,8 @@ test("full flow: scope set, grant request, presentation, audience verification",
       requestedLifetimeSeconds: 1800,
       callbackUrl: "https://grantee.example/act-as/callback",
       nonce: "n-1",
-      requestedAt: "2026-10-06T11:59:00Z",
-      expiresAt: "2026-10-06T12:04:00Z",
+      requestedAt: new Date("2026-10-06T11:59:00Z"),
+      expiresAt: new Date("2026-10-06T12:04:00Z"),
     },
     GRANTEE_SIGNER,
   );
@@ -273,7 +273,7 @@ test("a proof whose form does not match the grantee is refused", () => {
 test("a revoked grantee key cannot sign a presentation", () => {
   const { grant } = flow();
   const credential = present(grant, AUDIENCE, DIGEST, new Date("2026-10-06T12:30:00Z"), hex("06"), GRANTEE_SIGNER);
-  const revokedKeys = GRANTEE_KEYS.map((k) => ({ ...k, revokedAt: "2026-10-06T12:15:00Z" }));
+  const revokedKeys = GRANTEE_KEYS.map((k) => ({ ...k, revokedAt: new Date("2026-10-06T12:15:00Z") }));
   assert.equal(code(() => verifyCredential(credential, context({ granteeInstanceKeys: revokedKeys }))), "untrusted-signer");
 });
 
@@ -287,7 +287,7 @@ test("timestamps: whole-second UTC with Z, strict RFC3339 parsing", () => {
     assert.equal(parseRfc3339(bad), undefined, bad);
   }
   assert.deepEqual(
-    refreshDueAt({ issuedAt: "2026-10-06T12:00:00Z", expiresAt: "2026-10-06T13:00:00Z" }),
+    refreshDueAt({ issuedAt: new Date("2026-10-06T12:00:00Z"), expiresAt: new Date("2026-10-06T13:00:00Z") }),
     new Date("2026-10-06T12:30:00Z"),
   );
 });
@@ -323,8 +323,8 @@ function domainKeysResponse(domain = HOME): Handler {
       domain,
       keys: HOME_KEYS,
       revocations: [],
-      fetchedAt: "2026-10-06T12:00:00Z",
-      revocationsCheckedAt: "2026-10-06T12:00:00Z",
+      fetchedAt: new Date("2026-10-06T12:00:00Z"),
+      revocationsCheckedAt: new Date("2026-10-06T12:00:00Z"),
       cacheStatus: "fresh",
     });
   };
@@ -333,7 +333,7 @@ function domainKeysResponse(domain = HOME): Handler {
 test("refreshGrant forwards the signed request through Rp/act-as-refresh-grant", async () => {
   const { grant } = flow();
   const signed = signRefreshRequest(
-    { grantId: "grant-9", grantee: GRANTEE, requestedAt: "2026-10-06T12:40:00Z", expiresAt: "2026-10-06T12:45:00Z", nonce: "r-1" },
+    { grantId: "grant-9", grantee: GRANTEE, requestedAt: new Date("2026-10-06T12:40:00Z"), expiresAt: new Date("2026-10-06T12:45:00Z"), nonce: "r-1" },
     GRANTEE_SIGNER,
   );
   const transport = new FakeTransport({
@@ -355,7 +355,7 @@ test("refreshGrant refuses a grant for another grant id, grantee, or domain", as
   const { grant } = flow();
   const refresh = (grantId: string) =>
     signRefreshRequest(
-      { grantId, grantee: GRANTEE, requestedAt: "2026-10-06T12:40:00Z", expiresAt: "2026-10-06T12:45:00Z", nonce: "r-2" },
+      { grantId, grantee: GRANTEE, requestedAt: new Date("2026-10-06T12:40:00Z"), expiresAt: new Date("2026-10-06T12:45:00Z"), nonce: "r-2" },
       GRANTEE_SIGNER,
     );
   const client = new ActAsRpClient(
@@ -384,7 +384,7 @@ test("resolveGrantRevocations returns only verified revocations for requested gr
   });
   const result = await new ActAsRpClient(transport).resolveGrantRevocations(HOME, ["grant-1", "grant-2", "grant-1"], { now: NOW });
   assert.deepEqual(result.revokedGrantIds, ["grant-1"]);
-  assert.equal(result.revocations[0]!.revokedAt, "2026-10-06T12:30:00Z");
+  assert.deepEqual(result.revocations[0]!.revokedAt, new Date("2026-10-06T12:30:00Z"));
   assert.equal(result.rejectedCount, 2);
   assert.equal(result.domainKeysCacheStatus, "fresh");
 });
@@ -435,19 +435,19 @@ test("usableKeyRefs keeps only usable keys", () => {
   const attestation = (keyId: string): ApplicationKeyAttestation => ({
     subjectUserId: "u", subjectDomain: "d.example", applicationId: "a", instanceId: "i",
     keyId, keyUsage: "sign", algorithm: "ed25519", publicKey: new Uint8Array(32), fingerprint: "f",
-    keyCreatedAt: "2026-01-01T00:00:00Z", keyExpiresAt: "2027-01-01T00:00:00Z",
-    attestedAt: "2026-01-01T00:00:00Z", attestationExpiresAt: "2026-12-01T00:00:00Z",
+    keyCreatedAt: new Date("2026-01-01T00:00:00Z"), keyExpiresAt: new Date("2027-01-01T00:00:00Z"),
+    attestedAt: new Date("2026-01-01T00:00:00Z"), attestationExpiresAt: new Date("2026-12-01T00:00:00Z"),
   });
   const refs = usableKeyRefs({
     keys: [
       { attestation: attestation("k-1"), status: { kind: "usable" } },
-      { attestation: attestation("k-2"), status: { kind: "revoked", revokedAt: "2026-06-01T00:00:00Z" } },
+      { attestation: attestation("k-2"), status: { kind: "revoked", revokedAt: new Date("2026-06-01T00:00:00Z") } },
     ],
     revokedKeyIds: new Set(["k-2"]),
     rejected: [],
   });
   assert.deepEqual(refs.map((k) => k.keyId), ["k-1"]);
-  assert.equal(refs[0]!.createdAt, "2026-01-01T00:00:00Z");
+  assert.deepEqual(refs[0]!.createdAt, new Date("2026-01-01T00:00:00Z"));
 });
 
 
@@ -474,15 +474,15 @@ test("signScopeSet signs with every key and refuses an empty or repeated key lis
 
 test("one acceptable signature is enough; one expired or unknown key does not break the set", () => {
   const signed = signScopeSet(scopeSetBody(), "audience-instance-1", [AUDIENCE_SIGNER, SECOND_SIGNER]);
-  const expiredFirst = { ...FIRST_KEY, expiresAt: "2026-01-02T00:00:00Z" };
+  const expiredFirst = { ...FIRST_KEY, expiresAt: new Date("2026-01-02T00:00:00Z") };
   assert.equal(verifyScopeSet(signed, AUDIENCE, [expiredFirst, SECOND_KEY]).entries.length, 2);
   assert.equal(verifyScopeSet(signed, AUDIENCE, [SECOND_KEY]).entries.length, 2);
 });
 
 test("no acceptable signature: the error names every key and why it was refused", () => {
   const signed = signScopeSet(scopeSetBody(), "audience-instance-1", [AUDIENCE_SIGNER, SECOND_SIGNER]);
-  const expiredFirst = { ...FIRST_KEY, expiresAt: "2026-01-02T00:00:00Z" };
-  const revokedSecond = { ...SECOND_KEY, revokedAt: "2026-10-06T11:00:00Z" };
+  const expiredFirst = { ...FIRST_KEY, expiresAt: new Date("2026-01-02T00:00:00Z") };
+  const revokedSecond = { ...SECOND_KEY, revokedAt: new Date("2026-10-06T11:00:00Z") };
   let err = errorOf(() => verifyScopeSet(signed, AUDIENCE, [expiredFirst, revokedSecond]));
   assert.equal(err.code, "no-valid-signature");
   assert.match(err.message, new RegExp(`${FIRST_KEY.keyId}: not inside its validity window when it signed`));
@@ -502,7 +502,7 @@ test("no acceptable signature: the error names every key and why it was refused"
 
 test("revoked-key policy: accept before revocation by default, refuse on request", () => {
   const signed = signScopeSet(scopeSetBody(), "audience-instance-1", [AUDIENCE_SIGNER]);
-  const revokedLater = { ...FIRST_KEY, revokedAt: "2026-10-06T12:30:00Z" };
+  const revokedLater = { ...FIRST_KEY, revokedAt: new Date("2026-10-06T12:30:00Z") };
   assert.equal(verifyScopeSet(signed, AUDIENCE, [revokedLater]).entries.length, 2);
   assert.equal(verifyScopeSet(signed, AUDIENCE, [revokedLater], "acceptBeforeRevocation").entries.length, 2);
   const err = errorOf(() => verifyScopeSet(signed, AUDIENCE, [revokedLater], "refuseRevoked"));
@@ -535,13 +535,13 @@ function domainKey(keyId: string, seed: Uint8Array): DomainPublicKey {
     fingerprint: fingerprint(publicKey),
     algorithm: "ed25519",
     keyUsage: "sign",
-    createdAt: "2026-01-01T00:00:00Z",
-    expiresAt: "2027-01-01T00:00:00Z",
+    createdAt: new Date("2026-01-01T00:00:00Z"),
+    expiresAt: new Date("2027-01-01T00:00:00Z"),
   };
 }
 const PARTY_KEYS = [domainKey("party-key-1", PARTY_SEED)];
 
-function handleClaim(overrides: { userId?: string; claimType?: string; expiresAt?: string; signers?: { domain: string; seed: Uint8Array; keyId: string }[] } = {}): Claim {
+function handleClaim(overrides: { userId?: string; claimType?: string; expiresAt?: Date; signers?: { domain: string; seed: Uint8Array; keyId: string }[] } = {}): Claim {
   const signers = overrides.signers ?? [{ domain: PARTY_DOMAIN, seed: PARTY_SEED, keyId: "party-key-1" }];
   return signClaim(
     {
@@ -551,7 +551,7 @@ function handleClaim(overrides: { userId?: string; claimType?: string; expiresAt
       userId: overrides.userId ?? AUDIENCE.subjectUserId,
       subjectDomain: PARTY_DOMAIN,
       expiresAt: overrides.expiresAt,
-      attestedAt: "2026-10-01T00:00:00Z",
+      attestedAt: new Date("2026-10-01T00:00:00Z"),
     },
     signers.map((s) => ({ domain: s.domain, keyId: s.keyId, privateKeySeed: s.seed })),
   );
@@ -572,11 +572,11 @@ test("verifyHandleClaim counts only the party's own domain and checks expiry", (
   assert.equal(code(() => verifyHandleClaim(third, AUDIENCE, PARTY_KEYS, NOW)), "bad-handle-claim");
   assert.equal(code(() => verifyHandleClaim(handleClaim({ userId: "someone-else" }), AUDIENCE, PARTY_KEYS, NOW)), "bad-handle-claim");
   assert.equal(code(() => verifyHandleClaim(handleClaim({ claimType: "email" }), AUDIENCE, PARTY_KEYS, NOW)), "bad-handle-claim");
-  const expired = handleClaim({ expiresAt: "2026-10-05T00:00:00Z" });
+  const expired = handleClaim({ expiresAt: new Date("2026-10-05T00:00:00Z") });
   assert.equal(code(() => verifyHandleClaim(expired, AUDIENCE, PARTY_KEYS, NOW)), "bad-handle-claim");
-  const revoked = { ...handleClaim(), revokedAt: "2026-10-05T00:00:00Z" };
+  const revoked = { ...handleClaim(), revokedAt: new Date("2026-10-05T00:00:00Z") };
   assert.equal(code(() => verifyHandleClaim(revoked, AUDIENCE, PARTY_KEYS, NOW)), "bad-handle-claim");
-  const revokedKey = [{ ...PARTY_KEYS[0]!, revokedAt: "2026-09-01T00:00:00Z" }];
+  const revokedKey = [{ ...PARTY_KEYS[0]!, revokedAt: new Date("2026-09-01T00:00:00Z") }];
   assert.equal(code(() => verifyHandleClaim(handleClaim(), AUDIENCE, revokedKey, NOW)), "bad-handle-claim");
 });
 
@@ -597,8 +597,8 @@ test("a grant request's handle claim must name the grantee's account; a local RP
     scopeSet,
     callbackUrl: "https://grantee.example/act-as/callback",
     nonce: "n-2",
-    requestedAt: "2026-10-06T11:59:00Z",
-    expiresAt: "2026-10-06T12:04:00Z",
+    requestedAt: new Date("2026-10-06T11:59:00Z"),
+    expiresAt: new Date("2026-10-06T12:04:00Z"),
   };
   const granteeClaim = { ...handleClaim(), userId: GRANTEE.application!.subjectUserId };
   const signed = signGrantRequest({ ...base, granteeHandleClaim: granteeClaim }, GRANTEE_SIGNER);
@@ -619,13 +619,13 @@ test("attestedKeyRefs keeps every attested key, with revokedAt for a revoked key
   const attestation = (keyId: string): ApplicationKeyAttestation => ({
     subjectUserId: "u", subjectDomain: "d.example", applicationId: "a", instanceId: "i",
     keyId, keyUsage: "sign", algorithm: "ed25519", publicKey: new Uint8Array(32), fingerprint: "f",
-    keyCreatedAt: "2026-01-01T00:00:00Z", keyExpiresAt: "2027-01-01T00:00:00Z",
-    attestedAt: "2026-01-01T00:00:00Z", attestationExpiresAt: "2026-12-01T00:00:00Z",
+    keyCreatedAt: new Date("2026-01-01T00:00:00Z"), keyExpiresAt: new Date("2027-01-01T00:00:00Z"),
+    attestedAt: new Date("2026-01-01T00:00:00Z"), attestationExpiresAt: new Date("2026-12-01T00:00:00Z"),
   });
   const refs = attestedKeyRefs({
     keys: [
       { attestation: attestation("k-1"), status: { kind: "usable" } },
-      { attestation: attestation("k-2"), status: { kind: "revoked", revokedAt: "2026-06-01T00:00:00Z" } },
+      { attestation: attestation("k-2"), status: { kind: "revoked", revokedAt: new Date("2026-06-01T00:00:00Z") } },
       { attestation: attestation("k-3"), status: { kind: "key_expired" } },
       { attestation: attestation("k-4"), status: { kind: "attestation_expired" } },
     ],
@@ -634,7 +634,7 @@ test("attestedKeyRefs keeps every attested key, with revokedAt for a revoked key
   });
   assert.deepEqual(refs.map((k) => [k.keyId, k.revokedAt]), [
     ["k-1", undefined],
-    ["k-2", "2026-06-01T00:00:00Z"],
+    ["k-2", new Date("2026-06-01T00:00:00Z")],
     ["k-3", undefined],
     ["k-4", undefined],
   ]);

@@ -179,13 +179,13 @@ static void write_domain_signing_key(cbor_buf *out, const char *key_id, const ui
     lrp_fingerprint_hex(pub, 32, fp);
     cbor_write_text_cstr(out, fp);
     cbor_write_text_cstr(out, "algorithm");
-    cbor_write_text_cstr(out, "ed25519");
+    cbor_write_uint(out, 1); /* KeyAlgorithm ed25519 */
     cbor_write_text_cstr(out, "key_usage");
-    cbor_write_text_cstr(out, "sign");
+    cbor_write_uint(out, 1); /* KeyUsage sign */
     cbor_write_text_cstr(out, "created_at");
-    cbor_write_text_cstr(out, created_at);
+    cbor_write_timestamp(out, created_at);
     cbor_write_text_cstr(out, "expires_at");
-    cbor_write_text_cstr(out, expires_at);
+    cbor_write_timestamp(out, expires_at);
 }
 
 /* `keys` always includes the primary FLOW_KEY_ID signing key, plus (when
@@ -271,7 +271,7 @@ static void build_get_revocations_response(const flow_server *srv, lrp_bytes *ou
         cbor_write_text_cstr(&cert, "target_fingerprint");
         cbor_write_text_cstr(&cert, srv->domain_fp);
         cbor_write_text_cstr(&cert, "revoked_at");
-        cbor_write_text_cstr(&cert, revoked_at);
+        cbor_write_timestamp(&cert, revoked_at);
         cbor_write_text_cstr(&cert, "signatures");
         cbor_write_array_header(&cert, (size_t)srv->sibling_keys_count);
         for (int i = 0; i < srv->sibling_keys_count; i++) {
@@ -323,7 +323,9 @@ static void claim_sign_payload(const char *claim_id, const char *claim_type,
     cbor_write_text_cstr(&b, subject);
     cbor_write_text_cstr(&b, domain);
     cbor_write_null(&b);
-    cbor_write_text_cstr(&b, attested_at);
+    int64_t attested_secs = 0;
+    lrp_signed_seconds(attested_at, &attested_secs, NULL);
+    cbor_write_int(&b, attested_secs);
     *out = cbor_buf_release(&b);
 }
 
@@ -390,9 +392,9 @@ static void build_redeem_response_ex(const flow_server *srv, const char *redempt
         cbor_write_array_header(&claim, 1);
         cbor_write_raw(&claim, claim_sig.data, claim_sig.len);
         cbor_write_text_cstr(&claim, "attested_at");
-        cbor_write_text_cstr(&claim, attested_at);
+        cbor_write_timestamp(&claim, attested_at);
         cbor_write_text_cstr(&claim, "created_at");
-        cbor_write_text_cstr(&claim, attested_at);
+        cbor_write_timestamp(&claim, attested_at);
         cbor_buf_free(&claim_sig);
 
         cbor_write_array_header(&resp, 1);
@@ -401,7 +403,7 @@ static void build_redeem_response_ex(const flow_server *srv, const char *redempt
     }
 
     cbor_write_text_cstr(&resp, "ticket_expires_at");
-    cbor_write_text_cstr(&resp, ticket_expires_at);
+    cbor_write_timestamp(&resp, ticket_expires_at);
 
     encode_rpc_response_ok(resp.data, resp.len, out);
     cbor_buf_free(&resp);
@@ -689,9 +691,9 @@ static int build_idp_callback(const lrp_identity *identity, const lrp_pending_lo
     cbor_write_text_cstr(&pb, "state");
     cbor_write_bytes(&pb, pending->state.data, pending->state.len);
     cbor_write_text_cstr(&pb, "issued_at");
-    cbor_write_text_cstr(&pb, issued_at);
+    cbor_write_timestamp(&pb, issued_at);
     cbor_write_text_cstr(&pb, "expires_at");
-    cbor_write_text_cstr(&pb, expires_at);
+    cbor_write_timestamp(&pb, expires_at);
     lrp_bytes payload_bytes = cbor_buf_release(&pb);
 
     lrp_bytes sig = {0};

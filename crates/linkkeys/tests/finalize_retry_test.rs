@@ -13,12 +13,24 @@ use liblinkkeys::auth_request::{build_auth_request, sign_auth_request};
 use liblinkkeys::crypto::{self, SigningAlgorithm};
 use liblinkkeys::encoding::signed_auth_request_to_url_param;
 use liblinkkeys::generated::types::{ApiErrorCode, AuthorizeFinalizeRequest};
-use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::services::auth;
 use rocket::http::{Header, Status};
 use rocket::local::asynchronous::Client;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+
+/// The application principal a relying party names in its auth request. It
+/// belongs to the domain that signs the request.
+fn rp_application(domain: &str) -> liblinkkeys::generated::types::RelyingPartyApplication {
+    liblinkkeys::generated::types::RelyingPartyApplication {
+        application: liblinkkeys::generated::types::ApplicationRef {
+            subject_user_id: "rp-app-account".to_string(),
+            subject_domain: domain.to_string(),
+            application_id: "test-app".to_string(),
+        },
+        display_name: "Test App".to_string(),
+    }
+}
 
 const TEST_DOMAIN: &str = "finalize-retry.test";
 const PASSPHRASE: &[u8] = b"test-passphrase";
@@ -38,7 +50,7 @@ async fn failed_encryption_leaves_login_request_retryable() {
     let sk_bytes = sk.to_bytes().to_vec();
     let enc_sk = crypto::encrypt_private_key(&sk_bytes, PASSPHRASE).unwrap();
     let fp = crypto::fingerprint(&pk);
-    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
+    let expires = liblinkkeys::timestamp::now_whole_seconds() + time::Duration::days(365);
     let signing = pool
         .create_domain_key(&pk, &enc_sk, &fp, "ed25519", expires)
         .expect("signing key");
@@ -65,6 +77,7 @@ async fn failed_encryption_leaves_login_request_retryable() {
         &signing.id,
         None,
         None,
+        rp_application(TEST_DOMAIN),
     );
     let signed_req =
         sign_auth_request(&req, &signing.id, SigningAlgorithm::Ed25519, &sk_bytes).unwrap();
@@ -87,7 +100,8 @@ async fn failed_encryption_leaves_login_request_retryable() {
             user_id: user.id.clone(),
             signed_request: sr.clone(),
             authorized_claims: vec![],
-        });
+        })
+        .unwrap();
     let bearer = || Header::new("Authorization", format!("Bearer {}", api_key));
 
     // -- 1. No trusted encryption key: 502 with the specific code that tells
@@ -109,13 +123,9 @@ async fn failed_encryption_leaves_login_request_retryable() {
     let (epub, epriv) = crypto::generate_x25519_keypair();
     let efp = crypto::fingerprint(&epub);
     let epriv_enc = crypto::encrypt_private_key(&epriv, PASSPHRASE).unwrap();
-    let vouch = liblinkkeys::dns::sign_key_vouch(
-        &efp,
-        &expires.to_rfc3339(),
-        SigningAlgorithm::Ed25519,
-        &sk_bytes,
-    )
-    .unwrap();
+    let vouch =
+        liblinkkeys::dns::sign_key_vouch(&efp, &expires, SigningAlgorithm::Ed25519, &sk_bytes)
+            .unwrap();
     pool.create_domain_encryption_key(&epub, &epriv_enc, &efp, &signing.id, &vouch, expires)
         .expect("encryption key");
 

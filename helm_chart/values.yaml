@@ -96,6 +96,15 @@ server:
   # Longest account display name, in characters (DISPLAY_NAME_MAX_CHARS).
   # Empty uses the server default of 256.
   displayNameMaxChars: ""
+  # true for a relying party that serves no person (HEADLESS): the browser UI,
+  # the browser carrier, and password auth are off, and Admin is served over
+  # TCP only. Publish only tcp= in _linkkeys_apis.
+  headless: false
+  # Peers on a private network that this server may reach, as comma-separated
+  # host=address entries (LINKKEYS_PRIVATE_PEER_ALLOWLIST), for example
+  # "linkkeys.example.com=10.20.1.10". Every other private address stays
+  # refused.
+  privatePeerAllowlist: ""
 
 # Outbound email. Email verification and password recovery stay disabled when
 # this section is disabled.
