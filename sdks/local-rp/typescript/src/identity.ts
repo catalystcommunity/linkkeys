@@ -9,7 +9,7 @@
 // ordinary application-secret care (the same tier as a database credential
 // or API key), not merely as configuration.
 
-import { allSupportedAeadSuites, generateEd25519KeyPair, generateX25519KeyPair } from "./crypto.ts";
+import { allSupportedAeadSuites, generateEd25519KeyPair, parseAeadSuite, generateX25519KeyPair } from "./crypto.ts";
 import * as generated from "./generated/codec.gen.ts";
 import type { SignedLocalRpDescriptor } from "./generated/types.gen.ts";
 import { isValidFingerprint } from "./dnsRecords.ts";
@@ -66,10 +66,13 @@ export function generateLocalRpIdentity(config: GenerateLocalRpIdentityConfig): 
   if (suites.length === 0) {
     throw new InvalidInputError("supportedSuites must not be empty");
   }
+  for (const s of suites) {
+    if (!parseAeadSuite(s)) throw new InvalidInputError(`unsupported AEAD suite: ${s}`);
+  }
 
   const lifetimeMs = config.lifetimeMs ?? DEFAULT_LIFETIME_MS;
-  const createdAt = config.now.toISOString();
-  const expiresAt = new Date(config.now.getTime() + lifetimeMs).toISOString();
+  const createdAt = new Date(config.now.getTime());
+  const expiresAt = new Date(config.now.getTime() + lifetimeMs);
 
   const descriptor = buildLocalRpDescriptor(
     config.appName,

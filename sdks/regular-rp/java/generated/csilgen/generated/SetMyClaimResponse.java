@@ -3,7 +3,7 @@
 package csilgen.generated;
 
 public record SetMyClaimResponse(
-    String outcome /* wire: "outcome" */,
+    SetClaimOutcome outcome /* wire: "outcome" */,
     Claim claim /* wire: "claim" */
 ) {
 }

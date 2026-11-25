@@ -159,6 +159,15 @@ Six steps (`csil/linkkeys.csil`'s `Rp` service, lines ~719-786):
    `UserInfo{user_id, domain, display_name, claims}`. Skip it if you only
    need proof of identity.
 
+Each of these four operations replies with status 0 and a `variant`. The
+variant is the success type (`RpSignResponse`, `RpDecryptResponse`,
+`RpVerifyResponse`, `UserInfo`) or `RpError {code, message}`. `code` is an
+`RpErrorCode` number: `not_application_account`=1,
+`application_mismatch`=2, `application_user_limit`=3, `bad_request`=4,
+`upstream_failed`=5, `internal`=6. The RP server gets the application from
+the API-key account, so `sign-request` has no `application_id` field. The
+assertion carries the application in its required `application` field.
+
 **Envelope auth**: all `Rp` operations are authenticated by the CSIL-RPC
 request envelope's optional `auth` field (`csil-rpc-transport.md` §1.1)
 carrying this app's **raw API key — no `Bearer ` prefix** (that convention
@@ -447,15 +456,30 @@ fn textArrayFromValue(allocator: std.mem.Allocator, v: cbor.Value) ![][]const u8
 
 // RequestedClaim / ClaimRequest (csil/linkkeys.csil lines ~243-258)
 
+/// `ClaimValueType`. On the wire, a CSIL enum is an unsigned integer, not
+/// the label text.
+pub const ClaimValueType = enum(u64) {
+    text = 1,
+    url = 2,
+    email = 3,
+    bool = 4,
+    int = 5,
+    float = 6,
+    decimal = 7,
+    date = 8,
+    timestamp = 9,
+    opaque_value = 10,
+};
+
 pub const RequestedClaim = struct {
     claim_type: []const u8,
-    datatype: []const u8,
+    datatype: ClaimValueType,
 };
 
 fn requestedClaimToValue(allocator: std.mem.Allocator, v: RequestedClaim) !cbor.Value {
     const entries = try allocator.alloc(cbor.Entry, 2);
     entries[0] = .{ .key = cbor.text("claim_type"), .value = cbor.text(v.claim_type) };
-    entries[1] = .{ .key = cbor.text("datatype"), .value = cbor.text(v.datatype) };
+    entries[1] = .{ .key = cbor.text("datatype"), .value = cbor.uint(@intFromEnum(v.datatype)) };
     return cbor.mapVal(entries);
 }
 
@@ -514,7 +538,10 @@ pub fn decodeRpSignResponse(allocator: std.mem.Allocator, bytes: []const u8) !Rp
 `RpDecryptRequest`/`RpDecryptResponse` and `RpUserInfoRequest` follow the
 identical trivial shape (one or three plain text fields; the full source has
 them). `IdentityAssertion` and `RpVerifyResponse` are the more interesting
-ones — a nested struct and a required text-array field:
+ones — a nested struct, a required text-array field, two `timestamp`
+fields, and the required `application` field. A CSIL `timestamp` is CBOR
+tag 0 that wraps RFC 3339 text in UTC. `lrp.types.requireTimestamp` reads
+it: it refuses a value without tag 0 and text that is not RFC 3339.
 
 ```zig
 // IdentityAssertion (csil/linkkeys.csil lines ~377-390)
@@ -528,6 +555,8 @@ pub const IdentityAssertion = struct {
     expires_at: []const u8,
     authorized_claims: []const []const u8,
     display_name: ?[]const u8 = null,
+    /// The application principal of the login. Required.
+    application: lrp.act_as.ApplicationRef,
 };
 
 fn identityAssertionFromValue(allocator: std.mem.Allocator, v: cbor.Value) !IdentityAssertion {
@@ -536,10 +565,11 @@ fn identityAssertionFromValue(allocator: std.mem.Allocator, v: cbor.Value) !Iden
         .domain = try cbor.asText(try cbor.require(v, "domain")),
         .audience = try cbor.asText(try cbor.require(v, "audience")),
         .nonce = try cbor.asText(try cbor.require(v, "nonce")),
-        .issued_at = try cbor.asText(try cbor.require(v, "issued_at")),
-        .expires_at = try cbor.asText(try cbor.require(v, "expires_at")),
+        .issued_at = try lrp.types.requireTimestamp(v, "issued_at"),
+        .expires_at = try lrp.types.requireTimestamp(v, "expires_at"),
         .authorized_claims = try textArrayFromValue(allocator, try cbor.require(v, "authorized_claims")),
         .display_name = if (cbor.mapGet(v, "display_name")) |x| try cbor.asText(x) else null,
+        .application = try lrp.act_as.applicationRefFromValue(try cbor.require(v, "application")),
     };
 }
 
@@ -688,15 +718,41 @@ pub fn rpcStatusError(code: i64) anyerror {
     };
 }
 
+/// `RpErrorCode` (csil/linkkeys.csil). On the wire it is an unsigned
+/// integer.
+pub fn rpErrorFromCode(code: u64) anyerror {
+    return switch (code) {
+        1 => error.RpNotApplicationAccount,
+        2 => error.RpApplicationMismatch,
+        3 => error.RpApplicationUserLimit,
+        4 => error.RpBadRequest,
+        5 => error.RpUpstreamFailed,
+        6 => error.RpInternal,
+        else => error.RpUnknownError,
+    };
+}
+
 /// One API-key-authenticated CSIL-RPC call to the Rp service over an
 /// already-established (pinned-TLS, in production) Conn.
-pub fn call(allocator: std.mem.Allocator, conn: connmod.Conn, api_key: []const u8, op: []const u8, payload: []const u8) ![]const u8 {
+///
+/// The Rp ops `sign-request`, `decrypt-token`, `verify-assertion`, and
+/// `userinfo-fetch` reply with status 0 and one of two typed arms: the
+/// success type (`expected_variant`) or `RpError { code, message }`. Check
+/// `variant` before you decode `payload`. Do not log `message` without
+/// review: it is server text.
+pub fn call(allocator: std.mem.Allocator, conn: connmod.Conn, api_key: []const u8, op: []const u8, payload: []const u8, expected_variant: []const u8) ![]const u8 {
     const req_bytes = try encodeRpcRequestAuth(allocator, "Rp", op, payload, api_key);
     try writeFramed(conn, req_bytes);
 
     const resp_bytes = try readFramed(allocator, conn, max_frame_size) orelse return error.ConnectionClosed;
     const resp = try lrp.rpc.decodeRpcResponse(allocator, resp_bytes);
     if (resp.status != 0) return rpcStatusError(resp.status);
+    const variant = resp.variant orelse return error.RpcMissingVariant;
+    if (std.mem.eql(u8, variant, "RpError")) {
+        const rp_error = try cbor.decode(allocator, resp.payload);
+        return rpErrorFromCode(try cbor.asU64(try cbor.require(rp_error, "code")));
+    }
+    if (!std.mem.eql(u8, variant, expected_variant)) return error.RpcUnexpectedVariant;
     return resp.payload;
 }
 ```
@@ -971,23 +1027,23 @@ pub fn tlsOpenSslDial(allocator: std.mem.Allocator, cfg: RpConfig, out: *tls_ope
     return out.conn();
 }
 
-pub fn rpCall(allocator: std.mem.Allocator, cfg: RpConfig, secure_dial: SecureDial, op: []const u8, payload: []const u8) ![]const u8 {
+pub fn rpCall(allocator: std.mem.Allocator, cfg: RpConfig, secure_dial: SecureDial, op: []const u8, payload: []const u8, expected_variant: []const u8) ![]const u8 {
     var tls_conn: tls_openssl.TlsConn = .{};
     const conn = try secure_dial(allocator, cfg, &tls_conn);
     defer conn.close();
-    return envelope.call(allocator, conn, cfg.api_key, op, payload);
+    return envelope.call(allocator, conn, cfg.api_key, op, payload, expected_variant);
 }
 
 pub fn signRequest(allocator: std.mem.Allocator, cfg: RpConfig, secure_dial: SecureDial, callback_url: []const u8, nonce: []const u8) ![]const u8 {
     const payload = try rp_types.encodeRpSignRequest(allocator, .{ .callback_url = callback_url, .nonce = nonce });
-    const resp_bytes = try rpCall(allocator, cfg, secure_dial, "sign-request", payload);
+    const resp_bytes = try rpCall(allocator, cfg, secure_dial, "sign-request", payload, "RpSignResponse");
     const resp = try rp_types.decodeRpSignResponse(allocator, resp_bytes);
     return resp.signed_request;
 }
 
 pub fn decryptToken(allocator: std.mem.Allocator, cfg: RpConfig, secure_dial: SecureDial, encrypted_token: []const u8) ![]const u8 {
     const payload = try rp_types.encodeRpDecryptRequest(allocator, .{ .encrypted_token = encrypted_token });
-    const resp_bytes = try rpCall(allocator, cfg, secure_dial, "decrypt-token", payload);
+    const resp_bytes = try rpCall(allocator, cfg, secure_dial, "decrypt-token", payload, "RpDecryptResponse");
     const resp = try rp_types.decodeRpDecryptResponse(allocator, resp_bytes);
     return resp.signed_assertion;
 }
@@ -997,13 +1053,13 @@ pub fn decryptToken(allocator: std.mem.Allocator, cfg: RpConfig, secure_dial: Se
 /// trustworthy.
 pub fn verifyAssertion(allocator: std.mem.Allocator, cfg: RpConfig, secure_dial: SecureDial, signed_assertion: []const u8, expected_domain: []const u8) !rp_types.RpVerifyResponse {
     const payload = try rp_types.encodeRpVerifyRequest(allocator, .{ .signed_assertion = signed_assertion, .expected_domain = expected_domain });
-    const resp_bytes = try rpCall(allocator, cfg, secure_dial, "verify-assertion", payload);
+    const resp_bytes = try rpCall(allocator, cfg, secure_dial, "verify-assertion", payload, "RpVerifyResponse");
     return rp_types.decodeRpVerifyResponse(allocator, resp_bytes);
 }
 
 pub fn userInfoFetch(allocator: std.mem.Allocator, cfg: RpConfig, secure_dial: SecureDial, token: []const u8, api_base: []const u8, domain: []const u8) !rp_types.UserInfo {
     const payload = try rp_types.encodeRpUserInfoRequest(allocator, .{ .token = token, .api_base = api_base, .domain = domain });
-    const resp_bytes = try rpCall(allocator, cfg, secure_dial, "userinfo-fetch", payload);
+    const resp_bytes = try rpCall(allocator, cfg, secure_dial, "userinfo-fetch", payload, "UserInfo");
     return rp_types.decodeUserInfo(allocator, resp_bytes);
 }
 

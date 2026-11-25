@@ -74,8 +74,8 @@ class ActAsTest {
             scopeSetCbor = JHex.decode(gi.get("scope_set_signed_cbor_hex").asString()),
             callbackUrl = gi.get("callback_url").asString(),
             nonce = gi.get("nonce").asString(),
-            requestedAt = gi.get("requested_at").asString(),
-            expiresAt = gi.get("expires_at").asString(),
+            requestedAt = Fixtures.time(gi.get("requested_at").asString()),
+            expiresAt = Fixtures.time(gi.get("expires_at").asString()),
             requestedLifetimeSeconds = optLong(gi, "requested_lifetime_seconds"),
             requestedRenewalWindowSeconds = optLong(gi, "requested_renewal_window_seconds"),
         )
@@ -87,8 +87,8 @@ class ActAsTest {
         val signedRefresh = signActAsRefreshRequest(
             identity,
             grantId = ri.get("grant_id").asString(),
-            requestedAt = ri.get("requested_at").asString(),
-            expiresAt = ri.get("expires_at").asString(),
+            requestedAt = Fixtures.time(ri.get("requested_at").asString()),
+            expiresAt = Fixtures.time(ri.get("expires_at").asString()),
             nonce = ri.get("nonce").asString(),
         )
         assertEquals(r.get("signed_cbor_hex").asString(), JHex.encode(signedRefresh))
@@ -143,7 +143,7 @@ class ActAsTest {
         val request = JCodec.decodeActAsGrantRequest(signed.request())
         assertEquals(identity.fingerprint, request.grantee().localRpDescriptorFingerprint())
         assertEquals(result.pending.nonce, request.nonce())
-        assertEquals("2026-10-06T12:04:00Z", request.expiresAt())
+        assertEquals(Instant.parse("2026-10-06T12:04:00Z"), request.expiresAt())
         assertEquals(1800L, request.requestedLifetimeSeconds())
         assertEquals(600L, request.requestedRenewalWindowSeconds())
         assertArrayEquals(scopeSetCbor(), JCodec.encodeSignedActAsScopeSet(request.scopeSet()))
@@ -205,10 +205,10 @@ class ActAsTest {
                 ),
             ),
             "approved_scope" to JCbor.varray(listOf(JCbor.vtext("read"))),
-            "issued_at" to JCbor.vtext("2026-10-06T12:00:00Z"),
-            "expires_at" to JCbor.vtext("2026-10-06T13:00:00Z"),
-            "series_issued_at" to JCbor.vtext("2026-10-06T12:00:00Z"),
-            "renewable_until" to JCbor.vtext("2026-10-06T13:00:00Z"),
+            "issued_at" to JCbor.vtimestamp(Instant.parse("2026-10-06T12:00:00Z")),
+            "expires_at" to JCbor.vtimestamp(Instant.parse("2026-10-06T13:00:00Z")),
+            "series_issued_at" to JCbor.vtimestamp(Instant.parse("2026-10-06T12:00:00Z")),
+            "renewable_until" to JCbor.vtimestamp(Instant.parse("2026-10-06T13:00:00Z")),
         )
         return JCodec.encodeSignedActAsGrant(
             JTypes.SignedActAsGrant(
@@ -287,7 +287,7 @@ class ActAsTest {
         assertEquals("grant-1", request.grantId())
         assertEquals(identity.fingerprint, request.grantee().localRpDescriptorFingerprint())
         assertNull(request.grantee().application())
-        assertEquals("2026-10-06T12:45:00Z", request.expiresAt())
+        assertEquals(Instant.parse("2026-10-06T12:45:00Z"), request.expiresAt())
     }
 
     @Test

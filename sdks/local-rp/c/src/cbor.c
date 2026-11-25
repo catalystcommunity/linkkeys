@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "error.h"
+#include "time_util.h"
 
 /* --------------------------------------------------------------------- */
 /* Writer                                                                 */
@@ -82,6 +83,11 @@ static int write_head(cbor_buf *b, uint8_t major, uint64_t n) {
 
 int cbor_write_uint(cbor_buf *b, uint64_t v) { return write_head(b, 0, v); }
 
+int cbor_write_int(cbor_buf *b, int64_t v) {
+    if (v >= 0) return write_head(b, 0, (uint64_t)v);
+    return write_head(b, 1, (uint64_t)(-(v + 1)));
+}
+
 int cbor_write_text(cbor_buf *b, const char *s, size_t len) {
     if (write_head(b, 3, len) != 0) return -1;
     return cbor_write_raw(b, (const uint8_t *)s, len);
@@ -122,6 +128,32 @@ int cbor_write_tag_head(cbor_buf *b, uint64_t tag) { return write_head(b, 6, tag
 int cbor_write_tag24(cbor_buf *b, const uint8_t *payload, size_t len) {
     if (cbor_write_tag_head(b, 24) != 0) return -1;
     return cbor_write_bytes(b, payload, len);
+}
+
+int cbor_write_timestamp(cbor_buf *b, const char *rfc3339) {
+    if (cbor_write_tag_head(b, 0) != 0) return -1;
+    return cbor_write_text_cstr(b, rfc3339);
+}
+
+static const char *const key_algorithm_labels[] = {"ed25519", "x25519"};
+static const char *const key_usage_labels[] = {"sign", "encrypt", "agree"};
+static const char *const aead_suite_labels[] = {"aes-256-gcm", "chacha20-poly1305"};
+const cbor_enum CBOR_ENUM_KEY_ALGORITHM = {"KeyAlgorithm", key_algorithm_labels, 2};
+const cbor_enum CBOR_ENUM_KEY_USAGE = {"KeyUsage", key_usage_labels, 3};
+const cbor_enum CBOR_ENUM_AEAD_SUITE = {"AeadSuite", aead_suite_labels, 2};
+
+uint64_t cbor_enum_number(const cbor_enum *e, const char *label) {
+    if (label == NULL) return 0;
+    for (size_t i = 0; i < e->count; i++) {
+        if (strcmp(e->labels[i], label) == 0) return (uint64_t)i + 1;
+    }
+    return 0;
+}
+
+int cbor_write_enum(cbor_buf *b, const cbor_enum *e, const char *label) {
+    uint64_t n = cbor_enum_number(e, label);
+    if (n == 0) return -1;
+    return cbor_write_uint(b, n);
 }
 
 static int compare_encoded_keys(const void *pa, const void *pb) {
@@ -481,6 +513,58 @@ int cbor_as_bytes(const cbor_value *v, lrp_bytes *out, lrp_error *err) {
     memcpy(out->data, v->bytes, v->bytes_len);
     out->len = v->bytes_len;
     return 0;
+}
+
+int cbor_as_timestamp(const cbor_value *v, lrp_str *out, lrp_error *err) {
+    if (v == NULL || v->type != CBOR_T_TAG || v->tag != 0) {
+        return lrp_fail(err, LRP_ERR_DECODE, "CBOR: expected tag 0 timestamp");
+    }
+    const cbor_value *inner = v->tag_inner;
+    if (inner == NULL || inner->type != CBOR_T_TEXT ||
+        strlen((const char *)inner->bytes) != inner->bytes_len) {
+        return lrp_fail(err, LRP_ERR_DECODE, "CBOR: timestamp content must be text");
+    }
+    int64_t unused;
+    if (lrp_parse_rfc3339((const char *)inner->bytes, &unused, err) != 0) return -1;
+    return cbor_as_text(inner, out, err);
+}
+
+int cbor_get_timestamp(const cbor_value *map, const char *key, lrp_str *out, lrp_error *err) {
+    const cbor_value *v = cbor_map_get(map, key);
+    if (v == NULL) return lrp_fail(err, LRP_ERR_DECODE, "CBOR: missing required field '%s'", key);
+    if (cbor_as_timestamp(v, out, err) != 0) {
+        return lrp_fail(err, LRP_ERR_DECODE, "CBOR: field '%s' is not a valid timestamp", key);
+    }
+    return 0;
+}
+
+int cbor_get_timestamp_opt(const cbor_value *map, const char *key, lrp_str *out, lrp_error *err) {
+    out->data = NULL;
+    const cbor_value *v = cbor_map_get(map, key);
+    if (v == NULL || v->type == CBOR_T_NULL) return 0;
+    if (cbor_as_timestamp(v, out, err) != 0) {
+        return lrp_fail(err, LRP_ERR_DECODE, "CBOR: field '%s' is not a valid timestamp", key);
+    }
+    return 0;
+}
+
+int cbor_as_enum(const cbor_value *v, const cbor_enum *e, lrp_str *out, lrp_error *err) {
+    if (v == NULL || v->type != CBOR_T_UINT || v->uint_val == 0 || v->uint_val > e->count) {
+        return lrp_fail(err, LRP_ERR_DECODE, "CBOR: expected a known %s number", e->name);
+    }
+    const char *label = e->labels[v->uint_val - 1];
+    size_t n = strlen(label);
+    out->data = (char *)malloc(n + 1);
+    if (out->data == NULL) return lrp_fail(err, LRP_ERR_OUT_OF_MEMORY, "CBOR: out of memory");
+    memcpy(out->data, label, n + 1);
+    return 0;
+}
+
+int cbor_get_enum(const cbor_value *map, const char *key, const cbor_enum *e, lrp_str *out,
+                  lrp_error *err) {
+    const cbor_value *v = cbor_map_get(map, key);
+    if (v == NULL) return lrp_fail(err, LRP_ERR_DECODE, "CBOR: missing required field '%s'", key);
+    return cbor_as_enum(v, e, out, err);
 }
 
 int cbor_get_text(const cbor_value *map, const char *key, lrp_str *out, lrp_error *err) {

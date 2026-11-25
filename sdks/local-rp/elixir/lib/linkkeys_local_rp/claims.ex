@@ -57,23 +57,35 @@ defmodule LinkkeysLocalRp.Claims do
     # attestor for THIS signature — is bound per-signature.
     subject = "#{user_id}@#{subject_domain}"
 
-    Cbor.encode([
-      @claim_payload_tag,
-      claim_id,
-      claim_type,
-      Cbor.bytes(claim_value),
-      subject,
-      signing_domain,
-      expires_at,
-      attested_at
-    ])
+    # Times in this tuple are whole Unix seconds as CBOR integers. A time
+    # with a fraction of a second cannot be signed, so the payload cannot
+    # be built and verification fails closed (no rounding).
+    with {:ok, expires} <- signed_seconds_opt(expires_at),
+         {:ok, attested} <- Timeutil.signed_seconds(attested_at) do
+      {:ok,
+       Cbor.encode([
+         @claim_payload_tag,
+         claim_id,
+         claim_type,
+         Cbor.bytes(claim_value),
+         subject,
+         signing_domain,
+         expires,
+         attested
+       ])}
+    else
+      :error -> {:error, :fractional_signed_time}
+    end
   end
+
+  defp signed_seconds_opt(nil), do: {:ok, nil}
+  defp signed_seconds_opt(dt), do: Timeutil.signed_seconds(dt)
 
   @doc "Sign a claim with one or more keys, producing a `Claim` carrying one `ClaimSignature` per signer. IDP-side operation; see module docs."
   def sign_claim(%ClaimSpec{} = spec, signers) when is_list(signers) do
     signatures =
       Enum.map(signers, fn %ClaimSigner{} = signer ->
-        payload =
+        {:ok, payload} =
           claim_sign_payload(
             spec.claim_id,
             spec.claim_type,
@@ -137,21 +149,9 @@ defmodule LinkkeysLocalRp.Claims do
   end
 
   defp key_valid_at(key, now) do
-    case safe_parse(key.expires_at) do
-      {:ok, expires} ->
-        if DateTime.compare(now, expires) == :gt,
-          do: {:error, {:key_expired, key.key_id}},
-          else: :ok
-
-      {:error, _} ->
-        {:error, {:key_expired, key.key_id}}
-    end
-  end
-
-  defp safe_parse(s) do
-    {:ok, Timeutil.parse_rfc3339(s)}
-  rescue
-    _ -> {:error, :bad_timestamp}
+    if DateTime.compare(now, key.expires_at) == :gt,
+      do: {:error, {:key_expired, key.key_id}},
+      else: :ok
   end
 
   @doc "Every distinct domain that signed must contribute at least one signature from a currently-valid key of that domain."
@@ -172,7 +172,7 @@ defmodule LinkkeysLocalRp.Claims do
         {:error, {:domain_keys_unavailable, signing_domain}}
 
       %DomainKeySet{keys: keys} ->
-        payload =
+        payload_result =
           claim_sign_payload(
             claim.claim_id,
             claim.claim_type,
@@ -186,9 +186,9 @@ defmodule LinkkeysLocalRp.Claims do
 
         sigs_for_domain = Enum.filter(claim.signatures, fn s -> s.domain == signing_domain end)
 
-        case verify_any(sigs_for_domain, payload, keys, now) do
-          :ok -> do_verify_domains(rest, claim, subject_domain, domain_keys, now)
-          error -> error
+        with {:ok, payload} <- payload_result,
+             :ok <- verify_any(sigs_for_domain, payload, keys, now) do
+          do_verify_domains(rest, claim, subject_domain, domain_keys, now)
         end
     end
   end
@@ -210,13 +210,7 @@ defmodule LinkkeysLocalRp.Claims do
           {:error, :revoked}
 
         claim.expires_at != nil ->
-          case safe_parse(claim.expires_at) do
-            {:ok, expires} ->
-              if DateTime.compare(now, expires) == :gt, do: {:error, :expired}, else: :ok
-
-            {:error, _} ->
-              {:error, :bad_expiry}
-          end
+          if DateTime.compare(now, claim.expires_at) == :gt, do: {:error, :expired}, else: :ok
 
         true ->
           :ok

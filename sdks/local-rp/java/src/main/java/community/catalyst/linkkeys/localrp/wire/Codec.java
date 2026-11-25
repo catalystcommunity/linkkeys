@@ -75,11 +75,11 @@ public final class Codec {
         Cbor.putText(e, "key_id", v.keyId());
         Cbor.putBytes(e, "public_key", v.publicKey());
         Cbor.putText(e, "fingerprint", v.fingerprint());
-        Cbor.putText(e, "algorithm", v.algorithm());
-        Cbor.putText(e, "key_usage", v.keyUsage());
-        Cbor.putText(e, "created_at", v.createdAt());
-        Cbor.putText(e, "expires_at", v.expiresAt());
-        Cbor.putOptText(e, "revoked_at", v.revokedAt());
+        e.add(Cbor.entry("algorithm", Cbor.KEY_ALGORITHM.encode(v.algorithm())));
+        e.add(Cbor.entry("key_usage", Cbor.KEY_USAGE.encode(v.keyUsage())));
+        Cbor.putTimestamp(e, "created_at", v.createdAt());
+        Cbor.putTimestamp(e, "expires_at", v.expiresAt());
+        Cbor.putOptTimestamp(e, "revoked_at", v.revokedAt());
         Cbor.putOptText(e, "signed_by_key_id", v.signedByKeyId());
         Cbor.putOptBytes(e, "key_signature", v.keySignature());
         return Cbor.vmap(e);
@@ -90,11 +90,11 @@ public final class Codec {
                 Cbor.requireText(m, "key_id"),
                 Cbor.requireBytes(m, "public_key"),
                 Cbor.requireText(m, "fingerprint"),
-                Cbor.requireText(m, "algorithm"),
-                Cbor.requireText(m, "key_usage"),
-                Cbor.requireText(m, "created_at"),
-                Cbor.requireText(m, "expires_at"),
-                Cbor.optText(m, "revoked_at"),
+                Cbor.KEY_ALGORITHM.decode(Cbor.require(m, "algorithm")),
+                Cbor.KEY_USAGE.decode(Cbor.require(m, "key_usage")),
+                Cbor.requireTimestamp(m, "created_at"),
+                Cbor.requireTimestamp(m, "expires_at"),
+                Cbor.optTimestamp(m, "revoked_at"),
                 Cbor.optText(m, "signed_by_key_id"),
                 Cbor.optBytes(m, "key_signature"));
     }
@@ -133,13 +133,13 @@ public final class Codec {
 
     public static byte[] encodeGetRevocationsRequest(GetRevocationsRequest v) {
         List<Entry> e = new ArrayList<>();
-        Cbor.putOptText(e, "since", v.since());
+        Cbor.putOptTimestamp(e, "since", v.since());
         return Cbor.encode(Cbor.vmap(e));
     }
 
     public static GetRevocationsRequest decodeGetRevocationsRequest(byte[] data) {
         Value m = Cbor.decode(data);
-        return new GetRevocationsRequest(Cbor.optText(m, "since"));
+        return new GetRevocationsRequest(Cbor.optTimestamp(m, "since"));
     }
 
     static Value encClaimSignature(ClaimSignature v) {
@@ -161,7 +161,7 @@ public final class Codec {
         List<Entry> e = new ArrayList<>();
         Cbor.putText(e, "target_key_id", v.targetKeyId());
         Cbor.putText(e, "target_fingerprint", v.targetFingerprint());
-        Cbor.putText(e, "revoked_at", v.revokedAt());
+        Cbor.putTimestamp(e, "revoked_at", v.revokedAt());
         e.add(Cbor.entry("signatures", encArray(v.signatures(), Codec::encClaimSignature)));
         return Cbor.vmap(e);
     }
@@ -170,7 +170,7 @@ public final class Codec {
         return new RevocationCertificate(
                 Cbor.requireText(m, "target_key_id"),
                 Cbor.requireText(m, "target_fingerprint"),
-                Cbor.requireText(m, "revoked_at"),
+                Cbor.requireTimestamp(m, "revoked_at"),
                 decArray(Cbor.require(m, "signatures"), Codec::decClaimSignature));
     }
 
@@ -197,10 +197,10 @@ public final class Codec {
         Cbor.putText(e, "claim_type", v.claimType());
         Cbor.putBytes(e, "claim_value", v.claimValue());
         e.add(Cbor.entry("signatures", encArray(v.signatures(), Codec::encClaimSignature)));
-        Cbor.putText(e, "attested_at", v.attestedAt());
-        Cbor.putText(e, "created_at", v.createdAt());
-        Cbor.putOptText(e, "expires_at", v.expiresAt());
-        Cbor.putOptText(e, "revoked_at", v.revokedAt());
+        Cbor.putTimestamp(e, "attested_at", v.attestedAt());
+        Cbor.putTimestamp(e, "created_at", v.createdAt());
+        Cbor.putOptTimestamp(e, "expires_at", v.expiresAt());
+        Cbor.putOptTimestamp(e, "revoked_at", v.revokedAt());
         return Cbor.vmap(e);
     }
 
@@ -211,10 +211,10 @@ public final class Codec {
                 Cbor.requireText(m, "claim_type"),
                 Cbor.requireBytes(m, "claim_value"),
                 decArray(Cbor.require(m, "signatures"), Codec::decClaimSignature),
-                Cbor.requireText(m, "attested_at"),
-                Cbor.requireText(m, "created_at"),
-                Cbor.optText(m, "expires_at"),
-                Cbor.optText(m, "revoked_at"));
+                Cbor.requireTimestamp(m, "attested_at"),
+                Cbor.requireTimestamp(m, "created_at"),
+                Cbor.optTimestamp(m, "expires_at"),
+                Cbor.optTimestamp(m, "revoked_at"));
     }
 
     public static byte[] encodeClaim(Claim v) {
@@ -238,9 +238,9 @@ public final class Codec {
         Cbor.putText(e, "fingerprint", v.fingerprint());
         e.add(Cbor.entry(
                 "supported_suites",
-                Cbor.varray(v.supportedSuites().stream().<Value>map(Cbor::vtext).toList())));
-        Cbor.putText(e, "created_at", v.createdAt());
-        Cbor.putText(e, "expires_at", v.expiresAt());
+                Cbor.varray(v.supportedSuites().stream().map(Cbor.AEAD_SUITE::encode).toList())));
+        Cbor.putTimestamp(e, "created_at", v.createdAt());
+        Cbor.putTimestamp(e, "expires_at", v.expiresAt());
         return Cbor.vmap(e);
     }
 
@@ -252,9 +252,9 @@ public final class Codec {
                 Cbor.requireBytes(m, "signing_public_key"),
                 Cbor.requireBytes(m, "encryption_public_key"),
                 Cbor.requireText(m, "fingerprint"),
-                suites.stream().map(Cbor::asText).toList(),
-                Cbor.requireText(m, "created_at"),
-                Cbor.requireText(m, "expires_at"));
+                suites.stream().map(Cbor.AEAD_SUITE::decode).toList(),
+                Cbor.requireTimestamp(m, "created_at"),
+                Cbor.requireTimestamp(m, "expires_at"));
     }
 
     public static byte[] encodeLocalRpDescriptor(LocalRpDescriptor v) {
@@ -301,8 +301,8 @@ public final class Codec {
         e.add(Cbor.entry(
                 "required_claims",
                 Cbor.varray(v.requiredClaims().stream().<Value>map(Cbor::vtext).toList())));
-        Cbor.putText(e, "issued_at", v.issuedAt());
-        Cbor.putText(e, "expires_at", v.expiresAt());
+        Cbor.putTimestamp(e, "issued_at", v.issuedAt());
+        Cbor.putTimestamp(e, "expires_at", v.expiresAt());
         return Cbor.vmap(e);
     }
 
@@ -314,8 +314,8 @@ public final class Codec {
                 Cbor.requireBytes(m, "state"),
                 Cbor.asArray(Cbor.require(m, "requested_claims")).stream().map(Cbor::asText).toList(),
                 Cbor.asArray(Cbor.require(m, "required_claims")).stream().map(Cbor::asText).toList(),
-                Cbor.requireText(m, "issued_at"),
-                Cbor.requireText(m, "expires_at"));
+                Cbor.requireTimestamp(m, "issued_at"),
+                Cbor.requireTimestamp(m, "expires_at"));
     }
 
     public static byte[] encodeLocalRpLoginRequest(LocalRpLoginRequest v) {
@@ -354,11 +354,11 @@ public final class Codec {
         Cbor.putText(e, "fingerprint", v.fingerprint());
         Cbor.putBytes(e, "nonce", v.nonce());
         Cbor.putBytes(e, "state", v.state());
-        Cbor.putText(e, "suite", v.suite());
+        e.add(Cbor.entry("suite", Cbor.AEAD_SUITE.encode(v.suite())));
         Cbor.putBytes(e, "ephemeral_public_key", v.ephemeralPublicKey());
         Cbor.putBytes(e, "aead_nonce", v.aeadNonce());
-        Cbor.putText(e, "issued_at", v.issuedAt());
-        Cbor.putText(e, "expires_at", v.expiresAt());
+        Cbor.putTimestamp(e, "issued_at", v.issuedAt());
+        Cbor.putTimestamp(e, "expires_at", v.expiresAt());
         return Cbor.vmap(e);
     }
 
@@ -367,11 +367,11 @@ public final class Codec {
                 Cbor.requireText(m, "fingerprint"),
                 Cbor.requireBytes(m, "nonce"),
                 Cbor.requireBytes(m, "state"),
-                Cbor.requireText(m, "suite"),
+                Cbor.AEAD_SUITE.decode(Cbor.require(m, "suite")),
                 Cbor.requireBytes(m, "ephemeral_public_key"),
                 Cbor.requireBytes(m, "aead_nonce"),
-                Cbor.requireText(m, "issued_at"),
-                Cbor.requireText(m, "expires_at"));
+                Cbor.requireTimestamp(m, "issued_at"),
+                Cbor.requireTimestamp(m, "expires_at"));
     }
 
     public static byte[] encodeLocalRpCallbackHeader(LocalRpCallbackHeader v) {
@@ -414,8 +414,8 @@ public final class Codec {
         Cbor.putText(e, "callback_url", v.callbackUrl());
         Cbor.putBytes(e, "nonce", v.nonce());
         Cbor.putBytes(e, "state", v.state());
-        Cbor.putText(e, "issued_at", v.issuedAt());
-        Cbor.putText(e, "expires_at", v.expiresAt());
+        Cbor.putTimestamp(e, "issued_at", v.issuedAt());
+        Cbor.putTimestamp(e, "expires_at", v.expiresAt());
         return Cbor.vmap(e);
     }
 
@@ -428,8 +428,8 @@ public final class Codec {
                 Cbor.requireText(m, "callback_url"),
                 Cbor.requireBytes(m, "nonce"),
                 Cbor.requireBytes(m, "state"),
-                Cbor.requireText(m, "issued_at"),
-                Cbor.requireText(m, "expires_at"));
+                Cbor.requireTimestamp(m, "issued_at"),
+                Cbor.requireTimestamp(m, "expires_at"));
     }
 
     public static byte[] encodeLocalRpCallbackPayload(LocalRpCallbackPayload v) {
@@ -471,7 +471,7 @@ public final class Codec {
         List<Entry> e = new ArrayList<>();
         Cbor.putBytes(e, "claim_ticket", v.claimTicket());
         Cbor.putText(e, "fingerprint", v.fingerprint());
-        Cbor.putText(e, "issued_at", v.issuedAt());
+        Cbor.putTimestamp(e, "issued_at", v.issuedAt());
         return Cbor.vmap(e);
     }
 
@@ -479,7 +479,7 @@ public final class Codec {
         return new LocalRpTicketRedemptionRequest(
                 Cbor.requireBytes(m, "claim_ticket"),
                 Cbor.requireText(m, "fingerprint"),
-                Cbor.requireText(m, "issued_at"));
+                Cbor.requireTimestamp(m, "issued_at"));
     }
 
     public static byte[] encodeLocalRpTicketRedemptionRequest(LocalRpTicketRedemptionRequest v) {
@@ -519,7 +519,7 @@ public final class Codec {
         Cbor.putText(e, "user_id", v.userId());
         Cbor.putText(e, "user_domain", v.userDomain());
         e.add(Cbor.entry("claims", encArray(v.claims(), Codec::encClaim)));
-        Cbor.putText(e, "ticket_expires_at", v.ticketExpiresAt());
+        Cbor.putTimestamp(e, "ticket_expires_at", v.ticketExpiresAt());
         return Cbor.vmap(e);
     }
 
@@ -528,7 +528,7 @@ public final class Codec {
                 Cbor.requireText(m, "user_id"),
                 Cbor.requireText(m, "user_domain"),
                 decArray(Cbor.require(m, "claims"), Codec::decClaim),
-                Cbor.requireText(m, "ticket_expires_at"));
+                Cbor.requireTimestamp(m, "ticket_expires_at"));
     }
 
     public static byte[] encodeLocalRpTicketRedemptionResponse(LocalRpTicketRedemptionResponse v) {
@@ -670,10 +670,10 @@ public final class Codec {
                 decApplicationRef(Cbor.require(m, "audience")),
                 decSignedActAsScopeSet(Cbor.require(m, "scope_set")),
                 Cbor.asArray(Cbor.require(m, "approved_scope")).stream().map(Cbor::asText).toList(),
-                Cbor.requireText(m, "issued_at"),
-                Cbor.requireText(m, "expires_at"),
-                Cbor.requireText(m, "series_issued_at"),
-                Cbor.requireText(m, "renewable_until"),
+                Cbor.requireTimestamp(m, "issued_at"),
+                Cbor.requireTimestamp(m, "expires_at"),
+                Cbor.requireTimestamp(m, "series_issued_at"),
+                Cbor.requireTimestamp(m, "renewable_until"),
                 Cbor.optText(m, "device_fingerprint"));
     }
 
@@ -697,8 +697,8 @@ public final class Codec {
         }
         Cbor.putText(e, "callback_url", v.callbackUrl());
         Cbor.putText(e, "nonce", v.nonce());
-        Cbor.putText(e, "requested_at", v.requestedAt());
-        Cbor.putText(e, "expires_at", v.expiresAt());
+        Cbor.putTimestamp(e, "requested_at", v.requestedAt());
+        Cbor.putTimestamp(e, "expires_at", v.expiresAt());
         return Cbor.vmap(e);
     }
 
@@ -710,8 +710,8 @@ public final class Codec {
                 optInt(m, "requested_renewal_window_seconds"),
                 Cbor.requireText(m, "callback_url"),
                 Cbor.requireText(m, "nonce"),
-                Cbor.requireText(m, "requested_at"),
-                Cbor.requireText(m, "expires_at"));
+                Cbor.requireTimestamp(m, "requested_at"),
+                Cbor.requireTimestamp(m, "expires_at"));
     }
 
     public static byte[] encodeActAsGrantRequest(ActAsGrantRequest v) {
@@ -738,8 +738,8 @@ public final class Codec {
         List<Entry> e = new ArrayList<>();
         Cbor.putText(e, "grant_id", v.grantId());
         e.add(Cbor.entry("grantee", encGranteeRef(v.grantee())));
-        Cbor.putText(e, "requested_at", v.requestedAt());
-        Cbor.putText(e, "expires_at", v.expiresAt());
+        Cbor.putTimestamp(e, "requested_at", v.requestedAt());
+        Cbor.putTimestamp(e, "expires_at", v.expiresAt());
         Cbor.putText(e, "nonce", v.nonce());
         return Cbor.encode(Cbor.vmap(e));
     }
@@ -749,8 +749,8 @@ public final class Codec {
         return new ActAsRefreshRequest(
                 Cbor.requireText(m, "grant_id"),
                 decGranteeRef(Cbor.require(m, "grantee")),
-                Cbor.requireText(m, "requested_at"),
-                Cbor.requireText(m, "expires_at"),
+                Cbor.requireTimestamp(m, "requested_at"),
+                Cbor.requireTimestamp(m, "expires_at"),
                 Cbor.requireText(m, "nonce"));
     }
 
@@ -801,7 +801,7 @@ public final class Codec {
         Cbor.putBytes(e, "grant_hash", v.grantHash());
         e.add(Cbor.entry("audience", encApplicationRef(v.audience())));
         Cbor.putBytes(e, "request_digest", v.requestDigest());
-        Cbor.putText(e, "presented_at", v.presentedAt());
+        Cbor.putTimestamp(e, "presented_at", v.presentedAt());
         Cbor.putBytes(e, "nonce", v.nonce());
         return Cbor.encode(Cbor.vmap(e));
     }
@@ -812,7 +812,7 @@ public final class Codec {
                 Cbor.requireBytes(m, "grant_hash"),
                 decApplicationRef(Cbor.require(m, "audience")),
                 Cbor.requireBytes(m, "request_digest"),
-                Cbor.requireText(m, "presented_at"),
+                Cbor.requireTimestamp(m, "presented_at"),
                 Cbor.requireBytes(m, "nonce"));
     }
 

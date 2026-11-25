@@ -1,3 +1,12 @@
+/// The account kind label for an account with or without an application id.
+pub fn account_kind(application_id: Option<&str>) -> &'static str {
+    if application_id.is_some() {
+        "application"
+    } else {
+        "human"
+    }
+}
+
 #[cfg(feature = "postgres")]
 pub mod pg {
     use diesel::prelude::*;
@@ -10,11 +19,14 @@ pub mod pg {
         conn: &mut diesel::PgConnection,
         username: &str,
         display_name: &str,
+        application_id: Option<&str>,
     ) -> QueryResult<User> {
         let new_row = NewUserRow {
             id: uuid::Uuid::now_v7(),
             username: username.to_string(),
             display_name: display_name.to_string(),
+            kind: super::account_kind(application_id).to_string(),
+            application_id: application_id.map(str::to_string),
         };
 
         diesel::insert_into(users::table)
@@ -139,11 +151,14 @@ pub mod sqlite {
         conn: &mut diesel::SqliteConnection,
         username: &str,
         display_name: &str,
+        application_id: Option<&str>,
     ) -> QueryResult<User> {
         let new_row = NewUserRow {
             id: uuid::Uuid::now_v7().to_string(),
             username: username.to_string(),
             display_name: display_name.to_string(),
+            kind: super::account_kind(application_id).to_string(),
+            application_id: application_id.map(str::to_string),
         };
         let id = new_row.id.clone();
 

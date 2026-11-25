@@ -22,6 +22,9 @@ object Fixtures {
         return MiniJson.parse(text)
     }
 
+    /** An RFC 3339 vector time as an [java.time.Instant]. */
+    fun time(s: String): java.time.Instant = java.time.OffsetDateTime.parse(s).toInstant()
+
     fun hex(s: String): ByteArray {
         require(s.length % 2 == 0) { "odd-length hex string: $s" }
         val out = ByteArray(s.length / 2)

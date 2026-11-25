@@ -64,6 +64,11 @@ const linkkeys = new RegularRpClient({
 Keep the API key in a secret store. Do not put the API key, an encrypted token,
 or a claim value in a log.
 
+Use an API key of an application account. The RP server uses the account's
+`application_id` for the signed login request. You cannot set the application
+in `beginLogin`. A key of a human account gets the `not_application_account`
+error.
+
 ## Add the backend routes
 
 Adapt these route bodies to your web framework. The login route returns only a
@@ -117,6 +122,39 @@ not globally unique without its domain.
 The result contains only verified claims. Each item has the raw claim and the
 list of verified signing domains. Decode `claim.claimValue` only as the datatype
 for that claim type permits.
+
+### RP errors
+
+The `Rp` operations `sign-request`, `decrypt-token`, `verify-assertion`, and
+`userinfo-fetch` reply with a result or an `RpError`. When the reply is an
+`RpError`, the SDK throws `RpErrorRefusal`. Its `value.code` is one of
+`not_application_account`, `application_mismatch`, `application_user_limit`,
+`bad_request`, `upstream_failed`, or `internal`. For example, the RP server
+sends `application_mismatch` when a token is for a different application of
+the same RP. An unknown reply arm is an error.
+
+```ts
+import { RpErrorRefusal } from "@linkkeys/regular-rp";
+
+try {
+  await linkkeys.completeLogin(input);
+} catch (err) {
+  if (err instanceof RpErrorRefusal && err.value.code === "application_user_limit") {
+    // Tell the user that the application has no space for a new user.
+  }
+  throw err;
+}
+```
+
+A transport status (for example, a failed authentication or a rate limit) is
+an `RpcServerError`, not an `RpErrorRefusal`.
+
+### Times
+
+All protocol times in the API are `Date` values. The SDK signs a time as whole
+Unix seconds. A signed time that has a fraction of a second does not verify:
+claims fail with `ClaimError("bad-timestamp")`, and revocations do not count.
+`nowWholeSeconds()` and `wholeSeconds()` give a time that you can sign.
 
 ## Add the browser login action
 

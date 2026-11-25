@@ -32,9 +32,9 @@ class RevocationsConformanceTest {
                 k.get("fingerprint_hex").asString(),
                 k.get("algorithm").asString(),
                 k.get("key_usage").asString(),
-                k.get("created_at").asString(),
-                k.get("expires_at").asString(),
-                k.getStringOrNull("revoked_at"),
+                Fixtures.time(k.get("created_at").asString()),
+                Fixtures.time(k.get("expires_at").asString()),
+                Fixtures.timeOrNull(k.getStringOrNull("revoked_at")),
                 null,
                 null);
     }
@@ -50,7 +50,7 @@ class RevocationsConformanceTest {
         return new RevocationCertificate(
                 certNode.get("target_key_id").asString(),
                 certNode.get("target_fingerprint").asString(),
-                certNode.get("revoked_at").asString(),
+                Fixtures.time(certNode.get("revoked_at").asString()),
                 signatures);
     }
 

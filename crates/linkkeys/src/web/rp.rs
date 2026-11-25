@@ -1,11 +1,11 @@
 // LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
-use liblinkkeys::timestamp::Rfc3339 as _;
 use rand::Rng;
 use rocket::http::Status;
 use std::env;
 
 use crate::conversions::get_domain_name;
 use crate::db::DbPool;
+use liblinkkeys::generated::types::{ApplicationRef, RpError, RpErrorCode};
 
 /// A core-operation failure: a transport status class plus a message that
 /// names the failed step. The message is wire-safe (no internals, no secrets)
@@ -14,7 +14,19 @@ use crate::db::DbPool;
 #[derive(Debug)]
 pub(crate) struct CoreError {
     pub status: Status,
+    /// The stable code an `Rp` operation with an `RpError` arm sends.
+    pub code: RpErrorCode,
     pub message: String,
+}
+
+impl CoreError {
+    /// The typed `RpError` reply for this failure.
+    pub(crate) fn rp_error(&self) -> RpError {
+        RpError {
+            code: self.code,
+            message: self.message.clone(),
+        }
+    }
 }
 
 /// Server-side fault: log the cause, put the step on the wire (500-class).
@@ -22,6 +34,7 @@ fn core_internal(step: &str, cause: impl std::fmt::Display) -> CoreError {
     log::error!("{step} failed: {cause}");
     CoreError {
         status: Status::InternalServerError,
+        code: RpErrorCode::Internal,
         message: format!("{step} failed on the serving domain"),
     }
 }
@@ -31,6 +44,7 @@ fn core_upstream(step: &str, cause: impl std::fmt::Display) -> CoreError {
     log::error!("{step} failed: {cause}");
     CoreError {
         status: Status::BadGateway,
+        code: RpErrorCode::UpstreamFailed,
         message: format!("{step} failed"),
     }
 }
@@ -39,6 +53,7 @@ fn core_upstream(step: &str, cause: impl std::fmt::Display) -> CoreError {
 fn core_bad_request(message: &str) -> CoreError {
     CoreError {
         status: Status::BadRequest,
+        code: RpErrorCode::BadRequest,
         message: message.to_string(),
     }
 }
@@ -46,6 +61,7 @@ fn core_bad_request(message: &str) -> CoreError {
 fn core_unauthorized(message: &str) -> CoreError {
     CoreError {
         status: Status::Unauthorized,
+        code: RpErrorCode::BadRequest,
         message: message.to_string(),
     }
 }
@@ -53,18 +69,71 @@ fn core_unauthorized(message: &str) -> CoreError {
 fn core_forbidden(message: &str) -> CoreError {
     CoreError {
         status: Status::Forbidden,
+        code: RpErrorCode::BadRequest,
         message: message.to_string(),
+    }
+}
+
+/// A refusal with a stable code an application can act on.
+fn core_refused(code: RpErrorCode, message: &str) -> CoreError {
+    CoreError {
+        status: Status::Forbidden,
+        code,
+        message: message.to_string(),
+    }
+}
+
+/// The application principal of an application account, or the refusal for
+/// any other account.
+pub(crate) fn caller_application(
+    caller: &crate::db::models::User,
+) -> Result<ApplicationRef, CoreError> {
+    match (caller.is_application(), &caller.application_id) {
+        (true, Some(application_id)) => Ok(ApplicationRef {
+            subject_user_id: caller.id.clone(),
+            subject_domain: get_domain_name(),
+            application_id: application_id.clone(),
+        }),
+        _ => Err(core_refused(
+            RpErrorCode::NotApplicationAccount,
+            "the calling account is not an application account",
+        )),
+    }
+}
+
+/// How long a login started with `sign-request` can be finished at
+/// `decrypt-token`.
+const LOGIN_NONCE_TTL_SECONDS: i64 = 3600;
+
+/// The stored form of a login nonce.
+fn login_nonce_hash(nonce: &str) -> [u8; 32] {
+    use sha2::Digest as _;
+    sha2::Sha256::digest(nonce.as_bytes()).into()
+}
+
+/// Refuse an assertion issued for another application of this RP.
+fn check_assertion_application(
+    assertion: &liblinkkeys::generated::types::IdentityAssertion,
+    caller: &ApplicationRef,
+) -> Result<(), CoreError> {
+    if liblinkkeys::act_as::same_application(&assertion.application, caller) {
+        Ok(())
+    } else {
+        Err(core_refused(
+            RpErrorCode::ApplicationMismatch,
+            "the assertion was issued for another application",
+        ))
     }
 }
 
 /// Core of sign-request: build and sign an auth request for the login redirect
 /// using this server's domain key. Used by the `Rp/sign-request` TCP op.
 ///
-/// `caller_user_id` is the API-key account that called. The signed request
-/// names the application principal as an `ApplicationRef`: that account, this
-/// domain, and `req.application_id` (default: the account's username). The
-/// caller can name only applications under its own account. The IDP keys
-/// standing consent by this application and shows its name. The callback may
+/// `caller_user_id` is the API-key account that called. It must be an
+/// application account; the signed request names its application principal
+/// (`ApplicationRef`): that account, this domain, and the account's
+/// administrator-set `application_id`. The application cannot choose it. The
+/// IDP keys standing consent by this application and shows its name. The callback may
 /// be any https URL; this domain's signature authorizes it (see
 /// `services::callback_url`).
 pub(crate) fn sign_request_core(
@@ -86,22 +155,18 @@ pub(crate) fn sign_request_core(
     let caller = pool
         .find_user_by_id(caller_user_id)
         .map_err(|e| core_internal("sign-request: loading the calling account", e))?;
-    let application_id = req.application_id.clone().unwrap_or(caller.username);
-    if !liblinkkeys::application_keys::is_valid_identifier(&application_id) {
-        return Err(core_bad_request(if req.application_id.is_some() {
-            "application_id must be 1-128 characters of letters, digits, '-', '_', and '.'"
-        } else {
-            "the calling account's username is not a valid application_id; send application_id"
-        }));
-    }
     let application = liblinkkeys::generated::types::RelyingPartyApplication {
-        application: liblinkkeys::generated::types::ApplicationRef {
-            subject_user_id: caller.id,
-            subject_domain: get_domain_name(),
-            application_id,
-        },
+        application: caller_application(&caller)?,
         display_name: caller.display_name,
     };
+    // `decrypt-token` admits a user only for a login this application
+    // started, so a forged assertion cannot fill its distinct-user count.
+    pool.insert_rp_login_nonce(
+        &caller.id,
+        &login_nonce_hash(&req.nonce),
+        time::OffsetDateTime::now_utc() + time::Duration::seconds(LOGIN_NONCE_TTL_SECONDS),
+    )
+    .map_err(|e| core_internal("sign-request: recording the login", e))?;
 
     let domain_keys = pool
         .list_active_domain_keys()
@@ -116,7 +181,7 @@ pub(crate) fn sign_request_core(
             .map_err(|e| core_internal("sign-request: decrypting domain key", e))?;
 
     let algorithm =
-        liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm).ok_or_else(|| {
+        crate::conversions::stored_signing_algorithm(&dk.algorithm).ok_or_else(|| {
             core_internal(
                 "sign-request",
                 format!("unsupported algorithm {}", dk.algorithm),
@@ -131,9 +196,9 @@ pub(crate) fn sign_request_core(
         req.requested_claims
             .or_else(|| rp_config.to_claim_request()),
         req.flow_context,
+        application,
     );
     request.authentication_requirements = req.authentication_requirements;
-    request.application = Some(application);
 
     // Attach claims the RP asserts about itself: self-asserted ones signed now
     // with our domain key, plus any pre-signed third-party claims loaded from a
@@ -142,10 +207,7 @@ pub(crate) fn sign_request_core(
     let domain = get_domain_name();
     // Attestation time: signed, so normalize to whole seconds for a
     // byte-identical round-trip through storage (same rule as claim expiry).
-    let attested_at = time::OffsetDateTime::now_utc()
-        .replace_nanosecond(0)
-        .expect("zeroing nanoseconds cannot fail")
-        .to_rfc3339();
+    let attested_at = liblinkkeys::timestamp::now_whole_seconds();
     let mut rp_claims: Vec<liblinkkeys::generated::types::DomainClaim> = rp_config
         .self_claims
         .iter()
@@ -156,7 +218,7 @@ pub(crate) fn sign_request_core(
                     claim_value: c.value.as_bytes(),
                     subject_domain: &domain,
                     expires_at: None,
-                    attested_at: &attested_at,
+                    attested_at,
                 },
                 &[liblinkkeys::claims::ClaimSigner {
                     domain: &domain,
@@ -186,22 +248,90 @@ pub(crate) fn sign_request_core(
 }
 
 /// Core of decrypt-token: decrypt the RP's encrypted callback token with one of
-/// this server's encryption keys. Shared by the web JSON route and the
-/// `Rp/decrypt-token` TCP op.
-pub(crate) fn decrypt_token_core(
+/// this server's encryption keys, for the application account `caller`.
+///
+/// The token must carry an assertion for the caller's own application
+/// (`application_mismatch` otherwise), so one tenant of a shared RP cannot read
+/// another's tokens. The assertion is then verified against the issuing
+/// domain's keys, and its nonce must be one that this application's
+/// `sign-request` recorded and that is still open. Only then is the user
+/// admitted to the application's distinct-user count
+/// (`application_user_limit` when a new user would go over it), and the login
+/// closed. Without both checks, anyone could fill an application's limit with
+/// forged tokens sent to its callback, signed by a domain of their own. An
+/// application cannot skip this step: it holds no domain key.
+pub(crate) async fn decrypt_token_core(
     pool: &DbPool,
+    net: &crate::net::Net,
+    caller: &crate::db::models::User,
     encrypted_token: &str,
 ) -> Result<liblinkkeys::generated::types::RpDecryptResponse, CoreError> {
+    let application = caller_application(caller)?;
+    let plaintext = decrypt_token_plaintext(pool, encrypted_token)?;
+    let signed = liblinkkeys::generated::decode_signed_identity_assertion(&plaintext)
+        .map_err(|_| core_bad_request("decrypt-token: the token holds no identity assertion"))?;
+    let unverified = liblinkkeys::generated::decode_identity_assertion(&signed.assertion)
+        .map_err(|_| core_bad_request("decrypt-token: the token holds no identity assertion"))?;
+    check_assertion_application(&unverified, &application)?;
+
+    let domain_keys = fetch_domain_keys(pool, net, &unverified.domain)
+        .await
+        .map_err(|e| {
+            core_upstream(
+                &format!("decrypt-token: fetching {}'s keys", unverified.domain),
+                e,
+            )
+        })?;
+    let assertion = liblinkkeys::assertions::verify_assertion(&signed, &domain_keys)
+        .map_err(|_| core_bad_request("decrypt-token: the assertion does not verify"))?;
+    check_assertion_application(&assertion, &application)?;
+    let nonce_hash = login_nonce_hash(&assertion.nonce);
+    let now = time::OffsetDateTime::now_utc();
+    if !pool
+        .rp_login_nonce_open(&caller.id, &nonce_hash, now)
+        .map_err(|e| core_internal("decrypt-token: reading the login", e))?
+    {
+        return Err(core_bad_request(
+            "decrypt-token: the assertion is not for an open login this application started",
+        ));
+    }
+
+    let passphrase = env::var("DOMAIN_KEY_PASSPHRASE")
+        .map_err(|_| core_internal("decrypt-token", "DOMAIN_KEY_PASSPHRASE not set"))?;
+    let identity = format!("{}@{}", assertion.user_id, assertion.domain);
+    match crate::services::applications::admit_user(
+        pool,
+        &caller.id,
+        &passphrase,
+        &identity,
+        time::OffsetDateTime::now_utc(),
+    ) {
+        Ok(crate::services::applications::Admission::Admitted) => {}
+        Ok(crate::services::applications::Admission::Full) => {
+            return Err(core_refused(
+                RpErrorCode::ApplicationUserLimit,
+                "this application has reached its limit of distinct users",
+            ))
+        }
+        Err(e) => return Err(core_internal("decrypt-token: counting the user", e)),
+    }
+    // A login is finished once. A failure above leaves it open for a retry.
+    pool.consume_rp_login_nonce(&caller.id, &nonce_hash)
+        .map_err(|e| core_internal("decrypt-token: closing the login", e))?;
+
+    let signed_assertion = base64ct::Base64UrlUnpadded::encode_string(&plaintext);
+    Ok(liblinkkeys::generated::types::RpDecryptResponse { signed_assertion })
+}
+
+/// Open an encrypted callback token with this domain's encryption keys and
+/// return the plaintext (CBOR of a `SignedIdentityAssertion`).
+fn decrypt_token_plaintext(pool: &DbPool, encrypted_token: &str) -> Result<Vec<u8>, CoreError> {
     let encrypted_token = liblinkkeys::encoding::encrypted_token_from_url_param(encrypted_token)
         .map_err(|_| core_bad_request("decrypt-token: the encrypted token is malformed"))?;
 
-    // Absent `suite` means the mandatory-to-implement baseline (aes-256-gcm);
-    // a present-but-unrecognized id is rejected outright rather than falling
-    // back silently (Wire Precision: "reject an unadvertised/unsupported
-    // suite").
-    let suite = liblinkkeys::crypto::resolve_aead_suite(encrypted_token.suite.as_deref()).map_err(
-        |_| core_bad_request("decrypt-token: the token names an unsupported AEAD suite"),
-    )?;
+    // Absent `suite` means the mandatory-to-implement baseline (aes-256-gcm).
+    // An unknown suite number already failed to decode.
+    let suite = liblinkkeys::crypto::resolve_aead_suite(encrypted_token.suite.as_ref());
 
     let domain_keys = pool
         .list_active_domain_keys()
@@ -229,11 +359,9 @@ pub(crate) fn decrypt_token_core(
             &encrypted_token.nonce,
             &encrypted_token.ciphertext,
             &x25519_private,
-            suite,
+            &suite,
         ) {
-            // The plaintext is CBOR-encoded SignedIdentityAssertion — re-encode as base64url
-            let signed_assertion = base64ct::Base64UrlUnpadded::encode_string(&plaintext);
-            return Ok(liblinkkeys::generated::types::RpDecryptResponse { signed_assertion });
+            return Ok(plaintext.to_vec());
         }
     }
 
@@ -275,6 +403,7 @@ fn api_base_host(api_base: &str) -> Option<&str> {
 pub(crate) async fn fetch_userinfo_core(
     pool: &DbPool,
     net: &crate::net::Net,
+    caller: &crate::db::models::User,
     token: String,
     api_base: &str,
     domain: &str,
@@ -282,6 +411,14 @@ pub(crate) async fn fetch_userinfo_core(
     if !api_base.starts_with("https://") {
         return Err(core_bad_request("userinfo-fetch: api_base must be https"));
     }
+    // The redemption is single-use, so refuse another application's token
+    // before it is spent. The IDP checks the signature.
+    let application = caller_application(caller)?;
+    let signed = liblinkkeys::encoding::assertion_from_url_param(&token)
+        .map_err(|_| core_bad_request("userinfo-fetch: the token is not a signed assertion"))?;
+    let assertion = liblinkkeys::generated::decode_identity_assertion(&signed.assertion)
+        .map_err(|_| core_bad_request("userinfo-fetch: the token is not a signed assertion"))?;
+    check_assertion_application(&assertion, &application)?;
 
     // Single-instance IDP+RP: when the IDP API we'd call is our own published
     // API host, redeem locally instead of going over the network to ourselves.
@@ -299,6 +436,11 @@ pub(crate) async fn fetch_userinfo_core(
             .await
             .map_err(|status| CoreError {
                 status,
+                code: if status.code == 500 {
+                    RpErrorCode::Internal
+                } else {
+                    RpErrorCode::BadRequest
+                },
                 message: "userinfo-fetch: local redemption failed".to_string(),
             });
     }
@@ -319,7 +461,8 @@ pub(crate) async fn fetch_userinfo_core(
         &liblinkkeys::generated::types::GetUserInfoRequest {
             token: token.into_bytes(),
         },
-    );
+    )
+    .map_err(|e| core_internal("userinfo-fetch: encoding get-user-info", e))?;
     let resp_bytes = net
         .rpc
         .call(
@@ -369,7 +512,7 @@ fn build_self_signed_userinfo_request(
         liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, passphrase.as_bytes())
             .map_err(|e| core_internal("self-userinfo: decrypting domain key", e))?;
     let algorithm =
-        liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm).ok_or_else(|| {
+        crate::conversions::stored_signing_algorithm(&dk.algorithm).ok_or_else(|| {
             core_internal(
                 "self-userinfo",
                 format!("unsupported algorithm {}", dk.algorithm),
@@ -405,9 +548,11 @@ fn build_self_signed_userinfo_request(
 pub(crate) async fn verify_assertion_core(
     pool: &DbPool,
     net: &crate::net::Net,
+    caller: &crate::db::models::User,
     signed_assertion: &str,
     expected_domain: &str,
 ) -> Result<liblinkkeys::generated::types::RpVerifyResponse, CoreError> {
+    let application = caller_application(caller)?;
     // Decode the signed assertion from base64url
     let cbor_bytes = base64ct::Base64UrlUnpadded::decode_vec(signed_assertion)
         .map_err(|_| core_bad_request("verify-assertion: the assertion is not valid base64url"))?;
@@ -431,6 +576,7 @@ pub(crate) async fn verify_assertion_core(
         liblinkkeys::assertions::verify_assertion(&signed, &domain_keys).map_err(|_| {
             core_unauthorized("verify-assertion: no trusted key of the domain signed it")
         })?;
+    check_assertion_application(&assertion, &application)?;
 
     Ok(liblinkkeys::generated::types::RpVerifyResponse {
         assertion,
@@ -619,7 +765,7 @@ pub async fn fetch_domain_keys(
     // get-domain-keys is a public read; no client cert needed (server-auth TLS).
     let payload = liblinkkeys::generated::encode_empty_request(
         &liblinkkeys::generated::types::EmptyRequest {},
-    );
+    )?;
     let resp_bytes = net
         .rpc
         .call(
@@ -688,12 +834,18 @@ async fn fetch_and_apply_revocations(
     fingerprints: &[String],
     trusted: &[liblinkkeys::generated::types::DomainPublicKey],
 ) -> Vec<String> {
-    let since = (time::OffsetDateTime::now_utc()
-        - time::Duration::days(crate::services::revocations::fetch_default_days()))
-    .to_rfc3339();
+    let since = time::OffsetDateTime::now_utc()
+        - time::Duration::days(crate::services::revocations::fetch_default_days());
     let payload = liblinkkeys::generated::encode_get_revocations_request(
         &liblinkkeys::generated::types::GetRevocationsRequest { since: Some(since) },
     );
+    let payload = match payload {
+        Ok(payload) => payload,
+        Err(e) => {
+            log::warn!("encoding get-revocations for {domain} failed (continuing): {e}");
+            return Vec::new();
+        }
+    };
     let resp_bytes = match net
         .rpc
         .call(
@@ -746,7 +898,8 @@ pub(super) async fn deposit_claim_to_domain(
         &liblinkkeys::generated::types::DepositClaimRequest {
             claim: claim.clone(),
         },
-    );
+    )
+    .map_err(|e| format!("encoding deposit-claim request: {e}"))?;
     let resp_bytes = net
         .rpc
         .call(
@@ -847,6 +1000,10 @@ pub(crate) async fn issue_attestation_core(
             403 => Status::Forbidden,
             400 => Status::BadRequest,
             _ => Status::InternalServerError,
+        },
+        code: match e.code {
+            400 | 403 => RpErrorCode::BadRequest,
+            _ => RpErrorCode::Internal,
         },
         message: format!("issue-attestation: {}", e.message),
     })?;

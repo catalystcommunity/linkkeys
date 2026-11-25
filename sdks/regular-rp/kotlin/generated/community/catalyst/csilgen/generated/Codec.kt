@@ -18,7 +18,9 @@ sealed class CborValue {
         override fun hashCode(): Int = value.contentHashCode()
     }
     data class CArray(val items: List<CborValue>) : CborValue()
-    data class CMap(val entries: List<Pair<CborValue, CborValue>>) : CborValue()
+    // `canonical` is false when a decoded map's encoded keys were not strictly ascending
+    // bytewise (RFC 8949 section 4.2.1): a dynamic map rejects that, a record does not.
+    data class CMap(val entries: List<Pair<CborValue, CborValue>>, val canonical: Boolean = true) : CborValue()
     data class CTag(val tag: ULong, val value: CborValue) : CborValue()
 }
 
@@ -121,6 +123,18 @@ object CsilCbor {
         return v
     }
 
+    // Float.float16ToFloat needs JDK 20; the generated package targets JDK 17.
+    private fun halfToDouble(h: Int): Double {
+        val exp = (h shr 10) and 0x1f
+        val mant = h and 0x3ff
+        val magnitude = when (exp) {
+            0 -> Math.scalb(mant.toDouble(), -24)
+            31 -> if (mant == 0) Double.POSITIVE_INFINITY else Double.NaN
+            else -> Math.scalb((mant or 0x400).toDouble(), exp - 25)
+        }
+        return if ((h and 0x8000) != 0) -magnitude else magnitude
+    }
+
     private fun readArg(cur: Cursor, low: Int): ULong {
         if (low < 24) {
             cur.pos += 1
@@ -192,6 +206,10 @@ object CsilCbor {
                     cur.pos += 1
                     CborValue.CNull
                 }
+                25 -> {
+                    val bits = readArg(cur, low)
+                    CborValue.CFloat(halfToDouble(bits.toInt()))
+                }
                 26 -> {
                     val bits = readArg(cur, low)
                     CborValue.CFloat(Float.fromBits((bits and 0xffffffffuL).toInt()).toDouble())
@@ -235,12 +253,30 @@ object CsilCbor {
                 if (arg > (cur.b.size - cur.pos).toULong()) throw CborError("map length exceeds remaining input")
                 val n = arg.toInt()
                 val entries = ArrayList<Pair<CborValue, CborValue>>(minOf(n, PREALLOC_LIMIT))
+                // Each key is compared with the one before it as raw bytes, so the order
+                // check is O(n). Only a map out of order can repeat a key, so the set of
+                // seen keys is built only then.
+                val keyRanges = ArrayList<IntArray>(minOf(n, PREALLOC_LIMIT))
+                var seen: HashSet<java.nio.ByteBuffer>? = null
                 repeat(n) {
+                    val keyStart = cur.pos
                     val k = dec(cur, depth + 1)
+                    val keyEnd = cur.pos
+                    if (!shortestHead(cur.b, keyStart)) throw CborError("csil cbor: map key is not in shortest form")
+                    if (seen == null && keyRanges.isNotEmpty()) {
+                        val prev = keyRanges[keyRanges.size - 1]
+                        if (java.util.Arrays.compareUnsigned(cur.b, prev[0], prev[1], cur.b, keyStart, keyEnd) >= 0) {
+                            seen = keyRanges.mapTo(HashSet()) { java.nio.ByteBuffer.wrap(cur.b, it[0], it[1] - it[0]) }
+                        }
+                    }
+                    if (seen?.add(java.nio.ByteBuffer.wrap(cur.b, keyStart, keyEnd - keyStart)) == false) {
+                        throw CborError("csil cbor: duplicate key ${describeKey(k)}")
+                    }
+                    keyRanges.add(intArrayOf(keyStart, keyEnd))
                     val value = dec(cur, depth + 1)
                     entries.add(k to value)
                 }
-                CborValue.CMap(entries)
+                CborValue.CMap(entries, seen == null)
             }
             6 -> CborValue.CTag(arg, dec(cur, depth + 1))
             else -> throw CborError("malformed CBOR major type")
@@ -304,6 +340,35 @@ object CsilCbor {
     fun asMap(v: CborValue): List<Pair<CborValue, CborValue>> =
         (v as? CborValue.CMap)?.entries ?: throw CborError("expected map")
 
+    /** The entries of a dynamic map, which must arrive in canonical key order. */
+    fun asDynamicMap(v: CborValue): List<Pair<CborValue, CborValue>> {
+        if (v is CborValue.CMap && !v.canonical) throw CborError("csil cbor: map keys are not in canonical order")
+        return asMap(v)
+    }
+
+    /** `entries` in canonical order: bytewise order of each key's encoding, which is not
+     * the order of the Kotlin keys. */
+    fun canonicalEntries(entries: List<Pair<CborValue, CborValue>>): List<Pair<CborValue, CborValue>> =
+        entries.map { encode(it.first) to it }
+            .sortedWith { x, y -> java.util.Arrays.compareUnsigned(x.first, y.first) }
+            .map { it.second }
+
+    /** Whether the head at [at] uses the shortest argument for its value. A float head
+     * (major 7) carries no length, so it is not checked. */
+    private fun shortestHead(b: ByteArray, at: Int): Boolean {
+        val major = (b[at].toInt() and 0xff) shr 5
+        val low = b[at].toInt() and 0x1f
+        if (major == 7 || low < 24) return true
+        val width = 1 shl (low - 24)
+        var arg = 0uL
+        for (i in 1..width) arg = (arg shl 8) or (b[at + i].toInt() and 0xff).toULong()
+        val floor = if (low == 24) 24uL else 1uL shl (8 * (width / 2))
+        return arg >= floor
+    }
+
+    private fun describeKey(k: CborValue): String =
+        if (k is CborValue.CText) "\"${k.value}\"" else encode(k).joinToString("") { "%02x".format(it) }
+
     fun encDate(date: java.time.LocalDate): CborValue {
         val text = date.toString()
         require(text.length == 10) { "date requires a four-digit year" }
@@ -314,6 +379,155 @@ object CsilCbor {
         val text = asTaggedText(v, 1004uL)
         require(text.length == 10) { "expected YYYY-MM-DD" }
         return java.time.LocalDate.parse(text)
+    }
+
+    // The timestamp shape is checked by hand because Instant.parse accepts forms the
+    // wire contract rejects, and Instant.toString picks fraction widths the contract does
+    // not allow (it requires 3, 6, or 9 digits).
+    fun encTimestamp(t: java.time.Instant): CborValue {
+        val u = t.atOffset(java.time.ZoneOffset.UTC)
+        if (u.year < 1 || u.year > 9999) throw CborError("timestamp year outside 0001-9999")
+        val b = StringBuilder(30)
+        b.append(tsDigits(u.year, 4)).append('-').append(tsDigits(u.monthValue, 2)).append('-')
+            .append(tsDigits(u.dayOfMonth, 2)).append('T').append(tsDigits(u.hour, 2)).append(':')
+            .append(tsDigits(u.minute, 2)).append(':').append(tsDigits(u.second, 2))
+        val nano = u.nano
+        if (nano != 0) {
+            b.append('.')
+            when {
+                nano % 1_000_000 == 0 -> b.append(tsDigits(nano / 1_000_000, 3))
+                nano % 1_000 == 0 -> b.append(tsDigits(nano / 1_000, 6))
+                else -> b.append(tsDigits(nano, 9))
+            }
+        }
+        b.append('Z')
+        return CborValue.CTag(0uL, CborValue.CText(b.toString()))
+    }
+
+    private fun tsDigits(value: Int, width: Int): String = value.toString().padStart(width, '0')
+
+    fun asTimestamp(v: CborValue): java.time.Instant {
+        if (v is CborValue.CTag && v.tag == 0uL && v.value is CborValue.CText) {
+            return parseTimestamp(v.value.value)
+        }
+        throw CborError("expected CBOR tag 0 timestamp")
+    }
+
+    private fun tsField(s: String, at: Int, width: Int): Int {
+        if (at + width > s.length) throw CborError("invalid timestamp text")
+        var value = 0
+        for (i in at until at + width) {
+            val c = s[i]
+            if (c < '0' || c > '9') throw CborError("invalid timestamp text")
+            value = value * 10 + (c - '0')
+        }
+        return value
+    }
+
+    private fun tsSeparator(s: String, at: Int, a: Char, b: Char) {
+        if (at >= s.length || (s[at] != a && s[at] != b)) throw CborError("invalid timestamp text")
+    }
+
+    private val tsMinEpoch = java.time.LocalDate.of(1, 1, 1).toEpochDay() * 86_400L
+    private val tsEndEpoch = java.time.LocalDate.of(10000, 1, 1).toEpochDay() * 86_400L
+
+    private fun parseTimestamp(s: String): java.time.Instant {
+        val year = tsField(s, 0, 4)
+        tsSeparator(s, 4, '-', '-')
+        val month = tsField(s, 5, 2)
+        tsSeparator(s, 7, '-', '-')
+        val day = tsField(s, 8, 2)
+        tsSeparator(s, 10, 'T', 't')
+        val hour = tsField(s, 11, 2)
+        tsSeparator(s, 13, ':', ':')
+        val minute = tsField(s, 14, 2)
+        tsSeparator(s, 16, ':', ':')
+        val second = tsField(s, 17, 2)
+        if (year < 1 || month < 1 || month > 12 || day < 1 ||
+            day > java.time.YearMonth.of(year, month).lengthOfMonth() ||
+            hour > 23 || minute > 59 || second > 59
+        ) {
+            throw CborError("invalid timestamp value")
+        }
+        var at = 19
+        var nano = 0
+        if (at < s.length && s[at] == '.') {
+            val start = ++at
+            while (at < s.length && s[at] >= '0' && s[at] <= '9') at++
+            val digits = at - start
+            if (digits < 1 || digits > 9) throw CborError("invalid timestamp fraction")
+            nano = tsField(s, start, digits)
+            repeat(9 - digits) { nano *= 10 }
+        }
+        if (at >= s.length) throw CborError("timestamp has no offset")
+        val zone = s[at]
+        val offset: Int
+        if (zone == 'Z' || zone == 'z') {
+            offset = 0
+            at += 1
+        } else if (zone == '+' || zone == '-') {
+            val offsetHour = tsField(s, at + 1, 2)
+            tsSeparator(s, at + 3, ':', ':')
+            val offsetMinute = tsField(s, at + 4, 2)
+            if (offsetHour > 23 || offsetMinute > 59) throw CborError("invalid timestamp offset")
+            offset = (if (zone == '-') -1 else 1) * (offsetHour * 3600 + offsetMinute * 60)
+            at += 6
+        } else {
+            throw CborError("invalid timestamp offset")
+        }
+        if (at != s.length) throw CborError("trailing timestamp text")
+        val epoch = java.time.LocalDate.of(year, month, day).toEpochDay() * 86_400L +
+            hour * 3_600L + minute * 60L + second - offset
+        // The range is checked again after conversion to UTC, because an offset can move
+        // a written year 0001 or 9999 value outside it.
+        if (epoch < tsMinEpoch || epoch >= tsEndEpoch) throw CborError("timestamp year outside 0001-9999")
+        return java.time.Instant.ofEpochSecond(epoch, nano.toLong())
+    }
+
+    private const val CDDL_TIME_FIRST = -62_135_596_800L
+    private const val CDDL_TIME_LAST = 253_402_300_799L
+
+    fun encCddlTime(t: java.time.Instant): CborValue {
+        val seconds = t.epochSecond
+        val nanos = t.nano
+        if (seconds < CDDL_TIME_FIRST || seconds > CDDL_TIME_LAST) throw CborError("cddl_time year outside 0001-9999")
+        if (nanos == 0) return CborValue.CTag(1uL, CborValue.CInt(seconds))
+        return CborValue.CTag(1uL, CborValue.CFloat(seconds.toDouble() + nanos.toDouble() / 1e9))
+    }
+
+    // The float split is spelled out step by step because the wire contract fixes each
+    // binary64 operation, so every target lands on the same instant.
+    fun asCddlTime(v: CborValue): java.time.Instant {
+        if (v !is CborValue.CTag || v.tag != 1uL) throw CborError("expected CBOR tag 1 cddl_time")
+        var seconds: Long
+        var nanos = 0L
+        when (val inner = v.value) {
+            is CborValue.CUint -> {
+                if (inner.value > CDDL_TIME_LAST.toULong()) throw CborError("cddl_time year outside 0001-9999")
+                seconds = inner.value.toLong()
+            }
+            is CborValue.CInt -> seconds = inner.value
+            is CborValue.CFloat -> {
+                val value = inner.value
+                if (!value.isFinite()) throw CborError("cddl_time is not finite")
+                // Refused before the integer conversion so that the cast cannot saturate.
+                if (value < (CDDL_TIME_FIRST - 1).toDouble() || value > (CDDL_TIME_LAST + 1).toDouble()) {
+                    throw CborError("cddl_time year outside 0001-9999")
+                }
+                val whole = kotlin.math.floor(value)
+                val scaled = (value - whole) * 1e9
+                val units = kotlin.math.floor(scaled + 0.5)
+                seconds = whole.toLong()
+                nanos = units.toLong()
+                if (nanos == 1_000_000_000L) {
+                    seconds += 1
+                    nanos = 0
+                }
+            }
+            else -> throw CborError("cddl_time tag 1 requires a number")
+        }
+        if (seconds < CDDL_TIME_FIRST || seconds > CDDL_TIME_LAST) throw CborError("cddl_time year outside 0001-9999")
+        return java.time.Instant.ofEpochSecond(seconds, nanos)
     }
 
     fun asTaggedText(v: CborValue, tag: ULong): String {
@@ -359,7 +573,7 @@ fun checkValueFromCborValue(cbor: CborValue): CheckValue {
 fun CheckResult.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("result") to CborValue.CBool(this.result))
-    csilEntries.add(CborValue.CText("entries") to CborValue.CMap((this.entries).map { (csilK, csilV) -> CborValue.CText(csilK) to csilV.toCborValue() }))
+    csilEntries.add(CborValue.CText("entries") to CborValue.CMap(CsilCbor.canonicalEntries((this.entries).map { (csilK, csilV) -> CborValue.CText(csilK) to csilV.toCborValue() })))
     return CborValue.CMap(csilEntries)
 }
 
@@ -369,12 +583,116 @@ fun CheckResult.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
 /** Reconstruct a CheckResult from a decoded CBOR value tree. */
 fun checkResultFromCborValue(cbor: CborValue): CheckResult {
     val result = CsilCbor.asBoolean(CsilCbor.require(cbor, "result"))
-    val entries = CsilCbor.asMap(CsilCbor.require(cbor, "entries")).associate { (csilK, csilV) -> CsilCbor.asText(csilK) to checkValueFromCborValue(csilV) }
+    val entries = CsilCbor.asDynamicMap(CsilCbor.require(cbor, "entries")).associate { (csilK, csilV) -> CsilCbor.asText(csilK) to checkValueFromCborValue(csilV) }
     return CheckResult(result = result, entries = entries)
 }
 
 /** Decode CSIL CBOR bytes into a CheckResult. */
 fun checkResultFromCbor(bytes: ByteArray): CheckResult = checkResultFromCborValue(CsilCbor.decode(bytes))
+
+fun KeyAlgorithm.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun keyAlgorithmFromCborValue(cbor: CborValue): KeyAlgorithm = KeyAlgorithm.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown KeyAlgorithm value")
+
+fun KeyUsage.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun keyUsageFromCborValue(cbor: CborValue): KeyUsage = KeyUsage.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown KeyUsage value")
+
+fun AeadSuite.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun aeadSuiteFromCborValue(cbor: CborValue): AeadSuite = AeadSuite.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown AeadSuite value")
+
+fun ClaimValueType.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun claimValueTypeFromCborValue(cbor: CborValue): ClaimValueType = ClaimValueType.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown ClaimValueType value")
+
+fun SetRule.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun setRuleFromCborValue(cbor: CborValue): SetRule = SetRule.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown SetRule value")
+
+fun SigningRule.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun signingRuleFromCborValue(cbor: CborValue): SigningRule = SigningRule.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown SigningRule value")
+
+fun SetClaimOutcome.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun setClaimOutcomeFromCborValue(cbor: CborValue): SetClaimOutcome = SetClaimOutcome.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown SetClaimOutcome value")
+
+fun ReleaseDisposition.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun releaseDispositionFromCborValue(cbor: CborValue): ReleaseDisposition = ReleaseDisposition.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown ReleaseDisposition value")
+
+fun ConsentRowPolicy.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun consentRowPolicyFromCborValue(cbor: CborValue): ConsentRowPolicy = ConsentRowPolicy.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown ConsentRowPolicy value")
+
+fun ClaimApprovalStatus.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun claimApprovalStatusFromCborValue(cbor: CborValue): ClaimApprovalStatus = ClaimApprovalStatus.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown ClaimApprovalStatus value")
+
+fun PinRecheckOutcome.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun pinRecheckOutcomeFromCborValue(cbor: CborValue): PinRecheckOutcome = PinRecheckOutcome.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown PinRecheckOutcome value")
+
+fun NotificationPurpose.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun notificationPurposeFromCborValue(cbor: CborValue): NotificationPurpose = NotificationPurpose.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown NotificationPurpose value")
+
+fun NotificationChannel.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun notificationChannelFromCborValue(cbor: CborValue): NotificationChannel = NotificationChannel.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown NotificationChannel value")
+
+fun DestinationKind.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun destinationKindFromCborValue(cbor: CborValue): DestinationKind = DestinationKind.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown DestinationKind value")
+
+fun LocalRpPolicy.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun localRpPolicyFromCborValue(cbor: CborValue): LocalRpPolicy = LocalRpPolicy.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown LocalRpPolicy value")
+
+fun LocalRpStatus.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun localRpStatusFromCborValue(cbor: CborValue): LocalRpStatus = LocalRpStatus.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown LocalRpStatus value")
+
+fun LocalRpAdmission.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun localRpAdmissionFromCborValue(cbor: CborValue): LocalRpAdmission = LocalRpAdmission.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown LocalRpAdmission value")
+
+fun AppAccessMode.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun appAccessModeFromCborValue(cbor: CborValue): AppAccessMode = AppAccessMode.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown AppAccessMode value")
+
+fun AppAccessTargetKind.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun appAccessTargetKindFromCborValue(cbor: CborValue): AppAccessTargetKind = AppAccessTargetKind.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown AppAccessTargetKind value")
+
+fun ClaimOperator.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun claimOperatorFromCborValue(cbor: CborValue): ClaimOperator = ClaimOperator.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown ClaimOperator value")
+
+fun ApplicationKeyChallengePurpose.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun applicationKeyChallengePurposeFromCborValue(cbor: CborValue): ApplicationKeyChallengePurpose = ApplicationKeyChallengePurpose.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown ApplicationKeyChallengePurpose value")
+
+fun AuthFlow.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun authFlowFromCborValue(cbor: CborValue): AuthFlow = AuthFlow.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown AuthFlow value")
+
+fun RpCacheStatus.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun rpCacheStatusFromCborValue(cbor: CborValue): RpCacheStatus = RpCacheStatus.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown RpCacheStatus value")
+
+fun AccountKind.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun accountKindFromCborValue(cbor: CborValue): AccountKind = AccountKind.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown AccountKind value")
+
+fun RpErrorCode.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun rpErrorCodeFromCborValue(cbor: CborValue): RpErrorCode = RpErrorCode.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown RpErrorCode value")
+
+fun IssuedClaimOutcome.toCborValue(): CborValue = CborValue.CInt(wireNumber)
+
+fun issuedClaimOutcomeFromCborValue(cbor: CborValue): IssuedClaimOutcome = IssuedClaimOutcome.fromNumber(CsilCbor.asLong(cbor)) ?: throw CborError("unknown IssuedClaimOutcome value")
 
 /** The CBOR value tree for a HelloRequest (deep, canonical key order). */
 fun HelloRequest.toCborValue(): CborValue {
@@ -419,8 +737,8 @@ fun GuestbookEntry.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("id") to CborValue.CText(this.id))
     csilEntries.add(CborValue.CText("name") to CborValue.CText(this.name))
-    csilEntries.add(CborValue.CText("created_at") to CborValue.CText(this.createdAt))
-    csilEntries.add(CborValue.CText("updated_at") to CborValue.CText(this.updatedAt))
+    csilEntries.add(CborValue.CText("created_at") to CsilCbor.encTimestamp(this.createdAt))
+    csilEntries.add(CborValue.CText("updated_at") to CsilCbor.encTimestamp(this.updatedAt))
     return CborValue.CMap(csilEntries)
 }
 
@@ -431,8 +749,8 @@ fun GuestbookEntry.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
 fun guestbookEntryFromCborValue(cbor: CborValue): GuestbookEntry {
     val id = CsilCbor.asText(CsilCbor.require(cbor, "id"))
     val name = CsilCbor.asText(CsilCbor.require(cbor, "name"))
-    val createdAt = CsilCbor.asText(CsilCbor.require(cbor, "created_at"))
-    val updatedAt = CsilCbor.asText(CsilCbor.require(cbor, "updated_at"))
+    val createdAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "created_at"))
+    val updatedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "updated_at"))
     return GuestbookEntry(id = id, name = name, createdAt = createdAt, updatedAt = updatedAt)
 }
 
@@ -578,12 +896,12 @@ fun emptyRequestFromCbor(bytes: ByteArray): EmptyRequest = emptyRequestFromCborV
 fun DomainPublicKey.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("key_id") to CborValue.CText(this.keyId))
-    csilEntries.add(CborValue.CText("algorithm") to CborValue.CText(this.algorithm))
-    csilEntries.add(CborValue.CText("key_usage") to CborValue.CText(this.keyUsage))
-    csilEntries.add(CborValue.CText("created_at") to CborValue.CText(this.createdAt))
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("algorithm") to this.algorithm.toCborValue())
+    csilEntries.add(CborValue.CText("key_usage") to this.keyUsage.toCborValue())
+    csilEntries.add(CborValue.CText("created_at") to CsilCbor.encTimestamp(this.createdAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
     csilEntries.add(CborValue.CText("public_key") to CborValue.CBytes(this.publicKey))
-    this.revokedAt?.let { csilV -> csilEntries.add(CborValue.CText("revoked_at") to CborValue.CText(csilV)) }
+    this.revokedAt?.let { csilV -> csilEntries.add(CborValue.CText("revoked_at") to CsilCbor.encTimestamp(csilV)) }
     csilEntries.add(CborValue.CText("fingerprint") to CborValue.CText(this.fingerprint))
     this.keySignature?.let { csilV -> csilEntries.add(CborValue.CText("key_signature") to CborValue.CBytes(csilV)) }
     this.signedByKeyId?.let { csilV -> csilEntries.add(CborValue.CText("signed_by_key_id") to CborValue.CText(csilV)) }
@@ -598,11 +916,11 @@ fun domainPublicKeyFromCborValue(cbor: CborValue): DomainPublicKey {
     val keyId = CsilCbor.asText(CsilCbor.require(cbor, "key_id"))
     val publicKey = CsilCbor.asBytes(CsilCbor.require(cbor, "public_key"))
     val fingerprint = CsilCbor.asText(CsilCbor.require(cbor, "fingerprint"))
-    val algorithm = CsilCbor.asText(CsilCbor.require(cbor, "algorithm"))
-    val keyUsage = CsilCbor.asText(CsilCbor.require(cbor, "key_usage"))
-    val createdAt = CsilCbor.asText(CsilCbor.require(cbor, "created_at"))
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
-    val revokedAt = CsilCbor.mapGet(cbor, "revoked_at")?.let { csilV -> CsilCbor.asText(csilV) }
+    val algorithm = keyAlgorithmFromCborValue(CsilCbor.require(cbor, "algorithm"))
+    val keyUsage = keyUsageFromCborValue(CsilCbor.require(cbor, "key_usage"))
+    val createdAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "created_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
+    val revokedAt = CsilCbor.mapGet(cbor, "revoked_at")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
     val signedByKeyId = CsilCbor.mapGet(cbor, "signed_by_key_id")?.let { csilV -> CsilCbor.asText(csilV) }
     val keySignature = CsilCbor.mapGet(cbor, "key_signature")?.let { csilV -> CsilCbor.asBytes(csilV) }
     return DomainPublicKey(keyId = keyId, publicKey = publicKey, fingerprint = fingerprint, algorithm = algorithm, keyUsage = keyUsage, createdAt = createdAt, expiresAt = expiresAt, revokedAt = revokedAt, signedByKeyId = signedByKeyId, keySignature = keySignature)
@@ -637,7 +955,7 @@ fun getDomainKeysResponseFromCbor(bytes: ByteArray): GetDomainKeysResponse = get
 /** The CBOR value tree for a GetRevocationsRequest (deep, canonical key order). */
 fun GetRevocationsRequest.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    this.since?.let { csilV -> csilEntries.add(CborValue.CText("since") to CborValue.CText(csilV)) }
+    this.since?.let { csilV -> csilEntries.add(CborValue.CText("since") to CsilCbor.encTimestamp(csilV)) }
     return CborValue.CMap(csilEntries)
 }
 
@@ -646,7 +964,7 @@ fun GetRevocationsRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue
 
 /** Reconstruct a GetRevocationsRequest from a decoded CBOR value tree. */
 fun getRevocationsRequestFromCborValue(cbor: CborValue): GetRevocationsRequest {
-    val since = CsilCbor.mapGet(cbor, "since")?.let { csilV -> CsilCbor.asText(csilV) }
+    val since = CsilCbor.mapGet(cbor, "since")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
     return GetRevocationsRequest(since = since)
 }
 
@@ -695,7 +1013,8 @@ fun recheckPinsRequestFromCbor(bytes: ByteArray): RecheckPinsRequest = recheckPi
 fun PinRecheckResult.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("domain") to CborValue.CText(this.domain))
-    csilEntries.add(CborValue.CText("outcome") to CborValue.CText(this.outcome))
+    this.message?.let { csilV -> csilEntries.add(CborValue.CText("message") to CborValue.CText(csilV)) }
+    csilEntries.add(CborValue.CText("outcome") to this.outcome.toCborValue())
     return CborValue.CMap(csilEntries)
 }
 
@@ -705,8 +1024,9 @@ fun PinRecheckResult.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
 /** Reconstruct a PinRecheckResult from a decoded CBOR value tree. */
 fun pinRecheckResultFromCborValue(cbor: CborValue): PinRecheckResult {
     val domain = CsilCbor.asText(CsilCbor.require(cbor, "domain"))
-    val outcome = CsilCbor.asText(CsilCbor.require(cbor, "outcome"))
-    return PinRecheckResult(domain = domain, outcome = outcome)
+    val outcome = pinRecheckOutcomeFromCborValue(CsilCbor.require(cbor, "outcome"))
+    val message = CsilCbor.mapGet(cbor, "message")?.let { csilV -> CsilCbor.asText(csilV) }
+    return PinRecheckResult(domain = domain, outcome = outcome, message = message)
 }
 
 /** Decode CSIL CBOR bytes into a PinRecheckResult. */
@@ -736,12 +1056,12 @@ fun UserPublicKey.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("key_id") to CborValue.CText(this.keyId))
     csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
-    csilEntries.add(CborValue.CText("algorithm") to CborValue.CText(this.algorithm))
-    csilEntries.add(CborValue.CText("key_usage") to CborValue.CText(this.keyUsage))
-    csilEntries.add(CborValue.CText("created_at") to CborValue.CText(this.createdAt))
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("algorithm") to this.algorithm.toCborValue())
+    csilEntries.add(CborValue.CText("key_usage") to this.keyUsage.toCborValue())
+    csilEntries.add(CborValue.CText("created_at") to CsilCbor.encTimestamp(this.createdAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
     csilEntries.add(CborValue.CText("public_key") to CborValue.CBytes(this.publicKey))
-    this.revokedAt?.let { csilV -> csilEntries.add(CborValue.CText("revoked_at") to CborValue.CText(csilV)) }
+    this.revokedAt?.let { csilV -> csilEntries.add(CborValue.CText("revoked_at") to CsilCbor.encTimestamp(csilV)) }
     csilEntries.add(CborValue.CText("fingerprint") to CborValue.CText(this.fingerprint))
     this.keySignature?.let { csilV -> csilEntries.add(CborValue.CText("key_signature") to CborValue.CBytes(csilV)) }
     this.signedByKeyId?.let { csilV -> csilEntries.add(CborValue.CText("signed_by_key_id") to CborValue.CText(csilV)) }
@@ -757,11 +1077,11 @@ fun userPublicKeyFromCborValue(cbor: CborValue): UserPublicKey {
     val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
     val publicKey = CsilCbor.asBytes(CsilCbor.require(cbor, "public_key"))
     val fingerprint = CsilCbor.asText(CsilCbor.require(cbor, "fingerprint"))
-    val algorithm = CsilCbor.asText(CsilCbor.require(cbor, "algorithm"))
-    val keyUsage = CsilCbor.asText(CsilCbor.require(cbor, "key_usage"))
-    val createdAt = CsilCbor.asText(CsilCbor.require(cbor, "created_at"))
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
-    val revokedAt = CsilCbor.mapGet(cbor, "revoked_at")?.let { csilV -> CsilCbor.asText(csilV) }
+    val algorithm = keyAlgorithmFromCborValue(CsilCbor.require(cbor, "algorithm"))
+    val keyUsage = keyUsageFromCborValue(CsilCbor.require(cbor, "key_usage"))
+    val createdAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "created_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
+    val revokedAt = CsilCbor.mapGet(cbor, "revoked_at")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
     val signedByKeyId = CsilCbor.mapGet(cbor, "signed_by_key_id")?.let { csilV -> CsilCbor.asText(csilV) }
     val keySignature = CsilCbor.mapGet(cbor, "key_signature")?.let { csilV -> CsilCbor.asBytes(csilV) }
     return UserPublicKey(keyId = keyId, userId = userId, publicKey = publicKey, fingerprint = fingerprint, algorithm = algorithm, keyUsage = keyUsage, createdAt = createdAt, expiresAt = expiresAt, revokedAt = revokedAt, signedByKeyId = signedByKeyId, keySignature = keySignature)
@@ -838,7 +1158,7 @@ fun claimSignatureFromCbor(bytes: ByteArray): ClaimSignature = claimSignatureFro
 /** The CBOR value tree for a RevocationCertificate (deep, canonical key order). */
 fun RevocationCertificate.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("revoked_at") to CborValue.CText(this.revokedAt))
+    csilEntries.add(CborValue.CText("revoked_at") to CsilCbor.encTimestamp(this.revokedAt))
     csilEntries.add(CborValue.CText("signatures") to CborValue.CArray((this.signatures).map { csilE -> csilE.toCborValue() }))
     csilEntries.add(CborValue.CText("target_key_id") to CborValue.CText(this.targetKeyId))
     csilEntries.add(CborValue.CText("target_fingerprint") to CborValue.CText(this.targetFingerprint))
@@ -852,7 +1172,7 @@ fun RevocationCertificate.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue
 fun revocationCertificateFromCborValue(cbor: CborValue): RevocationCertificate {
     val targetKeyId = CsilCbor.asText(CsilCbor.require(cbor, "target_key_id"))
     val targetFingerprint = CsilCbor.asText(CsilCbor.require(cbor, "target_fingerprint"))
-    val revokedAt = CsilCbor.asText(CsilCbor.require(cbor, "revoked_at"))
+    val revokedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "revoked_at"))
     val signatures = CsilCbor.asArray(CsilCbor.require(cbor, "signatures")).map { csilE -> claimSignatureFromCborValue(csilE) }
     return RevocationCertificate(targetKeyId = targetKeyId, targetFingerprint = targetFingerprint, revokedAt = revokedAt, signatures = signatures)
 }
@@ -866,11 +1186,11 @@ fun Claim.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
     csilEntries.add(CborValue.CText("claim_id") to CborValue.CText(this.claimId))
     csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(this.claimType))
-    csilEntries.add(CborValue.CText("created_at") to CborValue.CText(this.createdAt))
-    this.expiresAt?.let { csilV -> csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(csilV)) }
-    this.revokedAt?.let { csilV -> csilEntries.add(CborValue.CText("revoked_at") to CborValue.CText(csilV)) }
+    csilEntries.add(CborValue.CText("created_at") to CsilCbor.encTimestamp(this.createdAt))
+    this.expiresAt?.let { csilV -> csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(csilV)) }
+    this.revokedAt?.let { csilV -> csilEntries.add(CborValue.CText("revoked_at") to CsilCbor.encTimestamp(csilV)) }
     csilEntries.add(CborValue.CText("signatures") to CborValue.CArray((this.signatures).map { csilE -> csilE.toCborValue() }))
-    csilEntries.add(CborValue.CText("attested_at") to CborValue.CText(this.attestedAt))
+    csilEntries.add(CborValue.CText("attested_at") to CsilCbor.encTimestamp(this.attestedAt))
     csilEntries.add(CborValue.CText("claim_value") to CborValue.CBytes(this.claimValue))
     return CborValue.CMap(csilEntries)
 }
@@ -885,10 +1205,10 @@ fun claimFromCborValue(cbor: CborValue): Claim {
     val claimType = CsilCbor.asText(CsilCbor.require(cbor, "claim_type"))
     val claimValue = CsilCbor.asBytes(CsilCbor.require(cbor, "claim_value"))
     val signatures = CsilCbor.asArray(CsilCbor.require(cbor, "signatures")).map { csilE -> claimSignatureFromCborValue(csilE) }
-    val attestedAt = CsilCbor.asText(CsilCbor.require(cbor, "attested_at"))
-    val createdAt = CsilCbor.asText(CsilCbor.require(cbor, "created_at"))
-    val expiresAt = CsilCbor.mapGet(cbor, "expires_at")?.let { csilV -> CsilCbor.asText(csilV) }
-    val revokedAt = CsilCbor.mapGet(cbor, "revoked_at")?.let { csilV -> CsilCbor.asText(csilV) }
+    val attestedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "attested_at"))
+    val createdAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "created_at"))
+    val expiresAt = CsilCbor.mapGet(cbor, "expires_at")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
+    val revokedAt = CsilCbor.mapGet(cbor, "revoked_at")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
     return Claim(claimId = claimId, userId = userId, claimType = claimType, claimValue = claimValue, signatures = signatures, attestedAt = attestedAt, createdAt = createdAt, expiresAt = expiresAt, revokedAt = revokedAt)
 }
 
@@ -942,7 +1262,7 @@ fun getUserClaimsResponseFromCbor(bytes: ByteArray): GetUserClaimsResponse = get
 /** The CBOR value tree for a RequestedClaim (deep, canonical key order). */
 fun RequestedClaim.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("datatype") to CborValue.CText(this.datatype))
+    csilEntries.add(CborValue.CText("datatype") to this.datatype.toCborValue())
     csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(this.claimType))
     return CborValue.CMap(csilEntries)
 }
@@ -953,7 +1273,7 @@ fun RequestedClaim.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
 /** Reconstruct a RequestedClaim from a decoded CBOR value tree. */
 fun requestedClaimFromCborValue(cbor: CborValue): RequestedClaim {
     val claimType = CsilCbor.asText(CsilCbor.require(cbor, "claim_type"))
-    val datatype = CsilCbor.asText(CsilCbor.require(cbor, "datatype"))
+    val datatype = claimValueTypeFromCborValue(CsilCbor.require(cbor, "datatype"))
     return RequestedClaim(claimType = claimType, datatype = datatype)
 }
 
@@ -1003,7 +1323,7 @@ fun authenticationRequirementsFromCbor(bytes: ByteArray): AuthenticationRequirem
 /** The CBOR value tree for a AuthFlowContext (deep, canonical key order). */
 fun AuthFlowContext.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("flow") to CborValue.CText(this.flow))
+    csilEntries.add(CborValue.CText("flow") to this.flow.toCborValue())
     this.priorSession?.let { csilV -> csilEntries.add(CborValue.CText("prior_session") to CborValue.CText(csilV)) }
     this.requestReason?.let { csilV -> csilEntries.add(CborValue.CText("request_reason") to CborValue.CText(csilV)) }
     return CborValue.CMap(csilEntries)
@@ -1014,7 +1334,7 @@ fun AuthFlowContext.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
 
 /** Reconstruct a AuthFlowContext from a decoded CBOR value tree. */
 fun authFlowContextFromCborValue(cbor: CborValue): AuthFlowContext {
-    val flow = CsilCbor.asText(CsilCbor.require(cbor, "flow"))
+    val flow = authFlowFromCborValue(CsilCbor.require(cbor, "flow"))
     val priorSession = CsilCbor.mapGet(cbor, "prior_session")?.let { csilV -> CsilCbor.asText(csilV) }
     val requestReason = CsilCbor.mapGet(cbor, "request_reason")?.let { csilV -> CsilCbor.asText(csilV) }
     return AuthFlowContext(flow = flow, priorSession = priorSession, requestReason = requestReason)
@@ -1029,9 +1349,9 @@ fun ConsentGrant.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
     csilEntries.add(CborValue.CText("audience") to CborValue.CText(this.audience))
     csilEntries.add(CborValue.CText("grant_id") to CborValue.CText(this.grantId))
-    csilEntries.add(CborValue.CText("issued_at") to CborValue.CText(this.issuedAt))
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
-    this.revokedAt?.let { csilV -> csilEntries.add(CborValue.CText("revoked_at") to CborValue.CText(csilV)) }
+    csilEntries.add(CborValue.CText("issued_at") to CsilCbor.encTimestamp(this.issuedAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
+    this.revokedAt?.let { csilV -> csilEntries.add(CborValue.CText("revoked_at") to CsilCbor.encTimestamp(csilV)) }
     this.application?.let { csilV -> csilEntries.add(CborValue.CText("application") to csilV.toCborValue()) }
     csilEntries.add(CborValue.CText("claim_types") to CborValue.CArray((this.claimTypes).map { csilE -> CborValue.CText(csilE) }))
     csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
@@ -1048,9 +1368,9 @@ fun consentGrantFromCborValue(cbor: CborValue): ConsentGrant {
     val subjectDomain = CsilCbor.asText(CsilCbor.require(cbor, "subject_domain"))
     val audience = CsilCbor.asText(CsilCbor.require(cbor, "audience"))
     val claimTypes = CsilCbor.asArray(CsilCbor.require(cbor, "claim_types")).map { csilE -> CsilCbor.asText(csilE) }
-    val issuedAt = CsilCbor.asText(CsilCbor.require(cbor, "issued_at"))
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
-    val revokedAt = CsilCbor.mapGet(cbor, "revoked_at")?.let { csilV -> CsilCbor.asText(csilV) }
+    val issuedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "issued_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
+    val revokedAt = CsilCbor.mapGet(cbor, "revoked_at")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
     val application = CsilCbor.mapGet(cbor, "application")?.let { csilV -> applicationRefFromCborValue(csilV) }
     return ConsentGrant(grantId = grantId, userId = userId, subjectDomain = subjectDomain, audience = audience, claimTypes = claimTypes, issuedAt = issuedAt, expiresAt = expiresAt, revokedAt = revokedAt, application = application)
 }
@@ -1083,9 +1403,9 @@ fun signedConsentGrantFromCbor(bytes: ByteArray): SignedConsentGrant = signedCon
 fun DomainClaim.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(this.claimType))
-    this.expiresAt?.let { csilV -> csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(csilV)) }
+    this.expiresAt?.let { csilV -> csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(csilV)) }
     csilEntries.add(CborValue.CText("signatures") to CborValue.CArray((this.signatures).map { csilE -> csilE.toCborValue() }))
-    csilEntries.add(CborValue.CText("attested_at") to CborValue.CText(this.attestedAt))
+    csilEntries.add(CborValue.CText("attested_at") to CsilCbor.encTimestamp(this.attestedAt))
     csilEntries.add(CborValue.CText("claim_value") to CborValue.CBytes(this.claimValue))
     return CborValue.CMap(csilEntries)
 }
@@ -1098,8 +1418,8 @@ fun domainClaimFromCborValue(cbor: CborValue): DomainClaim {
     val claimType = CsilCbor.asText(CsilCbor.require(cbor, "claim_type"))
     val claimValue = CsilCbor.asBytes(CsilCbor.require(cbor, "claim_value"))
     val signatures = CsilCbor.asArray(CsilCbor.require(cbor, "signatures")).map { csilE -> claimSignatureFromCborValue(csilE) }
-    val attestedAt = CsilCbor.asText(CsilCbor.require(cbor, "attested_at"))
-    val expiresAt = CsilCbor.mapGet(cbor, "expires_at")?.let { csilV -> CsilCbor.asText(csilV) }
+    val attestedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "attested_at"))
+    val expiresAt = CsilCbor.mapGet(cbor, "expires_at")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
     return DomainClaim(claimType = claimType, claimValue = claimValue, signatures = signatures, attestedAt = attestedAt, expiresAt = expiresAt)
 }
 
@@ -1111,8 +1431,8 @@ fun SigningRequest.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("nonce") to CborValue.CText(this.nonce))
     this.callback?.let { csilV -> csilEntries.add(CborValue.CText("callback") to CborValue.CText(csilV)) }
-    csilEntries.add(CborValue.CText("issued_at") to CborValue.CText(this.issuedAt))
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("issued_at") to CsilCbor.encTimestamp(this.issuedAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
     csilEntries.add(CborValue.CText("request_id") to CborValue.CText(this.requestId))
     csilEntries.add(CborValue.CText("issuer_domain") to CborValue.CText(this.issuerDomain))
     csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
@@ -1132,8 +1452,8 @@ fun signingRequestFromCborValue(cbor: CborValue): SigningRequest {
     val issuerDomain = CsilCbor.asText(CsilCbor.require(cbor, "issuer_domain"))
     val requestedClaimTypes = CsilCbor.asArray(CsilCbor.require(cbor, "requested_claim_types")).map { csilE -> CsilCbor.asText(csilE) }
     val nonce = CsilCbor.asText(CsilCbor.require(cbor, "nonce"))
-    val issuedAt = CsilCbor.asText(CsilCbor.require(cbor, "issued_at"))
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val issuedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "issued_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
     val callback = CsilCbor.mapGet(cbor, "callback")?.let { csilV -> CsilCbor.asText(csilV) }
     return SigningRequest(requestId = requestId, subjectUserId = subjectUserId, subjectDomain = subjectDomain, issuerDomain = issuerDomain, requestedClaimTypes = requestedClaimTypes, nonce = nonce, issuedAt = issuedAt, expiresAt = expiresAt, callback = callback)
 }
@@ -1207,8 +1527,9 @@ fun IdentityAssertion.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("domain") to CborValue.CText(this.domain))
     csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
     csilEntries.add(CborValue.CText("audience") to CborValue.CText(this.audience))
-    csilEntries.add(CborValue.CText("issued_at") to CborValue.CText(this.issuedAt))
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("issued_at") to CsilCbor.encTimestamp(this.issuedAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
+    csilEntries.add(CborValue.CText("application") to this.application.toCborValue())
     this.displayName?.let { csilV -> csilEntries.add(CborValue.CText("display_name") to CborValue.CText(csilV)) }
     csilEntries.add(CborValue.CText("authorized_claims") to CborValue.CArray((this.authorizedClaims).map { csilE -> CborValue.CText(csilE) }))
     return CborValue.CMap(csilEntries)
@@ -1223,11 +1544,12 @@ fun identityAssertionFromCborValue(cbor: CborValue): IdentityAssertion {
     val domain = CsilCbor.asText(CsilCbor.require(cbor, "domain"))
     val audience = CsilCbor.asText(CsilCbor.require(cbor, "audience"))
     val nonce = CsilCbor.asText(CsilCbor.require(cbor, "nonce"))
-    val issuedAt = CsilCbor.asText(CsilCbor.require(cbor, "issued_at"))
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val issuedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "issued_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
     val authorizedClaims = CsilCbor.asArray(CsilCbor.require(cbor, "authorized_claims")).map { csilE -> CsilCbor.asText(csilE) }
     val displayName = CsilCbor.mapGet(cbor, "display_name")?.let { csilV -> CsilCbor.asText(csilV) }
-    return IdentityAssertion(userId = userId, domain = domain, audience = audience, nonce = nonce, issuedAt = issuedAt, expiresAt = expiresAt, authorizedClaims = authorizedClaims, displayName = displayName)
+    val application = applicationRefFromCborValue(CsilCbor.require(cbor, "application"))
+    return IdentityAssertion(userId = userId, domain = domain, audience = audience, nonce = nonce, issuedAt = issuedAt, expiresAt = expiresAt, authorizedClaims = authorizedClaims, displayName = displayName, application = application)
 }
 
 /** Decode CSIL CBOR bytes into a IdentityAssertion. */
@@ -1280,7 +1602,7 @@ fun UserInfoRequest.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("nonce") to CborValue.CText(this.nonce))
     csilEntries.add(CborValue.CText("token") to CborValue.CBytes(this.token))
-    csilEntries.add(CborValue.CText("timestamp") to CborValue.CText(this.timestamp))
+    csilEntries.add(CborValue.CText("timestamp") to CsilCbor.encTimestamp(this.timestamp))
     csilEntries.add(CborValue.CText("relying_party") to CborValue.CText(this.relyingParty))
     return CborValue.CMap(csilEntries)
 }
@@ -1292,7 +1614,7 @@ fun UserInfoRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
 fun userInfoRequestFromCborValue(cbor: CborValue): UserInfoRequest {
     val token = CsilCbor.asBytes(CsilCbor.require(cbor, "token"))
     val relyingParty = CsilCbor.asText(CsilCbor.require(cbor, "relying_party"))
-    val timestamp = CsilCbor.asText(CsilCbor.require(cbor, "timestamp"))
+    val timestamp = CsilCbor.asTimestamp(CsilCbor.require(cbor, "timestamp"))
     val nonce = CsilCbor.asText(CsilCbor.require(cbor, "nonce"))
     return UserInfoRequest(token = token, relyingParty = relyingParty, timestamp = timestamp, nonce = nonce)
 }
@@ -1375,8 +1697,8 @@ fun relyingPartyApplicationFromCbor(bytes: ByteArray): RelyingPartyApplication =
 fun AuthRequest.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("nonce") to CborValue.CText(this.nonce))
-    csilEntries.add(CborValue.CText("timestamp") to CborValue.CText(this.timestamp))
-    this.application?.let { csilV -> csilEntries.add(CborValue.CText("application") to csilV.toCborValue()) }
+    csilEntries.add(CborValue.CText("timestamp") to CsilCbor.encTimestamp(this.timestamp))
+    csilEntries.add(CborValue.CText("application") to this.application.toCborValue())
     csilEntries.add(CborValue.CText("callback_url") to CborValue.CText(this.callbackUrl))
     this.flowContext?.let { csilV -> csilEntries.add(CborValue.CText("flow_context") to csilV.toCborValue()) }
     csilEntries.add(CborValue.CText("relying_party") to CborValue.CText(this.relyingParty))
@@ -1395,13 +1717,13 @@ fun authRequestFromCborValue(cbor: CborValue): AuthRequest {
     val relyingParty = CsilCbor.asText(CsilCbor.require(cbor, "relying_party"))
     val callbackUrl = CsilCbor.asText(CsilCbor.require(cbor, "callback_url"))
     val nonce = CsilCbor.asText(CsilCbor.require(cbor, "nonce"))
-    val timestamp = CsilCbor.asText(CsilCbor.require(cbor, "timestamp"))
+    val timestamp = CsilCbor.asTimestamp(CsilCbor.require(cbor, "timestamp"))
     val signingKeyId = CsilCbor.asText(CsilCbor.require(cbor, "signing_key_id"))
     val requestedClaims = CsilCbor.mapGet(cbor, "requested_claims")?.let { csilV -> claimRequestFromCborValue(csilV) }
     val authenticationRequirements = CsilCbor.mapGet(cbor, "authentication_requirements")?.let { csilV -> authenticationRequirementsFromCborValue(csilV) }
     val flowContext = CsilCbor.mapGet(cbor, "flow_context")?.let { csilV -> authFlowContextFromCborValue(csilV) }
     val relyingPartyClaims = CsilCbor.mapGet(cbor, "relying_party_claims")?.let { csilV -> CsilCbor.asArray(csilV).map { csilE -> domainClaimFromCborValue(csilE) } }
-    val application = CsilCbor.mapGet(cbor, "application")?.let { csilV -> relyingPartyApplicationFromCborValue(csilV) }
+    val application = relyingPartyApplicationFromCborValue(CsilCbor.require(cbor, "application"))
     return AuthRequest(relyingParty = relyingParty, callbackUrl = callbackUrl, nonce = nonce, timestamp = timestamp, signingKeyId = signingKeyId, requestedClaims = requestedClaims, authenticationRequirements = authenticationRequirements, flowContext = flowContext, relyingPartyClaims = relyingPartyClaims, application = application)
 }
 
@@ -1435,7 +1757,7 @@ fun signedAuthRequestFromCbor(bytes: ByteArray): SignedAuthRequest = signedAuthR
 fun EncryptedToken.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("nonce") to CborValue.CBytes(this.nonce))
-    this.suite?.let { csilV -> csilEntries.add(CborValue.CText("suite") to CborValue.CText(csilV)) }
+    this.suite?.let { csilV -> csilEntries.add(CborValue.CText("suite") to csilV.toCborValue()) }
     csilEntries.add(CborValue.CText("ciphertext") to CborValue.CBytes(this.ciphertext))
     csilEntries.add(CborValue.CText("ephemeral_public_key") to CborValue.CBytes(this.ephemeralPublicKey))
     return CborValue.CMap(csilEntries)
@@ -1449,7 +1771,7 @@ fun encryptedTokenFromCborValue(cbor: CborValue): EncryptedToken {
     val ephemeralPublicKey = CsilCbor.asBytes(CsilCbor.require(cbor, "ephemeral_public_key"))
     val ciphertext = CsilCbor.asBytes(CsilCbor.require(cbor, "ciphertext"))
     val nonce = CsilCbor.asBytes(CsilCbor.require(cbor, "nonce"))
-    val suite = CsilCbor.mapGet(cbor, "suite")?.let { csilV -> CsilCbor.asText(csilV) }
+    val suite = CsilCbor.mapGet(cbor, "suite")?.let { csilV -> aeadSuiteFromCborValue(csilV) }
     return EncryptedToken(ephemeralPublicKey = ephemeralPublicKey, ciphertext = ciphertext, nonce = nonce, suite = suite)
 }
 
@@ -1459,8 +1781,8 @@ fun encryptedTokenFromCbor(bytes: ByteArray): EncryptedToken = encryptedTokenFro
 /** The CBOR value tree for a AlgorithmSupport (deep, canonical key order). */
 fun AlgorithmSupport.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("signing") to CborValue.CArray((this.signing).map { csilE -> CborValue.CText(csilE) }))
-    this.encryption?.let { csilV -> csilEntries.add(CborValue.CText("encryption") to CborValue.CArray((csilV).map { csilE -> CborValue.CText(csilE) })) }
+    csilEntries.add(CborValue.CText("signing") to CborValue.CArray((this.signing).map { csilE -> csilE.toCborValue() }))
+    this.encryption?.let { csilV -> csilEntries.add(CborValue.CText("encryption") to CborValue.CArray((csilV).map { csilE -> csilE.toCborValue() })) }
     return CborValue.CMap(csilEntries)
 }
 
@@ -1469,8 +1791,8 @@ fun AlgorithmSupport.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
 
 /** Reconstruct a AlgorithmSupport from a decoded CBOR value tree. */
 fun algorithmSupportFromCborValue(cbor: CborValue): AlgorithmSupport {
-    val signing = CsilCbor.asArray(CsilCbor.require(cbor, "signing")).map { csilE -> CsilCbor.asText(csilE) }
-    val encryption = CsilCbor.mapGet(cbor, "encryption")?.let { csilV -> CsilCbor.asArray(csilV).map { csilE -> CsilCbor.asText(csilE) } }
+    val signing = CsilCbor.asArray(CsilCbor.require(cbor, "signing")).map { csilE -> keyAlgorithmFromCborValue(csilE) }
+    val encryption = CsilCbor.mapGet(cbor, "encryption")?.let { csilV -> CsilCbor.asArray(csilV).map { csilE -> aeadSuiteFromCborValue(csilE) } }
     return AlgorithmSupport(signing = signing, encryption = encryption)
 }
 
@@ -1525,8 +1847,8 @@ fun Relation.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("id") to CborValue.CText(this.id))
     csilEntries.add(CborValue.CText("relation") to CborValue.CText(this.relation))
     csilEntries.add(CborValue.CText("object_id") to CborValue.CText(this.objectId))
-    csilEntries.add(CborValue.CText("created_at") to CborValue.CText(this.createdAt))
-    this.removedAt?.let { csilV -> csilEntries.add(CborValue.CText("removed_at") to CborValue.CText(csilV)) }
+    csilEntries.add(CborValue.CText("created_at") to CsilCbor.encTimestamp(this.createdAt))
+    this.removedAt?.let { csilV -> csilEntries.add(CborValue.CText("removed_at") to CsilCbor.encTimestamp(csilV)) }
     csilEntries.add(CborValue.CText("subject_id") to CborValue.CText(this.subjectId))
     csilEntries.add(CborValue.CText("object_type") to CborValue.CText(this.objectType))
     csilEntries.add(CborValue.CText("subject_type") to CborValue.CText(this.subjectType))
@@ -1544,8 +1866,8 @@ fun relationFromCborValue(cbor: CborValue): Relation {
     val relation = CsilCbor.asText(CsilCbor.require(cbor, "relation"))
     val objectType = CsilCbor.asText(CsilCbor.require(cbor, "object_type"))
     val objectId = CsilCbor.asText(CsilCbor.require(cbor, "object_id"))
-    val createdAt = CsilCbor.asText(CsilCbor.require(cbor, "created_at"))
-    val removedAt = CsilCbor.mapGet(cbor, "removed_at")?.let { csilV -> CsilCbor.asText(csilV) }
+    val createdAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "created_at"))
+    val removedAt = CsilCbor.mapGet(cbor, "removed_at")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
     return Relation(id = id, subjectType = subjectType, subjectId = subjectId, relation = relation, objectType = objectType, objectId = objectId, createdAt = createdAt, removedAt = removedAt)
 }
 
@@ -1556,13 +1878,15 @@ fun relationFromCbor(bytes: ByteArray): Relation = relationFromCborValue(CsilCbo
 fun AdminUser.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("id") to CborValue.CText(this.id))
+    csilEntries.add(CborValue.CText("kind") to this.kind.toCborValue())
     csilEntries.add(CborValue.CText("username") to CborValue.CText(this.username))
     csilEntries.add(CborValue.CText("is_active") to CborValue.CBool(this.isActive))
-    this.purgedAt?.let { csilV -> csilEntries.add(CborValue.CText("purged_at") to CborValue.CText(csilV)) }
-    csilEntries.add(CborValue.CText("created_at") to CborValue.CText(this.createdAt))
-    csilEntries.add(CborValue.CText("updated_at") to CborValue.CText(this.updatedAt))
+    this.purgedAt?.let { csilV -> csilEntries.add(CborValue.CText("purged_at") to CsilCbor.encTimestamp(csilV)) }
+    csilEntries.add(CborValue.CText("created_at") to CsilCbor.encTimestamp(this.createdAt))
+    csilEntries.add(CborValue.CText("updated_at") to CsilCbor.encTimestamp(this.updatedAt))
     csilEntries.add(CborValue.CText("display_name") to CborValue.CText(this.displayName))
     this.purgeReason?.let { csilV -> csilEntries.add(CborValue.CText("purge_reason") to CborValue.CText(csilV)) }
+    this.applicationId?.let { csilV -> csilEntries.add(CborValue.CText("application_id") to CborValue.CText(csilV)) }
     this.passwordLocked?.let { csilV -> csilEntries.add(CborValue.CText("password_locked") to CborValue.CBool(csilV)) }
     return CborValue.CMap(csilEntries)
 }
@@ -1575,13 +1899,15 @@ fun adminUserFromCborValue(cbor: CborValue): AdminUser {
     val id = CsilCbor.asText(CsilCbor.require(cbor, "id"))
     val username = CsilCbor.asText(CsilCbor.require(cbor, "username"))
     val displayName = CsilCbor.asText(CsilCbor.require(cbor, "display_name"))
+    val kind = accountKindFromCborValue(CsilCbor.require(cbor, "kind"))
+    val applicationId = CsilCbor.mapGet(cbor, "application_id")?.let { csilV -> CsilCbor.asText(csilV) }
     val isActive = CsilCbor.asBoolean(CsilCbor.require(cbor, "is_active"))
-    val createdAt = CsilCbor.asText(CsilCbor.require(cbor, "created_at"))
-    val updatedAt = CsilCbor.asText(CsilCbor.require(cbor, "updated_at"))
-    val purgedAt = CsilCbor.mapGet(cbor, "purged_at")?.let { csilV -> CsilCbor.asText(csilV) }
+    val createdAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "created_at"))
+    val updatedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "updated_at"))
+    val purgedAt = CsilCbor.mapGet(cbor, "purged_at")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
     val purgeReason = CsilCbor.mapGet(cbor, "purge_reason")?.let { csilV -> CsilCbor.asText(csilV) }
     val passwordLocked = CsilCbor.mapGet(cbor, "password_locked")?.let { csilV -> CsilCbor.asBoolean(csilV) }
-    return AdminUser(id = id, username = username, displayName = displayName, isActive = isActive, createdAt = createdAt, updatedAt = updatedAt, purgedAt = purgedAt, purgeReason = purgeReason, passwordLocked = passwordLocked)
+    return AdminUser(id = id, username = username, displayName = displayName, kind = kind, applicationId = applicationId, isActive = isActive, createdAt = createdAt, updatedAt = updatedAt, purgedAt = purgedAt, purgeReason = purgeReason, passwordLocked = passwordLocked)
 }
 
 /** Decode CSIL CBOR bytes into a AdminUser. */
@@ -1671,8 +1997,8 @@ fun getUserResponseFromCbor(bytes: ByteArray): GetUserResponse = getUserResponse
 fun UserAuthenticationActivity.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
-    this.lastSeenAt?.let { csilV -> csilEntries.add(CborValue.CText("last_seen_at") to CborValue.CText(csilV)) }
-    this.lastAuthenticatedAt?.let { csilV -> csilEntries.add(CborValue.CText("last_authenticated_at") to CborValue.CText(csilV)) }
+    this.lastSeenAt?.let { csilV -> csilEntries.add(CborValue.CText("last_seen_at") to CsilCbor.encTimestamp(csilV)) }
+    this.lastAuthenticatedAt?.let { csilV -> csilEntries.add(CborValue.CText("last_authenticated_at") to CsilCbor.encTimestamp(csilV)) }
     csilEntries.add(CborValue.CText("active_browser_session_count") to CborValue.CInt(this.activeBrowserSessionCount))
     csilEntries.add(CborValue.CText("successful_authentication_count") to CborValue.CInt(this.successfulAuthenticationCount))
     return CborValue.CMap(csilEntries)
@@ -1684,8 +2010,8 @@ fun UserAuthenticationActivity.toCbor(): ByteArray = CsilCbor.encode(this.toCbor
 /** Reconstruct a UserAuthenticationActivity from a decoded CBOR value tree. */
 fun userAuthenticationActivityFromCborValue(cbor: CborValue): UserAuthenticationActivity {
     val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
-    val lastAuthenticatedAt = CsilCbor.mapGet(cbor, "last_authenticated_at")?.let { csilV -> CsilCbor.asText(csilV) }
-    val lastSeenAt = CsilCbor.mapGet(cbor, "last_seen_at")?.let { csilV -> CsilCbor.asText(csilV) }
+    val lastAuthenticatedAt = CsilCbor.mapGet(cbor, "last_authenticated_at")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
+    val lastSeenAt = CsilCbor.mapGet(cbor, "last_seen_at")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
     val successfulAuthenticationCount = CsilCbor.asLong(CsilCbor.require(cbor, "successful_authentication_count"))
     val activeBrowserSessionCount = CsilCbor.asLong(CsilCbor.require(cbor, "active_browser_session_count"))
     return UserAuthenticationActivity(userId = userId, lastAuthenticatedAt = lastAuthenticatedAt, lastSeenAt = lastSeenAt, successfulAuthenticationCount = successfulAuthenticationCount, activeBrowserSessionCount = activeBrowserSessionCount)
@@ -1738,6 +2064,7 @@ fun CreateUserRequest.toCborValue(): CborValue {
     this.password?.let { csilV -> csilEntries.add(CborValue.CText("password") to CborValue.CText(csilV)) }
     csilEntries.add(CborValue.CText("username") to CborValue.CText(this.username))
     csilEntries.add(CborValue.CText("display_name") to CborValue.CText(this.displayName))
+    this.applicationId?.let { csilV -> csilEntries.add(CborValue.CText("application_id") to CborValue.CText(csilV)) }
     return CborValue.CMap(csilEntries)
 }
 
@@ -1749,7 +2076,8 @@ fun createUserRequestFromCborValue(cbor: CborValue): CreateUserRequest {
     val username = CsilCbor.asText(CsilCbor.require(cbor, "username"))
     val displayName = CsilCbor.asText(CsilCbor.require(cbor, "display_name"))
     val password = CsilCbor.mapGet(cbor, "password")?.let { csilV -> CsilCbor.asText(csilV) }
-    return CreateUserRequest(username = username, displayName = displayName, password = password)
+    val applicationId = CsilCbor.mapGet(cbor, "application_id")?.let { csilV -> CsilCbor.asText(csilV) }
+    return CreateUserRequest(username = username, displayName = displayName, password = password, applicationId = applicationId)
 }
 
 /** Decode CSIL CBOR bytes into a CreateUserRequest. */
@@ -1775,6 +2103,411 @@ fun createUserResponseFromCborValue(cbor: CborValue): CreateUserResponse {
 
 /** Decode CSIL CBOR bytes into a CreateUserResponse. */
 fun createUserResponseFromCbor(bytes: ByteArray): CreateUserResponse = createUserResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RenameUserRequest (deep, canonical key order). */
+fun RenameUserRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
+    csilEntries.add(CborValue.CText("username") to CborValue.CText(this.username))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RenameUserRequest to canonical CSIL CBOR bytes. */
+fun RenameUserRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RenameUserRequest from a decoded CBOR value tree. */
+fun renameUserRequestFromCborValue(cbor: CborValue): RenameUserRequest {
+    val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
+    val username = CsilCbor.asText(CsilCbor.require(cbor, "username"))
+    return RenameUserRequest(userId = userId, username = username)
+}
+
+/** Decode CSIL CBOR bytes into a RenameUserRequest. */
+fun renameUserRequestFromCbor(bytes: ByteArray): RenameUserRequest = renameUserRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RenameUserResponse (deep, canonical key order). */
+fun RenameUserResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("user") to this.user.toCborValue())
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RenameUserResponse to canonical CSIL CBOR bytes. */
+fun RenameUserResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RenameUserResponse from a decoded CBOR value tree. */
+fun renameUserResponseFromCborValue(cbor: CborValue): RenameUserResponse {
+    val user = adminUserFromCborValue(CsilCbor.require(cbor, "user"))
+    return RenameUserResponse(user = user)
+}
+
+/** Decode CSIL CBOR bytes into a RenameUserResponse. */
+fun renameUserResponseFromCbor(bytes: ByteArray): RenameUserResponse = renameUserResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a SetApplicationIdRequest (deep, canonical key order). */
+fun SetApplicationIdRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
+    csilEntries.add(CborValue.CText("application_id") to CborValue.CText(this.applicationId))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a SetApplicationIdRequest to canonical CSIL CBOR bytes. */
+fun SetApplicationIdRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a SetApplicationIdRequest from a decoded CBOR value tree. */
+fun setApplicationIdRequestFromCborValue(cbor: CborValue): SetApplicationIdRequest {
+    val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
+    val applicationId = CsilCbor.asText(CsilCbor.require(cbor, "application_id"))
+    return SetApplicationIdRequest(userId = userId, applicationId = applicationId)
+}
+
+/** Decode CSIL CBOR bytes into a SetApplicationIdRequest. */
+fun setApplicationIdRequestFromCbor(bytes: ByteArray): SetApplicationIdRequest = setApplicationIdRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a SetApplicationIdResponse (deep, canonical key order). */
+fun SetApplicationIdResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("user") to this.user.toCborValue())
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a SetApplicationIdResponse to canonical CSIL CBOR bytes. */
+fun SetApplicationIdResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a SetApplicationIdResponse from a decoded CBOR value tree. */
+fun setApplicationIdResponseFromCborValue(cbor: CborValue): SetApplicationIdResponse {
+    val user = adminUserFromCborValue(CsilCbor.require(cbor, "user"))
+    return SetApplicationIdResponse(user = user)
+}
+
+/** Decode CSIL CBOR bytes into a SetApplicationIdResponse. */
+fun setApplicationIdResponseFromCbor(bytes: ByteArray): SetApplicationIdResponse = setApplicationIdResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a ApiKeyInfo (deep, canonical key order). */
+fun ApiKeyInfo.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("hint") to CborValue.CText(this.hint))
+    csilEntries.add(CborValue.CText("name") to CborValue.CText(this.name))
+    csilEntries.add(CborValue.CText("key_id") to CborValue.CText(this.keyId))
+    csilEntries.add(CborValue.CText("created_at") to CsilCbor.encTimestamp(this.createdAt))
+    this.lastUsedAt?.let { csilV -> csilEntries.add(CborValue.CText("last_used_at") to CsilCbor.encTimestamp(csilV)) }
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ApiKeyInfo to canonical CSIL CBOR bytes. */
+fun ApiKeyInfo.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ApiKeyInfo from a decoded CBOR value tree. */
+fun apiKeyInfoFromCborValue(cbor: CborValue): ApiKeyInfo {
+    val keyId = CsilCbor.asText(CsilCbor.require(cbor, "key_id"))
+    val name = CsilCbor.asText(CsilCbor.require(cbor, "name"))
+    val hint = CsilCbor.asText(CsilCbor.require(cbor, "hint"))
+    val createdAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "created_at"))
+    val lastUsedAt = CsilCbor.mapGet(cbor, "last_used_at")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
+    return ApiKeyInfo(keyId = keyId, name = name, hint = hint, createdAt = createdAt, lastUsedAt = lastUsedAt)
+}
+
+/** Decode CSIL CBOR bytes into a ApiKeyInfo. */
+fun apiKeyInfoFromCbor(bytes: ByteArray): ApiKeyInfo = apiKeyInfoFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a CreateApiKeyRequest (deep, canonical key order). */
+fun CreateApiKeyRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("name") to CborValue.CText(this.name))
+    csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a CreateApiKeyRequest to canonical CSIL CBOR bytes. */
+fun CreateApiKeyRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a CreateApiKeyRequest from a decoded CBOR value tree. */
+fun createApiKeyRequestFromCborValue(cbor: CborValue): CreateApiKeyRequest {
+    val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
+    val name = CsilCbor.asText(CsilCbor.require(cbor, "name"))
+    return CreateApiKeyRequest(userId = userId, name = name)
+}
+
+/** Decode CSIL CBOR bytes into a CreateApiKeyRequest. */
+fun createApiKeyRequestFromCbor(bytes: ByteArray): CreateApiKeyRequest = createApiKeyRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a CreateApiKeyResponse (deep, canonical key order). */
+fun CreateApiKeyResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("key") to this.key.toCborValue())
+    csilEntries.add(CborValue.CText("api_key") to CborValue.CText(this.apiKey))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a CreateApiKeyResponse to canonical CSIL CBOR bytes. */
+fun CreateApiKeyResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a CreateApiKeyResponse from a decoded CBOR value tree. */
+fun createApiKeyResponseFromCborValue(cbor: CborValue): CreateApiKeyResponse {
+    val key = apiKeyInfoFromCborValue(CsilCbor.require(cbor, "key"))
+    val apiKey = CsilCbor.asText(CsilCbor.require(cbor, "api_key"))
+    return CreateApiKeyResponse(key = key, apiKey = apiKey)
+}
+
+/** Decode CSIL CBOR bytes into a CreateApiKeyResponse. */
+fun createApiKeyResponseFromCbor(bytes: ByteArray): CreateApiKeyResponse = createApiKeyResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a ListApiKeysRequest (deep, canonical key order). */
+fun ListApiKeysRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ListApiKeysRequest to canonical CSIL CBOR bytes. */
+fun ListApiKeysRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ListApiKeysRequest from a decoded CBOR value tree. */
+fun listApiKeysRequestFromCborValue(cbor: CborValue): ListApiKeysRequest {
+    val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
+    return ListApiKeysRequest(userId = userId)
+}
+
+/** Decode CSIL CBOR bytes into a ListApiKeysRequest. */
+fun listApiKeysRequestFromCbor(bytes: ByteArray): ListApiKeysRequest = listApiKeysRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a ListApiKeysResponse (deep, canonical key order). */
+fun ListApiKeysResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("keys") to CborValue.CArray((this.keys).map { csilE -> csilE.toCborValue() }))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a ListApiKeysResponse to canonical CSIL CBOR bytes. */
+fun ListApiKeysResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a ListApiKeysResponse from a decoded CBOR value tree. */
+fun listApiKeysResponseFromCborValue(cbor: CborValue): ListApiKeysResponse {
+    val keys = CsilCbor.asArray(CsilCbor.require(cbor, "keys")).map { csilE -> apiKeyInfoFromCborValue(csilE) }
+    return ListApiKeysResponse(keys = keys)
+}
+
+/** Decode CSIL CBOR bytes into a ListApiKeysResponse. */
+fun listApiKeysResponseFromCbor(bytes: ByteArray): ListApiKeysResponse = listApiKeysResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RevokeApiKeyRequest (deep, canonical key order). */
+fun RevokeApiKeyRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("key_id") to CborValue.CText(this.keyId))
+    csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RevokeApiKeyRequest to canonical CSIL CBOR bytes. */
+fun RevokeApiKeyRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RevokeApiKeyRequest from a decoded CBOR value tree. */
+fun revokeApiKeyRequestFromCborValue(cbor: CborValue): RevokeApiKeyRequest {
+    val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
+    val keyId = CsilCbor.asText(CsilCbor.require(cbor, "key_id"))
+    return RevokeApiKeyRequest(userId = userId, keyId = keyId)
+}
+
+/** Decode CSIL CBOR bytes into a RevokeApiKeyRequest. */
+fun revokeApiKeyRequestFromCbor(bytes: ByteArray): RevokeApiKeyRequest = revokeApiKeyRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RevokeApiKeyResponse (deep, canonical key order). */
+fun RevokeApiKeyResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("revoked") to CborValue.CBool(this.revoked))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RevokeApiKeyResponse to canonical CSIL CBOR bytes. */
+fun RevokeApiKeyResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RevokeApiKeyResponse from a decoded CBOR value tree. */
+fun revokeApiKeyResponseFromCborValue(cbor: CborValue): RevokeApiKeyResponse {
+    val revoked = CsilCbor.asBoolean(CsilCbor.require(cbor, "revoked"))
+    return RevokeApiKeyResponse(revoked = revoked)
+}
+
+/** Decode CSIL CBOR bytes into a RevokeApiKeyResponse. */
+fun revokeApiKeyResponseFromCbor(bytes: ByteArray): RevokeApiKeyResponse = revokeApiKeyResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a AccountLimits (deep, canonical key order). */
+fun AccountLimits.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    this.maxApiKeys?.let { csilV -> csilEntries.add(CborValue.CText("max_api_keys") to CborValue.CInt(csilV)) }
+    this.requestBurst?.let { csilV -> csilEntries.add(CborValue.CText("request_burst") to CborValue.CInt(csilV)) }
+    this.maxDistinctUsers?.let { csilV -> csilEntries.add(CborValue.CText("max_distinct_users") to CborValue.CInt(csilV)) }
+    this.requestsPerMinute?.let { csilV -> csilEntries.add(CborValue.CText("requests_per_minute") to CborValue.CInt(csilV)) }
+    csilEntries.add(CborValue.CText("distinct_user_window_days") to CborValue.CInt(this.distinctUserWindowDays))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a AccountLimits to canonical CSIL CBOR bytes. */
+fun AccountLimits.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a AccountLimits from a decoded CBOR value tree. */
+fun accountLimitsFromCborValue(cbor: CborValue): AccountLimits {
+    val maxApiKeys = CsilCbor.mapGet(cbor, "max_api_keys")?.let { csilV -> CsilCbor.asLong(csilV) }
+    val maxDistinctUsers = CsilCbor.mapGet(cbor, "max_distinct_users")?.let { csilV -> CsilCbor.asLong(csilV) }
+    val distinctUserWindowDays = CsilCbor.asLong(CsilCbor.require(cbor, "distinct_user_window_days"))
+    val requestsPerMinute = CsilCbor.mapGet(cbor, "requests_per_minute")?.let { csilV -> CsilCbor.asLong(csilV) }
+    val requestBurst = CsilCbor.mapGet(cbor, "request_burst")?.let { csilV -> CsilCbor.asLong(csilV) }
+    return AccountLimits(maxApiKeys = maxApiKeys, maxDistinctUsers = maxDistinctUsers, distinctUserWindowDays = distinctUserWindowDays, requestsPerMinute = requestsPerMinute, requestBurst = requestBurst)
+}
+
+/** Decode CSIL CBOR bytes into a AccountLimits. */
+fun accountLimitsFromCbor(bytes: ByteArray): AccountLimits = accountLimitsFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a GetAccountLimitsRequest (deep, canonical key order). */
+fun GetAccountLimitsRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a GetAccountLimitsRequest to canonical CSIL CBOR bytes. */
+fun GetAccountLimitsRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a GetAccountLimitsRequest from a decoded CBOR value tree. */
+fun getAccountLimitsRequestFromCborValue(cbor: CborValue): GetAccountLimitsRequest {
+    val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
+    return GetAccountLimitsRequest(userId = userId)
+}
+
+/** Decode CSIL CBOR bytes into a GetAccountLimitsRequest. */
+fun getAccountLimitsRequestFromCbor(bytes: ByteArray): GetAccountLimitsRequest = getAccountLimitsRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a GetAccountLimitsResponse (deep, canonical key order). */
+fun GetAccountLimitsResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("limits") to this.limits.toCborValue())
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a GetAccountLimitsResponse to canonical CSIL CBOR bytes. */
+fun GetAccountLimitsResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a GetAccountLimitsResponse from a decoded CBOR value tree. */
+fun getAccountLimitsResponseFromCborValue(cbor: CborValue): GetAccountLimitsResponse {
+    val limits = accountLimitsFromCborValue(CsilCbor.require(cbor, "limits"))
+    return GetAccountLimitsResponse(limits = limits)
+}
+
+/** Decode CSIL CBOR bytes into a GetAccountLimitsResponse. */
+fun getAccountLimitsResponseFromCbor(bytes: ByteArray): GetAccountLimitsResponse = getAccountLimitsResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a SetAccountLimitsRequest (deep, canonical key order). */
+fun SetAccountLimitsRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("limits") to this.limits.toCborValue())
+    csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a SetAccountLimitsRequest to canonical CSIL CBOR bytes. */
+fun SetAccountLimitsRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a SetAccountLimitsRequest from a decoded CBOR value tree. */
+fun setAccountLimitsRequestFromCborValue(cbor: CborValue): SetAccountLimitsRequest {
+    val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
+    val limits = accountLimitsFromCborValue(CsilCbor.require(cbor, "limits"))
+    return SetAccountLimitsRequest(userId = userId, limits = limits)
+}
+
+/** Decode CSIL CBOR bytes into a SetAccountLimitsRequest. */
+fun setAccountLimitsRequestFromCbor(bytes: ByteArray): SetAccountLimitsRequest = setAccountLimitsRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a SetAccountLimitsResponse (deep, canonical key order). */
+fun SetAccountLimitsResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("limits") to this.limits.toCborValue())
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a SetAccountLimitsResponse to canonical CSIL CBOR bytes. */
+fun SetAccountLimitsResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a SetAccountLimitsResponse from a decoded CBOR value tree. */
+fun setAccountLimitsResponseFromCborValue(cbor: CborValue): SetAccountLimitsResponse {
+    val limits = accountLimitsFromCborValue(CsilCbor.require(cbor, "limits"))
+    return SetAccountLimitsResponse(limits = limits)
+}
+
+/** Decode CSIL CBOR bytes into a SetAccountLimitsResponse. */
+fun setAccountLimitsResponseFromCbor(bytes: ByteArray): SetAccountLimitsResponse = setAccountLimitsResponseFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RpUsageDay (deep, canonical key order). */
+fun RpUsageDay.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("day") to CsilCbor.encDate(this.day))
+    csilEntries.add(CborValue.CText("failed") to CborValue.CInt(this.failed))
+    csilEntries.add(CborValue.CText("operation") to CborValue.CText(this.operation))
+    csilEntries.add(CborValue.CText("succeeded") to CborValue.CInt(this.succeeded))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RpUsageDay to canonical CSIL CBOR bytes. */
+fun RpUsageDay.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RpUsageDay from a decoded CBOR value tree. */
+fun rpUsageDayFromCborValue(cbor: CborValue): RpUsageDay {
+    val day = CsilCbor.asDate(CsilCbor.require(cbor, "day"))
+    val operation = CsilCbor.asText(CsilCbor.require(cbor, "operation"))
+    val succeeded = CsilCbor.asLong(CsilCbor.require(cbor, "succeeded"))
+    val failed = CsilCbor.asLong(CsilCbor.require(cbor, "failed"))
+    return RpUsageDay(day = day, operation = operation, succeeded = succeeded, failed = failed)
+}
+
+/** Decode CSIL CBOR bytes into a RpUsageDay. */
+fun rpUsageDayFromCbor(bytes: ByteArray): RpUsageDay = rpUsageDayFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a GetApplicationUsageRequest (deep, canonical key order). */
+fun GetApplicationUsageRequest.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
+    csilEntries.add(CborValue.CText("last_day") to CsilCbor.encDate(this.lastDay))
+    csilEntries.add(CborValue.CText("first_day") to CsilCbor.encDate(this.firstDay))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a GetApplicationUsageRequest to canonical CSIL CBOR bytes. */
+fun GetApplicationUsageRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a GetApplicationUsageRequest from a decoded CBOR value tree. */
+fun getApplicationUsageRequestFromCborValue(cbor: CborValue): GetApplicationUsageRequest {
+    val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
+    val firstDay = CsilCbor.asDate(CsilCbor.require(cbor, "first_day"))
+    val lastDay = CsilCbor.asDate(CsilCbor.require(cbor, "last_day"))
+    return GetApplicationUsageRequest(userId = userId, firstDay = firstDay, lastDay = lastDay)
+}
+
+/** Decode CSIL CBOR bytes into a GetApplicationUsageRequest. */
+fun getApplicationUsageRequestFromCbor(bytes: ByteArray): GetApplicationUsageRequest = getApplicationUsageRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a GetApplicationUsageResponse (deep, canonical key order). */
+fun GetApplicationUsageResponse.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("days") to CborValue.CArray((this.days).map { csilE -> csilE.toCborValue() }))
+    csilEntries.add(CborValue.CText("distinct_users") to CborValue.CInt(this.distinctUsers))
+    this.maxDistinctUsers?.let { csilV -> csilEntries.add(CborValue.CText("max_distinct_users") to CborValue.CInt(csilV)) }
+    csilEntries.add(CborValue.CText("distinct_user_window_days") to CborValue.CInt(this.distinctUserWindowDays))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a GetApplicationUsageResponse to canonical CSIL CBOR bytes. */
+fun GetApplicationUsageResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a GetApplicationUsageResponse from a decoded CBOR value tree. */
+fun getApplicationUsageResponseFromCborValue(cbor: CborValue): GetApplicationUsageResponse {
+    val distinctUsers = CsilCbor.asLong(CsilCbor.require(cbor, "distinct_users"))
+    val distinctUserWindowDays = CsilCbor.asLong(CsilCbor.require(cbor, "distinct_user_window_days"))
+    val maxDistinctUsers = CsilCbor.mapGet(cbor, "max_distinct_users")?.let { csilV -> CsilCbor.asLong(csilV) }
+    val days = CsilCbor.asArray(CsilCbor.require(cbor, "days")).map { csilE -> rpUsageDayFromCborValue(csilE) }
+    return GetApplicationUsageResponse(distinctUsers = distinctUsers, distinctUserWindowDays = distinctUserWindowDays, maxDistinctUsers = maxDistinctUsers, days = days)
+}
+
+/** Decode CSIL CBOR bytes into a GetApplicationUsageResponse. */
+fun getApplicationUsageResponseFromCbor(bytes: ByteArray): GetApplicationUsageResponse = getApplicationUsageResponseFromCborValue(CsilCbor.decode(bytes))
 
 /** The CBOR value tree for a UpdateUserRequest (deep, canonical key order). */
 fun UpdateUserRequest.toCborValue(): CborValue {
@@ -2117,7 +2850,7 @@ fun SetClaimRequest.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
     csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(this.claimType))
-    this.expiresAt?.let { csilV -> csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(csilV)) }
+    this.expiresAt?.let { csilV -> csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(csilV)) }
     csilEntries.add(CborValue.CText("claim_value") to CborValue.CText(this.claimValue))
     return CborValue.CMap(csilEntries)
 }
@@ -2130,7 +2863,7 @@ fun setClaimRequestFromCborValue(cbor: CborValue): SetClaimRequest {
     val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
     val claimType = CsilCbor.asText(CsilCbor.require(cbor, "claim_type"))
     val claimValue = CsilCbor.asText(CsilCbor.require(cbor, "claim_value"))
-    val expiresAt = CsilCbor.mapGet(cbor, "expires_at")?.let { csilV -> CsilCbor.asText(csilV) }
+    val expiresAt = CsilCbor.mapGet(cbor, "expires_at")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
     return SetClaimRequest(userId = userId, claimType = claimType, claimValue = claimValue, expiresAt = expiresAt)
 }
 
@@ -2297,7 +3030,7 @@ fun setUserClaimRequestFromCbor(bytes: ByteArray): SetUserClaimRequest = setUser
 fun SetUserClaimResponse.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     this.claim?.let { csilV -> csilEntries.add(CborValue.CText("claim") to csilV.toCborValue()) }
-    csilEntries.add(CborValue.CText("outcome") to CborValue.CText(this.outcome))
+    csilEntries.add(CborValue.CText("outcome") to this.outcome.toCborValue())
     return CborValue.CMap(csilEntries)
 }
 
@@ -2306,7 +3039,7 @@ fun SetUserClaimResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue(
 
 /** Reconstruct a SetUserClaimResponse from a decoded CBOR value tree. */
 fun setUserClaimResponseFromCborValue(cbor: CborValue): SetUserClaimResponse {
-    val outcome = CsilCbor.asText(CsilCbor.require(cbor, "outcome"))
+    val outcome = setClaimOutcomeFromCborValue(CsilCbor.require(cbor, "outcome"))
     val claim = CsilCbor.mapGet(cbor, "claim")?.let { csilV -> claimFromCborValue(csilV) }
     return SetUserClaimResponse(outcome = outcome, claim = claim)
 }
@@ -2318,12 +3051,12 @@ fun setUserClaimResponseFromCbor(bytes: ByteArray): SetUserClaimResponse = setUs
 fun SettableClaimPolicy.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("label") to CborValue.CText(this.label))
-    csilEntries.add(CborValue.CText("datatype") to CborValue.CText(this.datatype))
-    csilEntries.add(CborValue.CText("set_rule") to CborValue.CText(this.setRule))
+    csilEntries.add(CborValue.CText("datatype") to this.datatype.toCborValue())
+    csilEntries.add(CborValue.CText("set_rule") to this.setRule.toCborValue())
     csilEntries.add(CborValue.CText("max_bytes") to CborValue.CInt(this.maxBytes))
     csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(this.claimType))
     csilEntries.add(CborValue.CText("description") to CborValue.CText(this.description))
-    csilEntries.add(CborValue.CText("signing_rule") to CborValue.CText(this.signingRule))
+    csilEntries.add(CborValue.CText("signing_rule") to this.signingRule.toCborValue())
     csilEntries.add(CborValue.CText("requires_approval") to CborValue.CBool(this.requiresApproval))
     return CborValue.CMap(csilEntries)
 }
@@ -2336,11 +3069,11 @@ fun settableClaimPolicyFromCborValue(cbor: CborValue): SettableClaimPolicy {
     val claimType = CsilCbor.asText(CsilCbor.require(cbor, "claim_type"))
     val label = CsilCbor.asText(CsilCbor.require(cbor, "label"))
     val description = CsilCbor.asText(CsilCbor.require(cbor, "description"))
-    val datatype = CsilCbor.asText(CsilCbor.require(cbor, "datatype"))
+    val datatype = claimValueTypeFromCborValue(CsilCbor.require(cbor, "datatype"))
     val maxBytes = CsilCbor.asLong(CsilCbor.require(cbor, "max_bytes"))
-    val setRule = CsilCbor.asText(CsilCbor.require(cbor, "set_rule"))
+    val setRule = setRuleFromCborValue(CsilCbor.require(cbor, "set_rule"))
     val requiresApproval = CsilCbor.asBoolean(CsilCbor.require(cbor, "requires_approval"))
-    val signingRule = CsilCbor.asText(CsilCbor.require(cbor, "signing_rule"))
+    val signingRule = signingRuleFromCborValue(CsilCbor.require(cbor, "signing_rule"))
     return SettableClaimPolicy(claimType = claimType, label = label, description = description, datatype = datatype, maxBytes = maxBytes, setRule = setRule, requiresApproval = requiresApproval, signingRule = signingRule)
 }
 
@@ -2370,13 +3103,13 @@ fun listSettablePoliciesResponseFromCbor(bytes: ByteArray): ListSettablePolicies
 fun ClaimTypePolicy.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("label") to CborValue.CText(this.label))
-    csilEntries.add(CborValue.CText("set_rule") to CborValue.CText(this.setRule))
+    csilEntries.add(CborValue.CText("set_rule") to this.setRule.toCborValue())
     csilEntries.add(CborValue.CText("max_bytes") to CborValue.CInt(this.maxBytes))
     csilEntries.add(CborValue.CText("suggested") to CborValue.CBool(this.suggested))
     csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(this.claimType))
-    csilEntries.add(CborValue.CText("value_type") to CborValue.CText(this.valueType))
+    csilEntries.add(CborValue.CText("value_type") to this.valueType.toCborValue())
     csilEntries.add(CborValue.CText("description") to CborValue.CText(this.description))
-    csilEntries.add(CborValue.CText("signing_rule") to CborValue.CText(this.signingRule))
+    csilEntries.add(CborValue.CText("signing_rule") to this.signingRule.toCborValue())
     csilEntries.add(CborValue.CText("user_settable") to CborValue.CBool(this.userSettable))
     csilEntries.add(CborValue.CText("default_auto_sign") to CborValue.CBool(this.defaultAutoSign))
     csilEntries.add(CborValue.CText("requires_approval") to CborValue.CBool(this.requiresApproval))
@@ -2391,10 +3124,10 @@ fun claimTypePolicyFromCborValue(cbor: CborValue): ClaimTypePolicy {
     val claimType = CsilCbor.asText(CsilCbor.require(cbor, "claim_type"))
     val label = CsilCbor.asText(CsilCbor.require(cbor, "label"))
     val description = CsilCbor.asText(CsilCbor.require(cbor, "description"))
-    val valueType = CsilCbor.asText(CsilCbor.require(cbor, "value_type"))
+    val valueType = claimValueTypeFromCborValue(CsilCbor.require(cbor, "value_type"))
     val maxBytes = CsilCbor.asLong(CsilCbor.require(cbor, "max_bytes"))
-    val setRule = CsilCbor.asText(CsilCbor.require(cbor, "set_rule"))
-    val signingRule = CsilCbor.asText(CsilCbor.require(cbor, "signing_rule"))
+    val setRule = setRuleFromCborValue(CsilCbor.require(cbor, "set_rule"))
+    val signingRule = signingRuleFromCborValue(CsilCbor.require(cbor, "signing_rule"))
     val requiresApproval = CsilCbor.asBoolean(CsilCbor.require(cbor, "requires_approval"))
     val userSettable = CsilCbor.asBoolean(CsilCbor.require(cbor, "user_settable"))
     val defaultAutoSign = CsilCbor.asBoolean(CsilCbor.require(cbor, "default_auto_sign"))
@@ -2428,13 +3161,13 @@ fun listClaimTypesResponseFromCbor(bytes: ByteArray): ListClaimTypesResponse = l
 fun SetClaimTypeRequest.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("label") to CborValue.CText(this.label))
-    csilEntries.add(CborValue.CText("set_rule") to CborValue.CText(this.setRule))
+    csilEntries.add(CborValue.CText("set_rule") to this.setRule.toCborValue())
     csilEntries.add(CborValue.CText("max_bytes") to CborValue.CInt(this.maxBytes))
     csilEntries.add(CborValue.CText("suggested") to CborValue.CBool(this.suggested))
     csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(this.claimType))
-    csilEntries.add(CborValue.CText("value_type") to CborValue.CText(this.valueType))
+    csilEntries.add(CborValue.CText("value_type") to this.valueType.toCborValue())
     this.description?.let { csilV -> csilEntries.add(CborValue.CText("description") to CborValue.CText(csilV)) }
-    csilEntries.add(CborValue.CText("signing_rule") to CborValue.CText(this.signingRule))
+    csilEntries.add(CborValue.CText("signing_rule") to this.signingRule.toCborValue())
     csilEntries.add(CborValue.CText("user_settable") to CborValue.CBool(this.userSettable))
     csilEntries.add(CborValue.CText("default_auto_sign") to CborValue.CBool(this.defaultAutoSign))
     csilEntries.add(CborValue.CText("requires_approval") to CborValue.CBool(this.requiresApproval))
@@ -2449,10 +3182,10 @@ fun setClaimTypeRequestFromCborValue(cbor: CborValue): SetClaimTypeRequest {
     val claimType = CsilCbor.asText(CsilCbor.require(cbor, "claim_type"))
     val label = CsilCbor.asText(CsilCbor.require(cbor, "label"))
     val description = CsilCbor.mapGet(cbor, "description")?.let { csilV -> CsilCbor.asText(csilV) }
-    val valueType = CsilCbor.asText(CsilCbor.require(cbor, "value_type"))
+    val valueType = claimValueTypeFromCborValue(CsilCbor.require(cbor, "value_type"))
     val maxBytes = CsilCbor.asLong(CsilCbor.require(cbor, "max_bytes"))
-    val setRule = CsilCbor.asText(CsilCbor.require(cbor, "set_rule"))
-    val signingRule = CsilCbor.asText(CsilCbor.require(cbor, "signing_rule"))
+    val setRule = setRuleFromCborValue(CsilCbor.require(cbor, "set_rule"))
+    val signingRule = signingRuleFromCborValue(CsilCbor.require(cbor, "signing_rule"))
     val userSettable = CsilCbor.asBoolean(CsilCbor.require(cbor, "user_settable"))
     val defaultAutoSign = CsilCbor.asBoolean(CsilCbor.require(cbor, "default_auto_sign"))
     val requiresApproval = CsilCbor.asBoolean(CsilCbor.require(cbor, "requires_approval"))
@@ -2773,7 +3506,7 @@ fun ReleaseRule.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("audience") to CborValue.CText(this.audience))
     csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(this.claimType))
-    csilEntries.add(CborValue.CText("disposition") to CborValue.CText(this.disposition))
+    csilEntries.add(CborValue.CText("disposition") to this.disposition.toCborValue())
     return CborValue.CMap(csilEntries)
 }
 
@@ -2784,7 +3517,7 @@ fun ReleaseRule.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
 fun releaseRuleFromCborValue(cbor: CborValue): ReleaseRule {
     val audience = CsilCbor.asText(CsilCbor.require(cbor, "audience"))
     val claimType = CsilCbor.asText(CsilCbor.require(cbor, "claim_type"))
-    val disposition = CsilCbor.asText(CsilCbor.require(cbor, "disposition"))
+    val disposition = releaseDispositionFromCborValue(CsilCbor.require(cbor, "disposition"))
     return ReleaseRule(audience = audience, claimType = claimType, disposition = disposition)
 }
 
@@ -2815,7 +3548,7 @@ fun SetReleaseRuleRequest.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("audience") to CborValue.CText(this.audience))
     csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(this.claimType))
-    csilEntries.add(CborValue.CText("disposition") to CborValue.CText(this.disposition))
+    csilEntries.add(CborValue.CText("disposition") to this.disposition.toCborValue())
     return CborValue.CMap(csilEntries)
 }
 
@@ -2826,7 +3559,7 @@ fun SetReleaseRuleRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue
 fun setReleaseRuleRequestFromCborValue(cbor: CborValue): SetReleaseRuleRequest {
     val audience = CsilCbor.asText(CsilCbor.require(cbor, "audience"))
     val claimType = CsilCbor.asText(CsilCbor.require(cbor, "claim_type"))
-    val disposition = CsilCbor.asText(CsilCbor.require(cbor, "disposition"))
+    val disposition = releaseDispositionFromCborValue(CsilCbor.require(cbor, "disposition"))
     return SetReleaseRuleRequest(audience = audience, claimType = claimType, disposition = disposition)
 }
 
@@ -2896,12 +3629,12 @@ fun removeReleaseRuleResponseFromCbor(bytes: ByteArray): RemoveReleaseRuleRespon
 fun ClaimApproval.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("id") to CborValue.CText(this.id))
-    csilEntries.add(CborValue.CText("status") to CborValue.CText(this.status))
+    csilEntries.add(CborValue.CText("status") to this.status.toCborValue())
     csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
     csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(this.claimType))
-    csilEntries.add(CborValue.CText("created_at") to CborValue.CText(this.createdAt))
+    csilEntries.add(CborValue.CText("created_at") to CsilCbor.encTimestamp(this.createdAt))
     csilEntries.add(CborValue.CText("claim_value") to CborValue.CBytes(this.claimValue))
-    this.resolvedAt?.let { csilV -> csilEntries.add(CborValue.CText("resolved_at") to CborValue.CText(csilV)) }
+    this.resolvedAt?.let { csilV -> csilEntries.add(CborValue.CText("resolved_at") to CsilCbor.encTimestamp(csilV)) }
     this.resolvedBy?.let { csilV -> csilEntries.add(CborValue.CText("resolved_by") to CborValue.CText(csilV)) }
     return CborValue.CMap(csilEntries)
 }
@@ -2915,10 +3648,10 @@ fun claimApprovalFromCborValue(cbor: CborValue): ClaimApproval {
     val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
     val claimType = CsilCbor.asText(CsilCbor.require(cbor, "claim_type"))
     val claimValue = CsilCbor.asBytes(CsilCbor.require(cbor, "claim_value"))
-    val status = CsilCbor.asText(CsilCbor.require(cbor, "status"))
+    val status = claimApprovalStatusFromCborValue(CsilCbor.require(cbor, "status"))
     val resolvedBy = CsilCbor.mapGet(cbor, "resolved_by")?.let { csilV -> CsilCbor.asText(csilV) }
-    val resolvedAt = CsilCbor.mapGet(cbor, "resolved_at")?.let { csilV -> CsilCbor.asText(csilV) }
-    val createdAt = CsilCbor.asText(CsilCbor.require(cbor, "created_at"))
+    val resolvedAt = CsilCbor.mapGet(cbor, "resolved_at")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
+    val createdAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "created_at"))
     return ClaimApproval(id = id, userId = userId, claimType = claimType, claimValue = claimValue, status = status, resolvedBy = resolvedBy, resolvedAt = resolvedAt, createdAt = createdAt)
 }
 
@@ -3322,7 +4055,7 @@ fun setMyClaimRequestFromCbor(bytes: ByteArray): SetMyClaimRequest = setMyClaimR
 fun SetMyClaimResponse.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     this.claim?.let { csilV -> csilEntries.add(CborValue.CText("claim") to csilV.toCborValue()) }
-    csilEntries.add(CborValue.CText("outcome") to CborValue.CText(this.outcome))
+    csilEntries.add(CborValue.CText("outcome") to this.outcome.toCborValue())
     return CborValue.CMap(csilEntries)
 }
 
@@ -3331,7 +4064,7 @@ fun SetMyClaimResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
 
 /** Reconstruct a SetMyClaimResponse from a decoded CBOR value tree. */
 fun setMyClaimResponseFromCborValue(cbor: CborValue): SetMyClaimResponse {
-    val outcome = CsilCbor.asText(CsilCbor.require(cbor, "outcome"))
+    val outcome = setClaimOutcomeFromCborValue(CsilCbor.require(cbor, "outcome"))
     val claim = CsilCbor.mapGet(cbor, "claim")?.let { csilV -> claimFromCborValue(csilV) }
     return SetMyClaimResponse(outcome = outcome, claim = claim)
 }
@@ -3629,9 +4362,9 @@ fun passwordPolicyFromCbor(bytes: ByteArray): PasswordPolicy = passwordPolicyFro
 fun BrowserSessionInfo.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("user") to this.user.toCborValue())
-    csilEntries.add(CborValue.CText("issued_at") to CborValue.CText(this.issuedAt))
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
-    csilEntries.add(CborValue.CText("authenticated_at") to CborValue.CText(this.authenticatedAt))
+    csilEntries.add(CborValue.CText("issued_at") to CsilCbor.encTimestamp(this.issuedAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
+    csilEntries.add(CborValue.CText("authenticated_at") to CsilCbor.encTimestamp(this.authenticatedAt))
     csilEntries.add(CborValue.CText("authentication_methods") to CborValue.CArray((this.authenticationMethods).map { csilE -> CborValue.CText(csilE) }))
     return CborValue.CMap(csilEntries)
 }
@@ -3642,9 +4375,9 @@ fun BrowserSessionInfo.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
 /** Reconstruct a BrowserSessionInfo from a decoded CBOR value tree. */
 fun browserSessionInfoFromCborValue(cbor: CborValue): BrowserSessionInfo {
     val user = adminUserFromCborValue(CsilCbor.require(cbor, "user"))
-    val issuedAt = CsilCbor.asText(CsilCbor.require(cbor, "issued_at"))
-    val authenticatedAt = CsilCbor.asText(CsilCbor.require(cbor, "authenticated_at"))
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val issuedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "issued_at"))
+    val authenticatedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "authenticated_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
     val authenticationMethods = CsilCbor.asArray(CsilCbor.require(cbor, "authentication_methods")).map { csilE -> CsilCbor.asText(csilE) }
     return BrowserSessionInfo(user = user, issuedAt = issuedAt, authenticatedAt = authenticatedAt, expiresAt = expiresAt, authenticationMethods = authenticationMethods)
 }
@@ -3753,9 +4486,9 @@ fun introspectBrowserSessionRequestFromCbor(bytes: ByteArray): IntrospectBrowser
 fun IntrospectBrowserSessionResponse.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
     csilEntries.add(CborValue.CText("user_domain") to CborValue.CText(this.userDomain))
-    csilEntries.add(CborValue.CText("authenticated_at") to CborValue.CText(this.authenticatedAt))
+    csilEntries.add(CborValue.CText("authenticated_at") to CsilCbor.encTimestamp(this.authenticatedAt))
     csilEntries.add(CborValue.CText("authentication_methods") to CborValue.CArray((this.authenticationMethods).map { csilE -> CborValue.CText(csilE) }))
     return CborValue.CMap(csilEntries)
 }
@@ -3767,8 +4500,8 @@ fun IntrospectBrowserSessionResponse.toCbor(): ByteArray = CsilCbor.encode(this.
 fun introspectBrowserSessionResponseFromCborValue(cbor: CborValue): IntrospectBrowserSessionResponse {
     val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
     val userDomain = CsilCbor.asText(CsilCbor.require(cbor, "user_domain"))
-    val authenticatedAt = CsilCbor.asText(CsilCbor.require(cbor, "authenticated_at"))
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val authenticatedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "authenticated_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
     val authenticationMethods = CsilCbor.asArray(CsilCbor.require(cbor, "authentication_methods")).map { csilE -> CsilCbor.asText(csilE) }
     return IntrospectBrowserSessionResponse(userId = userId, userDomain = userDomain, authenticatedAt = authenticatedAt, expiresAt = expiresAt, authenticationMethods = authenticationMethods)
 }
@@ -3779,9 +4512,9 @@ fun introspectBrowserSessionResponseFromCbor(bytes: ByteArray): IntrospectBrowse
 /** The CBOR value tree for a NotificationCapability (deep, canonical key order). */
 fun NotificationCapability.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("channel") to CborValue.CText(this.channel))
-    csilEntries.add(CborValue.CText("purpose") to CborValue.CText(this.purpose))
-    csilEntries.add(CborValue.CText("destination_kind") to CborValue.CText(this.destinationKind))
+    csilEntries.add(CborValue.CText("channel") to this.channel.toCborValue())
+    csilEntries.add(CborValue.CText("purpose") to this.purpose.toCborValue())
+    csilEntries.add(CborValue.CText("destination_kind") to this.destinationKind.toCborValue())
     return CborValue.CMap(csilEntries)
 }
 
@@ -3790,9 +4523,9 @@ fun NotificationCapability.toCbor(): ByteArray = CsilCbor.encode(this.toCborValu
 
 /** Reconstruct a NotificationCapability from a decoded CBOR value tree. */
 fun notificationCapabilityFromCborValue(cbor: CborValue): NotificationCapability {
-    val purpose = CsilCbor.asText(CsilCbor.require(cbor, "purpose"))
-    val channel = CsilCbor.asText(CsilCbor.require(cbor, "channel"))
-    val destinationKind = CsilCbor.asText(CsilCbor.require(cbor, "destination_kind"))
+    val purpose = notificationPurposeFromCborValue(CsilCbor.require(cbor, "purpose"))
+    val channel = notificationChannelFromCborValue(CsilCbor.require(cbor, "channel"))
+    val destinationKind = destinationKindFromCborValue(CsilCbor.require(cbor, "destination_kind"))
     return NotificationCapability(purpose = purpose, channel = channel, destinationKind = destinationKind)
 }
 
@@ -3822,11 +4555,11 @@ fun getNotificationCapabilitiesResponseFromCbor(bytes: ByteArray): GetNotificati
 fun VerifiedContactMethod.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("id") to CborValue.CText(this.id))
-    csilEntries.add(CborValue.CText("channel") to CborValue.CText(this.channel))
-    csilEntries.add(CborValue.CText("purposes") to CborValue.CArray((this.purposes).map { csilE -> CborValue.CText(csilE) }))
-    this.revokedAt?.let { csilV -> csilEntries.add(CborValue.CText("revoked_at") to CborValue.CText(csilV)) }
+    csilEntries.add(CborValue.CText("channel") to this.channel.toCborValue())
+    csilEntries.add(CborValue.CText("purposes") to CborValue.CArray((this.purposes).map { csilE -> csilE.toCborValue() }))
+    this.revokedAt?.let { csilV -> csilEntries.add(CborValue.CText("revoked_at") to CsilCbor.encTimestamp(csilV)) }
     csilEntries.add(CborValue.CText("destination") to CborValue.CText(this.destination))
-    csilEntries.add(CborValue.CText("verified_at") to CborValue.CText(this.verifiedAt))
+    csilEntries.add(CborValue.CText("verified_at") to CsilCbor.encTimestamp(this.verifiedAt))
     return CborValue.CMap(csilEntries)
 }
 
@@ -3836,11 +4569,11 @@ fun VerifiedContactMethod.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue
 /** Reconstruct a VerifiedContactMethod from a decoded CBOR value tree. */
 fun verifiedContactMethodFromCborValue(cbor: CborValue): VerifiedContactMethod {
     val id = CsilCbor.asText(CsilCbor.require(cbor, "id"))
-    val channel = CsilCbor.asText(CsilCbor.require(cbor, "channel"))
+    val channel = notificationChannelFromCborValue(CsilCbor.require(cbor, "channel"))
     val destination = CsilCbor.asText(CsilCbor.require(cbor, "destination"))
-    val verifiedAt = CsilCbor.asText(CsilCbor.require(cbor, "verified_at"))
-    val purposes = CsilCbor.asArray(CsilCbor.require(cbor, "purposes")).map { csilE -> CsilCbor.asText(csilE) }
-    val revokedAt = CsilCbor.mapGet(cbor, "revoked_at")?.let { csilV -> CsilCbor.asText(csilV) }
+    val verifiedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "verified_at"))
+    val purposes = CsilCbor.asArray(CsilCbor.require(cbor, "purposes")).map { csilE -> notificationPurposeFromCborValue(csilE) }
+    val revokedAt = CsilCbor.mapGet(cbor, "revoked_at")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
     return VerifiedContactMethod(id = id, channel = channel, destination = destination, verifiedAt = verifiedAt, purposes = purposes, revokedAt = revokedAt)
 }
 
@@ -3909,7 +4642,7 @@ fun revokeVerifiedContactMethodResponseFromCbor(bytes: ByteArray): RevokeVerifie
 /** The CBOR value tree for a RequestContactVerificationRequest (deep, canonical key order). */
 fun RequestContactVerificationRequest.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("channel") to CborValue.CText(this.channel))
+    csilEntries.add(CborValue.CText("channel") to this.channel.toCborValue())
     csilEntries.add(CborValue.CText("destination") to CborValue.CText(this.destination))
     csilEntries.add(CborValue.CText("current_password") to CborValue.CText(this.currentPassword))
     return CborValue.CMap(csilEntries)
@@ -3920,7 +4653,7 @@ fun RequestContactVerificationRequest.toCbor(): ByteArray = CsilCbor.encode(this
 
 /** Reconstruct a RequestContactVerificationRequest from a decoded CBOR value tree. */
 fun requestContactVerificationRequestFromCborValue(cbor: CborValue): RequestContactVerificationRequest {
-    val channel = CsilCbor.asText(CsilCbor.require(cbor, "channel"))
+    val channel = notificationChannelFromCborValue(CsilCbor.require(cbor, "channel"))
     val destination = CsilCbor.asText(CsilCbor.require(cbor, "destination"))
     val currentPassword = CsilCbor.asText(CsilCbor.require(cbor, "current_password"))
     return RequestContactVerificationRequest(channel = channel, destination = destination, currentPassword = currentPassword)
@@ -3932,7 +4665,7 @@ fun requestContactVerificationRequestFromCbor(bytes: ByteArray): RequestContactV
 /** The CBOR value tree for a RequestContactVerificationResponse (deep, canonical key order). */
 fun RequestContactVerificationResponse.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
     return CborValue.CMap(csilEntries)
 }
 
@@ -3941,7 +4674,7 @@ fun RequestContactVerificationResponse.toCbor(): ByteArray = CsilCbor.encode(thi
 
 /** Reconstruct a RequestContactVerificationResponse from a decoded CBOR value tree. */
 fun requestContactVerificationResponseFromCborValue(cbor: CborValue): RequestContactVerificationResponse {
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
     return RequestContactVerificationResponse(expiresAt = expiresAt)
 }
 
@@ -4046,7 +4779,7 @@ fun validatePasswordRecoveryRequestFromCbor(bytes: ByteArray): ValidatePasswordR
 /** The CBOR value tree for a ValidatePasswordRecoveryResponse (deep, canonical key order). */
 fun ValidatePasswordRecoveryResponse.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
     csilEntries.add(CborValue.CText("password_policy") to this.passwordPolicy.toCborValue())
     return CborValue.CMap(csilEntries)
 }
@@ -4056,7 +4789,7 @@ fun ValidatePasswordRecoveryResponse.toCbor(): ByteArray = CsilCbor.encode(this.
 
 /** Reconstruct a ValidatePasswordRecoveryResponse from a decoded CBOR value tree. */
 fun validatePasswordRecoveryResponseFromCborValue(cbor: CborValue): ValidatePasswordRecoveryResponse {
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
     val passwordPolicy = passwordPolicyFromCborValue(CsilCbor.require(cbor, "password_policy"))
     return ValidatePasswordRecoveryResponse(expiresAt = expiresAt, passwordPolicy = passwordPolicy)
 }
@@ -4127,8 +4860,8 @@ fun browserAuthorizationInspectRequestFromCbor(bytes: ByteArray): BrowserAuthori
 fun BrowserConsentClaim.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("label") to CborValue.CText(this.label))
-    csilEntries.add(CborValue.CText("policy") to CborValue.CText(this.policy))
-    csilEntries.add(CborValue.CText("datatype") to CborValue.CText(this.datatype))
+    csilEntries.add(CborValue.CText("policy") to this.policy.toCborValue())
+    csilEntries.add(CborValue.CText("datatype") to this.datatype.toCborValue())
     csilEntries.add(CborValue.CText("required") to CborValue.CBool(this.required))
     csilEntries.add(CborValue.CText("available") to CborValue.CBool(this.available))
     csilEntries.add(CborValue.CText("max_bytes") to CborValue.CInt(this.maxBytes))
@@ -4147,11 +4880,11 @@ fun BrowserConsentClaim.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue()
 fun browserConsentClaimFromCborValue(cbor: CborValue): BrowserConsentClaim {
     val claimType = CsilCbor.asText(CsilCbor.require(cbor, "claim_type"))
     val label = CsilCbor.asText(CsilCbor.require(cbor, "label"))
-    val datatype = CsilCbor.asText(CsilCbor.require(cbor, "datatype"))
+    val datatype = claimValueTypeFromCborValue(CsilCbor.require(cbor, "datatype"))
     val required = CsilCbor.asBoolean(CsilCbor.require(cbor, "required"))
     val available = CsilCbor.asBoolean(CsilCbor.require(cbor, "available"))
     val defaultGranted = CsilCbor.asBoolean(CsilCbor.require(cbor, "default_granted"))
-    val policy = CsilCbor.asText(CsilCbor.require(cbor, "policy"))
+    val policy = consentRowPolicyFromCborValue(CsilCbor.require(cbor, "policy"))
     val userSettable = CsilCbor.asBoolean(CsilCbor.require(cbor, "user_settable"))
     val maxBytes = CsilCbor.asLong(CsilCbor.require(cbor, "max_bytes"))
     val requiresApproval = CsilCbor.asBoolean(CsilCbor.require(cbor, "requires_approval"))
@@ -4267,11 +5000,11 @@ fun BrowserLocalRpInspectResponse.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("claims") to CborValue.CArray((this.claims).map { csilE -> csilE.toCborValue() }))
     csilEntries.add(CborValue.CText("app_name") to CborValue.CText(this.appName))
-    csilEntries.add(CborValue.CText("admission") to CborValue.CText(this.admission))
+    csilEntries.add(CborValue.CText("admission") to this.admission.toCborValue())
     csilEntries.add(CborValue.CText("fingerprint") to CborValue.CText(this.fingerprint))
     this.accessDenied?.let { csilV -> csilEntries.add(CborValue.CText("access_denied") to csilV.toCborValue()) }
     csilEntries.add(CborValue.CText("callback_host") to CborValue.CText(this.callbackHost))
-    this.firstSeenAt?.let { csilV -> csilEntries.add(CborValue.CText("first_seen_at") to CborValue.CText(csilV)) }
+    this.firstSeenAt?.let { csilV -> csilEntries.add(CborValue.CText("first_seen_at") to CsilCbor.encTimestamp(csilV)) }
     this.requestReason?.let { csilV -> csilEntries.add(CborValue.CText("request_reason") to CborValue.CText(csilV)) }
     this.alreadyConsented?.let { csilV -> csilEntries.add(CborValue.CText("already_consented") to CborValue.CBool(csilV)) }
     this.authorizedClaims?.let { csilV -> csilEntries.add(CborValue.CText("authorized_claims") to CborValue.CArray((csilV).map { csilE -> CborValue.CText(csilE) })) }
@@ -4283,11 +5016,11 @@ fun BrowserLocalRpInspectResponse.toCbor(): ByteArray = CsilCbor.encode(this.toC
 
 /** Reconstruct a BrowserLocalRpInspectResponse from a decoded CBOR value tree. */
 fun browserLocalRpInspectResponseFromCborValue(cbor: CborValue): BrowserLocalRpInspectResponse {
-    val admission = CsilCbor.asText(CsilCbor.require(cbor, "admission"))
+    val admission = localRpAdmissionFromCborValue(CsilCbor.require(cbor, "admission"))
     val appName = CsilCbor.asText(CsilCbor.require(cbor, "app_name"))
     val fingerprint = CsilCbor.asText(CsilCbor.require(cbor, "fingerprint"))
     val callbackHost = CsilCbor.asText(CsilCbor.require(cbor, "callback_host"))
-    val firstSeenAt = CsilCbor.mapGet(cbor, "first_seen_at")?.let { csilV -> CsilCbor.asText(csilV) }
+    val firstSeenAt = CsilCbor.mapGet(cbor, "first_seen_at")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
     val claims = CsilCbor.asArray(CsilCbor.require(cbor, "claims")).map { csilE -> browserConsentClaimFromCborValue(csilE) }
     val requestReason = CsilCbor.mapGet(cbor, "request_reason")?.let { csilV -> CsilCbor.asText(csilV) }
     val alreadyConsented = CsilCbor.mapGet(cbor, "already_consented")?.let { csilV -> CsilCbor.asBoolean(csilV) }
@@ -4453,7 +5186,6 @@ fun RpSignRequest.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("nonce") to CborValue.CText(this.nonce))
     csilEntries.add(CborValue.CText("callback_url") to CborValue.CText(this.callbackUrl))
     this.flowContext?.let { csilV -> csilEntries.add(CborValue.CText("flow_context") to csilV.toCborValue()) }
-    this.applicationId?.let { csilV -> csilEntries.add(CborValue.CText("application_id") to CborValue.CText(csilV)) }
     this.requestedClaims?.let { csilV -> csilEntries.add(CborValue.CText("requested_claims") to csilV.toCborValue()) }
     this.authenticationRequirements?.let { csilV -> csilEntries.add(CborValue.CText("authentication_requirements") to csilV.toCborValue()) }
     return CborValue.CMap(csilEntries)
@@ -4466,11 +5198,10 @@ fun RpSignRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
 fun rpSignRequestFromCborValue(cbor: CborValue): RpSignRequest {
     val callbackUrl = CsilCbor.asText(CsilCbor.require(cbor, "callback_url"))
     val nonce = CsilCbor.asText(CsilCbor.require(cbor, "nonce"))
-    val applicationId = CsilCbor.mapGet(cbor, "application_id")?.let { csilV -> CsilCbor.asText(csilV) }
     val requestedClaims = CsilCbor.mapGet(cbor, "requested_claims")?.let { csilV -> claimRequestFromCborValue(csilV) }
     val authenticationRequirements = CsilCbor.mapGet(cbor, "authentication_requirements")?.let { csilV -> authenticationRequirementsFromCborValue(csilV) }
     val flowContext = CsilCbor.mapGet(cbor, "flow_context")?.let { csilV -> authFlowContextFromCborValue(csilV) }
-    return RpSignRequest(callbackUrl = callbackUrl, nonce = nonce, applicationId = applicationId, requestedClaims = requestedClaims, authenticationRequirements = authenticationRequirements, flowContext = flowContext)
+    return RpSignRequest(callbackUrl = callbackUrl, nonce = nonce, requestedClaims = requestedClaims, authenticationRequirements = authenticationRequirements, flowContext = flowContext)
 }
 
 /** Decode CSIL CBOR bytes into a RpSignRequest. */
@@ -4597,6 +5328,27 @@ fun rpUserInfoRequestFromCborValue(cbor: CborValue): RpUserInfoRequest {
 
 /** Decode CSIL CBOR bytes into a RpUserInfoRequest. */
 fun rpUserInfoRequestFromCbor(bytes: ByteArray): RpUserInfoRequest = rpUserInfoRequestFromCborValue(CsilCbor.decode(bytes))
+
+/** The CBOR value tree for a RpError (deep, canonical key order). */
+fun RpError.toCborValue(): CborValue {
+    val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
+    csilEntries.add(CborValue.CText("code") to this.code.toCborValue())
+    csilEntries.add(CborValue.CText("message") to CborValue.CText(this.message))
+    return CborValue.CMap(csilEntries)
+}
+
+/** Encode a RpError to canonical CSIL CBOR bytes. */
+fun RpError.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
+
+/** Reconstruct a RpError from a decoded CBOR value tree. */
+fun rpErrorFromCborValue(cbor: CborValue): RpError {
+    val code = rpErrorCodeFromCborValue(CsilCbor.require(cbor, "code"))
+    val message = CsilCbor.asText(CsilCbor.require(cbor, "message"))
+    return RpError(code = code, message = message)
+}
+
+/** Decode CSIL CBOR bytes into a RpError. */
+fun rpErrorFromCbor(bytes: ByteArray): RpError = rpErrorFromCborValue(CsilCbor.decode(bytes))
 
 /** The CBOR value tree for a RpIssueAttestationRequest (deep, canonical key order). */
 fun RpIssueAttestationRequest.toCborValue(): CborValue {
@@ -4767,10 +5519,10 @@ fun apiErrorFromCbor(bytes: ByteArray): ApiError = apiErrorFromCborValue(CsilCbo
 fun LocalRpDescriptor.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("app_name") to CborValue.CText(this.appName))
-    csilEntries.add(CborValue.CText("created_at") to CborValue.CText(this.createdAt))
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("created_at") to CsilCbor.encTimestamp(this.createdAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
     csilEntries.add(CborValue.CText("fingerprint") to CborValue.CText(this.fingerprint))
-    csilEntries.add(CborValue.CText("supported_suites") to CborValue.CArray((this.supportedSuites).map { csilE -> CborValue.CText(csilE) }))
+    csilEntries.add(CborValue.CText("supported_suites") to CborValue.CArray((this.supportedSuites).map { csilE -> csilE.toCborValue() }))
     this.localDomainHint?.let { csilV -> csilEntries.add(CborValue.CText("local_domain_hint") to CborValue.CText(csilV)) }
     csilEntries.add(CborValue.CText("signing_public_key") to CborValue.CBytes(this.signingPublicKey))
     csilEntries.add(CborValue.CText("encryption_public_key") to CborValue.CBytes(this.encryptionPublicKey))
@@ -4787,9 +5539,9 @@ fun localRpDescriptorFromCborValue(cbor: CborValue): LocalRpDescriptor {
     val signingPublicKey = CsilCbor.asBytes(CsilCbor.require(cbor, "signing_public_key"))
     val encryptionPublicKey = CsilCbor.asBytes(CsilCbor.require(cbor, "encryption_public_key"))
     val fingerprint = CsilCbor.asText(CsilCbor.require(cbor, "fingerprint"))
-    val supportedSuites = CsilCbor.asArray(CsilCbor.require(cbor, "supported_suites")).map { csilE -> CsilCbor.asText(csilE) }
-    val createdAt = CsilCbor.asText(CsilCbor.require(cbor, "created_at"))
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val supportedSuites = CsilCbor.asArray(CsilCbor.require(cbor, "supported_suites")).map { csilE -> aeadSuiteFromCborValue(csilE) }
+    val createdAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "created_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
     return LocalRpDescriptor(appName = appName, localDomainHint = localDomainHint, signingPublicKey = signingPublicKey, encryptionPublicKey = encryptionPublicKey, fingerprint = fingerprint, supportedSuites = supportedSuites, createdAt = createdAt, expiresAt = expiresAt)
 }
 
@@ -4822,9 +5574,9 @@ fun LocalRpLoginRequest.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("nonce") to CborValue.CBytes(this.nonce))
     csilEntries.add(CborValue.CText("state") to CborValue.CBytes(this.state))
-    csilEntries.add(CborValue.CText("issued_at") to CborValue.CText(this.issuedAt))
+    csilEntries.add(CborValue.CText("issued_at") to CsilCbor.encTimestamp(this.issuedAt))
     csilEntries.add(CborValue.CText("descriptor") to this.descriptor.toCborValue())
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
     csilEntries.add(CborValue.CText("callback_url") to CborValue.CText(this.callbackUrl))
     this.flowContext?.let { csilV -> csilEntries.add(CborValue.CText("flow_context") to csilV.toCborValue()) }
     csilEntries.add(CborValue.CText("required_claims") to CborValue.CArray((this.requiredClaims).map { csilE -> CborValue.CText(csilE) }))
@@ -4846,8 +5598,8 @@ fun localRpLoginRequestFromCborValue(cbor: CborValue): LocalRpLoginRequest {
     val requiredClaims = CsilCbor.asArray(CsilCbor.require(cbor, "required_claims")).map { csilE -> CsilCbor.asText(csilE) }
     val authenticationRequirements = CsilCbor.mapGet(cbor, "authentication_requirements")?.let { csilV -> authenticationRequirementsFromCborValue(csilV) }
     val flowContext = CsilCbor.mapGet(cbor, "flow_context")?.let { csilV -> authFlowContextFromCborValue(csilV) }
-    val issuedAt = CsilCbor.asText(CsilCbor.require(cbor, "issued_at"))
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val issuedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "issued_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
     return LocalRpLoginRequest(descriptor = descriptor, callbackUrl = callbackUrl, nonce = nonce, state = state, requestedClaims = requestedClaims, requiredClaims = requiredClaims, authenticationRequirements = authenticationRequirements, flowContext = flowContext, issuedAt = issuedAt, expiresAt = expiresAt)
 }
 
@@ -4880,10 +5632,10 @@ fun LocalRpCallbackHeader.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("nonce") to CborValue.CBytes(this.nonce))
     csilEntries.add(CborValue.CText("state") to CborValue.CBytes(this.state))
-    csilEntries.add(CborValue.CText("suite") to CborValue.CText(this.suite))
-    csilEntries.add(CborValue.CText("issued_at") to CborValue.CText(this.issuedAt))
+    csilEntries.add(CborValue.CText("suite") to this.suite.toCborValue())
+    csilEntries.add(CborValue.CText("issued_at") to CsilCbor.encTimestamp(this.issuedAt))
     csilEntries.add(CborValue.CText("aead_nonce") to CborValue.CBytes(this.aeadNonce))
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
     csilEntries.add(CborValue.CText("fingerprint") to CborValue.CText(this.fingerprint))
     csilEntries.add(CborValue.CText("ephemeral_public_key") to CborValue.CBytes(this.ephemeralPublicKey))
     return CborValue.CMap(csilEntries)
@@ -4897,11 +5649,11 @@ fun localRpCallbackHeaderFromCborValue(cbor: CborValue): LocalRpCallbackHeader {
     val fingerprint = CsilCbor.asText(CsilCbor.require(cbor, "fingerprint"))
     val nonce = CsilCbor.asBytes(CsilCbor.require(cbor, "nonce"))
     val state = CsilCbor.asBytes(CsilCbor.require(cbor, "state"))
-    val suite = CsilCbor.asText(CsilCbor.require(cbor, "suite"))
+    val suite = aeadSuiteFromCborValue(CsilCbor.require(cbor, "suite"))
     val ephemeralPublicKey = CsilCbor.asBytes(CsilCbor.require(cbor, "ephemeral_public_key"))
     val aeadNonce = CsilCbor.asBytes(CsilCbor.require(cbor, "aead_nonce"))
-    val issuedAt = CsilCbor.asText(CsilCbor.require(cbor, "issued_at"))
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val issuedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "issued_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
     return LocalRpCallbackHeader(fingerprint = fingerprint, nonce = nonce, state = state, suite = suite, ephemeralPublicKey = ephemeralPublicKey, aeadNonce = aeadNonce, issuedAt = issuedAt, expiresAt = expiresAt)
 }
 
@@ -4935,8 +5687,8 @@ fun LocalRpCallbackPayload.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("nonce") to CborValue.CBytes(this.nonce))
     csilEntries.add(CborValue.CText("state") to CborValue.CBytes(this.state))
     csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
-    csilEntries.add(CborValue.CText("issued_at") to CborValue.CText(this.issuedAt))
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("issued_at") to CsilCbor.encTimestamp(this.issuedAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
     csilEntries.add(CborValue.CText("user_domain") to CborValue.CText(this.userDomain))
     csilEntries.add(CborValue.CText("callback_url") to CborValue.CText(this.callbackUrl))
     csilEntries.add(CborValue.CText("claim_ticket") to CborValue.CBytes(this.claimTicket))
@@ -4956,8 +5708,8 @@ fun localRpCallbackPayloadFromCborValue(cbor: CborValue): LocalRpCallbackPayload
     val callbackUrl = CsilCbor.asText(CsilCbor.require(cbor, "callback_url"))
     val nonce = CsilCbor.asBytes(CsilCbor.require(cbor, "nonce"))
     val state = CsilCbor.asBytes(CsilCbor.require(cbor, "state"))
-    val issuedAt = CsilCbor.asText(CsilCbor.require(cbor, "issued_at"))
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val issuedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "issued_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
     return LocalRpCallbackPayload(userId = userId, userDomain = userDomain, claimTicket = claimTicket, audienceFingerprint = audienceFingerprint, callbackUrl = callbackUrl, nonce = nonce, state = state, issuedAt = issuedAt, expiresAt = expiresAt)
 }
 
@@ -4990,7 +5742,7 @@ fun signedLocalRpCallbackPayloadFromCbor(bytes: ByteArray): SignedLocalRpCallbac
 /** The CBOR value tree for a LocalRpTicketRedemptionRequest (deep, canonical key order). */
 fun LocalRpTicketRedemptionRequest.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("issued_at") to CborValue.CText(this.issuedAt))
+    csilEntries.add(CborValue.CText("issued_at") to CsilCbor.encTimestamp(this.issuedAt))
     csilEntries.add(CborValue.CText("fingerprint") to CborValue.CText(this.fingerprint))
     csilEntries.add(CborValue.CText("claim_ticket") to CborValue.CBytes(this.claimTicket))
     return CborValue.CMap(csilEntries)
@@ -5003,7 +5755,7 @@ fun LocalRpTicketRedemptionRequest.toCbor(): ByteArray = CsilCbor.encode(this.to
 fun localRpTicketRedemptionRequestFromCborValue(cbor: CborValue): LocalRpTicketRedemptionRequest {
     val claimTicket = CsilCbor.asBytes(CsilCbor.require(cbor, "claim_ticket"))
     val fingerprint = CsilCbor.asText(CsilCbor.require(cbor, "fingerprint"))
-    val issuedAt = CsilCbor.asText(CsilCbor.require(cbor, "issued_at"))
+    val issuedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "issued_at"))
     return LocalRpTicketRedemptionRequest(claimTicket = claimTicket, fingerprint = fingerprint, issuedAt = issuedAt)
 }
 
@@ -5037,7 +5789,7 @@ fun LocalRpTicketRedemptionResponse.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("claims") to CborValue.CArray((this.claims).map { csilE -> csilE.toCborValue() }))
     csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
     csilEntries.add(CborValue.CText("user_domain") to CborValue.CText(this.userDomain))
-    csilEntries.add(CborValue.CText("ticket_expires_at") to CborValue.CText(this.ticketExpiresAt))
+    csilEntries.add(CborValue.CText("ticket_expires_at") to CsilCbor.encTimestamp(this.ticketExpiresAt))
     return CborValue.CMap(csilEntries)
 }
 
@@ -5049,7 +5801,7 @@ fun localRpTicketRedemptionResponseFromCborValue(cbor: CborValue): LocalRpTicket
     val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
     val userDomain = CsilCbor.asText(CsilCbor.require(cbor, "user_domain"))
     val claims = CsilCbor.asArray(CsilCbor.require(cbor, "claims")).map { csilE -> claimFromCborValue(csilE) }
-    val ticketExpiresAt = CsilCbor.asText(CsilCbor.require(cbor, "ticket_expires_at"))
+    val ticketExpiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "ticket_expires_at"))
     return LocalRpTicketRedemptionResponse(userId = userId, userDomain = userDomain, claims = claims, ticketExpiresAt = ticketExpiresAt)
 }
 
@@ -5059,14 +5811,14 @@ fun localRpTicketRedemptionResponseFromCbor(bytes: ByteArray): LocalRpTicketRede
 /** The CBOR value tree for a AdminLocalRp (deep, canonical key order). */
 fun AdminLocalRp.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("status") to CborValue.CText(this.status))
+    csilEntries.add(CborValue.CText("status") to this.status.toCborValue())
     csilEntries.add(CborValue.CText("app_name") to CborValue.CText(this.appName))
-    csilEntries.add(CborValue.CText("created_at") to CborValue.CText(this.createdAt))
-    this.expiresAt?.let { csilV -> csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(csilV)) }
-    csilEntries.add(CborValue.CText("updated_at") to CborValue.CText(this.updatedAt))
+    csilEntries.add(CborValue.CText("created_at") to CsilCbor.encTimestamp(this.createdAt))
+    this.expiresAt?.let { csilV -> csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(csilV)) }
+    csilEntries.add(CborValue.CText("updated_at") to CsilCbor.encTimestamp(this.updatedAt))
     this.adminNotes?.let { csilV -> csilEntries.add(CborValue.CText("admin_notes") to CborValue.CText(csilV)) }
     csilEntries.add(CborValue.CText("fingerprint") to CborValue.CText(this.fingerprint))
-    this.lastSeenAt?.let { csilV -> csilEntries.add(CborValue.CText("last_seen_at") to CborValue.CText(csilV)) }
+    this.lastSeenAt?.let { csilV -> csilEntries.add(CborValue.CText("last_seen_at") to CsilCbor.encTimestamp(csilV)) }
     this.localDomainHint?.let { csilV -> csilEntries.add(CborValue.CText("local_domain_hint") to CborValue.CText(csilV)) }
     csilEntries.add(CborValue.CText("signing_public_key") to CborValue.CBytes(this.signingPublicKey))
     csilEntries.add(CborValue.CText("encryption_public_key") to CborValue.CBytes(this.encryptionPublicKey))
@@ -5083,11 +5835,11 @@ fun adminLocalRpFromCborValue(cbor: CborValue): AdminLocalRp {
     val encryptionPublicKey = CsilCbor.asBytes(CsilCbor.require(cbor, "encryption_public_key"))
     val appName = CsilCbor.asText(CsilCbor.require(cbor, "app_name"))
     val localDomainHint = CsilCbor.mapGet(cbor, "local_domain_hint")?.let { csilV -> CsilCbor.asText(csilV) }
-    val status = CsilCbor.asText(CsilCbor.require(cbor, "status"))
-    val createdAt = CsilCbor.asText(CsilCbor.require(cbor, "created_at"))
-    val updatedAt = CsilCbor.asText(CsilCbor.require(cbor, "updated_at"))
-    val expiresAt = CsilCbor.mapGet(cbor, "expires_at")?.let { csilV -> CsilCbor.asText(csilV) }
-    val lastSeenAt = CsilCbor.mapGet(cbor, "last_seen_at")?.let { csilV -> CsilCbor.asText(csilV) }
+    val status = localRpStatusFromCborValue(CsilCbor.require(cbor, "status"))
+    val createdAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "created_at"))
+    val updatedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "updated_at"))
+    val expiresAt = CsilCbor.mapGet(cbor, "expires_at")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
+    val lastSeenAt = CsilCbor.mapGet(cbor, "last_seen_at")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
     val adminNotes = CsilCbor.mapGet(cbor, "admin_notes")?.let { csilV -> CsilCbor.asText(csilV) }
     return AdminLocalRp(fingerprint = fingerprint, signingPublicKey = signingPublicKey, encryptionPublicKey = encryptionPublicKey, appName = appName, localDomainHint = localDomainHint, status = status, createdAt = createdAt, updatedAt = updatedAt, expiresAt = expiresAt, lastSeenAt = lastSeenAt, adminNotes = adminNotes)
 }
@@ -5100,7 +5852,7 @@ fun ListLocalRpsRequest.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     this.limit?.let { csilV -> csilEntries.add(CborValue.CText("limit") to CborValue.CInt(csilV)) }
     this.offset?.let { csilV -> csilEntries.add(CborValue.CText("offset") to CborValue.CInt(csilV)) }
-    this.status?.let { csilV -> csilEntries.add(CborValue.CText("status") to CborValue.CText(csilV)) }
+    this.status?.let { csilV -> csilEntries.add(CborValue.CText("status") to csilV.toCborValue()) }
     return CborValue.CMap(csilEntries)
 }
 
@@ -5111,7 +5863,7 @@ fun ListLocalRpsRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue()
 fun listLocalRpsRequestFromCborValue(cbor: CborValue): ListLocalRpsRequest {
     val offset = CsilCbor.mapGet(cbor, "offset")?.let { csilV -> CsilCbor.asLong(csilV) }
     val limit = CsilCbor.mapGet(cbor, "limit")?.let { csilV -> CsilCbor.asLong(csilV) }
-    val status = CsilCbor.mapGet(cbor, "status")?.let { csilV -> CsilCbor.asText(csilV) }
+    val status = CsilCbor.mapGet(cbor, "status")?.let { csilV -> localRpStatusFromCborValue(csilV) }
     return ListLocalRpsRequest(offset = offset, limit = limit, status = status)
 }
 
@@ -5315,7 +6067,7 @@ fun getLocalRpPolicyRequestFromCbor(bytes: ByteArray): GetLocalRpPolicyRequest =
 /** The CBOR value tree for a GetLocalRpPolicyResponse (deep, canonical key order). */
 fun GetLocalRpPolicyResponse.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("policy") to CborValue.CText(this.policy))
+    csilEntries.add(CborValue.CText("policy") to this.policy.toCborValue())
     return CborValue.CMap(csilEntries)
 }
 
@@ -5324,7 +6076,7 @@ fun GetLocalRpPolicyResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborVa
 
 /** Reconstruct a GetLocalRpPolicyResponse from a decoded CBOR value tree. */
 fun getLocalRpPolicyResponseFromCborValue(cbor: CborValue): GetLocalRpPolicyResponse {
-    val policy = CsilCbor.asText(CsilCbor.require(cbor, "policy"))
+    val policy = localRpPolicyFromCborValue(CsilCbor.require(cbor, "policy"))
     return GetLocalRpPolicyResponse(policy = policy)
 }
 
@@ -5334,7 +6086,7 @@ fun getLocalRpPolicyResponseFromCbor(bytes: ByteArray): GetLocalRpPolicyResponse
 /** The CBOR value tree for a SetLocalRpPolicyRequest (deep, canonical key order). */
 fun SetLocalRpPolicyRequest.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("policy") to CborValue.CText(this.policy))
+    csilEntries.add(CborValue.CText("policy") to this.policy.toCborValue())
     return CborValue.CMap(csilEntries)
 }
 
@@ -5343,7 +6095,7 @@ fun SetLocalRpPolicyRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborVal
 
 /** Reconstruct a SetLocalRpPolicyRequest from a decoded CBOR value tree. */
 fun setLocalRpPolicyRequestFromCborValue(cbor: CborValue): SetLocalRpPolicyRequest {
-    val policy = CsilCbor.asText(CsilCbor.require(cbor, "policy"))
+    val policy = localRpPolicyFromCborValue(CsilCbor.require(cbor, "policy"))
     return SetLocalRpPolicyRequest(policy = policy)
 }
 
@@ -5353,7 +6105,7 @@ fun setLocalRpPolicyRequestFromCbor(bytes: ByteArray): SetLocalRpPolicyRequest =
 /** The CBOR value tree for a SetLocalRpPolicyResponse (deep, canonical key order). */
 fun SetLocalRpPolicyResponse.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("policy") to CborValue.CText(this.policy))
+    csilEntries.add(CborValue.CText("policy") to this.policy.toCborValue())
     return CborValue.CMap(csilEntries)
 }
 
@@ -5362,7 +6114,7 @@ fun SetLocalRpPolicyResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborVa
 
 /** Reconstruct a SetLocalRpPolicyResponse from a decoded CBOR value tree. */
 fun setLocalRpPolicyResponseFromCborValue(cbor: CborValue): SetLocalRpPolicyResponse {
-    val policy = CsilCbor.asText(CsilCbor.require(cbor, "policy"))
+    val policy = localRpPolicyFromCborValue(CsilCbor.require(cbor, "policy"))
     return SetLocalRpPolicyResponse(policy = policy)
 }
 
@@ -5456,12 +6208,12 @@ fun setUserPasswordLockResponseFromCbor(bytes: ByteArray): SetUserPasswordLockRe
 /** The CBOR value tree for a AppAccessTarget (deep, canonical key order). */
 fun AppAccessTarget.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("kind") to CborValue.CText(this.kind))
+    csilEntries.add(CborValue.CText("kind") to this.kind.toCborValue())
     this.userId?.let { csilV -> csilEntries.add(CborValue.CText("user_id") to CborValue.CText(csilV)) }
     this.claimType?.let { csilV -> csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(csilV)) }
     this.groupName?.let { csilV -> csilEntries.add(CborValue.CText("group_name") to CborValue.CText(csilV)) }
     this.claimValue?.let { csilV -> csilEntries.add(CborValue.CText("claim_value") to CborValue.CText(csilV)) }
-    this.claimOperator?.let { csilV -> csilEntries.add(CborValue.CText("claim_operator") to CborValue.CText(csilV)) }
+    this.claimOperator?.let { csilV -> csilEntries.add(CborValue.CText("claim_operator") to csilV.toCborValue()) }
     return CborValue.CMap(csilEntries)
 }
 
@@ -5470,11 +6222,11 @@ fun AppAccessTarget.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
 
 /** Reconstruct a AppAccessTarget from a decoded CBOR value tree. */
 fun appAccessTargetFromCborValue(cbor: CborValue): AppAccessTarget {
-    val kind = CsilCbor.asText(CsilCbor.require(cbor, "kind"))
+    val kind = appAccessTargetKindFromCborValue(CsilCbor.require(cbor, "kind"))
     val userId = CsilCbor.mapGet(cbor, "user_id")?.let { csilV -> CsilCbor.asText(csilV) }
     val groupName = CsilCbor.mapGet(cbor, "group_name")?.let { csilV -> CsilCbor.asText(csilV) }
     val claimType = CsilCbor.mapGet(cbor, "claim_type")?.let { csilV -> CsilCbor.asText(csilV) }
-    val claimOperator = CsilCbor.mapGet(cbor, "claim_operator")?.let { csilV -> CsilCbor.asText(csilV) }
+    val claimOperator = CsilCbor.mapGet(cbor, "claim_operator")?.let { csilV -> claimOperatorFromCborValue(csilV) }
     val claimValue = CsilCbor.mapGet(cbor, "claim_value")?.let { csilV -> CsilCbor.asText(csilV) }
     return AppAccessTarget(kind = kind, userId = userId, groupName = groupName, claimType = claimType, claimOperator = claimOperator, claimValue = claimValue)
 }
@@ -5486,7 +6238,7 @@ fun appAccessTargetFromCbor(bytes: ByteArray): AppAccessTarget = appAccessTarget
 fun AppAccessPolicy.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("id") to CborValue.CText(this.id))
-    csilEntries.add(CborValue.CText("mode") to CborValue.CText(this.mode))
+    csilEntries.add(CborValue.CText("mode") to this.mode.toCborValue())
     csilEntries.add(CborValue.CText("name") to CborValue.CText(this.name))
     this.message?.let { csilV -> csilEntries.add(CborValue.CText("message") to CborValue.CText(csilV)) }
     csilEntries.add(CborValue.CText("targets") to CborValue.CArray((this.targets).map { csilE -> csilE.toCborValue() }))
@@ -5501,7 +6253,7 @@ fun AppAccessPolicy.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
 fun appAccessPolicyFromCborValue(cbor: CborValue): AppAccessPolicy {
     val id = CsilCbor.asText(CsilCbor.require(cbor, "id"))
     val name = CsilCbor.asText(CsilCbor.require(cbor, "name"))
-    val mode = CsilCbor.asText(CsilCbor.require(cbor, "mode"))
+    val mode = appAccessModeFromCborValue(CsilCbor.require(cbor, "mode"))
     val patterns = CsilCbor.asArray(CsilCbor.require(cbor, "patterns")).map { csilE -> CsilCbor.asText(csilE) }
     val message = CsilCbor.mapGet(cbor, "message")?.let { csilV -> CsilCbor.asText(csilV) }
     val targets = CsilCbor.asArray(CsilCbor.require(cbor, "targets")).map { csilE -> appAccessTargetFromCborValue(csilE) }
@@ -5534,7 +6286,7 @@ fun listAppAccessPoliciesResponseFromCbor(bytes: ByteArray): ListAppAccessPolici
 fun SetAppAccessPolicyRequest.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     this.id?.let { csilV -> csilEntries.add(CborValue.CText("id") to CborValue.CText(csilV)) }
-    csilEntries.add(CborValue.CText("mode") to CborValue.CText(this.mode))
+    csilEntries.add(CborValue.CText("mode") to this.mode.toCborValue())
     csilEntries.add(CborValue.CText("name") to CborValue.CText(this.name))
     this.message?.let { csilV -> csilEntries.add(CborValue.CText("message") to CborValue.CText(csilV)) }
     csilEntries.add(CborValue.CText("targets") to CborValue.CArray((this.targets).map { csilE -> csilE.toCborValue() }))
@@ -5549,7 +6301,7 @@ fun SetAppAccessPolicyRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborV
 fun setAppAccessPolicyRequestFromCborValue(cbor: CborValue): SetAppAccessPolicyRequest {
     val id = CsilCbor.mapGet(cbor, "id")?.let { csilV -> CsilCbor.asText(csilV) }
     val name = CsilCbor.asText(CsilCbor.require(cbor, "name"))
-    val mode = CsilCbor.asText(CsilCbor.require(cbor, "mode"))
+    val mode = appAccessModeFromCborValue(CsilCbor.require(cbor, "mode"))
     val patterns = CsilCbor.asArray(CsilCbor.require(cbor, "patterns")).map { csilE -> CsilCbor.asText(csilE) }
     val message = CsilCbor.mapGet(cbor, "message")?.let { csilV -> CsilCbor.asText(csilV) }
     val targets = CsilCbor.asArray(CsilCbor.require(cbor, "targets")).map { csilE -> appAccessTargetFromCborValue(csilE) }
@@ -5744,7 +6496,7 @@ fun translationsRequestFromCbor(bytes: ByteArray): TranslationsRequest = transla
 fun TranslationsResponse.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("locale") to CborValue.CText(this.locale))
-    csilEntries.add(CborValue.CText("messages") to CborValue.CMap((this.messages).map { (csilK, csilV) -> CborValue.CText(csilK) to CborValue.CText(csilV) }))
+    csilEntries.add(CborValue.CText("messages") to CborValue.CMap(CsilCbor.canonicalEntries((this.messages).map { (csilK, csilV) -> CborValue.CText(csilK) to CborValue.CText(csilV) })))
     csilEntries.add(CborValue.CText("available_locales") to CborValue.CArray((this.availableLocales).map { csilE -> CborValue.CText(csilE) }))
     return CborValue.CMap(csilEntries)
 }
@@ -5756,7 +6508,7 @@ fun TranslationsResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue(
 fun translationsResponseFromCborValue(cbor: CborValue): TranslationsResponse {
     val locale = CsilCbor.asText(CsilCbor.require(cbor, "locale"))
     val availableLocales = CsilCbor.asArray(CsilCbor.require(cbor, "available_locales")).map { csilE -> CsilCbor.asText(csilE) }
-    val messages = CsilCbor.asMap(CsilCbor.require(cbor, "messages")).associate { (csilK, csilV) -> CsilCbor.asText(csilK) to CsilCbor.asText(csilV) }
+    val messages = CsilCbor.asDynamicMap(CsilCbor.require(cbor, "messages")).associate { (csilK, csilV) -> CsilCbor.asText(csilK) to CsilCbor.asText(csilV) }
     return TranslationsResponse(locale = locale, availableLocales = availableLocales, messages = messages)
 }
 
@@ -5807,18 +6559,18 @@ fun applicationKeySignatureFromCbor(bytes: ByteArray): ApplicationKeySignature =
 fun ApplicationKeyAttestation.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("key_id") to CborValue.CText(this.keyId))
-    csilEntries.add(CborValue.CText("algorithm") to CborValue.CText(this.algorithm))
-    csilEntries.add(CborValue.CText("key_usage") to CborValue.CText(this.keyUsage))
+    csilEntries.add(CborValue.CText("algorithm") to this.algorithm.toCborValue())
+    csilEntries.add(CborValue.CText("key_usage") to this.keyUsage.toCborValue())
     csilEntries.add(CborValue.CText("public_key") to CborValue.CBytes(this.publicKey))
-    csilEntries.add(CborValue.CText("attested_at") to CborValue.CText(this.attestedAt))
+    csilEntries.add(CborValue.CText("attested_at") to CsilCbor.encTimestamp(this.attestedAt))
     csilEntries.add(CborValue.CText("fingerprint") to CborValue.CText(this.fingerprint))
     csilEntries.add(CborValue.CText("instance_id") to CborValue.CText(this.instanceId))
     csilEntries.add(CborValue.CText("application_id") to CborValue.CText(this.applicationId))
-    csilEntries.add(CborValue.CText("key_created_at") to CborValue.CText(this.keyCreatedAt))
-    csilEntries.add(CborValue.CText("key_expires_at") to CborValue.CText(this.keyExpiresAt))
+    csilEntries.add(CborValue.CText("key_created_at") to CsilCbor.encTimestamp(this.keyCreatedAt))
+    csilEntries.add(CborValue.CText("key_expires_at") to CsilCbor.encTimestamp(this.keyExpiresAt))
     csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
     csilEntries.add(CborValue.CText("subject_user_id") to CborValue.CText(this.subjectUserId))
-    csilEntries.add(CborValue.CText("attestation_expires_at") to CborValue.CText(this.attestationExpiresAt))
+    csilEntries.add(CborValue.CText("attestation_expires_at") to CsilCbor.encTimestamp(this.attestationExpiresAt))
     return CborValue.CMap(csilEntries)
 }
 
@@ -5832,14 +6584,14 @@ fun applicationKeyAttestationFromCborValue(cbor: CborValue): ApplicationKeyAttes
     val applicationId = CsilCbor.asText(CsilCbor.require(cbor, "application_id"))
     val instanceId = CsilCbor.asText(CsilCbor.require(cbor, "instance_id"))
     val keyId = CsilCbor.asText(CsilCbor.require(cbor, "key_id"))
-    val keyUsage = CsilCbor.asText(CsilCbor.require(cbor, "key_usage"))
-    val algorithm = CsilCbor.asText(CsilCbor.require(cbor, "algorithm"))
+    val keyUsage = keyUsageFromCborValue(CsilCbor.require(cbor, "key_usage"))
+    val algorithm = keyAlgorithmFromCborValue(CsilCbor.require(cbor, "algorithm"))
     val publicKey = CsilCbor.asBytes(CsilCbor.require(cbor, "public_key"))
     val fingerprint = CsilCbor.asText(CsilCbor.require(cbor, "fingerprint"))
-    val keyCreatedAt = CsilCbor.asText(CsilCbor.require(cbor, "key_created_at"))
-    val keyExpiresAt = CsilCbor.asText(CsilCbor.require(cbor, "key_expires_at"))
-    val attestedAt = CsilCbor.asText(CsilCbor.require(cbor, "attested_at"))
-    val attestationExpiresAt = CsilCbor.asText(CsilCbor.require(cbor, "attestation_expires_at"))
+    val keyCreatedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "key_created_at"))
+    val keyExpiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "key_expires_at"))
+    val attestedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "attested_at"))
+    val attestationExpiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "attestation_expires_at"))
     return ApplicationKeyAttestation(subjectUserId = subjectUserId, subjectDomain = subjectDomain, applicationId = applicationId, instanceId = instanceId, keyId = keyId, keyUsage = keyUsage, algorithm = algorithm, publicKey = publicKey, fingerprint = fingerprint, keyCreatedAt = keyCreatedAt, keyExpiresAt = keyExpiresAt, attestedAt = attestedAt, attestationExpiresAt = attestationExpiresAt)
 }
 
@@ -5871,15 +6623,15 @@ fun signedApplicationKeyAttestationFromCbor(bytes: ByteArray): SignedApplication
 fun ApplicationKeyAddition.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("key_id") to CborValue.CText(this.keyId))
-    csilEntries.add(CborValue.CText("algorithm") to CborValue.CText(this.algorithm))
+    csilEntries.add(CborValue.CText("algorithm") to this.algorithm.toCborValue())
     csilEntries.add(CborValue.CText("challenge") to CborValue.CBytes(this.challenge))
-    csilEntries.add(CborValue.CText("key_usage") to CborValue.CText(this.keyUsage))
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("key_usage") to this.keyUsage.toCborValue())
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
     csilEntries.add(CborValue.CText("public_key") to CborValue.CBytes(this.publicKey))
     csilEntries.add(CborValue.CText("fingerprint") to CborValue.CText(this.fingerprint))
     csilEntries.add(CborValue.CText("instance_id") to CborValue.CText(this.instanceId))
     csilEntries.add(CborValue.CText("challenge_id") to CborValue.CText(this.challengeId))
-    csilEntries.add(CborValue.CText("requested_at") to CborValue.CText(this.requestedAt))
+    csilEntries.add(CborValue.CText("requested_at") to CsilCbor.encTimestamp(this.requestedAt))
     csilEntries.add(CborValue.CText("application_id") to CborValue.CText(this.applicationId))
     csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
     csilEntries.add(CborValue.CText("subject_user_id") to CborValue.CText(this.subjectUserId))
@@ -5897,15 +6649,15 @@ fun applicationKeyAdditionFromCborValue(cbor: CborValue): ApplicationKeyAddition
     val applicationId = CsilCbor.asText(CsilCbor.require(cbor, "application_id"))
     val instanceId = CsilCbor.asText(CsilCbor.require(cbor, "instance_id"))
     val keyId = CsilCbor.asText(CsilCbor.require(cbor, "key_id"))
-    val keyUsage = CsilCbor.asText(CsilCbor.require(cbor, "key_usage"))
-    val algorithm = CsilCbor.asText(CsilCbor.require(cbor, "algorithm"))
+    val keyUsage = keyUsageFromCborValue(CsilCbor.require(cbor, "key_usage"))
+    val algorithm = keyAlgorithmFromCborValue(CsilCbor.require(cbor, "algorithm"))
     val publicKey = CsilCbor.asBytes(CsilCbor.require(cbor, "public_key"))
     val fingerprint = CsilCbor.asText(CsilCbor.require(cbor, "fingerprint"))
     val requestedKeyLifetimeSeconds = CsilCbor.asLong(CsilCbor.require(cbor, "requested_key_lifetime_seconds"))
     val challengeId = CsilCbor.asText(CsilCbor.require(cbor, "challenge_id"))
     val challenge = CsilCbor.asBytes(CsilCbor.require(cbor, "challenge"))
-    val requestedAt = CsilCbor.asText(CsilCbor.require(cbor, "requested_at"))
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val requestedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "requested_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
     return ApplicationKeyAddition(subjectUserId = subjectUserId, subjectDomain = subjectDomain, applicationId = applicationId, instanceId = instanceId, keyId = keyId, keyUsage = keyUsage, algorithm = algorithm, publicKey = publicKey, fingerprint = fingerprint, requestedKeyLifetimeSeconds = requestedKeyLifetimeSeconds, challengeId = challengeId, challenge = challenge, requestedAt = requestedAt, expiresAt = expiresAt)
 }
 
@@ -5940,10 +6692,10 @@ fun ApplicationKeyRenewal.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("key_id") to CborValue.CText(this.keyId))
     csilEntries.add(CborValue.CText("challenge") to CborValue.CBytes(this.challenge))
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
     csilEntries.add(CborValue.CText("instance_id") to CborValue.CText(this.instanceId))
     csilEntries.add(CborValue.CText("challenge_id") to CborValue.CText(this.challengeId))
-    csilEntries.add(CborValue.CText("requested_at") to CborValue.CText(this.requestedAt))
+    csilEntries.add(CborValue.CText("requested_at") to CsilCbor.encTimestamp(this.requestedAt))
     csilEntries.add(CborValue.CText("application_id") to CborValue.CText(this.applicationId))
     csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
     csilEntries.add(CborValue.CText("subject_user_id") to CborValue.CText(this.subjectUserId))
@@ -5962,8 +6714,8 @@ fun applicationKeyRenewalFromCborValue(cbor: CborValue): ApplicationKeyRenewal {
     val keyId = CsilCbor.asText(CsilCbor.require(cbor, "key_id"))
     val challengeId = CsilCbor.asText(CsilCbor.require(cbor, "challenge_id"))
     val challenge = CsilCbor.asBytes(CsilCbor.require(cbor, "challenge"))
-    val requestedAt = CsilCbor.asText(CsilCbor.require(cbor, "requested_at"))
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val requestedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "requested_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
     return ApplicationKeyRenewal(subjectUserId = subjectUserId, subjectDomain = subjectDomain, applicationId = applicationId, instanceId = instanceId, keyId = keyId, challengeId = challengeId, challenge = challenge, requestedAt = requestedAt, expiresAt = expiresAt)
 }
 
@@ -5996,7 +6748,7 @@ fun signedApplicationKeyRenewalFromCbor(bytes: ByteArray): SignedApplicationKeyR
 /** The CBOR value tree for a ApplicationKeyRevocation (deep, canonical key order). */
 fun ApplicationKeyRevocation.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("revoked_at") to CborValue.CText(this.revokedAt))
+    csilEntries.add(CborValue.CText("revoked_at") to CsilCbor.encTimestamp(this.revokedAt))
     csilEntries.add(CborValue.CText("signatures") to CborValue.CArray((this.signatures).map { csilE -> csilE.toCborValue() }))
     csilEntries.add(CborValue.CText("instance_id") to CborValue.CText(this.instanceId))
     csilEntries.add(CborValue.CText("target_key_id") to CborValue.CText(this.targetKeyId))
@@ -6018,7 +6770,7 @@ fun applicationKeyRevocationFromCborValue(cbor: CborValue): ApplicationKeyRevoca
     val instanceId = CsilCbor.asText(CsilCbor.require(cbor, "instance_id"))
     val targetKeyId = CsilCbor.asText(CsilCbor.require(cbor, "target_key_id"))
     val targetFingerprint = CsilCbor.asText(CsilCbor.require(cbor, "target_fingerprint"))
-    val revokedAt = CsilCbor.asText(CsilCbor.require(cbor, "revoked_at"))
+    val revokedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "revoked_at"))
     val signatures = CsilCbor.asArray(CsilCbor.require(cbor, "signatures")).map { csilE -> applicationKeySignatureFromCborValue(csilE) }
     return ApplicationKeyRevocation(subjectUserId = subjectUserId, subjectDomain = subjectDomain, applicationId = applicationId, instanceId = instanceId, targetKeyId = targetKeyId, targetFingerprint = targetFingerprint, revokedAt = revokedAt, signatures = signatures)
 }
@@ -6029,9 +6781,9 @@ fun applicationKeyRevocationFromCbor(bytes: ByteArray): ApplicationKeyRevocation
 /** The CBOR value tree for a StartApplicationKeyChallengeRequest (deep, canonical key order). */
 fun StartApplicationKeyChallengeRequest.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("purpose") to CborValue.CText(this.purpose))
-    csilEntries.add(CborValue.CText("algorithm") to CborValue.CText(this.algorithm))
-    csilEntries.add(CborValue.CText("key_usage") to CborValue.CText(this.keyUsage))
+    csilEntries.add(CborValue.CText("purpose") to this.purpose.toCborValue())
+    csilEntries.add(CborValue.CText("algorithm") to this.algorithm.toCborValue())
+    csilEntries.add(CborValue.CText("key_usage") to this.keyUsage.toCborValue())
     csilEntries.add(CborValue.CText("public_key") to CborValue.CBytes(this.publicKey))
     csilEntries.add(CborValue.CText("instance_id") to CborValue.CText(this.instanceId))
     csilEntries.add(CborValue.CText("application_id") to CborValue.CText(this.applicationId))
@@ -6047,9 +6799,9 @@ fun startApplicationKeyChallengeRequestFromCborValue(cbor: CborValue): StartAppl
     val subjectUserId = CsilCbor.asText(CsilCbor.require(cbor, "subject_user_id"))
     val applicationId = CsilCbor.asText(CsilCbor.require(cbor, "application_id"))
     val instanceId = CsilCbor.asText(CsilCbor.require(cbor, "instance_id"))
-    val purpose = CsilCbor.asText(CsilCbor.require(cbor, "purpose"))
-    val keyUsage = CsilCbor.asText(CsilCbor.require(cbor, "key_usage"))
-    val algorithm = CsilCbor.asText(CsilCbor.require(cbor, "algorithm"))
+    val purpose = applicationKeyChallengePurposeFromCborValue(CsilCbor.require(cbor, "purpose"))
+    val keyUsage = keyUsageFromCborValue(CsilCbor.require(cbor, "key_usage"))
+    val algorithm = keyAlgorithmFromCborValue(CsilCbor.require(cbor, "algorithm"))
     val publicKey = CsilCbor.asBytes(CsilCbor.require(cbor, "public_key"))
     return StartApplicationKeyChallengeRequest(subjectUserId = subjectUserId, applicationId = applicationId, instanceId = instanceId, purpose = purpose, keyUsage = keyUsage, algorithm = algorithm, publicKey = publicKey)
 }
@@ -6061,7 +6813,7 @@ fun startApplicationKeyChallengeRequestFromCbor(bytes: ByteArray): StartApplicat
 fun StartApplicationKeyChallengeResponse.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     this.challenge?.let { csilV -> csilEntries.add(CborValue.CText("challenge") to CborValue.CBytes(csilV)) }
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
     csilEntries.add(CborValue.CText("challenge_id") to CborValue.CText(this.challengeId))
     this.sealedChallenge?.let { csilV -> csilEntries.add(CborValue.CText("sealed_challenge") to CborValue.CBytes(csilV)) }
     return CborValue.CMap(csilEntries)
@@ -6075,7 +6827,7 @@ fun startApplicationKeyChallengeResponseFromCborValue(cbor: CborValue): StartApp
     val challengeId = CsilCbor.asText(CsilCbor.require(cbor, "challenge_id"))
     val challenge = CsilCbor.mapGet(cbor, "challenge")?.let { csilV -> CsilCbor.asBytes(csilV) }
     val sealedChallenge = CsilCbor.mapGet(cbor, "sealed_challenge")?.let { csilV -> CsilCbor.asBytes(csilV) }
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
     return StartApplicationKeyChallengeResponse(challengeId = challengeId, challenge = challenge, sealedChallenge = sealedChallenge, expiresAt = expiresAt)
 }
 
@@ -6182,7 +6934,7 @@ fun revokeApplicationKeyRequestFromCbor(bytes: ByteArray): RevokeApplicationKeyR
 /** The CBOR value tree for a RevokeApplicationKeyResponse (deep, canonical key order). */
 fun RevokeApplicationKeyResponse.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("revoked_at") to CborValue.CText(this.revokedAt))
+    csilEntries.add(CborValue.CText("revoked_at") to CsilCbor.encTimestamp(this.revokedAt))
     return CborValue.CMap(csilEntries)
 }
 
@@ -6191,7 +6943,7 @@ fun RevokeApplicationKeyResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCb
 
 /** Reconstruct a RevokeApplicationKeyResponse from a decoded CBOR value tree. */
 fun revokeApplicationKeyResponseFromCborValue(cbor: CborValue): RevokeApplicationKeyResponse {
-    val revokedAt = CsilCbor.asText(CsilCbor.require(cbor, "revoked_at"))
+    val revokedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "revoked_at"))
     return RevokeApplicationKeyResponse(revokedAt = revokedAt)
 }
 
@@ -6326,10 +7078,10 @@ fun RpResolveDomainKeysResponse.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("keys") to CborValue.CArray((this.keys).map { csilE -> csilE.toCborValue() }))
     csilEntries.add(CborValue.CText("domain") to CborValue.CText(this.domain))
-    csilEntries.add(CborValue.CText("fetched_at") to CborValue.CText(this.fetchedAt))
+    csilEntries.add(CborValue.CText("fetched_at") to CsilCbor.encTimestamp(this.fetchedAt))
     csilEntries.add(CborValue.CText("revocations") to CborValue.CArray((this.revocations).map { csilE -> csilE.toCborValue() }))
-    csilEntries.add(CborValue.CText("cache_status") to CborValue.CText(this.cacheStatus))
-    csilEntries.add(CborValue.CText("revocations_checked_at") to CborValue.CText(this.revocationsCheckedAt))
+    csilEntries.add(CborValue.CText("cache_status") to this.cacheStatus.toCborValue())
+    csilEntries.add(CborValue.CText("revocations_checked_at") to CsilCbor.encTimestamp(this.revocationsCheckedAt))
     return CborValue.CMap(csilEntries)
 }
 
@@ -6341,9 +7093,9 @@ fun rpResolveDomainKeysResponseFromCborValue(cbor: CborValue): RpResolveDomainKe
     val domain = CsilCbor.asText(CsilCbor.require(cbor, "domain"))
     val keys = CsilCbor.asArray(CsilCbor.require(cbor, "keys")).map { csilE -> domainPublicKeyFromCborValue(csilE) }
     val revocations = CsilCbor.asArray(CsilCbor.require(cbor, "revocations")).map { csilE -> revocationCertificateFromCborValue(csilE) }
-    val fetchedAt = CsilCbor.asText(CsilCbor.require(cbor, "fetched_at"))
-    val revocationsCheckedAt = CsilCbor.asText(CsilCbor.require(cbor, "revocations_checked_at"))
-    val cacheStatus = CsilCbor.asText(CsilCbor.require(cbor, "cache_status"))
+    val fetchedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "fetched_at"))
+    val revocationsCheckedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "revocations_checked_at"))
+    val cacheStatus = rpCacheStatusFromCborValue(CsilCbor.require(cbor, "cache_status"))
     return RpResolveDomainKeysResponse(domain = domain, keys = keys, revocations = revocations, fetchedAt = fetchedAt, revocationsCheckedAt = revocationsCheckedAt, cacheStatus = cacheStatus)
 }
 
@@ -6380,15 +7132,15 @@ fun rpResolveApplicationKeysRequestFromCbor(bytes: ByteArray): RpResolveApplicat
 /** The CBOR value tree for a RpResolveApplicationKeysResponse (deep, canonical key order). */
 fun RpResolveApplicationKeysResponse.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("fetched_at") to CborValue.CText(this.fetchedAt))
+    csilEntries.add(CborValue.CText("fetched_at") to CsilCbor.encTimestamp(this.fetchedAt))
     csilEntries.add(CborValue.CText("instance_id") to CborValue.CText(this.instanceId))
-    csilEntries.add(CborValue.CText("cache_status") to CborValue.CText(this.cacheStatus))
+    csilEntries.add(CborValue.CText("cache_status") to this.cacheStatus.toCborValue())
     csilEntries.add(CborValue.CText("application_id") to CborValue.CText(this.applicationId))
     csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
     csilEntries.add(CborValue.CText("subject_user_id") to CborValue.CText(this.subjectUserId))
     csilEntries.add(CborValue.CText("application_keys") to CborValue.CArray((this.applicationKeys).map { csilE -> csilE.toCborValue() }))
     csilEntries.add(CborValue.CText("home_domain_keys") to CborValue.CArray((this.homeDomainKeys).map { csilE -> csilE.toCborValue() }))
-    csilEntries.add(CborValue.CText("revocations_checked_at") to CborValue.CText(this.revocationsCheckedAt))
+    csilEntries.add(CborValue.CText("revocations_checked_at") to CsilCbor.encTimestamp(this.revocationsCheckedAt))
     csilEntries.add(CborValue.CText("application_key_revocations") to CborValue.CArray((this.applicationKeyRevocations).map { csilE -> csilE.toCborValue() }))
     csilEntries.add(CborValue.CText("home_domain_key_revocations") to CborValue.CArray((this.homeDomainKeyRevocations).map { csilE -> csilE.toCborValue() }))
     return CborValue.CMap(csilEntries)
@@ -6407,9 +7159,9 @@ fun rpResolveApplicationKeysResponseFromCborValue(cbor: CborValue): RpResolveApp
     val applicationKeyRevocations = CsilCbor.asArray(CsilCbor.require(cbor, "application_key_revocations")).map { csilE -> applicationKeyRevocationFromCborValue(csilE) }
     val homeDomainKeys = CsilCbor.asArray(CsilCbor.require(cbor, "home_domain_keys")).map { csilE -> domainPublicKeyFromCborValue(csilE) }
     val homeDomainKeyRevocations = CsilCbor.asArray(CsilCbor.require(cbor, "home_domain_key_revocations")).map { csilE -> revocationCertificateFromCborValue(csilE) }
-    val fetchedAt = CsilCbor.asText(CsilCbor.require(cbor, "fetched_at"))
-    val revocationsCheckedAt = CsilCbor.asText(CsilCbor.require(cbor, "revocations_checked_at"))
-    val cacheStatus = CsilCbor.asText(CsilCbor.require(cbor, "cache_status"))
+    val fetchedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "fetched_at"))
+    val revocationsCheckedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "revocations_checked_at"))
+    val cacheStatus = rpCacheStatusFromCborValue(CsilCbor.require(cbor, "cache_status"))
     return RpResolveApplicationKeysResponse(subjectUserId = subjectUserId, subjectDomain = subjectDomain, applicationId = applicationId, instanceId = instanceId, applicationKeys = applicationKeys, applicationKeyRevocations = applicationKeyRevocations, homeDomainKeys = homeDomainKeys, homeDomainKeyRevocations = homeDomainKeyRevocations, fetchedAt = fetchedAt, revocationsCheckedAt = revocationsCheckedAt, cacheStatus = cacheStatus)
 }
 
@@ -6511,8 +7263,8 @@ fun ActAsScopeSet.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("grantee") to this.grantee.toCborValue())
     csilEntries.add(CborValue.CText("audience") to this.audience.toCborValue())
     this.language?.let { csilV -> csilEntries.add(CborValue.CText("language") to CborValue.CText(csilV)) }
-    csilEntries.add(CborValue.CText("issued_at") to CborValue.CText(this.issuedAt))
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("issued_at") to CsilCbor.encTimestamp(this.issuedAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
     this.audienceHandleClaim?.let { csilV -> csilEntries.add(CborValue.CText("audience_handle_claim") to csilV.toCborValue()) }
     return CborValue.CMap(csilEntries)
 }
@@ -6527,8 +7279,8 @@ fun actAsScopeSetFromCborValue(cbor: CborValue): ActAsScopeSet {
     val entries = CsilCbor.asArray(CsilCbor.require(cbor, "entries")).map { csilE -> actAsScopeEntryFromCborValue(csilE) }
     val language = CsilCbor.mapGet(cbor, "language")?.let { csilV -> CsilCbor.asText(csilV) }
     val audienceHandleClaim = CsilCbor.mapGet(cbor, "audience_handle_claim")?.let { csilV -> claimFromCborValue(csilV) }
-    val issuedAt = CsilCbor.asText(CsilCbor.require(cbor, "issued_at"))
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val issuedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "issued_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
     return ActAsScopeSet(audience = audience, grantee = grantee, entries = entries, language = language, audienceHandleClaim = audienceHandleClaim, issuedAt = issuedAt, expiresAt = expiresAt)
 }
 
@@ -6588,13 +7340,13 @@ fun ActAsGrant.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
     csilEntries.add(CborValue.CText("audience") to this.audience.toCborValue())
     csilEntries.add(CborValue.CText("grant_id") to CborValue.CText(this.grantId))
-    csilEntries.add(CborValue.CText("issued_at") to CborValue.CText(this.issuedAt))
+    csilEntries.add(CborValue.CText("issued_at") to CsilCbor.encTimestamp(this.issuedAt))
     csilEntries.add(CborValue.CText("scope_set") to this.scopeSet.toCborValue())
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
     csilEntries.add(CborValue.CText("approved_scope") to CborValue.CArray((this.approvedScope).map { csilE -> CborValue.CText(csilE) }))
     csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
-    csilEntries.add(CborValue.CText("renewable_until") to CborValue.CText(this.renewableUntil))
-    csilEntries.add(CborValue.CText("series_issued_at") to CborValue.CText(this.seriesIssuedAt))
+    csilEntries.add(CborValue.CText("renewable_until") to CsilCbor.encTimestamp(this.renewableUntil))
+    csilEntries.add(CborValue.CText("series_issued_at") to CsilCbor.encTimestamp(this.seriesIssuedAt))
     this.deviceFingerprint?.let { csilV -> csilEntries.add(CborValue.CText("device_fingerprint") to CborValue.CText(csilV)) }
     return CborValue.CMap(csilEntries)
 }
@@ -6611,10 +7363,10 @@ fun actAsGrantFromCborValue(cbor: CborValue): ActAsGrant {
     val audience = applicationRefFromCborValue(CsilCbor.require(cbor, "audience"))
     val scopeSet = signedActAsScopeSetFromCborValue(CsilCbor.require(cbor, "scope_set"))
     val approvedScope = CsilCbor.asArray(CsilCbor.require(cbor, "approved_scope")).map { csilE -> CsilCbor.asText(csilE) }
-    val issuedAt = CsilCbor.asText(CsilCbor.require(cbor, "issued_at"))
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
-    val seriesIssuedAt = CsilCbor.asText(CsilCbor.require(cbor, "series_issued_at"))
-    val renewableUntil = CsilCbor.asText(CsilCbor.require(cbor, "renewable_until"))
+    val issuedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "issued_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
+    val seriesIssuedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "series_issued_at"))
+    val renewableUntil = CsilCbor.asTimestamp(CsilCbor.require(cbor, "renewable_until"))
     val deviceFingerprint = CsilCbor.mapGet(cbor, "device_fingerprint")?.let { csilV -> CsilCbor.asText(csilV) }
     return ActAsGrant(grantId = grantId, userId = userId, subjectDomain = subjectDomain, grantee = grantee, audience = audience, scopeSet = scopeSet, approvedScope = approvedScope, issuedAt = issuedAt, expiresAt = expiresAt, seriesIssuedAt = seriesIssuedAt, renewableUntil = renewableUntil, deviceFingerprint = deviceFingerprint)
 }
@@ -6649,9 +7401,9 @@ fun ActAsGrantRequest.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("nonce") to CborValue.CText(this.nonce))
     csilEntries.add(CborValue.CText("grantee") to this.grantee.toCborValue())
     csilEntries.add(CborValue.CText("scope_set") to this.scopeSet.toCborValue())
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
     csilEntries.add(CborValue.CText("callback_url") to CborValue.CText(this.callbackUrl))
-    csilEntries.add(CborValue.CText("requested_at") to CborValue.CText(this.requestedAt))
+    csilEntries.add(CborValue.CText("requested_at") to CsilCbor.encTimestamp(this.requestedAt))
     this.granteeHandleClaim?.let { csilV -> csilEntries.add(CborValue.CText("grantee_handle_claim") to csilV.toCborValue()) }
     this.requestedLifetimeSeconds?.let { csilV -> csilEntries.add(CborValue.CText("requested_lifetime_seconds") to CborValue.CInt(csilV)) }
     this.requestedRenewalWindowSeconds?.let { csilV -> csilEntries.add(CborValue.CText("requested_renewal_window_seconds") to CborValue.CInt(csilV)) }
@@ -6670,8 +7422,8 @@ fun actAsGrantRequestFromCborValue(cbor: CborValue): ActAsGrantRequest {
     val granteeHandleClaim = CsilCbor.mapGet(cbor, "grantee_handle_claim")?.let { csilV -> claimFromCborValue(csilV) }
     val callbackUrl = CsilCbor.asText(CsilCbor.require(cbor, "callback_url"))
     val nonce = CsilCbor.asText(CsilCbor.require(cbor, "nonce"))
-    val requestedAt = CsilCbor.asText(CsilCbor.require(cbor, "requested_at"))
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val requestedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "requested_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
     return ActAsGrantRequest(grantee = grantee, scopeSet = scopeSet, requestedLifetimeSeconds = requestedLifetimeSeconds, requestedRenewalWindowSeconds = requestedRenewalWindowSeconds, granteeHandleClaim = granteeHandleClaim, callbackUrl = callbackUrl, nonce = nonce, requestedAt = requestedAt, expiresAt = expiresAt)
 }
 
@@ -6705,8 +7457,8 @@ fun ActAsRefreshRequest.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("nonce") to CborValue.CText(this.nonce))
     csilEntries.add(CborValue.CText("grantee") to this.grantee.toCborValue())
     csilEntries.add(CborValue.CText("grant_id") to CborValue.CText(this.grantId))
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
-    csilEntries.add(CborValue.CText("requested_at") to CborValue.CText(this.requestedAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
+    csilEntries.add(CborValue.CText("requested_at") to CsilCbor.encTimestamp(this.requestedAt))
     return CborValue.CMap(csilEntries)
 }
 
@@ -6717,8 +7469,8 @@ fun ActAsRefreshRequest.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue()
 fun actAsRefreshRequestFromCborValue(cbor: CborValue): ActAsRefreshRequest {
     val grantId = CsilCbor.asText(CsilCbor.require(cbor, "grant_id"))
     val grantee = granteeRefFromCborValue(CsilCbor.require(cbor, "grantee"))
-    val requestedAt = CsilCbor.asText(CsilCbor.require(cbor, "requested_at"))
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val requestedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "requested_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
     val nonce = CsilCbor.asText(CsilCbor.require(cbor, "nonce"))
     return ActAsRefreshRequest(grantId = grantId, grantee = grantee, requestedAt = requestedAt, expiresAt = expiresAt, nonce = nonce)
 }
@@ -6793,7 +7545,7 @@ fun ActAsPresentation.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("nonce") to CborValue.CBytes(this.nonce))
     csilEntries.add(CborValue.CText("audience") to this.audience.toCborValue())
     csilEntries.add(CborValue.CText("grant_hash") to CborValue.CBytes(this.grantHash))
-    csilEntries.add(CborValue.CText("presented_at") to CborValue.CText(this.presentedAt))
+    csilEntries.add(CborValue.CText("presented_at") to CsilCbor.encTimestamp(this.presentedAt))
     csilEntries.add(CborValue.CText("request_digest") to CborValue.CBytes(this.requestDigest))
     return CborValue.CMap(csilEntries)
 }
@@ -6806,7 +7558,7 @@ fun actAsPresentationFromCborValue(cbor: CborValue): ActAsPresentation {
     val grantHash = CsilCbor.asBytes(CsilCbor.require(cbor, "grant_hash"))
     val audience = applicationRefFromCborValue(CsilCbor.require(cbor, "audience"))
     val requestDigest = CsilCbor.asBytes(CsilCbor.require(cbor, "request_digest"))
-    val presentedAt = CsilCbor.asText(CsilCbor.require(cbor, "presented_at"))
+    val presentedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "presented_at"))
     val nonce = CsilCbor.asBytes(CsilCbor.require(cbor, "nonce"))
     return ActAsPresentation(grantHash = grantHash, audience = audience, requestDigest = requestDigest, presentedAt = presentedAt, nonce = nonce)
 }
@@ -6861,7 +7613,7 @@ fun ActAsGrantRevocation.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("user_id") to CborValue.CText(this.userId))
     csilEntries.add(CborValue.CText("grant_id") to CborValue.CText(this.grantId))
-    csilEntries.add(CborValue.CText("revoked_at") to CborValue.CText(this.revokedAt))
+    csilEntries.add(CborValue.CText("revoked_at") to CsilCbor.encTimestamp(this.revokedAt))
     csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
     return CborValue.CMap(csilEntries)
 }
@@ -6874,7 +7626,7 @@ fun actAsGrantRevocationFromCborValue(cbor: CborValue): ActAsGrantRevocation {
     val grantId = CsilCbor.asText(CsilCbor.require(cbor, "grant_id"))
     val userId = CsilCbor.asText(CsilCbor.require(cbor, "user_id"))
     val subjectDomain = CsilCbor.asText(CsilCbor.require(cbor, "subject_domain"))
-    val revokedAt = CsilCbor.asText(CsilCbor.require(cbor, "revoked_at"))
+    val revokedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "revoked_at"))
     return ActAsGrantRevocation(grantId = grantId, userId = userId, subjectDomain = subjectDomain, revokedAt = revokedAt)
 }
 
@@ -7150,11 +7902,11 @@ fun ActAsGrantSummary.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("grantee") to this.grantee.toCborValue())
     csilEntries.add(CborValue.CText("audience") to this.audience.toCborValue())
     csilEntries.add(CborValue.CText("grant_id") to CborValue.CText(this.grantId))
-    csilEntries.add(CborValue.CText("issued_at") to CborValue.CText(this.issuedAt))
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
-    this.revokedAt?.let { csilV -> csilEntries.add(CborValue.CText("revoked_at") to CborValue.CText(csilV)) }
+    csilEntries.add(CborValue.CText("issued_at") to CsilCbor.encTimestamp(this.issuedAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
+    this.revokedAt?.let { csilV -> csilEntries.add(CborValue.CText("revoked_at") to CsilCbor.encTimestamp(csilV)) }
     csilEntries.add(CborValue.CText("approved_scope") to CborValue.CArray((this.approvedScope).map { csilE -> CborValue.CText(csilE) }))
-    csilEntries.add(CborValue.CText("renewable_until") to CborValue.CText(this.renewableUntil))
+    csilEntries.add(CborValue.CText("renewable_until") to CsilCbor.encTimestamp(this.renewableUntil))
     return CborValue.CMap(csilEntries)
 }
 
@@ -7167,10 +7919,10 @@ fun actAsGrantSummaryFromCborValue(cbor: CborValue): ActAsGrantSummary {
     val grantee = granteeRefFromCborValue(CsilCbor.require(cbor, "grantee"))
     val audience = applicationRefFromCborValue(CsilCbor.require(cbor, "audience"))
     val approvedScope = CsilCbor.asArray(CsilCbor.require(cbor, "approved_scope")).map { csilE -> CsilCbor.asText(csilE) }
-    val issuedAt = CsilCbor.asText(CsilCbor.require(cbor, "issued_at"))
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
-    val renewableUntil = CsilCbor.asText(CsilCbor.require(cbor, "renewable_until"))
-    val revokedAt = CsilCbor.mapGet(cbor, "revoked_at")?.let { csilV -> CsilCbor.asText(csilV) }
+    val issuedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "issued_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
+    val renewableUntil = CsilCbor.asTimestamp(CsilCbor.require(cbor, "renewable_until"))
+    val revokedAt = CsilCbor.mapGet(cbor, "revoked_at")?.let { csilV -> CsilCbor.asTimestamp(csilV) }
     return ActAsGrantSummary(grantId = grantId, grantee = grantee, audience = audience, approvedScope = approvedScope, issuedAt = issuedAt, expiresAt = expiresAt, renewableUntil = renewableUntil, revokedAt = revokedAt)
 }
 
@@ -7218,7 +7970,7 @@ fun revokeActAsGrantRequestFromCbor(bytes: ByteArray): RevokeActAsGrantRequest =
 /** The CBOR value tree for a RevokeActAsGrantResponse (deep, canonical key order). */
 fun RevokeActAsGrantResponse.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("revoked_at") to CborValue.CText(this.revokedAt))
+    csilEntries.add(CborValue.CText("revoked_at") to CsilCbor.encTimestamp(this.revokedAt))
     return CborValue.CMap(csilEntries)
 }
 
@@ -7227,7 +7979,7 @@ fun RevokeActAsGrantResponse.toCbor(): ByteArray = CsilCbor.encode(this.toCborVa
 
 /** Reconstruct a RevokeActAsGrantResponse from a decoded CBOR value tree. */
 fun revokeActAsGrantResponseFromCborValue(cbor: CborValue): RevokeActAsGrantResponse {
-    val revokedAt = CsilCbor.asText(CsilCbor.require(cbor, "revoked_at"))
+    val revokedAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "revoked_at"))
     return RevokeActAsGrantResponse(revokedAt = revokedAt)
 }
 
@@ -7244,7 +7996,7 @@ fun PreviewReleasePolicyRequest.toCborValue(): CborValue {
     csilEntries.add(CborValue.CText("required_claims") to CborValue.CArray((this.requiredClaims).map { csilE -> CborValue.CText(csilE) }))
     this.tempClaimType?.let { csilV -> csilEntries.add(CborValue.CText("temp_claim_type") to CborValue.CText(csilV)) }
     csilEntries.add(CborValue.CText("available_claims") to CborValue.CArray((this.availableClaims).map { csilE -> CborValue.CText(csilE) }))
-    this.tempDisposition?.let { csilV -> csilEntries.add(CborValue.CText("temp_disposition") to CborValue.CText(csilV)) }
+    this.tempDisposition?.let { csilV -> csilEntries.add(CborValue.CText("temp_disposition") to csilV.toCborValue()) }
     return CborValue.CMap(csilEntries)
 }
 
@@ -7260,7 +8012,7 @@ fun previewReleasePolicyRequestFromCborValue(cbor: CborValue): PreviewReleasePol
     val userChoices = CsilCbor.asArray(CsilCbor.require(cbor, "user_choices")).map { csilE -> CsilCbor.asText(csilE) }
     val tempAudience = CsilCbor.mapGet(cbor, "temp_audience")?.let { csilV -> CsilCbor.asText(csilV) }
     val tempClaimType = CsilCbor.mapGet(cbor, "temp_claim_type")?.let { csilV -> CsilCbor.asText(csilV) }
-    val tempDisposition = CsilCbor.mapGet(cbor, "temp_disposition")?.let { csilV -> CsilCbor.asText(csilV) }
+    val tempDisposition = CsilCbor.mapGet(cbor, "temp_disposition")?.let { csilV -> releaseDispositionFromCborValue(csilV) }
     return PreviewReleasePolicyRequest(audience = audience, requiredClaims = requiredClaims, optionalClaims = optionalClaims, availableClaims = availableClaims, userChoices = userChoices, tempAudience = tempAudience, tempClaimType = tempClaimType, tempDisposition = tempDisposition)
 }
 
@@ -7271,7 +8023,7 @@ fun previewReleasePolicyRequestFromCbor(bytes: ByteArray): PreviewReleasePolicyR
 fun PreviewReleaseRow.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     csilEntries.add(CborValue.CText("locked") to CborValue.CBool(this.locked))
-    csilEntries.add(CborValue.CText("policy") to CborValue.CText(this.policy))
+    csilEntries.add(CborValue.CText("policy") to this.policy.toCborValue())
     csilEntries.add(CborValue.CText("required") to CborValue.CBool(this.required))
     csilEntries.add(CborValue.CText("available") to CborValue.CBool(this.available))
     csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(this.claimType))
@@ -7288,7 +8040,7 @@ fun previewReleaseRowFromCborValue(cbor: CborValue): PreviewReleaseRow {
     val required = CsilCbor.asBoolean(CsilCbor.require(cbor, "required"))
     val available = CsilCbor.asBoolean(CsilCbor.require(cbor, "available"))
     val locked = CsilCbor.asBoolean(CsilCbor.require(cbor, "locked"))
-    val policy = CsilCbor.asText(CsilCbor.require(cbor, "policy"))
+    val policy = consentRowPolicyFromCborValue(CsilCbor.require(cbor, "policy"))
     val defaultGranted = CsilCbor.asBoolean(CsilCbor.require(cbor, "default_granted"))
     return PreviewReleaseRow(claimType = claimType, required = required, available = available, locked = locked, policy = policy, defaultGranted = defaultGranted)
 }
@@ -7399,7 +8151,7 @@ fun inspectSigningRequestRequestFromCbor(bytes: ByteArray): InspectSigningReques
 /** The CBOR value tree for a InspectSigningRequestResponse (deep, canonical key order). */
 fun InspectSigningRequestResponse.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
-    csilEntries.add(CborValue.CText("expires_at") to CborValue.CText(this.expiresAt))
+    csilEntries.add(CborValue.CText("expires_at") to CsilCbor.encTimestamp(this.expiresAt))
     csilEntries.add(CborValue.CText("subject_domain") to CborValue.CText(this.subjectDomain))
     csilEntries.add(CborValue.CText("subject_user_id") to CborValue.CText(this.subjectUserId))
     csilEntries.add(CborValue.CText("issuable_claim_types") to CborValue.CArray((this.issuableClaimTypes).map { csilE -> CborValue.CText(csilE) }))
@@ -7415,7 +8167,7 @@ fun inspectSigningRequestResponseFromCborValue(cbor: CborValue): InspectSigningR
     val subjectUserId = CsilCbor.asText(CsilCbor.require(cbor, "subject_user_id"))
     val subjectDomain = CsilCbor.asText(CsilCbor.require(cbor, "subject_domain"))
     val requestedClaimTypes = CsilCbor.asArray(CsilCbor.require(cbor, "requested_claim_types")).map { csilE -> CsilCbor.asText(csilE) }
-    val expiresAt = CsilCbor.asText(CsilCbor.require(cbor, "expires_at"))
+    val expiresAt = CsilCbor.asTimestamp(CsilCbor.require(cbor, "expires_at"))
     val issuableClaimTypes = CsilCbor.asArray(CsilCbor.require(cbor, "issuable_claim_types")).map { csilE -> CsilCbor.asText(csilE) }
     return InspectSigningRequestResponse(subjectUserId = subjectUserId, subjectDomain = subjectDomain, requestedClaimTypes = requestedClaimTypes, expiresAt = expiresAt, issuableClaimTypes = issuableClaimTypes)
 }
@@ -7450,7 +8202,7 @@ fun issueForSigningRequestRequestFromCbor(bytes: ByteArray): IssueForSigningRequ
 fun IssuedClaimResult.toCborValue(): CborValue {
     val csilEntries = ArrayList<Pair<CborValue, CborValue>>()
     this.message?.let { csilV -> csilEntries.add(CborValue.CText("message") to CborValue.CText(csilV)) }
-    csilEntries.add(CborValue.CText("outcome") to CborValue.CText(this.outcome))
+    csilEntries.add(CborValue.CText("outcome") to this.outcome.toCborValue())
     this.claimCode?.let { csilV -> csilEntries.add(CborValue.CText("claim_code") to CborValue.CText(csilV)) }
     csilEntries.add(CborValue.CText("claim_type") to CborValue.CText(this.claimType))
     return CborValue.CMap(csilEntries)
@@ -7462,7 +8214,7 @@ fun IssuedClaimResult.toCbor(): ByteArray = CsilCbor.encode(this.toCborValue())
 /** Reconstruct a IssuedClaimResult from a decoded CBOR value tree. */
 fun issuedClaimResultFromCborValue(cbor: CborValue): IssuedClaimResult {
     val claimType = CsilCbor.asText(CsilCbor.require(cbor, "claim_type"))
-    val outcome = CsilCbor.asText(CsilCbor.require(cbor, "outcome"))
+    val outcome = issuedClaimOutcomeFromCborValue(CsilCbor.require(cbor, "outcome"))
     val message = CsilCbor.mapGet(cbor, "message")?.let { csilV -> CsilCbor.asText(csilV) }
     val claimCode = CsilCbor.mapGet(cbor, "claim_code")?.let { csilV -> CsilCbor.asText(csilV) }
     return IssuedClaimResult(claimType = claimType, outcome = outcome, message = message, claimCode = claimCode)
@@ -7556,6 +8308,25 @@ private fun csilToCborValue(value: Any?): CborValue = when (value) {
     is GetUserAuthenticationActivityResponse -> value.toCborValue()
     is CreateUserRequest -> value.toCborValue()
     is CreateUserResponse -> value.toCborValue()
+    is RenameUserRequest -> value.toCborValue()
+    is RenameUserResponse -> value.toCborValue()
+    is SetApplicationIdRequest -> value.toCborValue()
+    is SetApplicationIdResponse -> value.toCborValue()
+    is ApiKeyInfo -> value.toCborValue()
+    is CreateApiKeyRequest -> value.toCborValue()
+    is CreateApiKeyResponse -> value.toCborValue()
+    is ListApiKeysRequest -> value.toCborValue()
+    is ListApiKeysResponse -> value.toCborValue()
+    is RevokeApiKeyRequest -> value.toCborValue()
+    is RevokeApiKeyResponse -> value.toCborValue()
+    is AccountLimits -> value.toCborValue()
+    is GetAccountLimitsRequest -> value.toCborValue()
+    is GetAccountLimitsResponse -> value.toCborValue()
+    is SetAccountLimitsRequest -> value.toCborValue()
+    is SetAccountLimitsResponse -> value.toCborValue()
+    is RpUsageDay -> value.toCborValue()
+    is GetApplicationUsageRequest -> value.toCborValue()
+    is GetApplicationUsageResponse -> value.toCborValue()
     is UpdateUserRequest -> value.toCborValue()
     is UpdateUserResponse -> value.toCborValue()
     is DeactivateUserRequest -> value.toCborValue()
@@ -7686,6 +8457,7 @@ private fun csilToCborValue(value: Any?): CborValue = when (value) {
     is RpVerifyRequest -> value.toCborValue()
     is RpVerifyResponse -> value.toCborValue()
     is RpUserInfoRequest -> value.toCborValue()
+    is RpError -> value.toCborValue()
     is RpIssueAttestationRequest -> value.toCborValue()
     is RpIssueAttestationResponse -> value.toCborValue()
     is AuthorizeValidateRequest -> value.toCborValue()
@@ -7875,6 +8647,25 @@ fun csilFromCborValue(type: kotlin.reflect.KClass<*>, cbor: CborValue): Any = wh
     GetUserAuthenticationActivityResponse::class -> getUserAuthenticationActivityResponseFromCborValue(cbor)
     CreateUserRequest::class -> createUserRequestFromCborValue(cbor)
     CreateUserResponse::class -> createUserResponseFromCborValue(cbor)
+    RenameUserRequest::class -> renameUserRequestFromCborValue(cbor)
+    RenameUserResponse::class -> renameUserResponseFromCborValue(cbor)
+    SetApplicationIdRequest::class -> setApplicationIdRequestFromCborValue(cbor)
+    SetApplicationIdResponse::class -> setApplicationIdResponseFromCborValue(cbor)
+    ApiKeyInfo::class -> apiKeyInfoFromCborValue(cbor)
+    CreateApiKeyRequest::class -> createApiKeyRequestFromCborValue(cbor)
+    CreateApiKeyResponse::class -> createApiKeyResponseFromCborValue(cbor)
+    ListApiKeysRequest::class -> listApiKeysRequestFromCborValue(cbor)
+    ListApiKeysResponse::class -> listApiKeysResponseFromCborValue(cbor)
+    RevokeApiKeyRequest::class -> revokeApiKeyRequestFromCborValue(cbor)
+    RevokeApiKeyResponse::class -> revokeApiKeyResponseFromCborValue(cbor)
+    AccountLimits::class -> accountLimitsFromCborValue(cbor)
+    GetAccountLimitsRequest::class -> getAccountLimitsRequestFromCborValue(cbor)
+    GetAccountLimitsResponse::class -> getAccountLimitsResponseFromCborValue(cbor)
+    SetAccountLimitsRequest::class -> setAccountLimitsRequestFromCborValue(cbor)
+    SetAccountLimitsResponse::class -> setAccountLimitsResponseFromCborValue(cbor)
+    RpUsageDay::class -> rpUsageDayFromCborValue(cbor)
+    GetApplicationUsageRequest::class -> getApplicationUsageRequestFromCborValue(cbor)
+    GetApplicationUsageResponse::class -> getApplicationUsageResponseFromCborValue(cbor)
     UpdateUserRequest::class -> updateUserRequestFromCborValue(cbor)
     UpdateUserResponse::class -> updateUserResponseFromCborValue(cbor)
     DeactivateUserRequest::class -> deactivateUserRequestFromCborValue(cbor)
@@ -8005,6 +8796,7 @@ fun csilFromCborValue(type: kotlin.reflect.KClass<*>, cbor: CborValue): Any = wh
     RpVerifyRequest::class -> rpVerifyRequestFromCborValue(cbor)
     RpVerifyResponse::class -> rpVerifyResponseFromCborValue(cbor)
     RpUserInfoRequest::class -> rpUserInfoRequestFromCborValue(cbor)
+    RpError::class -> rpErrorFromCborValue(cbor)
     RpIssueAttestationRequest::class -> rpIssueAttestationRequestFromCborValue(cbor)
     RpIssueAttestationResponse::class -> rpIssueAttestationResponseFromCborValue(cbor)
     AuthorizeValidateRequest::class -> authorizeValidateRequestFromCborValue(cbor)
@@ -8129,6 +8921,71 @@ fun csilFromCborValue(type: kotlin.reflect.KClass<*>, cbor: CborValue): Any = wh
 }
 data class RpcReply(val variant: String, val payload: ByteArray)
 
+/** One RPC reply as the client transport received it; [variant] is null when the reply carried none. */
+class WireReply(val variant: String?, val payload: ByteArray)
+
+class RpErrorRefusal(val value: RpError) : RuntimeException("RpError")
+
+fun encodeRpSignRequestReply(handler: () -> RpSignResponse): RpcReply =
+    try {
+        val value = handler()
+        RpcReply("RpSignResponse", CsilCbor.encode(value.toCborValue()))
+    } catch (refusal: RpErrorRefusal) {
+        RpcReply("RpError", CsilCbor.encode(refusal.value.toCborValue()))
+    }
+
+fun encodeRpDecryptTokenReply(handler: () -> RpDecryptResponse): RpcReply =
+    try {
+        val value = handler()
+        RpcReply("RpDecryptResponse", CsilCbor.encode(value.toCborValue()))
+    } catch (refusal: RpErrorRefusal) {
+        RpcReply("RpError", CsilCbor.encode(refusal.value.toCborValue()))
+    }
+
+fun encodeRpVerifyAssertionReply(handler: () -> RpVerifyResponse): RpcReply =
+    try {
+        val value = handler()
+        RpcReply("RpVerifyResponse", CsilCbor.encode(value.toCborValue()))
+    } catch (refusal: RpErrorRefusal) {
+        RpcReply("RpError", CsilCbor.encode(refusal.value.toCborValue()))
+    }
+
+fun encodeRpUserinfoFetchReply(handler: () -> UserInfo): RpcReply =
+    try {
+        val value = handler()
+        RpcReply("UserInfo", CsilCbor.encode(value.toCborValue()))
+    } catch (refusal: RpErrorRefusal) {
+        RpcReply("RpError", CsilCbor.encode(refusal.value.toCborValue()))
+    }
+
 fun resolveRpcReply(service: String, op: String, variant: String?, payload: ByteArray): ByteArray {
+    if (service == "Rp" && op == "sign-request") {
+        return when (variant) {
+            "RpSignResponse" -> payload
+            "RpError" -> throw RpErrorRefusal(rpErrorFromCborValue(CsilCbor.decode(payload)))
+            else -> throw CborError("invalid RPC reply variant: $variant")
+        }
+    }
+    if (service == "Rp" && op == "decrypt-token") {
+        return when (variant) {
+            "RpDecryptResponse" -> payload
+            "RpError" -> throw RpErrorRefusal(rpErrorFromCborValue(CsilCbor.decode(payload)))
+            else -> throw CborError("invalid RPC reply variant: $variant")
+        }
+    }
+    if (service == "Rp" && op == "verify-assertion") {
+        return when (variant) {
+            "RpVerifyResponse" -> payload
+            "RpError" -> throw RpErrorRefusal(rpErrorFromCborValue(CsilCbor.decode(payload)))
+            else -> throw CborError("invalid RPC reply variant: $variant")
+        }
+    }
+    if (service == "Rp" && op == "userinfo-fetch") {
+        return when (variant) {
+            "UserInfo" -> payload
+            "RpError" -> throw RpErrorRefusal(rpErrorFromCborValue(CsilCbor.decode(payload)))
+            else -> throw CborError("invalid RPC reply variant: $variant")
+        }
+    }
     return payload
 }

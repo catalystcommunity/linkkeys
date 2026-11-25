@@ -40,11 +40,11 @@ fn status_map(status: &str) -> DataMap {
 
 /// Build and sign a `SignedLocalRpTicketRedemptionRequest` for `raw_ticket`,
 /// bound to `fingerprint`, signed with `signing_sk_bytes`, `issued_at` given
-/// as an exact RFC3339 string (so tests can pass a stale one).
+/// as an exact time (so tests can pass a stale one).
 fn build_signed_redemption(
     raw_ticket: &[u8],
     fingerprint: &str,
-    issued_at: &str,
+    issued_at: time::OffsetDateTime,
     signing_sk_bytes: &[u8],
 ) -> Vec<u8> {
     let request = liblinkkeys::local_rp::build_local_rp_ticket_redemption_request(
@@ -55,11 +55,11 @@ fn build_signed_redemption(
     let signed =
         liblinkkeys::local_rp::sign_local_rp_ticket_redemption_request(&request, signing_sk_bytes)
             .expect("sign ticket redemption request");
-    liblinkkeys::generated::encode_signed_local_rp_ticket_redemption_request(&signed)
+    liblinkkeys::generated::encode_signed_local_rp_ticket_redemption_request(&signed).unwrap()
 }
 
-fn now_rfc3339() -> String {
-    time::OffsetDateTime::now_utc().to_rfc3339()
+fn now_ts() -> time::OffsetDateTime {
+    liblinkkeys::timestamp::now_whole_seconds()
 }
 
 /// Give the test user a "handle" claim (part of the default granted-claims
@@ -107,8 +107,7 @@ fn redeem_claim_ticket_happy_path() {
     overrides.insert("ticket_hash".to_string(), Value::String(ticket_hash));
     create_local_rp_claim_ticket(&pool, &overrides);
 
-    let payload =
-        build_signed_redemption(&raw_ticket, &rp.fingerprint, &now_rfc3339(), &signing_sk);
+    let payload = build_signed_redemption(&raw_ticket, &rp.fingerprint, now_ts(), &signing_sk);
     let (status, body) = dispatch_redeem(&pool, payload);
     assert_eq!(status, 0, "approved RP + valid ticket should redeem");
 
@@ -152,8 +151,7 @@ fn redeem_claim_ticket_multi_use_within_window_works() {
     create_local_rp_claim_ticket(&pool, &overrides);
 
     for attempt in 0..2 {
-        let payload =
-            build_signed_redemption(&raw_ticket, &rp.fingerprint, &now_rfc3339(), &signing_sk);
+        let payload = build_signed_redemption(&raw_ticket, &rp.fingerprint, now_ts(), &signing_sk);
         let (status, _) = dispatch_redeem(&pool, payload);
         assert_eq!(status, 0, "redemption attempt {attempt} should succeed");
     }
@@ -182,7 +180,7 @@ fn redeem_claim_ticket_wrong_key_rejected() {
     create_local_rp_claim_ticket(&pool, &overrides);
 
     // Claims fingerprint `rp.fingerprint` but signs with a different key.
-    let payload = build_signed_redemption(&raw_ticket, &rp.fingerprint, &now_rfc3339(), &wrong_sk);
+    let payload = build_signed_redemption(&raw_ticket, &rp.fingerprint, now_ts(), &wrong_sk);
     let (status, _) = dispatch_redeem(&pool, payload);
     assert_ne!(
         status, 0,
@@ -224,7 +222,7 @@ fn redeem_claim_ticket_wrong_rp_with_valid_own_key_rejected() {
     // B builds and signs a redemption request with ITS OWN key, claiming ITS
     // OWN fingerprint (a fully legitimate, correctly-signed possession
     // proof for B) — but carrying A's stolen raw ticket bytes.
-    let payload = build_signed_redemption(&raw_ticket, &rp_b.fingerprint, &now_rfc3339(), &b_sk);
+    let payload = build_signed_redemption(&raw_ticket, &rp_b.fingerprint, now_ts(), &b_sk);
     let (status, _) = dispatch_redeem(&pool, payload);
     assert_ne!(
         status, 0,
@@ -233,7 +231,7 @@ fn redeem_claim_ticket_wrong_rp_with_valid_own_key_rejected() {
     );
 
     // Sanity: the rightful owner, RP A, can still redeem its own ticket.
-    let payload_a = build_signed_redemption(&raw_ticket, &rp_a.fingerprint, &now_rfc3339(), &_a_sk);
+    let payload_a = build_signed_redemption(&raw_ticket, &rp_a.fingerprint, now_ts(), &_a_sk);
     let (status_a, _) = dispatch_redeem(&pool, payload_a);
     assert_eq!(
         status_a, 0,
@@ -249,8 +247,7 @@ fn redeem_claim_ticket_unknown_fingerprint_rejected() {
     let fingerprint = liblinkkeys::crypto::fingerprint(pk.as_bytes());
 
     let raw_ticket = vec![2u8; 32];
-    let payload =
-        build_signed_redemption(&raw_ticket, &fingerprint, &now_rfc3339(), &sk.to_bytes());
+    let payload = build_signed_redemption(&raw_ticket, &fingerprint, now_ts(), &sk.to_bytes());
     let (status, _) = dispatch_redeem(&pool, payload);
     assert_ne!(status, 0, "an unregistered fingerprint must be rejected");
 }
@@ -261,8 +258,7 @@ fn redeem_claim_ticket_pending_rp_rejected() {
     let (rp, signing_sk) = create_local_rp_with_signing_key(&pool, &status_map("pending"));
 
     let raw_ticket = vec![3u8; 32];
-    let payload =
-        build_signed_redemption(&raw_ticket, &rp.fingerprint, &now_rfc3339(), &signing_sk);
+    let payload = build_signed_redemption(&raw_ticket, &rp.fingerprint, now_ts(), &signing_sk);
     let (status, _) = dispatch_redeem(&pool, payload);
     assert_ne!(
         status, 0,
@@ -276,8 +272,7 @@ fn redeem_claim_ticket_denied_rp_rejected() {
     let (rp, signing_sk) = create_local_rp_with_signing_key(&pool, &status_map("denied"));
 
     let raw_ticket = vec![4u8; 32];
-    let payload =
-        build_signed_redemption(&raw_ticket, &rp.fingerprint, &now_rfc3339(), &signing_sk);
+    let payload = build_signed_redemption(&raw_ticket, &rp.fingerprint, now_ts(), &signing_sk);
     let (status, _) = dispatch_redeem(&pool, payload);
     assert_ne!(status, 0, "a denied RP must be rejected");
 }
@@ -288,8 +283,7 @@ fn redeem_claim_ticket_revoked_rp_rejected() {
     let (rp, signing_sk) = create_local_rp_with_signing_key(&pool, &status_map("revoked"));
 
     let raw_ticket = vec![5u8; 32];
-    let payload =
-        build_signed_redemption(&raw_ticket, &rp.fingerprint, &now_rfc3339(), &signing_sk);
+    let payload = build_signed_redemption(&raw_ticket, &rp.fingerprint, now_ts(), &signing_sk);
     let (status, _) = dispatch_redeem(&pool, payload);
     assert_ne!(
         status, 0,
@@ -320,8 +314,7 @@ fn redeem_claim_ticket_expired_ticket_rejected() {
     );
     create_local_rp_claim_ticket(&pool, &overrides);
 
-    let payload =
-        build_signed_redemption(&raw_ticket, &rp.fingerprint, &now_rfc3339(), &signing_sk);
+    let payload = build_signed_redemption(&raw_ticket, &rp.fingerprint, now_ts(), &signing_sk);
     let (status, _) = dispatch_redeem(&pool, payload);
     assert_ne!(status, 0, "an expired ticket must be rejected");
 }
@@ -342,10 +335,9 @@ fn redeem_claim_ticket_stale_issued_at_rejected() {
     create_local_rp_claim_ticket(&pool, &overrides);
 
     // Well outside DEFAULT_CLOCK_SKEW_SECONDS (300s).
-    let stale_issued_at =
-        (time::OffsetDateTime::now_utc() - time::Duration::minutes(20)).to_rfc3339();
+    let stale_issued_at = now_ts() - time::Duration::minutes(20);
     let payload =
-        build_signed_redemption(&raw_ticket, &rp.fingerprint, &stale_issued_at, &signing_sk);
+        build_signed_redemption(&raw_ticket, &rp.fingerprint, stale_issued_at, &signing_sk);
     let (status, _) = dispatch_redeem(&pool, payload);
     assert_ne!(
         status, 0,
@@ -375,8 +367,7 @@ fn redeem_claim_ticket_deactivated_user_rejected() {
     overrides.insert("ticket_hash".to_string(), Value::String(ticket_hash));
     create_local_rp_claim_ticket(&pool, &overrides);
 
-    let payload =
-        build_signed_redemption(&raw_ticket, &rp.fingerprint, &now_rfc3339(), &signing_sk);
+    let payload = build_signed_redemption(&raw_ticket, &rp.fingerprint, now_ts(), &signing_sk);
     let (status, _) = dispatch_redeem(&pool, payload);
     assert_ne!(status, 0, "a deactivated user's ticket must be rejected");
 }
@@ -402,8 +393,7 @@ fn redeem_claim_ticket_purged_user_rejected() {
     overrides.insert("ticket_hash".to_string(), Value::String(ticket_hash));
     create_local_rp_claim_ticket(&pool, &overrides);
 
-    let payload =
-        build_signed_redemption(&raw_ticket, &rp.fingerprint, &now_rfc3339(), &signing_sk);
+    let payload = build_signed_redemption(&raw_ticket, &rp.fingerprint, now_ts(), &signing_sk);
     let (status, _) = dispatch_redeem(&pool, payload);
     assert_ne!(status, 0, "a purged user's ticket must be rejected");
 }
@@ -436,8 +426,7 @@ fn redeem_claim_ticket_rate_limit_triggers() {
 
     let mut saw_rate_limited = false;
     for _ in 0..30 {
-        let payload =
-            build_signed_redemption(&raw_ticket, &rp.fingerprint, &now_rfc3339(), &signing_sk);
+        let payload = build_signed_redemption(&raw_ticket, &rp.fingerprint, now_ts(), &signing_sk);
         let (status, _) = dispatch_redeem(&pool, payload);
         if status != 0 {
             saw_rate_limited = true;
@@ -481,7 +470,7 @@ fn redeem_claim_ticket_rate_limit_not_consumed_by_invalid_signatures() {
         let payload = build_signed_redemption(
             &raw_ticket,
             &victim.fingerprint,
-            &now_rfc3339(),
+            now_ts(),
             &attacker_sk.to_bytes(),
         );
         let (status, _) = dispatch_redeem(&pool, payload);
@@ -490,8 +479,7 @@ fn redeem_claim_ticket_rate_limit_not_consumed_by_invalid_signatures() {
 
     // The victim's own validly-signed redemption still succeeds: the flood
     // did not consume the victim's rate-limit bucket.
-    let payload =
-        build_signed_redemption(&raw_ticket, &victim.fingerprint, &now_rfc3339(), &victim_sk);
+    let payload = build_signed_redemption(&raw_ticket, &victim.fingerprint, now_ts(), &victim_sk);
     let (status, _) = dispatch_redeem(&pool, payload);
     assert_eq!(
         status, 0,
@@ -540,7 +528,8 @@ fn get_revocations_answers_unauthenticated_peer() {
 
     let payload = liblinkkeys::generated::encode_get_revocations_request(&GetRevocationsRequest {
         since: None,
-    });
+    })
+    .unwrap();
     let (status, body) =
         linkkeys::tcp::dispatch_for_test("DomainKeys", "get-revocations", payload, &pool, None);
     assert_eq!(

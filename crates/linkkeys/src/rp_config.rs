@@ -21,7 +21,7 @@
 //! datatype   = "url"
 //! ```
 
-use liblinkkeys::generated::types::{ClaimRequest, DomainClaim, RequestedClaim};
+use liblinkkeys::generated::types::{ClaimRequest, ClaimValueType, DomainClaim, RequestedClaim};
 use serde::Deserialize;
 use std::env;
 
@@ -71,7 +71,16 @@ impl RpClaimsConfig {
 
     pub fn load_from_path(path: &str) -> Result<Self, String> {
         let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        toml::from_str(&text).map_err(|e| e.to_string())
+        let config: Self = toml::from_str(&text).map_err(|e| e.to_string())?;
+        for claim in config.required.iter().chain(config.optional.iter()) {
+            if ClaimValueType::from_label(&claim.datatype).is_none() {
+                return Err(format!(
+                    "claim {}: datatype {:?} is not a CSIL ClaimValueType label",
+                    claim.claim_type, claim.datatype
+                ));
+            }
+        }
+        Ok(config)
     }
 
     /// As a protocol `ClaimRequest`, or `None` when nothing is configured.
@@ -90,7 +99,8 @@ impl RpClaim {
     fn to_requested(&self) -> RequestedClaim {
         RequestedClaim {
             claim_type: self.claim_type.clone(),
-            datatype: self.datatype.clone(),
+            // `load_from_path` refuses an unknown label.
+            datatype: ClaimValueType::from_label(&self.datatype).unwrap_or(ClaimValueType::Opaque),
         }
     }
 }
@@ -167,7 +177,7 @@ mod tests {
         let req = cfg.to_claim_request().unwrap();
         assert_eq!(req.required.len(), 1);
         assert_eq!(req.required[0].claim_type, "email");
-        assert_eq!(req.required[0].datatype, "email");
+        assert_eq!(req.required[0].datatype, ClaimValueType::Email);
         assert_eq!(req.optional[0].claim_type, "display_name");
     }
 

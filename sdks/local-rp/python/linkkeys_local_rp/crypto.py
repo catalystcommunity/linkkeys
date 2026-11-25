@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Tuple
 
@@ -35,6 +36,9 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import (
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
+
+from .generated.types import AeadSuite as _GeneratedAeadSuite
+from .generated.types import KeyAlgorithm, KeyUsage
 
 ALGORITHM_ED25519 = "ed25519"
 
@@ -96,41 +100,46 @@ class SigningAlgorithm(str, Enum):
         return [ALGORITHM_ED25519]
 
 
-class AeadSuite(str, Enum):
-    """Registry of negotiated AEAD suites (design doc, "AEAD suite
-    registry"): `aes-256-gcm` is mandatory-to-implement; `chacha20-poly1305`
-    is optional. Mirrors `liblinkkeys::crypto::AeadSuite` exactly — same
-    parse_str/as_str/all_supported shape.
-    """
+# The negotiated AEAD suite registry (design doc, "AEAD suite registry") is
+# the CSIL `AeadSuite` enum: on the wire it is a CBOR unsigned integer
+# (1 = aes-256-gcm, 2 = chacha20-poly1305). `aes-256-gcm` is
+# mandatory-to-implement; `chacha20-poly1305` is optional.
+AeadSuite = _GeneratedAeadSuite
 
-    AES_256_GCM = AEAD_SUITE_AES_256_GCM
-    CHACHA20_POLY1305 = AEAD_SUITE_CHACHA20_POLY1305
+_AEAD_KDF_LABELS = {
+    _GeneratedAeadSuite.AES_256_GCM: AEAD_SUITE_AES_256_GCM,
+    _GeneratedAeadSuite.CHACHA_20_POLY_1305: AEAD_SUITE_CHACHA20_POLY1305,
+}
+_AEAD_BY_KDF_LABEL = {label: suite for suite, label in _AEAD_KDF_LABELS.items()}
 
-    @staticmethod
-    def parse_str(s: str) -> Optional["AeadSuite"]:
-        try:
-            return AeadSuite(s)
-        except ValueError:
-            return None
 
-    def as_str(self) -> str:
-        return self.value
+def aead_suite_kdf_label(suite: AeadSuite) -> str:
+    """The suite's text id (`aes-256-gcm`, `chacha20-poly1305`). The local-RP
+    callback box binds this text into its KDF context, so it never changes,
+    even though the wire header carries the suite as a number
+    (`AeadSuite::kdf_label` in liblinkkeys)."""
+    return _AEAD_KDF_LABELS[suite]
 
-    @staticmethod
-    def all_supported() -> List[str]:
-        return [AEAD_SUITE_AES_256_GCM, AEAD_SUITE_CHACHA20_POLY1305]
 
-    @staticmethod
-    def select_supported(advertised: List[str]) -> Optional["AeadSuite"]:
-        """Pick the first suite in `advertised` (preference order) this
-        implementation supports. Used by whichever side chooses among an
-        advertised list, so a suite outside the advertised list can never be
-        selected."""
-        for s in advertised:
-            suite = AeadSuite.parse_str(s)
-            if suite is not None:
-                return suite
-        return None
+def aead_suite_from_kdf_label(label: str) -> Optional[AeadSuite]:
+    """The suite whose text id is `label`, or None when the text names no
+    supported suite."""
+    return _AEAD_BY_KDF_LABEL.get(label)
+
+
+def all_supported_aead_suites() -> List[AeadSuite]:
+    """Every AEAD suite this implementation supports, in preference order."""
+    return [_GeneratedAeadSuite.AES_256_GCM, _GeneratedAeadSuite.CHACHA_20_POLY_1305]
+
+
+def select_supported_aead_suite(advertised: List[AeadSuite]) -> Optional[AeadSuite]:
+    """Pick the first suite in `advertised` (preference order) this
+    implementation supports, so a suite outside the advertised list can
+    never be selected."""
+    for suite in advertised:
+        if suite in _AEAD_KDF_LABELS:
+            return suite
+    return None
 
 
 def generate_ed25519_keypair() -> Tuple[bytes, bytes]:
@@ -181,12 +190,15 @@ def verify_with_algorithm(
         raise VerificationFailed("signature verification failed") from e
 
 
-def resolve_and_verify(algorithm: str, message: bytes, signature: bytes, public_key_bytes: bytes) -> None:
-    """Parse a wire-format algorithm string before verifying — the entry
-    point for assertion/claim verification paths."""
-    alg = SigningAlgorithm.parse_str(algorithm)
+def resolve_and_verify(
+    algorithm: KeyAlgorithm, message: bytes, signature: bytes, public_key_bytes: bytes
+) -> None:
+    """Map a wire `KeyAlgorithm` to a signing algorithm before verifying —
+    the entry point for assertion/claim verification paths. A key algorithm
+    that is not a signing algorithm (for example `x25519`) is rejected."""
+    alg = SigningAlgorithm.parse_str(str(algorithm))
     if alg is None:
-        raise UnsupportedAlgorithm(algorithm)
+        raise UnsupportedAlgorithm(str(algorithm))
     verify_with_algorithm(alg, message, signature, public_key_bytes)
 
 
@@ -204,18 +216,25 @@ class KeyValidity(str, Enum):
     BAD_EXPIRY = "bad_expiry"
 
 
-def signing_key_validity(expires_at: str, revoked_at: Optional[str], now) -> KeyValidity:
+def signing_key_validity(expires_at: datetime, revoked_at: Optional[datetime], now: datetime) -> KeyValidity:
     """`now` is an explicit `datetime` (never read from the system clock in
-    this module, mirroring liblinkkeys's WASM-viable discipline)."""
+    this module, mirroring liblinkkeys's WASM-viable discipline). A naive
+    `expires_at` has no defined instant, so it is a bad expiry."""
     if revoked_at is not None:
         return KeyValidity.REVOKED
-    from .timeutil import parse_rfc3339
-
-    try:
-        expires = parse_rfc3339(expires_at)
-    except ValueError:
+    if not isinstance(expires_at, datetime) or expires_at.tzinfo is None:
         return KeyValidity.BAD_EXPIRY
-    return KeyValidity.EXPIRED if now > expires else KeyValidity.VALID
+    return KeyValidity.EXPIRED if now > expires_at else KeyValidity.VALID
+
+
+def is_signing_key(key_usage: KeyUsage) -> bool:
+    """True when a wire `key_usage` marks a signing key."""
+    return key_usage == KeyUsage.SIGN
+
+
+def is_encryption_key(key_usage: KeyUsage) -> bool:
+    """True when a wire `key_usage` marks an encryption key."""
+    return key_usage == KeyUsage.ENCRYPT
 
 
 def reject_low_order(shared_secret: bytes) -> None:
@@ -232,7 +251,7 @@ def aead_encrypt(suite: AeadSuite, key: bytes, nonce: bytes, aad: bytes, plainte
     `chacha20poly1305` crates' `Aead::encrypt` output shape exactly."""
     if suite == AeadSuite.AES_256_GCM:
         return AESGCM(key).encrypt(nonce, plaintext, aad)
-    if suite == AeadSuite.CHACHA20_POLY1305:
+    if suite == AeadSuite.CHACHA_20_POLY_1305:
         return ChaCha20Poly1305(key).encrypt(nonce, plaintext, aad)
     raise UnsupportedAlgorithm(str(suite))
 
@@ -241,7 +260,7 @@ def aead_decrypt(suite: AeadSuite, key: bytes, nonce: bytes, aad: bytes, ciphert
     try:
         if suite == AeadSuite.AES_256_GCM:
             return AESGCM(key).decrypt(nonce, ciphertext, aad)
-        if suite == AeadSuite.CHACHA20_POLY1305:
+        if suite == AeadSuite.CHACHA_20_POLY_1305:
             return ChaCha20Poly1305(key).decrypt(nonce, ciphertext, aad)
     except InvalidTag as e:
         raise DecryptionFailed("AEAD authentication failed") from e

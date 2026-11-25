@@ -8,11 +8,11 @@ DomainPublicKey _parseDomainKey(Map<String, dynamic> k) {
     keyId: k['key_id'] as String,
     publicKey: hex(k['public_key_hex'] as String),
     fingerprint: k['fingerprint_hex'] as String,
-    algorithm: k['algorithm'] as String,
-    keyUsage: k['key_usage'] as String,
-    createdAt: k['created_at'] as String,
-    expiresAt: k['expires_at'] as String,
-    revokedAt: k['revoked_at'] as String?,
+    algorithm: alg(k['algorithm'] as String),
+    keyUsage: usage(k['key_usage'] as String),
+    createdAt: ts(k['created_at'] as String),
+    expiresAt: ts(k['expires_at'] as String),
+    revokedAt: tsOpt(k['revoked_at'] as String?),
   );
 }
 
@@ -29,7 +29,7 @@ RevocationCertificate _parseCertificate(Map<String, dynamic> certNode) {
   return RevocationCertificate(
     targetKeyId: certNode['target_key_id'] as String,
     targetFingerprint: certNode['target_fingerprint'] as String,
-    revokedAt: certNode['revoked_at'] as String,
+    revokedAt: ts(certNode['revoked_at'] as String),
     signatures: signatures,
   );
 }

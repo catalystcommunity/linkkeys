@@ -1680,6 +1680,150 @@ static inline int csil_admin_preview_app_access(const CsilgenTransport *t, const
     return csil_drc;
 }
 
+/* Invoke Admin/rename-user with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_admin_rename_user(const CsilgenTransport *t, const RenameUserRequest *req,
+                        RenameUserResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_RenameUserRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Admin", "rename-user", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_RenameUserResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke Admin/set-application-id with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_admin_set_application_id(const CsilgenTransport *t, const SetApplicationIdRequest *req,
+                        SetApplicationIdResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_SetApplicationIdRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Admin", "set-application-id", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_SetApplicationIdResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke Admin/create-api-key with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_admin_create_api_key(const CsilgenTransport *t, const CreateApiKeyRequest *req,
+                        CreateApiKeyResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_CreateApiKeyRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Admin", "create-api-key", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_CreateApiKeyResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke Admin/list-api-keys with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_admin_list_api_keys(const CsilgenTransport *t, const ListApiKeysRequest *req,
+                        ListApiKeysResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_ListApiKeysRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Admin", "list-api-keys", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_ListApiKeysResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke Admin/revoke-api-key with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_admin_revoke_api_key(const CsilgenTransport *t, const RevokeApiKeyRequest *req,
+                        RevokeApiKeyResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_RevokeApiKeyRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Admin", "revoke-api-key", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_RevokeApiKeyResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke Admin/get-account-limits with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_admin_get_account_limits(const CsilgenTransport *t, const GetAccountLimitsRequest *req,
+                        GetAccountLimitsResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_GetAccountLimitsRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Admin", "get-account-limits", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_GetAccountLimitsResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke Admin/set-account-limits with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_admin_set_account_limits(const CsilgenTransport *t, const SetAccountLimitsRequest *req,
+                        SetAccountLimitsResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_SetAccountLimitsRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Admin", "set-account-limits", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_SetAccountLimitsResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
+/* Invoke Admin/get-application-usage with a typed request and decode the typed
+ * response. *resp_owner holds the response's backing storage; free it once
+ * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
+static inline int csil_admin_get_application_usage(const CsilgenTransport *t, const GetApplicationUsageRequest *req,
+                        GetApplicationUsageResponse *resp, CsilCodecArena **resp_owner) {
+    uint8_t *csil_reqb = NULL;
+    size_t csil_reqn = 0;
+    if (csil_encode_GetApplicationUsageRequest(req, &csil_reqb, &csil_reqn)) return -1;
+    uint8_t *csil_respb = NULL;
+    size_t csil_respn = 0;
+    int csil_rc = t->call(t->self, "Admin", "get-application-usage", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    free(csil_reqb);
+    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
+    int csil_drc = csil_decode_GetApplicationUsageResponse(csil_respb, csil_respn, resp, resp_owner);
+    free(csil_respb);
+    return csil_drc;
+}
+
 /* Invoke Account/change-password with a typed request and decode the typed
  * response. *resp_owner holds the response's backing storage; free it once
  * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
@@ -2008,72 +2152,76 @@ static inline int csil_attestation_deposit_claim(const CsilgenTransport *t, cons
  * response. *resp_owner holds the response's backing storage; free it once
  * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
 static inline int csil_rp_sign_request(const CsilgenTransport *t, const RpSignRequest *req,
-                        RpSignResponse *resp, CsilCodecArena **resp_owner) {
+                        RpSignRequestReply *resp, CsilCodecArena **resp_owner) {
     uint8_t *csil_reqb = NULL;
     size_t csil_reqn = 0;
     if (csil_encode_RpSignRequest(req, &csil_reqb, &csil_reqn)) return -1;
     uint8_t *csil_respb = NULL;
     size_t csil_respn = 0;
-    int csil_rc = t->call(t->self, "Rp", "sign-request", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    char *variant = NULL;
+    int rc = t->call_reply ? t->call_reply(t->self, "Rp", "sign-request", csil_reqb, csil_reqn, &csil_respb, &csil_respn, &variant) : -1;
     free(csil_reqb);
-    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
-    int csil_drc = csil_decode_RpSignResponse(csil_respb, csil_respn, resp, resp_owner);
+    if (!rc) rc = csil_decode_RpSignRequestReply(variant, csil_respb, csil_respn, resp, resp_owner);
+    free(variant);
     free(csil_respb);
-    return csil_drc;
+    return rc;
 }
 
 /* Invoke Rp/decrypt-token with a typed request and decode the typed
  * response. *resp_owner holds the response's backing storage; free it once
  * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
 static inline int csil_rp_decrypt_token(const CsilgenTransport *t, const RpDecryptRequest *req,
-                        RpDecryptResponse *resp, CsilCodecArena **resp_owner) {
+                        RpDecryptTokenReply *resp, CsilCodecArena **resp_owner) {
     uint8_t *csil_reqb = NULL;
     size_t csil_reqn = 0;
     if (csil_encode_RpDecryptRequest(req, &csil_reqb, &csil_reqn)) return -1;
     uint8_t *csil_respb = NULL;
     size_t csil_respn = 0;
-    int csil_rc = t->call(t->self, "Rp", "decrypt-token", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    char *variant = NULL;
+    int rc = t->call_reply ? t->call_reply(t->self, "Rp", "decrypt-token", csil_reqb, csil_reqn, &csil_respb, &csil_respn, &variant) : -1;
     free(csil_reqb);
-    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
-    int csil_drc = csil_decode_RpDecryptResponse(csil_respb, csil_respn, resp, resp_owner);
+    if (!rc) rc = csil_decode_RpDecryptTokenReply(variant, csil_respb, csil_respn, resp, resp_owner);
+    free(variant);
     free(csil_respb);
-    return csil_drc;
+    return rc;
 }
 
 /* Invoke Rp/verify-assertion with a typed request and decode the typed
  * response. *resp_owner holds the response's backing storage; free it once
  * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
 static inline int csil_rp_verify_assertion(const CsilgenTransport *t, const RpVerifyRequest *req,
-                        RpVerifyResponse *resp, CsilCodecArena **resp_owner) {
+                        RpVerifyAssertionReply *resp, CsilCodecArena **resp_owner) {
     uint8_t *csil_reqb = NULL;
     size_t csil_reqn = 0;
     if (csil_encode_RpVerifyRequest(req, &csil_reqb, &csil_reqn)) return -1;
     uint8_t *csil_respb = NULL;
     size_t csil_respn = 0;
-    int csil_rc = t->call(t->self, "Rp", "verify-assertion", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    char *variant = NULL;
+    int rc = t->call_reply ? t->call_reply(t->self, "Rp", "verify-assertion", csil_reqb, csil_reqn, &csil_respb, &csil_respn, &variant) : -1;
     free(csil_reqb);
-    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
-    int csil_drc = csil_decode_RpVerifyResponse(csil_respb, csil_respn, resp, resp_owner);
+    if (!rc) rc = csil_decode_RpVerifyAssertionReply(variant, csil_respb, csil_respn, resp, resp_owner);
+    free(variant);
     free(csil_respb);
-    return csil_drc;
+    return rc;
 }
 
 /* Invoke Rp/userinfo-fetch with a typed request and decode the typed
  * response. *resp_owner holds the response's backing storage; free it once
  * with csil_codec_arena_free when done with *resp. Returns non-zero on failure. */
 static inline int csil_rp_userinfo_fetch(const CsilgenTransport *t, const RpUserInfoRequest *req,
-                        UserInfo *resp, CsilCodecArena **resp_owner) {
+                        RpUserinfoFetchReply *resp, CsilCodecArena **resp_owner) {
     uint8_t *csil_reqb = NULL;
     size_t csil_reqn = 0;
     if (csil_encode_RpUserInfoRequest(req, &csil_reqb, &csil_reqn)) return -1;
     uint8_t *csil_respb = NULL;
     size_t csil_respn = 0;
-    int csil_rc = t->call(t->self, "Rp", "userinfo-fetch", csil_reqb, csil_reqn, &csil_respb, &csil_respn);
+    char *variant = NULL;
+    int rc = t->call_reply ? t->call_reply(t->self, "Rp", "userinfo-fetch", csil_reqb, csil_reqn, &csil_respb, &csil_respn, &variant) : -1;
     free(csil_reqb);
-    if (csil_rc != 0) { free(csil_respb); return csil_rc; }
-    int csil_drc = csil_decode_UserInfo(csil_respb, csil_respn, resp, resp_owner);
+    if (!rc) rc = csil_decode_RpUserinfoFetchReply(variant, csil_respb, csil_respn, resp, resp_owner);
+    free(variant);
     free(csil_respb);
-    return csil_drc;
+    return rc;
 }
 
 /* Invoke Rp/issue-attestation with a typed request and decode the typed

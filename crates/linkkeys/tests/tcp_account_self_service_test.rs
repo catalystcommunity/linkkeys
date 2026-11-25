@@ -67,7 +67,8 @@ fn set_my_claim_requires_no_admin_relation_and_is_visible_in_my_info() {
     let payload = liblinkkeys::generated::encode_set_my_claim_request(&SetMyClaimRequest {
         claim_type: "handle".to_string(),
         claim_value: "octoclaude".to_string(),
-    });
+    })
+    .unwrap();
     let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
         "Account",
         "set-my-claim",
@@ -85,7 +86,7 @@ fn set_my_claim_requires_no_admin_relation_and_is_visible_in_my_info() {
     // No auto-sign preference recorded => registry default (false) => stored
     // unsigned, mirroring `self_service::set_my_claim`'s SelfSign/auto_sign=false
     // path.
-    assert_eq!(resp.outcome, "stored_unsigned");
+    assert_eq!(resp.outcome.as_str(), "stored_unsigned");
     let claim = resp.claim.expect("claim present for a stored outcome");
     assert_eq!(claim.claim_type, "handle");
     assert_eq!(claim.claim_value, b"octoclaude");
@@ -96,7 +97,7 @@ fn set_my_claim_requires_no_admin_relation_and_is_visible_in_my_info() {
     let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
         "Account",
         "get-my-info",
-        liblinkkeys::generated::encode_empty_request(&EmptyRequest {}),
+        liblinkkeys::generated::encode_empty_request(&EmptyRequest {}).unwrap(),
         Some(&api_key),
         &pool,
         None,
@@ -123,7 +124,8 @@ fn set_my_claim_rejects_non_user_settable_type() {
     let payload = liblinkkeys::generated::encode_set_my_claim_request(&SetMyClaimRequest {
         claim_type: "email_verified".to_string(),
         claim_value: "true".to_string(),
-    });
+    })
+    .unwrap();
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Account",
         "set-my-claim",
@@ -151,7 +153,8 @@ fn set_claim_via_tcp(
     let payload = liblinkkeys::generated::encode_set_my_claim_request(&SetMyClaimRequest {
         claim_type: claim_type.to_string(),
         claim_value: value.to_string(),
-    });
+    })
+    .unwrap();
     let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
         "Account",
         "set-my-claim",
@@ -177,7 +180,8 @@ fn remove_my_claim_removes_own_claim() {
 
     let payload = liblinkkeys::generated::encode_remove_my_claim_request(&RemoveMyClaimRequest {
         claim_id: claim_id.clone(),
-    });
+    })
+    .unwrap();
     let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
         "Account",
         "remove-my-claim",
@@ -214,7 +218,8 @@ fn remove_my_claim_cannot_target_another_users_claim() {
 
     let payload = liblinkkeys::generated::encode_remove_my_claim_request(&RemoveMyClaimRequest {
         claim_id: victim_claim_id.clone(),
-    });
+    })
+    .unwrap();
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Account",
         "remove-my-claim",
@@ -257,7 +262,8 @@ fn create_profile_creates_presentable_profile_on_own_account() {
 
     let payload = liblinkkeys::generated::encode_create_profile_request(&CreateProfileRequest {
         label: Some("Gaming persona".to_string()),
-    });
+    })
+    .unwrap();
     let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
         "Account",
         "create-profile",
@@ -297,7 +303,8 @@ fn create_profile_request_has_no_target_account_field() {
 
     let payload = liblinkkeys::generated::encode_create_profile_request(&CreateProfileRequest {
         label: None,
-    });
+    })
+    .unwrap();
     let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
         "Account",
         "create-profile",
@@ -328,7 +335,8 @@ fn request_verification_returns_nonempty_signed_bundle_for_caller() {
         liblinkkeys::generated::encode_request_verification_request(&RequestVerificationRequest {
             issuer_domain: "issuer.test".to_string(),
             requested_claim_types: vec!["age_over_21".to_string()],
-        });
+        })
+        .unwrap();
     let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
         "Account",
         "request-verification",
@@ -379,7 +387,8 @@ fn request_verification_rejects_a_blank_issuer_or_no_claim_types() {
                 issuer_domain: issuer_domain.to_string(),
                 requested_claim_types,
             },
-        );
+        )
+        .unwrap();
         let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
             "Account",
             "request-verification",
@@ -401,7 +410,8 @@ fn share_via_tcp(pool: &linkkeys::db::DbPool, api_key: &str, claim_type: &str, s
         liblinkkeys::generated::encode_set_my_claim_sharing_request(&SetMyClaimSharingRequest {
             claim_type: claim_type.to_string(),
             share,
-        });
+        })
+        .unwrap();
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Account",
         "set-my-claim-sharing",
@@ -526,7 +536,7 @@ fn my_claim_settings(
     let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
         "Account",
         "get-my-claim-settings",
-        liblinkkeys::generated::encode_empty_request(&EmptyRequest {}),
+        liblinkkeys::generated::encode_empty_request(&EmptyRequest {}).unwrap(),
         Some(api_key),
         pool,
         None,
@@ -549,7 +559,8 @@ fn keep_verified_via_tcp(
             claim_type: claim_type.to_string(),
             keep_verified,
         },
-    );
+    )
+    .unwrap();
     linkkeys::tcp::dispatch_for_test_authed(
         "Account",
         "set-my-claim-keep-verified",

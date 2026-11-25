@@ -1,7 +1,8 @@
 // LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 use crate::crypto::{self, CryptoError, SigningAlgorithm};
-use crate::generated::types::{DomainPublicKey, IdentityAssertion, SignedIdentityAssertion};
-use crate::timestamp::Rfc3339 as _;
+use crate::generated::types::{
+    ApplicationRef, DomainPublicKey, IdentityAssertion, SignedIdentityAssertion,
+};
 use std::fmt;
 use time::OffsetDateTime;
 
@@ -28,15 +29,13 @@ pub fn check_signing_key_valid(key: &DomainPublicKey) -> Result<(), VerifyError>
     // signer. Today algorithm binding also catches this (an x25519 key fails
     // resolve_and_verify), but that is an implicit invariant; gate it explicitly
     // here so every verify path that consults key validity is protected.
-    if key.key_usage != "sign" {
+    if key.key_usage != crate::generated::types::KeyUsage::Sign {
         return Err(VerifyError::SignatureInvalid);
     }
-    match crypto::signing_key_validity(&key.expires_at, key.revoked_at.as_deref()) {
+    match crypto::signing_key_validity(&key.expires_at, key.revoked_at.as_ref()) {
         crypto::KeyValidity::Valid => Ok(()),
         crypto::KeyValidity::Revoked => Err(VerifyError::KeyRevoked(key.key_id.clone())),
-        crypto::KeyValidity::Expired | crypto::KeyValidity::BadExpiry => {
-            Err(VerifyError::KeyExpired(key.key_id.clone()))
-        }
+        crypto::KeyValidity::Expired => Err(VerifyError::KeyExpired(key.key_id.clone())),
     }
 }
 
@@ -94,6 +93,7 @@ pub fn assertion_sign_payload(assertion_bytes: &[u8]) -> Vec<u8> {
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_assertion(
     user_id: &str,
     domain: &str,
@@ -102,6 +102,7 @@ pub fn build_assertion(
     display_name: Option<&str>,
     ttl_seconds: u64,
     authorized_claims: Vec<String>,
+    application: ApplicationRef,
 ) -> IdentityAssertion {
     let now = OffsetDateTime::now_utc();
     let expires = now + time::Duration::seconds(ttl_seconds as i64);
@@ -110,10 +111,11 @@ pub fn build_assertion(
         domain: domain.to_string(),
         audience: audience.to_string(),
         nonce: nonce.to_string(),
-        issued_at: now.to_rfc3339(),
-        expires_at: expires.to_rfc3339(),
+        issued_at: now,
+        expires_at: expires,
         authorized_claims,
         display_name: display_name.map(|s| s.to_string()),
+        application,
     }
 }
 
@@ -127,7 +129,7 @@ pub fn sign_assertion(
     algorithm: SigningAlgorithm,
     private_key_bytes: &[u8],
 ) -> Result<SignedIdentityAssertion, CryptoError> {
-    let assertion_bytes = crate::generated::encode_identity_assertion(assertion);
+    let assertion_bytes = crate::generated::encode_identity_assertion(assertion)?;
 
     let payload = assertion_sign_payload(&assertion_bytes);
     let signature = crypto::sign_with_algorithm(algorithm, &payload, private_key_bytes)?;
@@ -167,10 +169,7 @@ pub fn verify_assertion(
     let assertion = crate::generated::decode_identity_assertion(signed.assertion.as_slice())
         .map_err(|e| VerifyError::DeserializationFailed(format!("CBOR decode failed: {}", e)))?;
 
-    let expires_at = crate::timestamp::parse_rfc3339(&assertion.expires_at)
-        .map_err(|e| VerifyError::DeserializationFailed(format!("invalid expires_at: {}", e)))?;
-
-    if OffsetDateTime::now_utc() > expires_at {
+    if OffsetDateTime::now_utc() > assertion.expires_at {
         return Err(VerifyError::Expired);
     }
 
@@ -180,19 +179,19 @@ pub fn verify_assertion(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::{fingerprint, generate_keypair, ALGORITHM_ED25519};
+    use crate::crypto::{fingerprint, generate_keypair};
 
     fn make_domain_key(key_id: &str, pk_bytes: &[u8]) -> DomainPublicKey {
         DomainPublicKey {
             key_id: key_id.to_string(),
             public_key: pk_bytes.to_vec(),
             fingerprint: fingerprint(pk_bytes),
-            algorithm: ALGORITHM_ED25519.to_string(),
-            key_usage: "sign".to_string(),
+            algorithm: crate::generated::types::KeyAlgorithm::Ed25519,
+            key_usage: crate::generated::types::KeyUsage::Sign,
             signed_by_key_id: None,
             key_signature: None,
-            created_at: OffsetDateTime::now_utc().to_rfc3339(),
-            expires_at: (OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339(),
+            created_at: OffsetDateTime::now_utc(),
+            expires_at: OffsetDateTime::now_utc() + time::Duration::hours(1),
             revoked_at: None,
         }
     }
@@ -210,6 +209,7 @@ mod tests {
             Some("Alice"),
             300,
             vec!["email".to_string()],
+            crate::test_support::app_ref(),
         );
 
         let signed = sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
@@ -236,6 +236,7 @@ mod tests {
             None,
             0,
             vec![],
+            crate::test_support::app_ref(),
         );
         let signed = sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
 
@@ -259,6 +260,7 @@ mod tests {
             None,
             300,
             vec![],
+            crate::test_support::app_ref(),
         );
         let signed = sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk1).unwrap();
 
@@ -279,6 +281,7 @@ mod tests {
             None,
             300,
             vec![],
+            crate::test_support::app_ref(),
         );
         let mut signed =
             sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
@@ -295,7 +298,7 @@ mod tests {
     fn test_assertion_revoked_key_rejected() {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let mut domain_key = make_domain_key("key-1", &pk);
-        domain_key.revoked_at = Some(OffsetDateTime::now_utc().to_rfc3339());
+        domain_key.revoked_at = Some(OffsetDateTime::now_utc());
 
         let assertion = build_assertion(
             "user-123",
@@ -305,6 +308,7 @@ mod tests {
             None,
             300,
             vec![],
+            crate::test_support::app_ref(),
         );
         let signed = sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
 
@@ -316,7 +320,7 @@ mod tests {
     fn test_assertion_expired_key_rejected() {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let mut domain_key = make_domain_key("key-1", &pk);
-        domain_key.expires_at = (OffsetDateTime::now_utc() - time::Duration::hours(1)).to_rfc3339();
+        domain_key.expires_at = OffsetDateTime::now_utc() - time::Duration::hours(1);
 
         let assertion = build_assertion(
             "user-123",
@@ -326,6 +330,7 @@ mod tests {
             None,
             300,
             vec![],
+            crate::test_support::app_ref(),
         );
         let signed = sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
 
@@ -337,7 +342,8 @@ mod tests {
     fn test_assertion_unsupported_algorithm_rejected() {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let mut domain_key = make_domain_key("key-1", &pk);
-        domain_key.algorithm = "dilithium3".to_string();
+        // X25519 is a known key algorithm that cannot sign.
+        domain_key.algorithm = crate::generated::types::KeyAlgorithm::X25519;
 
         let assertion = build_assertion(
             "user-123",
@@ -347,6 +353,7 @@ mod tests {
             None,
             300,
             vec![],
+            crate::test_support::app_ref(),
         );
         let signed = sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
 
@@ -370,8 +377,9 @@ mod tests {
             None,
             300,
             vec![],
+            crate::test_support::app_ref(),
         );
-        let assertion_bytes = crate::generated::encode_identity_assertion(&assertion);
+        let assertion_bytes = crate::generated::encode_identity_assertion(&assertion).unwrap();
 
         // Sign the raw bytes directly, bypassing the tagged payload.
         let signature =

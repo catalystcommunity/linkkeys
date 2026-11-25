@@ -81,8 +81,8 @@ pub fn get_my_info(pool: &DbPool, user_id: &str) -> Result<GetMyInfoResponse, Se
                 relation: r.relation.clone(),
                 object_type: r.object_type.clone(),
                 object_id: r.object_id.clone(),
-                created_at: r.created_at.clone(),
-                removed_at: r.removed_at.clone(),
+                created_at: r.created_at,
+                removed_at: r.removed_at,
             })
             .collect(),
         claims: claims.iter().map(|c| -> Claim { c.into() }).collect(),
@@ -114,15 +114,8 @@ pub fn set_my_claim(
         self_service::SetOutcome::VerificationRequired | self_service::SetOutcome::Queued => None,
     };
 
-    let outcome_str = match outcome {
-        self_service::SetOutcome::Signed => "signed",
-        self_service::SetOutcome::StoredUnsigned => "stored_unsigned",
-        self_service::SetOutcome::VerificationRequired => "verification_required",
-        self_service::SetOutcome::Queued => "queued",
-    };
-
     Ok(SetMyClaimResponse {
-        outcome: outcome_str.to_string(),
+        outcome: outcome.csil(),
         claim,
     })
 }

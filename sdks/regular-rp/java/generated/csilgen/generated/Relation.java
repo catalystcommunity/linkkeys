@@ -2,6 +2,8 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
+
 public record Relation(
     String id /* wire: "id" */,
     String subjectType /* wire: "subject_type" */,
@@ -9,7 +11,7 @@ public record Relation(
     String relation /* wire: "relation" */,
     String objectType /* wire: "object_type" */,
     String objectId /* wire: "object_id" */,
-    String createdAt /* wire: "created_at" */,
-    String removedAt /* wire: "removed_at" */
+    Instant createdAt /* wire: "created_at" */,
+    Instant removedAt /* wire: "removed_at" */
 ) {
 }

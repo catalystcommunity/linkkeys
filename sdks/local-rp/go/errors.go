@@ -26,6 +26,17 @@ type DecodeError struct{ Detail string }
 
 func (e *DecodeError) Error() string { return "decode error: " + e.Detail }
 
+// EncodeError: a value has no CBOR wire form, so the codec refused to encode
+// it (for example, a timestamp outside UTC years 0001-9999).
+type EncodeError struct{ Detail string }
+
+func (e *EncodeError) Error() string { return "encode error: " + e.Detail }
+
+// encodeFailed wraps a generated-codec encode error for the named structure.
+func encodeFailed(what string, err error) error {
+	return &EncodeError{Detail: what + ": " + err.Error()}
+}
+
 // DNSError: a DNS TXT lookup failed (network/resolver failure, not a parse
 // failure — see DnsParseError for record-format problems).
 type DNSError struct{ Detail string }
@@ -90,7 +101,6 @@ const (
 	ErrKindFingerprintMismatch   LocalRpErrorKind = "fingerprint_mismatch"
 	ErrKindNotYetValid           LocalRpErrorKind = "not_yet_valid"
 	ErrKindExpired               LocalRpErrorKind = "expired"
-	ErrKindBadTimestamp          LocalRpErrorKind = "bad_timestamp"
 	ErrKindNonceMismatch         LocalRpErrorKind = "nonce_mismatch"
 	ErrKindStateMismatch         LocalRpErrorKind = "state_mismatch"
 	ErrKindAudienceMismatch      LocalRpErrorKind = "audience_mismatch"
@@ -140,7 +150,7 @@ const (
 	ClaimErrKindKeyExpired            ClaimErrorKind = "key_expired"
 	ClaimErrKindRevoked               ClaimErrorKind = "revoked"
 	ClaimErrKindExpired               ClaimErrorKind = "expired"
-	ClaimErrKindBadExpiry             ClaimErrorKind = "bad_expiry"
+	ClaimErrKindBadTimestamp          ClaimErrorKind = "bad_timestamp"
 	ClaimErrKindUnsigned              ClaimErrorKind = "unsigned"
 	ClaimErrKindDomainKeysUnavailable ClaimErrorKind = "domain_keys_unavailable"
 	ClaimErrKindDomainUnverified      ClaimErrorKind = "domain_unverified"

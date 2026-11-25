@@ -28,7 +28,6 @@ library;
 
 import 'begin.dart';
 import 'claims.dart' as claims;
-import 'crypto/aead_suite.dart';
 import 'dns/dns_resolver.dart';
 import 'dns/system_dns_resolver.dart';
 import 'encoding.dart';
@@ -174,10 +173,7 @@ Future<VerifiedLocalLogin> _completeLocalLoginImpl(
   // advertises.
   final ownDescriptor =
       Codec.decodeLocalRpDescriptor(config.keyMaterial.descriptor.descriptor);
-  final allowedSuites = <AeadSuite>[
-    for (final s in ownDescriptor.supportedSuites)
-      if (AeadSuite.parse(s) != null) AeadSuite.parse(s)!,
-  ];
+  final allowedSuites = ownDescriptor.supportedSuites;
   final opened = await LocalRp.openLocalRpCallback(
       encrypted, config.keyMaterial.encryptionPrivateKey, allowedSuites);
 
@@ -218,7 +214,7 @@ Future<VerifiedLocalLogin> _completeLocalLoginImpl(
   final redemptionRequest = LocalRp.buildLocalRpTicketRedemptionRequest(
       payload.claimTicket,
       config.keyMaterial.fingerprint,
-      Rfc3339.format(config.now));
+      Rfc3339.wholeSeconds(config.now));
   final signedRedemption = await LocalRp.signLocalRpTicketRedemptionRequest(
       redemptionRequest, config.keyMaterial.signingPrivateKey);
   final redemption = await rpc.redeemClaimTicket(
@@ -305,9 +301,8 @@ Future<VerifiedLocalLogin> _completeLocalLoginImpl(
     claims: redemption.claims,
     domainPublicKeys: userDomainKeys,
     localRpFingerprint: config.keyMaterial.fingerprint,
-    issuedAt: Rfc3339.parse('issued_at', payload.issuedAt),
-    expiresAt: Rfc3339.parse('expires_at', payload.expiresAt),
-    ticketExpiresAt:
-        Rfc3339.parse('ticket_expires_at', redemption.ticketExpiresAt),
+    issuedAt: payload.issuedAt,
+    expiresAt: payload.expiresAt,
+    ticketExpiresAt: redemption.ticketExpiresAt,
   );
 }

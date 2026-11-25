@@ -12,6 +12,72 @@
 
 const std = @import("std");
 const cbor = @import("cbor.zig");
+const local_rp = @import("local_rp.zig");
+
+// ---------------------------------------------------------------------
+// Tagged timestamps and named-number enums
+// ---------------------------------------------------------------------
+//
+// A CSIL `timestamp` is CBOR tag 0 that wraps RFC 3339 text. The structs
+// below keep that text; the codec adds and removes the tag. A closed CSIL
+// vocabulary is an unsigned integer on the wire. The structs keep the text
+// id (for example "ed25519", "sign", "aes-256-gcm"); the codec maps it to
+// and from the number. An unknown number is a decode error, as in the
+// reference codec.
+
+fn tsVal(allocator: std.mem.Allocator, s: []const u8) !cbor.Value {
+    return cbor.timestampVal(allocator, s);
+}
+
+/// Reads a required timestamp field and checks that its text is RFC 3339.
+pub fn requireTimestamp(v: cbor.Value, key: []const u8) ![]const u8 {
+    const t = try cbor.asTimestamp(try cbor.require(v, key));
+    _ = try local_rp.parseTimestamp(t);
+    return t;
+}
+
+pub fn optTimestamp(v: cbor.Value, key: []const u8) !?[]const u8 {
+    if (cbor.mapGet(v, key) == null) return null;
+    return try requireTimestamp(v, key);
+}
+
+const EnumLabel = struct { label: []const u8, number: u64 };
+
+/// `KeyAlgorithm`.
+const key_algorithms = [_]EnumLabel{ .{ .label = "ed25519", .number = 1 }, .{ .label = "x25519", .number = 2 } };
+/// `KeyUsage`.
+const key_usages = [_]EnumLabel{ .{ .label = "sign", .number = 1 }, .{ .label = "encrypt", .number = 2 }, .{ .label = "agree", .number = 3 } };
+/// `AeadSuite`. The text ids are the suite registry ids that the callback
+/// box KDF context binds.
+const aead_suites = [_]EnumLabel{ .{ .label = "aes-256-gcm", .number = 1 }, .{ .label = "chacha20-poly1305", .number = 2 } };
+
+fn enumToValue(table: []const EnumLabel, label: []const u8) !cbor.Value {
+    for (table) |e| {
+        if (std.mem.eql(u8, e.label, label)) return cbor.uint(e.number);
+    }
+    return error.UnknownEnumLabel;
+}
+
+fn enumFromValue(table: []const EnumLabel, v: cbor.Value) ![]const u8 {
+    const n = try cbor.asU64(v);
+    for (table) |e| {
+        if (e.number == n) return e.label;
+    }
+    return error.UnknownEnumValue;
+}
+
+pub fn keyAlgorithmToValue(label: []const u8) !cbor.Value {
+    return enumToValue(&key_algorithms, label);
+}
+pub fn keyUsageToValue(label: []const u8) !cbor.Value {
+    return enumToValue(&key_usages, label);
+}
+pub fn aeadSuiteToValue(label: []const u8) !cbor.Value {
+    return enumToValue(&aead_suites, label);
+}
+pub fn aeadSuiteFromValue(v: cbor.Value) ![]const u8 {
+    return enumFromValue(&aead_suites, v);
+}
 
 fn textVal(v: cbor.Value, key: []const u8) !?[]const u8 {
     return if (cbor.mapGet(v, key)) |x| try cbor.asText(x) else null;
@@ -28,6 +94,19 @@ fn textArrayToValue(allocator: std.mem.Allocator, items: []const []const u8) !cb
     const vals = try allocator.alloc(cbor.Value, items.len);
     for (items, 0..) |it, i| vals[i] = cbor.text(it);
     return cbor.arrayVal(vals);
+}
+
+fn suiteArrayToValue(allocator: std.mem.Allocator, items: []const []const u8) !cbor.Value {
+    const vals = try allocator.alloc(cbor.Value, items.len);
+    for (items, 0..) |it, i| vals[i] = try aeadSuiteToValue(it);
+    return cbor.arrayVal(vals);
+}
+
+fn suiteArrayFromValue(allocator: std.mem.Allocator, v: cbor.Value) ![][]const u8 {
+    const arr = try cbor.asArray(v);
+    const out = try allocator.alloc([]const u8, arr.len);
+    for (arr, 0..) |it, i| out[i] = try aeadSuiteFromValue(it);
+    return out;
 }
 
 fn textArrayFromValue(allocator: std.mem.Allocator, v: cbor.Value) ![][]const u8 {
@@ -98,11 +177,11 @@ pub fn domainPublicKeyToValue(allocator: std.mem.Allocator, v: DomainPublicKey) 
     try entries.append(.{ .key = cbor.text("key_id"), .value = cbor.text(v.key_id) });
     try entries.append(.{ .key = cbor.text("public_key"), .value = cbor.bytesVal(v.public_key) });
     try entries.append(.{ .key = cbor.text("fingerprint"), .value = cbor.text(v.fingerprint) });
-    try entries.append(.{ .key = cbor.text("algorithm"), .value = cbor.text(v.algorithm) });
-    try entries.append(.{ .key = cbor.text("key_usage"), .value = cbor.text(v.key_usage) });
-    try entries.append(.{ .key = cbor.text("created_at"), .value = cbor.text(v.created_at) });
-    try entries.append(.{ .key = cbor.text("expires_at"), .value = cbor.text(v.expires_at) });
-    if (v.revoked_at) |x| try entries.append(.{ .key = cbor.text("revoked_at"), .value = cbor.text(x) });
+    try entries.append(.{ .key = cbor.text("algorithm"), .value = try keyAlgorithmToValue(v.algorithm) });
+    try entries.append(.{ .key = cbor.text("key_usage"), .value = try keyUsageToValue(v.key_usage) });
+    try entries.append(.{ .key = cbor.text("created_at"), .value = try tsVal(allocator, v.created_at) });
+    try entries.append(.{ .key = cbor.text("expires_at"), .value = try tsVal(allocator, v.expires_at) });
+    if (v.revoked_at) |x| try entries.append(.{ .key = cbor.text("revoked_at"), .value = try tsVal(allocator, x) });
     if (v.signed_by_key_id) |x| try entries.append(.{ .key = cbor.text("signed_by_key_id"), .value = cbor.text(x) });
     if (v.key_signature) |x| try entries.append(.{ .key = cbor.text("key_signature"), .value = cbor.bytesVal(x) });
     return cbor.mapVal(try entries.toOwnedSlice());
@@ -113,11 +192,11 @@ pub fn domainPublicKeyFromValue(v: cbor.Value) !DomainPublicKey {
         .key_id = try cbor.asText(try cbor.require(v, "key_id")),
         .public_key = try cbor.asBytes(try cbor.require(v, "public_key")),
         .fingerprint = try cbor.asText(try cbor.require(v, "fingerprint")),
-        .algorithm = try cbor.asText(try cbor.require(v, "algorithm")),
-        .key_usage = try cbor.asText(try cbor.require(v, "key_usage")),
-        .created_at = try cbor.asText(try cbor.require(v, "created_at")),
-        .expires_at = try cbor.asText(try cbor.require(v, "expires_at")),
-        .revoked_at = try textVal(v, "revoked_at"),
+        .algorithm = try enumFromValue(&key_algorithms, try cbor.require(v, "algorithm")),
+        .key_usage = try enumFromValue(&key_usages, try cbor.require(v, "key_usage")),
+        .created_at = try requireTimestamp(v, "created_at"),
+        .expires_at = try requireTimestamp(v, "expires_at"),
+        .revoked_at = try optTimestamp(v, "revoked_at"),
         .signed_by_key_id = try textVal(v, "signed_by_key_id"),
         .key_signature = try bytesValOpt(v, "key_signature"),
     };
@@ -166,10 +245,10 @@ pub fn claimToValue(allocator: std.mem.Allocator, v: Claim) !cbor.Value {
     try entries.append(.{ .key = cbor.text("claim_type"), .value = cbor.text(v.claim_type) });
     try entries.append(.{ .key = cbor.text("claim_value"), .value = cbor.bytesVal(v.claim_value) });
     try entries.append(.{ .key = cbor.text("signatures"), .value = try claimSignatureArrayToValue(allocator, v.signatures) });
-    try entries.append(.{ .key = cbor.text("attested_at"), .value = cbor.text(v.attested_at) });
-    try entries.append(.{ .key = cbor.text("created_at"), .value = cbor.text(v.created_at) });
-    if (v.expires_at) |x| try entries.append(.{ .key = cbor.text("expires_at"), .value = cbor.text(x) });
-    if (v.revoked_at) |x| try entries.append(.{ .key = cbor.text("revoked_at"), .value = cbor.text(x) });
+    try entries.append(.{ .key = cbor.text("attested_at"), .value = try tsVal(allocator, v.attested_at) });
+    try entries.append(.{ .key = cbor.text("created_at"), .value = try tsVal(allocator, v.created_at) });
+    if (v.expires_at) |x| try entries.append(.{ .key = cbor.text("expires_at"), .value = try tsVal(allocator, x) });
+    if (v.revoked_at) |x| try entries.append(.{ .key = cbor.text("revoked_at"), .value = try tsVal(allocator, x) });
     return cbor.mapVal(try entries.toOwnedSlice());
 }
 
@@ -180,10 +259,10 @@ pub fn claimFromValue(allocator: std.mem.Allocator, v: cbor.Value) !Claim {
         .claim_type = try cbor.asText(try cbor.require(v, "claim_type")),
         .claim_value = try cbor.asBytes(try cbor.require(v, "claim_value")),
         .signatures = try claimSignatureArrayFromValue(allocator, try cbor.require(v, "signatures")),
-        .attested_at = try cbor.asText(try cbor.require(v, "attested_at")),
-        .created_at = try cbor.asText(try cbor.require(v, "created_at")),
-        .expires_at = try textVal(v, "expires_at"),
-        .revoked_at = try textVal(v, "revoked_at"),
+        .attested_at = try requireTimestamp(v, "attested_at"),
+        .created_at = try requireTimestamp(v, "created_at"),
+        .expires_at = try optTimestamp(v, "expires_at"),
+        .revoked_at = try optTimestamp(v, "revoked_at"),
     };
 }
 
@@ -215,7 +294,7 @@ pub fn revocationCertificateToValue(allocator: std.mem.Allocator, v: RevocationC
     const entries = try allocator.alloc(cbor.Entry, 4);
     entries[0] = .{ .key = cbor.text("target_key_id"), .value = cbor.text(v.target_key_id) };
     entries[1] = .{ .key = cbor.text("target_fingerprint"), .value = cbor.text(v.target_fingerprint) };
-    entries[2] = .{ .key = cbor.text("revoked_at"), .value = cbor.text(v.revoked_at) };
+    entries[2] = .{ .key = cbor.text("revoked_at"), .value = try tsVal(allocator, v.revoked_at) };
     entries[3] = .{ .key = cbor.text("signatures"), .value = try claimSignatureArrayToValue(allocator, v.signatures) };
     return cbor.mapVal(entries);
 }
@@ -224,7 +303,7 @@ pub fn revocationCertificateFromValue(allocator: std.mem.Allocator, v: cbor.Valu
     return .{
         .target_key_id = try cbor.asText(try cbor.require(v, "target_key_id")),
         .target_fingerprint = try cbor.asText(try cbor.require(v, "target_fingerprint")),
-        .revoked_at = try cbor.asText(try cbor.require(v, "revoked_at")),
+        .revoked_at = try requireTimestamp(v, "revoked_at"),
         .signatures = try claimSignatureArrayFromValue(allocator, try cbor.require(v, "signatures")),
     };
 }
@@ -268,7 +347,7 @@ pub fn decodeGetDomainKeysResponse(allocator: std.mem.Allocator, bytes: []const 
 
 pub fn encodeGetRevocationsRequest(allocator: std.mem.Allocator, since: ?[]const u8) ![]u8 {
     var entries = std.ArrayList(cbor.Entry).init(allocator);
-    if (since) |s| try entries.append(.{ .key = cbor.text("since"), .value = cbor.text(s) });
+    if (since) |s| try entries.append(.{ .key = cbor.text("since"), .value = try tsVal(allocator, s) });
     return encodeArena(allocator, cbor.mapVal(try entries.toOwnedSlice()));
 }
 
@@ -294,7 +373,7 @@ pub fn decodeLocalRpTicketRedemptionResponse(allocator: std.mem.Allocator, bytes
         .user_id = try cbor.asText(try cbor.require(root, "user_id")),
         .user_domain = try cbor.asText(try cbor.require(root, "user_domain")),
         .claims = try claimArrayFromValue(allocator, try cbor.require(root, "claims")),
-        .ticket_expires_at = try cbor.asText(try cbor.require(root, "ticket_expires_at")),
+        .ticket_expires_at = try requireTimestamp(root, "ticket_expires_at"),
     };
 }
 
@@ -303,7 +382,7 @@ pub fn encodeLocalRpTicketRedemptionResponse(allocator: std.mem.Allocator, v: Lo
     entries[0] = .{ .key = cbor.text("user_id"), .value = cbor.text(v.user_id) };
     entries[1] = .{ .key = cbor.text("user_domain"), .value = cbor.text(v.user_domain) };
     entries[2] = .{ .key = cbor.text("claims"), .value = try claimArrayToValue(allocator, v.claims) };
-    entries[3] = .{ .key = cbor.text("ticket_expires_at"), .value = cbor.text(v.ticket_expires_at) };
+    entries[3] = .{ .key = cbor.text("ticket_expires_at"), .value = try tsVal(allocator, v.ticket_expires_at) };
     return encodeArena(allocator, cbor.mapVal(entries));
 }
 
@@ -329,9 +408,9 @@ pub fn localRpDescriptorToValue(allocator: std.mem.Allocator, v: LocalRpDescript
     try entries.append(.{ .key = cbor.text("signing_public_key"), .value = cbor.bytesVal(v.signing_public_key) });
     try entries.append(.{ .key = cbor.text("encryption_public_key"), .value = cbor.bytesVal(v.encryption_public_key) });
     try entries.append(.{ .key = cbor.text("fingerprint"), .value = cbor.text(v.fingerprint) });
-    try entries.append(.{ .key = cbor.text("supported_suites"), .value = try textArrayToValue(allocator, v.supported_suites) });
-    try entries.append(.{ .key = cbor.text("created_at"), .value = cbor.text(v.created_at) });
-    try entries.append(.{ .key = cbor.text("expires_at"), .value = cbor.text(v.expires_at) });
+    try entries.append(.{ .key = cbor.text("supported_suites"), .value = try suiteArrayToValue(allocator, v.supported_suites) });
+    try entries.append(.{ .key = cbor.text("created_at"), .value = try tsVal(allocator, v.created_at) });
+    try entries.append(.{ .key = cbor.text("expires_at"), .value = try tsVal(allocator, v.expires_at) });
     return cbor.mapVal(try entries.toOwnedSlice());
 }
 
@@ -342,9 +421,9 @@ pub fn localRpDescriptorFromValue(allocator: std.mem.Allocator, v: cbor.Value) !
         .signing_public_key = try cbor.asBytes(try cbor.require(v, "signing_public_key")),
         .encryption_public_key = try cbor.asBytes(try cbor.require(v, "encryption_public_key")),
         .fingerprint = try cbor.asText(try cbor.require(v, "fingerprint")),
-        .supported_suites = try textArrayFromValue(allocator, try cbor.require(v, "supported_suites")),
-        .created_at = try cbor.asText(try cbor.require(v, "created_at")),
-        .expires_at = try cbor.asText(try cbor.require(v, "expires_at")),
+        .supported_suites = try suiteArrayFromValue(allocator, try cbor.require(v, "supported_suites")),
+        .created_at = try requireTimestamp(v, "created_at"),
+        .expires_at = try requireTimestamp(v, "expires_at"),
     };
 }
 
@@ -402,8 +481,8 @@ pub fn localRpLoginRequestToValue(allocator: std.mem.Allocator, v: LocalRpLoginR
     try entries.append(.{ .key = cbor.text("state"), .value = cbor.bytesVal(v.state) });
     try entries.append(.{ .key = cbor.text("requested_claims"), .value = try textArrayToValue(allocator, v.requested_claims) });
     try entries.append(.{ .key = cbor.text("required_claims"), .value = try textArrayToValue(allocator, v.required_claims) });
-    try entries.append(.{ .key = cbor.text("issued_at"), .value = cbor.text(v.issued_at) });
-    try entries.append(.{ .key = cbor.text("expires_at"), .value = cbor.text(v.expires_at) });
+    try entries.append(.{ .key = cbor.text("issued_at"), .value = try tsVal(allocator, v.issued_at) });
+    try entries.append(.{ .key = cbor.text("expires_at"), .value = try tsVal(allocator, v.expires_at) });
     return cbor.mapVal(try entries.toOwnedSlice());
 }
 
@@ -415,8 +494,8 @@ pub fn localRpLoginRequestFromValue(allocator: std.mem.Allocator, v: cbor.Value)
         .state = try cbor.asBytes(try cbor.require(v, "state")),
         .requested_claims = try textArrayFromValue(allocator, try cbor.require(v, "requested_claims")),
         .required_claims = try textArrayFromValue(allocator, try cbor.require(v, "required_claims")),
-        .issued_at = try cbor.asText(try cbor.require(v, "issued_at")),
-        .expires_at = try cbor.asText(try cbor.require(v, "expires_at")),
+        .issued_at = try requireTimestamp(v, "issued_at"),
+        .expires_at = try requireTimestamp(v, "expires_at"),
     };
 }
 
@@ -471,11 +550,11 @@ pub fn localRpCallbackHeaderToValue(allocator: std.mem.Allocator, v: LocalRpCall
     entries[0] = .{ .key = cbor.text("fingerprint"), .value = cbor.text(v.fingerprint) };
     entries[1] = .{ .key = cbor.text("nonce"), .value = cbor.bytesVal(v.nonce) };
     entries[2] = .{ .key = cbor.text("state"), .value = cbor.bytesVal(v.state) };
-    entries[3] = .{ .key = cbor.text("suite"), .value = cbor.text(v.suite) };
+    entries[3] = .{ .key = cbor.text("suite"), .value = try aeadSuiteToValue(v.suite) };
     entries[4] = .{ .key = cbor.text("ephemeral_public_key"), .value = cbor.bytesVal(v.ephemeral_public_key) };
     entries[5] = .{ .key = cbor.text("aead_nonce"), .value = cbor.bytesVal(v.aead_nonce) };
-    entries[6] = .{ .key = cbor.text("issued_at"), .value = cbor.text(v.issued_at) };
-    entries[7] = .{ .key = cbor.text("expires_at"), .value = cbor.text(v.expires_at) };
+    entries[6] = .{ .key = cbor.text("issued_at"), .value = try tsVal(allocator, v.issued_at) };
+    entries[7] = .{ .key = cbor.text("expires_at"), .value = try tsVal(allocator, v.expires_at) };
     return cbor.mapVal(entries);
 }
 
@@ -484,11 +563,11 @@ pub fn localRpCallbackHeaderFromValue(v: cbor.Value) !LocalRpCallbackHeader {
         .fingerprint = try cbor.asText(try cbor.require(v, "fingerprint")),
         .nonce = try cbor.asBytes(try cbor.require(v, "nonce")),
         .state = try cbor.asBytes(try cbor.require(v, "state")),
-        .suite = try cbor.asText(try cbor.require(v, "suite")),
+        .suite = try aeadSuiteFromValue(try cbor.require(v, "suite")),
         .ephemeral_public_key = try cbor.asBytes(try cbor.require(v, "ephemeral_public_key")),
         .aead_nonce = try cbor.asBytes(try cbor.require(v, "aead_nonce")),
-        .issued_at = try cbor.asText(try cbor.require(v, "issued_at")),
-        .expires_at = try cbor.asText(try cbor.require(v, "expires_at")),
+        .issued_at = try requireTimestamp(v, "issued_at"),
+        .expires_at = try requireTimestamp(v, "expires_at"),
     };
 }
 
@@ -548,8 +627,8 @@ pub fn localRpCallbackPayloadToValue(allocator: std.mem.Allocator, v: LocalRpCal
     entries[4] = .{ .key = cbor.text("callback_url"), .value = cbor.text(v.callback_url) };
     entries[5] = .{ .key = cbor.text("nonce"), .value = cbor.bytesVal(v.nonce) };
     entries[6] = .{ .key = cbor.text("state"), .value = cbor.bytesVal(v.state) };
-    entries[7] = .{ .key = cbor.text("issued_at"), .value = cbor.text(v.issued_at) };
-    entries[8] = .{ .key = cbor.text("expires_at"), .value = cbor.text(v.expires_at) };
+    entries[7] = .{ .key = cbor.text("issued_at"), .value = try tsVal(allocator, v.issued_at) };
+    entries[8] = .{ .key = cbor.text("expires_at"), .value = try tsVal(allocator, v.expires_at) };
     return cbor.mapVal(entries);
 }
 
@@ -562,8 +641,8 @@ pub fn localRpCallbackPayloadFromValue(v: cbor.Value) !LocalRpCallbackPayload {
         .callback_url = try cbor.asText(try cbor.require(v, "callback_url")),
         .nonce = try cbor.asBytes(try cbor.require(v, "nonce")),
         .state = try cbor.asBytes(try cbor.require(v, "state")),
-        .issued_at = try cbor.asText(try cbor.require(v, "issued_at")),
-        .expires_at = try cbor.asText(try cbor.require(v, "expires_at")),
+        .issued_at = try requireTimestamp(v, "issued_at"),
+        .expires_at = try requireTimestamp(v, "expires_at"),
     };
 }
 
@@ -615,14 +694,14 @@ pub fn localRpTicketRedemptionRequestToValue(allocator: std.mem.Allocator, v: Lo
     const entries = try allocator.alloc(cbor.Entry, 3);
     entries[0] = .{ .key = cbor.text("claim_ticket"), .value = cbor.bytesVal(v.claim_ticket) };
     entries[1] = .{ .key = cbor.text("fingerprint"), .value = cbor.text(v.fingerprint) };
-    entries[2] = .{ .key = cbor.text("issued_at"), .value = cbor.text(v.issued_at) };
+    entries[2] = .{ .key = cbor.text("issued_at"), .value = try tsVal(allocator, v.issued_at) };
     return cbor.mapVal(entries);
 }
 pub fn localRpTicketRedemptionRequestFromValue(v: cbor.Value) !LocalRpTicketRedemptionRequest {
     return .{
         .claim_ticket = try cbor.asBytes(try cbor.require(v, "claim_ticket")),
         .fingerprint = try cbor.asText(try cbor.require(v, "fingerprint")),
-        .issued_at = try cbor.asText(try cbor.require(v, "issued_at")),
+        .issued_at = try requireTimestamp(v, "issued_at"),
     };
 }
 pub fn encodeLocalRpTicketRedemptionRequest(allocator: std.mem.Allocator, v: LocalRpTicketRedemptionRequest) ![]u8 {
@@ -693,10 +772,52 @@ test "optional fields absent on the wire decode back to null" {
         .encryption_public_key = "y",
         .fingerprint = "fp",
         .supported_suites = &suites,
-        .created_at = "a",
-        .expires_at = "b",
+        .created_at = "2026-01-01T00:00:00Z",
+        .expires_at = "2036-01-01T00:00:00Z",
     };
     const encoded = try encodeLocalRpDescriptor(a, d);
     const decoded = try decodeLocalRpDescriptor(a, encoded);
     try std.testing.expect(decoded.local_domain_hint == null);
+}
+
+test "a timestamp field without tag 0 is rejected" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const entries = [_]cbor.Entry{
+        .{ .key = cbor.text("claim_ticket"), .value = cbor.bytesVal("t") },
+        .{ .key = cbor.text("fingerprint"), .value = cbor.text("fp") },
+        .{ .key = cbor.text("issued_at"), .value = cbor.text("2026-01-01T00:00:00Z") },
+    };
+    const bytes = try cbor.encodeAlloc(a, cbor.mapVal(&entries));
+    try std.testing.expectError(error.WrongType, decodeLocalRpTicketRedemptionRequest(a, bytes));
+}
+
+test "a tag 0 timestamp with text that is not RFC 3339 is rejected" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const entries = [_]cbor.Entry{
+        .{ .key = cbor.text("claim_ticket"), .value = cbor.bytesVal("t") },
+        .{ .key = cbor.text("fingerprint"), .value = cbor.text("fp") },
+        .{ .key = cbor.text("issued_at"), .value = try cbor.timestampVal(a, "not-a-time") },
+    };
+    const bytes = try cbor.encodeAlloc(a, cbor.mapVal(&entries));
+    try std.testing.expectError(error.BadTimestamp, decodeLocalRpTicketRedemptionRequest(a, bytes));
+}
+
+test "AEAD suites are numbers on the wire and an unknown number is rejected" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    try std.testing.expectEqual(@as(u64, 1), (try aeadSuiteToValue("aes-256-gcm")).uint);
+    try std.testing.expectEqual(@as(u64, 2), (try aeadSuiteToValue("chacha20-poly1305")).uint);
+    try std.testing.expectError(error.UnknownEnumLabel, aeadSuiteToValue("aes_256_gcm"));
+    try std.testing.expectEqualStrings("chacha20-poly1305", try aeadSuiteFromValue(cbor.uint(2)));
+    try std.testing.expectError(error.UnknownEnumValue, aeadSuiteFromValue(cbor.uint(3)));
+    try std.testing.expectError(error.WrongType, aeadSuiteFromValue(cbor.text("aes-256-gcm")));
+    _ = a;
 }

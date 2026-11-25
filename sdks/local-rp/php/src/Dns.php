@@ -118,9 +118,14 @@ final class Dns
 
     private const KEY_VOUCH_TAG = 'linkkeys-key-vouch-v1alpha';
 
+    /**
+     * `$encExpiresAt` is RFC 3339 text; the payload carries it as whole Unix
+     * seconds. Throws `\InvalidArgumentException` when it has a fraction of
+     * a second.
+     */
     public static function keyVouchPayload(string $encFingerprint, string $encExpiresAt): string
     {
-        return Cbor::encode([self::KEY_VOUCH_TAG, $encFingerprint, $encExpiresAt]);
+        return Cbor::encode([self::KEY_VOUCH_TAG, $encFingerprint, Time::signedSeconds($encExpiresAt)]);
     }
 
     /**
@@ -140,7 +145,11 @@ final class Dns
             return false;
         }
         $recomputedFp = Crypto::fingerprint($encKey->publicKey);
-        $payload = self::keyVouchPayload($recomputedFp, $encKey->expiresAt);
+        try {
+            $payload = self::keyVouchPayload($recomputedFp, $encKey->expiresAt);
+        } catch (\InvalidArgumentException $e) {
+            return false;
+        }
         try {
             Crypto::resolveAndVerify($signingKey->algorithm, $payload, $encKey->keySignature, $signingKey->publicKey);
             return true;

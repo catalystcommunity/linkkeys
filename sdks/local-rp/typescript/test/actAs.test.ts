@@ -14,7 +14,7 @@ import {
   actAsGrantHash,
   beginActAs,
   completeActAsCallback,
-  formatActAsTime,
+  actAsTime,
   presentActAs,
   signActAsGrantRequest,
   signActAsRefreshRequest,
@@ -69,8 +69,8 @@ test("vector: grant request bytes, signed bytes, and url param", () => {
       requestedRenewalWindowSeconds: inputs.requested_renewal_window_seconds ?? undefined,
       callbackUrl: inputs.callback_url,
       nonce: inputs.nonce,
-      requestedAt: inputs.requested_at,
-      expiresAt: inputs.expires_at,
+      requestedAt: new Date(inputs.requested_at),
+      expiresAt: new Date(inputs.expires_at),
     },
     keyMaterial,
   );
@@ -89,8 +89,8 @@ test("vector: refresh request signed bytes", () => {
     {
       grantId: inputs.grant_id,
       grantee: { localRpDescriptorFingerprint: keyMaterial.fingerprint },
-      requestedAt: inputs.requested_at,
-      expiresAt: inputs.expires_at,
+      requestedAt: new Date(inputs.requested_at),
+      expiresAt: new Date(inputs.expires_at),
       nonce: inputs.nonce,
     },
     keyMaterial,
@@ -119,8 +119,8 @@ test("vector: presentation and credential bytes", () => {
   assert.equal(toHex(credentialCbor), localCase.presentation.credential_cbor_hex);
 });
 
-test("formatActAsTime drops fractional seconds and ends in Z", () => {
-  assert.equal(formatActAsTime(new Date("2026-10-06T12:05:00.987Z")), "2026-10-06T12:05:00Z");
+test("actAsTime drops fractional seconds", () => {
+  assert.equal(actAsTime(new Date("2026-10-06T12:05:00.987Z")).toISOString(), "2026-10-06T12:05:00.000Z");
 });
 
 // ---------------------------------------------------------------------
@@ -171,8 +171,8 @@ test("beginActAs uses the discovered https host and signs a verifiable request",
   assert.equal(request.nonce, pending.nonce);
   assert.equal(request.grantee.localRpDescriptorFingerprint, keyMaterial.fingerprint);
   assert.equal(request.grantee.application, undefined);
-  assert.equal(request.requestedAt, localCase.grant_request.inputs.requested_at);
-  assert.equal(request.expiresAt, localCase.grant_request.inputs.expires_at);
+  assert.equal(request.requestedAt.toISOString(), new Date(localCase.grant_request.inputs.requested_at).toISOString());
+  assert.equal(request.expiresAt.toISOString(), new Date(localCase.grant_request.inputs.expires_at).toISOString());
   assert.equal(request.requestedLifetimeSeconds, 1800);
   assert.equal(request.requestedRenewalWindowSeconds, undefined);
   assert.equal(request.callbackUrl, CALLBACK);

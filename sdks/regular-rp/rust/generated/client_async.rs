@@ -12,6 +12,16 @@ use super::types::*;
 /// only moves bytes, so it can be HTTP, a queue, or an in-process loop.
 pub trait AsyncTransport {
     async fn call(&self, service: &str, op: &str, req: &[u8]) -> Result<Vec<u8>, ClientError>;
+
+    /// Perform a call whose operation declares several reply arms and return
+    /// the status-zero reply `variant` with its payload, so the client can
+    /// return the success arm or the declared error arm.
+    async fn call_reply(
+        &self,
+        service: &str,
+        op: &str,
+        req: &[u8],
+    ) -> Result<super::client::WireReply, ClientError>;
 }
 
 /// Typed client for the Ops service.
@@ -27,20 +37,22 @@ impl<T: AsyncTransport> OpsAsyncClient<T> {
 
     /// healthcheck (request/response).
     pub async fn healthcheck(&self, req: EmptyRequest) -> Result<CheckResult, ClientError> {
-        let csil_resp = self
-            .transport
-            .call("Ops", "healthcheck", &encode_empty_request(&req))
-            .await?;
-        decode_check_result(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_resp = self.transport.call("Ops", "healthcheck", &csil_req).await?;
+        decode_check_result(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// readiness (request/response).
     pub async fn readiness(&self, req: EmptyRequest) -> Result<CheckResult, ClientError> {
-        let csil_resp = self
-            .transport
-            .call("Ops", "readiness", &encode_empty_request(&req))
-            .await?;
-        decode_check_result(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_resp = self.transport.call("Ops", "readiness", &csil_req).await?;
+        decode_check_result(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -57,11 +69,12 @@ impl<T: AsyncTransport> HelloAsyncClient<T> {
 
     /// hello (request/response).
     pub async fn hello(&self, req: HelloRequest) -> Result<HelloResponse, ClientError> {
-        let csil_resp = self
-            .transport
-            .call("Hello", "hello", &encode_hello_request(&req))
-            .await?;
-        decode_hello_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        let csil_req = match encode_hello_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_resp = self.transport.call("Hello", "hello", &csil_req).await?;
+        decode_hello_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -81,15 +94,15 @@ impl<T: AsyncTransport> GuestbookAsyncClient<T> {
         &self,
         req: CreateGuestbookRequest,
     ) -> Result<GuestbookEntry, ClientError> {
+        let csil_req = match encode_create_guestbook_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Guestbook",
-                "create-entry",
-                &encode_create_guestbook_request(&req),
-            )
+            .call("Guestbook", "create-entry", &csil_req)
             .await?;
-        decode_guestbook_entry(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_guestbook_entry(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// list-entries (request/response).
@@ -97,16 +110,15 @@ impl<T: AsyncTransport> GuestbookAsyncClient<T> {
         &self,
         req: GuestbookListRequest,
     ) -> Result<GuestbookListResponse, ClientError> {
+        let csil_req = match encode_guestbook_list_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Guestbook",
-                "list-entries",
-                &encode_guestbook_list_request(&req),
-            )
+            .call("Guestbook", "list-entries", &csil_req)
             .await?;
-        decode_guestbook_list_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_guestbook_list_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// update-entry (request/response).
@@ -114,15 +126,15 @@ impl<T: AsyncTransport> GuestbookAsyncClient<T> {
         &self,
         req: UpdateGuestbookRequest,
     ) -> Result<GuestbookEntry, ClientError> {
+        let csil_req = match encode_update_guestbook_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Guestbook",
-                "update-entry",
-                &encode_update_guestbook_request(&req),
-            )
+            .call("Guestbook", "update-entry", &csil_req)
             .await?;
-        decode_guestbook_entry(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_guestbook_entry(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// delete-entry (request/response).
@@ -130,16 +142,15 @@ impl<T: AsyncTransport> GuestbookAsyncClient<T> {
         &self,
         req: DeleteGuestbookRequest,
     ) -> Result<DeleteGuestbookResponse, ClientError> {
+        let csil_req = match encode_delete_guestbook_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Guestbook",
-                "delete-entry",
-                &encode_delete_guestbook_request(&req),
-            )
+            .call("Guestbook", "delete-entry", &csil_req)
             .await?;
-        decode_delete_guestbook_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_delete_guestbook_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -159,12 +170,15 @@ impl<T: AsyncTransport> DomainKeysAsyncClient<T> {
         &self,
         req: EmptyRequest,
     ) -> Result<GetDomainKeysResponse, ClientError> {
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("DomainKeys", "get-domain-keys", &encode_empty_request(&req))
+            .call("DomainKeys", "get-domain-keys", &csil_req)
             .await?;
-        decode_get_domain_keys_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_get_domain_keys_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// get-revocations (request/response).
@@ -172,16 +186,15 @@ impl<T: AsyncTransport> DomainKeysAsyncClient<T> {
         &self,
         req: GetRevocationsRequest,
     ) -> Result<GetRevocationsResponse, ClientError> {
+        let csil_req = match encode_get_revocations_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "DomainKeys",
-                "get-revocations",
-                &encode_get_revocations_request(&req),
-            )
+            .call("DomainKeys", "get-revocations", &csil_req)
             .await?;
-        decode_get_revocations_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_get_revocations_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -201,15 +214,15 @@ impl<T: AsyncTransport> UserKeysAsyncClient<T> {
         &self,
         req: GetUserKeysRequest,
     ) -> Result<GetUserKeysResponse, ClientError> {
+        let csil_req = match encode_get_user_keys_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "UserKeys",
-                "get-user-keys",
-                &encode_get_user_keys_request(&req),
-            )
+            .call("UserKeys", "get-user-keys", &csil_req)
             .await?;
-        decode_get_user_keys_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_get_user_keys_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -229,16 +242,16 @@ impl<T: AsyncTransport> ApplicationKeysAsyncClient<T> {
         &self,
         req: GetApplicationKeysRequest,
     ) -> Result<GetApplicationKeysResponse, ClientError> {
+        let csil_req = match encode_get_application_keys_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "ApplicationKeys",
-                "get-application-keys",
-                &encode_get_application_keys_request(&req),
-            )
+            .call("ApplicationKeys", "get-application-keys", &csil_req)
             .await?;
         decode_get_application_keys_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// start-key-challenge (request/response).
@@ -246,16 +259,16 @@ impl<T: AsyncTransport> ApplicationKeysAsyncClient<T> {
         &self,
         req: StartApplicationKeyChallengeRequest,
     ) -> Result<StartApplicationKeyChallengeResponse, ClientError> {
+        let csil_req = match encode_start_application_key_challenge_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "ApplicationKeys",
-                "start-key-challenge",
-                &encode_start_application_key_challenge_request(&req),
-            )
+            .call("ApplicationKeys", "start-key-challenge", &csil_req)
             .await?;
         decode_start_application_key_challenge_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// add-key (request/response).
@@ -263,16 +276,16 @@ impl<T: AsyncTransport> ApplicationKeysAsyncClient<T> {
         &self,
         req: AddApplicationKeyRequest,
     ) -> Result<AddApplicationKeyResponse, ClientError> {
+        let csil_req = match encode_add_application_key_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "ApplicationKeys",
-                "add-key",
-                &encode_add_application_key_request(&req),
-            )
+            .call("ApplicationKeys", "add-key", &csil_req)
             .await?;
         decode_add_application_key_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// renew-attestation (request/response).
@@ -280,16 +293,16 @@ impl<T: AsyncTransport> ApplicationKeysAsyncClient<T> {
         &self,
         req: RenewApplicationKeyAttestationRequest,
     ) -> Result<RenewApplicationKeyAttestationResponse, ClientError> {
+        let csil_req = match encode_renew_application_key_attestation_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "ApplicationKeys",
-                "renew-attestation",
-                &encode_renew_application_key_attestation_request(&req),
-            )
+            .call("ApplicationKeys", "renew-attestation", &csil_req)
             .await?;
         decode_renew_application_key_attestation_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// revoke-key (request/response).
@@ -297,16 +310,16 @@ impl<T: AsyncTransport> ApplicationKeysAsyncClient<T> {
         &self,
         req: RevokeApplicationKeyRequest,
     ) -> Result<RevokeApplicationKeyResponse, ClientError> {
+        let csil_req = match encode_revoke_application_key_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "ApplicationKeys",
-                "revoke-key",
-                &encode_revoke_application_key_request(&req),
-            )
+            .call("ApplicationKeys", "revoke-key", &csil_req)
             .await?;
         decode_revoke_application_key_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -323,15 +336,15 @@ impl<T: AsyncTransport> IdentityAsyncClient<T> {
 
     /// get-user-info (request/response).
     pub async fn get_user_info(&self, req: SignedUserInfoRequest) -> Result<UserInfo, ClientError> {
+        let csil_req = match encode_signed_user_info_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Identity",
-                "get-user-info",
-                &encode_signed_user_info_request(&req),
-            )
+            .call("Identity", "get-user-info", &csil_req)
             .await?;
-        decode_user_info(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_user_info(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -348,11 +361,15 @@ impl<T: AsyncTransport> HandshakeAsyncClient<T> {
 
     /// handshake (request/response).
     pub async fn handshake(&self, req: HandshakeRequest) -> Result<HandshakeResponse, ClientError> {
+        let csil_req = match encode_handshake_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("Handshake", "handshake", &encode_handshake_request(&req))
+            .call("Handshake", "handshake", &csil_req)
             .await?;
-        decode_handshake_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_handshake_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -372,15 +389,15 @@ impl<T: AsyncTransport> I18nAsyncClient<T> {
         &self,
         req: TranslationsRequest,
     ) -> Result<TranslationsResponse, ClientError> {
+        let csil_req = match encode_translations_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "I18n",
-                "get-translations",
-                &encode_translations_request(&req),
-            )
+            .call("I18n", "get-translations", &csil_req)
             .await?;
-        decode_translations_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_translations_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// list-locales (request/response).
@@ -388,11 +405,15 @@ impl<T: AsyncTransport> I18nAsyncClient<T> {
         &self,
         req: EmptyRequest,
     ) -> Result<ListLocalesResponse, ClientError> {
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("I18n", "list-locales", &encode_empty_request(&req))
+            .call("I18n", "list-locales", &csil_req)
             .await?;
-        decode_list_locales_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_list_locales_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -412,12 +433,16 @@ impl<T: AsyncTransport> UiAsyncClient<T> {
         &self,
         req: EmptyRequest,
     ) -> Result<GetUiConfigurationResponse, ClientError> {
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("Ui", "get-configuration", &encode_empty_request(&req))
+            .call("Ui", "get-configuration", &csil_req)
             .await?;
         decode_get_ui_configuration_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -437,16 +462,16 @@ impl<T: AsyncTransport> NotificationAsyncClient<T> {
         &self,
         req: EmptyRequest,
     ) -> Result<GetNotificationCapabilitiesResponse, ClientError> {
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Notification",
-                "get-capabilities",
-                &encode_empty_request(&req),
-            )
+            .call("Notification", "get-capabilities", &csil_req)
             .await?;
         decode_get_notification_capabilities_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -466,16 +491,16 @@ impl<T: AsyncTransport> SessionAsyncClient<T> {
         &self,
         req: SessionPasswordLoginRequest,
     ) -> Result<SessionPasswordLoginResponse, ClientError> {
+        let csil_req = match encode_session_password_login_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Session",
-                "login-password",
-                &encode_session_password_login_request(&req),
-            )
+            .call("Session", "login-password", &csil_req)
             .await?;
         decode_session_password_login_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// get-current (request/response).
@@ -483,22 +508,25 @@ impl<T: AsyncTransport> SessionAsyncClient<T> {
         &self,
         req: EmptyRequest,
     ) -> Result<SessionCurrentResponse, ClientError> {
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("Session", "get-current", &encode_empty_request(&req))
+            .call("Session", "get-current", &csil_req)
             .await?;
-        decode_session_current_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_session_current_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// logout (request/response).
     pub async fn logout(&self, req: EmptyRequest) -> Result<SessionLogoutResponse, ClientError> {
-        let csil_resp = self
-            .transport
-            .call("Session", "logout", &encode_empty_request(&req))
-            .await?;
-        decode_session_logout_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_resp = self.transport.call("Session", "logout", &csil_req).await?;
+        decode_session_logout_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// introspect (request/response).
@@ -506,16 +534,16 @@ impl<T: AsyncTransport> SessionAsyncClient<T> {
         &self,
         req: IntrospectBrowserSessionRequest,
     ) -> Result<IntrospectBrowserSessionResponse, ClientError> {
+        let csil_req = match encode_introspect_browser_session_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Session",
-                "introspect",
-                &encode_introspect_browser_session_request(&req),
-            )
+            .call("Session", "introspect", &csil_req)
             .await?;
         decode_introspect_browser_session_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -535,16 +563,16 @@ impl<T: AsyncTransport> RecoveryAsyncClient<T> {
         &self,
         req: RequestPasswordRecoveryRequest,
     ) -> Result<RequestPasswordRecoveryResponse, ClientError> {
+        let csil_req = match encode_request_password_recovery_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Recovery",
-                "request-password-recovery",
-                &encode_request_password_recovery_request(&req),
-            )
+            .call("Recovery", "request-password-recovery", &csil_req)
             .await?;
         decode_request_password_recovery_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// validate-password-recovery (request/response).
@@ -552,16 +580,16 @@ impl<T: AsyncTransport> RecoveryAsyncClient<T> {
         &self,
         req: ValidatePasswordRecoveryRequest,
     ) -> Result<ValidatePasswordRecoveryResponse, ClientError> {
+        let csil_req = match encode_validate_password_recovery_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Recovery",
-                "validate-password-recovery",
-                &encode_validate_password_recovery_request(&req),
-            )
+            .call("Recovery", "validate-password-recovery", &csil_req)
             .await?;
         decode_validate_password_recovery_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// complete-password-recovery (request/response).
@@ -569,16 +597,16 @@ impl<T: AsyncTransport> RecoveryAsyncClient<T> {
         &self,
         req: CompletePasswordRecoveryRequest,
     ) -> Result<CompletePasswordRecoveryResponse, ClientError> {
+        let csil_req = match encode_complete_password_recovery_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Recovery",
-                "complete-password-recovery",
-                &encode_complete_password_recovery_request(&req),
-            )
+            .call("Recovery", "complete-password-recovery", &csil_req)
             .await?;
         decode_complete_password_recovery_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -598,16 +626,16 @@ impl<T: AsyncTransport> BrowserAuthorizationAsyncClient<T> {
         &self,
         req: BrowserAuthorizationInspectRequest,
     ) -> Result<BrowserAuthorizationInspectResponse, ClientError> {
+        let csil_req = match encode_browser_authorization_inspect_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "BrowserAuthorization",
-                "inspect",
-                &encode_browser_authorization_inspect_request(&req),
-            )
+            .call("BrowserAuthorization", "inspect", &csil_req)
             .await?;
         decode_browser_authorization_inspect_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// complete (request/response).
@@ -615,16 +643,16 @@ impl<T: AsyncTransport> BrowserAuthorizationAsyncClient<T> {
         &self,
         req: BrowserAuthorizationCompleteRequest,
     ) -> Result<BrowserAuthorizationCompleteResponse, ClientError> {
+        let csil_req = match encode_browser_authorization_complete_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "BrowserAuthorization",
-                "complete",
-                &encode_browser_authorization_complete_request(&req),
-            )
+            .call("BrowserAuthorization", "complete", &csil_req)
             .await?;
         decode_browser_authorization_complete_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// inspect-act-as (request/response).
@@ -632,16 +660,16 @@ impl<T: AsyncTransport> BrowserAuthorizationAsyncClient<T> {
         &self,
         req: BrowserActAsInspectRequest,
     ) -> Result<BrowserActAsInspectResponse, ClientError> {
+        let csil_req = match encode_browser_act_as_inspect_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "BrowserAuthorization",
-                "inspect-act-as",
-                &encode_browser_act_as_inspect_request(&req),
-            )
+            .call("BrowserAuthorization", "inspect-act-as", &csil_req)
             .await?;
         decode_browser_act_as_inspect_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// complete-act-as (request/response).
@@ -649,16 +677,16 @@ impl<T: AsyncTransport> BrowserAuthorizationAsyncClient<T> {
         &self,
         req: BrowserActAsCompleteRequest,
     ) -> Result<BrowserActAsCompleteResponse, ClientError> {
+        let csil_req = match encode_browser_act_as_complete_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "BrowserAuthorization",
-                "complete-act-as",
-                &encode_browser_act_as_complete_request(&req),
-            )
+            .call("BrowserAuthorization", "complete-act-as", &csil_req)
             .await?;
         decode_browser_act_as_complete_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// inspect-local-rp (request/response).
@@ -666,16 +694,16 @@ impl<T: AsyncTransport> BrowserAuthorizationAsyncClient<T> {
         &self,
         req: BrowserLocalRpInspectRequest,
     ) -> Result<BrowserLocalRpInspectResponse, ClientError> {
+        let csil_req = match encode_browser_local_rp_inspect_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "BrowserAuthorization",
-                "inspect-local-rp",
-                &encode_browser_local_rp_inspect_request(&req),
-            )
+            .call("BrowserAuthorization", "inspect-local-rp", &csil_req)
             .await?;
         decode_browser_local_rp_inspect_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// complete-local-rp (request/response).
@@ -683,16 +711,16 @@ impl<T: AsyncTransport> BrowserAuthorizationAsyncClient<T> {
         &self,
         req: BrowserLocalRpCompleteRequest,
     ) -> Result<BrowserLocalRpCompleteResponse, ClientError> {
+        let csil_req = match encode_browser_local_rp_complete_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "BrowserAuthorization",
-                "complete-local-rp",
-                &encode_browser_local_rp_complete_request(&req),
-            )
+            .call("BrowserAuthorization", "complete-local-rp", &csil_req)
             .await?;
         decode_browser_local_rp_complete_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -712,16 +740,16 @@ impl<T: AsyncTransport> BrowserIssuerAsyncClient<T> {
         &self,
         req: InspectSigningRequestRequest,
     ) -> Result<InspectSigningRequestResponse, ClientError> {
+        let csil_req = match encode_inspect_signing_request_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "BrowserIssuer",
-                "inspect-signing-request",
-                &encode_inspect_signing_request_request(&req),
-            )
+            .call("BrowserIssuer", "inspect-signing-request", &csil_req)
             .await?;
         decode_inspect_signing_request_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// issue-for-signing-request (request/response).
@@ -729,16 +757,16 @@ impl<T: AsyncTransport> BrowserIssuerAsyncClient<T> {
         &self,
         req: IssueForSigningRequestRequest,
     ) -> Result<IssueForSigningRequestResponse, ClientError> {
+        let csil_req = match encode_issue_for_signing_request_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "BrowserIssuer",
-                "issue-for-signing-request",
-                &encode_issue_for_signing_request_request(&req),
-            )
+            .call("BrowserIssuer", "issue-for-signing-request", &csil_req)
             .await?;
         decode_issue_for_signing_request_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -758,20 +786,25 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: ListUsersRequest,
     ) -> Result<ListUsersResponse, ClientError> {
+        let csil_req = match encode_list_users_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("Admin", "list-users", &encode_list_users_request(&req))
+            .call("Admin", "list-users", &csil_req)
             .await?;
-        decode_list_users_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_list_users_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// get-user (request/response).
     pub async fn get_user(&self, req: GetUserRequest) -> Result<GetUserResponse, ClientError> {
-        let csil_resp = self
-            .transport
-            .call("Admin", "get-user", &encode_get_user_request(&req))
-            .await?;
-        decode_get_user_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        let csil_req = match encode_get_user_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_resp = self.transport.call("Admin", "get-user", &csil_req).await?;
+        decode_get_user_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// get-user-authentication-activity (request/response).
@@ -779,16 +812,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: GetUserAuthenticationActivityRequest,
     ) -> Result<GetUserAuthenticationActivityResponse, ClientError> {
+        let csil_req = match encode_get_user_authentication_activity_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "get-user-authentication-activity",
-                &encode_get_user_authentication_activity_request(&req),
-            )
+            .call("Admin", "get-user-authentication-activity", &csil_req)
             .await?;
         decode_get_user_authentication_activity_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// create-user (request/response).
@@ -796,11 +829,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: CreateUserRequest,
     ) -> Result<CreateUserResponse, ClientError> {
+        let csil_req = match encode_create_user_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("Admin", "create-user", &encode_create_user_request(&req))
+            .call("Admin", "create-user", &csil_req)
             .await?;
-        decode_create_user_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_create_user_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// update-user (request/response).
@@ -808,11 +845,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: UpdateUserRequest,
     ) -> Result<UpdateUserResponse, ClientError> {
+        let csil_req = match encode_update_user_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("Admin", "update-user", &encode_update_user_request(&req))
+            .call("Admin", "update-user", &csil_req)
             .await?;
-        decode_update_user_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_update_user_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// deactivate-user (request/response).
@@ -820,16 +861,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: DeactivateUserRequest,
     ) -> Result<DeactivateUserResponse, ClientError> {
+        let csil_req = match encode_deactivate_user_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "deactivate-user",
-                &encode_deactivate_user_request(&req),
-            )
+            .call("Admin", "deactivate-user", &csil_req)
             .await?;
-        decode_deactivate_user_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_deactivate_user_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// activate-user (request/response).
@@ -837,15 +877,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: ActivateUserRequest,
     ) -> Result<ActivateUserResponse, ClientError> {
+        let csil_req = match encode_activate_user_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "activate-user",
-                &encode_activate_user_request(&req),
-            )
+            .call("Admin", "activate-user", &csil_req)
             .await?;
-        decode_activate_user_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_activate_user_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// purge-user (request/response).
@@ -853,11 +893,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: PurgeUserRequest,
     ) -> Result<PurgeUserResponse, ClientError> {
+        let csil_req = match encode_purge_user_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("Admin", "purge-user", &encode_purge_user_request(&req))
+            .call("Admin", "purge-user", &csil_req)
             .await?;
-        decode_purge_user_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_purge_user_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// revoke-domain-key (request/response).
@@ -865,16 +909,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: RevokeDomainKeyRequest,
     ) -> Result<RevokeDomainKeyResponse, ClientError> {
+        let csil_req = match encode_revoke_domain_key_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "revoke-domain-key",
-                &encode_revoke_domain_key_request(&req),
-            )
+            .call("Admin", "revoke-domain-key", &csil_req)
             .await?;
         decode_revoke_domain_key_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// reset-password (request/response).
@@ -882,16 +926,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: ResetPasswordRequest,
     ) -> Result<ResetPasswordResponse, ClientError> {
+        let csil_req = match encode_reset_password_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "reset-password",
-                &encode_reset_password_request(&req),
-            )
+            .call("Admin", "reset-password", &csil_req)
             .await?;
-        decode_reset_password_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_reset_password_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// authenticate (request/response).
@@ -899,11 +942,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: AuthenticateRequest,
     ) -> Result<AuthenticateResponse, ClientError> {
+        let csil_req = match encode_authenticate_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("Admin", "authenticate", &encode_authenticate_request(&req))
+            .call("Admin", "authenticate", &csil_req)
             .await?;
-        decode_authenticate_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_authenticate_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// remove-credential (request/response).
@@ -911,25 +958,26 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: RemoveCredentialRequest,
     ) -> Result<RemoveCredentialResponse, ClientError> {
+        let csil_req = match encode_remove_credential_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "remove-credential",
-                &encode_remove_credential_request(&req),
-            )
+            .call("Admin", "remove-credential", &csil_req)
             .await?;
         decode_remove_credential_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// set-claim (request/response).
     pub async fn set_claim(&self, req: SetClaimRequest) -> Result<SetClaimResponse, ClientError> {
-        let csil_resp = self
-            .transport
-            .call("Admin", "set-claim", &encode_set_claim_request(&req))
-            .await?;
-        decode_set_claim_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        let csil_req = match encode_set_claim_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_resp = self.transport.call("Admin", "set-claim", &csil_req).await?;
+        decode_set_claim_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// remove-claim (request/response).
@@ -937,11 +985,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: RemoveClaimRequest,
     ) -> Result<RemoveClaimResponse, ClientError> {
+        let csil_req = match encode_remove_claim_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("Admin", "remove-claim", &encode_remove_claim_request(&req))
+            .call("Admin", "remove-claim", &csil_req)
             .await?;
-        decode_remove_claim_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_remove_claim_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// list-user-claims (request/response).
@@ -949,16 +1001,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: ListUserClaimsRequest,
     ) -> Result<ListUserClaimsResponse, ClientError> {
+        let csil_req = match encode_list_user_claims_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "list-user-claims",
-                &encode_list_user_claims_request(&req),
-            )
+            .call("Admin", "list-user-claims", &csil_req)
             .await?;
-        decode_list_user_claims_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_list_user_claims_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// get-user-claims (request/response).
@@ -966,16 +1017,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: AdminUserClaimsRequest,
     ) -> Result<AdminUserClaimsResponse, ClientError> {
+        let csil_req = match encode_admin_user_claims_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "get-user-claims",
-                &encode_admin_user_claims_request(&req),
-            )
+            .call("Admin", "get-user-claims", &csil_req)
             .await?;
         decode_admin_user_claims_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// set-user-claim (request/response).
@@ -983,16 +1034,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: SetUserClaimRequest,
     ) -> Result<SetUserClaimResponse, ClientError> {
+        let csil_req = match encode_set_user_claim_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "set-user-claim",
-                &encode_set_user_claim_request(&req),
-            )
+            .call("Admin", "set-user-claim", &csil_req)
             .await?;
-        decode_set_user_claim_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_set_user_claim_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// list-settable-policies (request/response).
@@ -1000,16 +1050,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: EmptyRequest,
     ) -> Result<ListSettablePoliciesResponse, ClientError> {
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "list-settable-policies",
-                &encode_empty_request(&req),
-            )
+            .call("Admin", "list-settable-policies", &csil_req)
             .await?;
         decode_list_settable_policies_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// list-claim-types (request/response).
@@ -1017,12 +1067,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: EmptyRequest,
     ) -> Result<ListClaimTypesResponse, ClientError> {
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("Admin", "list-claim-types", &encode_empty_request(&req))
+            .call("Admin", "list-claim-types", &csil_req)
             .await?;
-        decode_list_claim_types_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_list_claim_types_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// set-claim-type (request/response).
@@ -1030,16 +1083,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: SetClaimTypeRequest,
     ) -> Result<SetClaimTypeResponse, ClientError> {
+        let csil_req = match encode_set_claim_type_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "set-claim-type",
-                &encode_set_claim_type_request(&req),
-            )
+            .call("Admin", "set-claim-type", &csil_req)
             .await?;
-        decode_set_claim_type_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_set_claim_type_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// remove-claim-type (request/response).
@@ -1047,16 +1099,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: RemoveClaimTypeRequest,
     ) -> Result<RemoveClaimTypeResponse, ClientError> {
+        let csil_req = match encode_remove_claim_type_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "remove-claim-type",
-                &encode_remove_claim_type_request(&req),
-            )
+            .call("Admin", "remove-claim-type", &csil_req)
             .await?;
         decode_remove_claim_type_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// list-claim-type-labels (request/response).
@@ -1064,16 +1116,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: EmptyRequest,
     ) -> Result<ListClaimTypeLabelsResponse, ClientError> {
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "list-claim-type-labels",
-                &encode_empty_request(&req),
-            )
+            .call("Admin", "list-claim-type-labels", &csil_req)
             .await?;
         decode_list_claim_type_labels_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// set-claim-type-label (request/response).
@@ -1081,16 +1133,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: SetClaimTypeLabelRequest,
     ) -> Result<SetClaimTypeLabelResponse, ClientError> {
+        let csil_req = match encode_set_claim_type_label_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "set-claim-type-label",
-                &encode_set_claim_type_label_request(&req),
-            )
+            .call("Admin", "set-claim-type-label", &csil_req)
             .await?;
         decode_set_claim_type_label_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// remove-claim-type-label (request/response).
@@ -1098,16 +1150,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: RemoveClaimTypeLabelRequest,
     ) -> Result<RemoveClaimTypeLabelResponse, ClientError> {
+        let csil_req = match encode_remove_claim_type_label_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "remove-claim-type-label",
-                &encode_remove_claim_type_label_request(&req),
-            )
+            .call("Admin", "remove-claim-type-label", &csil_req)
             .await?;
         decode_remove_claim_type_label_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// list-trusted-issuers (request/response).
@@ -1115,12 +1167,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: EmptyRequest,
     ) -> Result<ListTrustedIssuersResponse, ClientError> {
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("Admin", "list-trusted-issuers", &encode_empty_request(&req))
+            .call("Admin", "list-trusted-issuers", &csil_req)
             .await?;
         decode_list_trusted_issuers_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// add-trusted-issuer (request/response).
@@ -1128,16 +1184,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: AddTrustedIssuerRequest,
     ) -> Result<AddTrustedIssuerResponse, ClientError> {
+        let csil_req = match encode_add_trusted_issuer_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "add-trusted-issuer",
-                &encode_add_trusted_issuer_request(&req),
-            )
+            .call("Admin", "add-trusted-issuer", &csil_req)
             .await?;
         decode_add_trusted_issuer_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// remove-trusted-issuer (request/response).
@@ -1145,16 +1201,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: RemoveTrustedIssuerRequest,
     ) -> Result<RemoveTrustedIssuerResponse, ClientError> {
+        let csil_req = match encode_remove_trusted_issuer_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "remove-trusted-issuer",
-                &encode_remove_trusted_issuer_request(&req),
-            )
+            .call("Admin", "remove-trusted-issuer", &csil_req)
             .await?;
         decode_remove_trusted_issuer_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// list-release-rules (request/response).
@@ -1162,12 +1218,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: EmptyRequest,
     ) -> Result<ListReleaseRulesResponse, ClientError> {
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("Admin", "list-release-rules", &encode_empty_request(&req))
+            .call("Admin", "list-release-rules", &csil_req)
             .await?;
         decode_list_release_rules_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// set-release-rule (request/response).
@@ -1175,16 +1235,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: SetReleaseRuleRequest,
     ) -> Result<SetReleaseRuleResponse, ClientError> {
+        let csil_req = match encode_set_release_rule_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "set-release-rule",
-                &encode_set_release_rule_request(&req),
-            )
+            .call("Admin", "set-release-rule", &csil_req)
             .await?;
-        decode_set_release_rule_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_set_release_rule_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// remove-release-rule (request/response).
@@ -1192,16 +1251,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: RemoveReleaseRuleRequest,
     ) -> Result<RemoveReleaseRuleResponse, ClientError> {
+        let csil_req = match encode_remove_release_rule_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "remove-release-rule",
-                &encode_remove_release_rule_request(&req),
-            )
+            .call("Admin", "remove-release-rule", &csil_req)
             .await?;
         decode_remove_release_rule_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// list-pending-claim-approvals (request/response).
@@ -1209,16 +1268,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: EmptyRequest,
     ) -> Result<ListPendingClaimApprovalsResponse, ClientError> {
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "list-pending-claim-approvals",
-                &encode_empty_request(&req),
-            )
+            .call("Admin", "list-pending-claim-approvals", &csil_req)
             .await?;
         decode_list_pending_claim_approvals_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// approve-claim (request/response).
@@ -1226,15 +1285,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: ApproveClaimRequest,
     ) -> Result<ApproveClaimResponse, ClientError> {
+        let csil_req = match encode_approve_claim_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "approve-claim",
-                &encode_approve_claim_request(&req),
-            )
+            .call("Admin", "approve-claim", &csil_req)
             .await?;
-        decode_approve_claim_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_approve_claim_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// reject-claim (request/response).
@@ -1242,11 +1301,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: RejectClaimRequest,
     ) -> Result<RejectClaimResponse, ClientError> {
+        let csil_req = match encode_reject_claim_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("Admin", "reject-claim", &encode_reject_claim_request(&req))
+            .call("Admin", "reject-claim", &csil_req)
             .await?;
-        decode_reject_claim_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_reject_claim_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// admin-issue-attestation (request/response).
@@ -1254,16 +1317,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: AdminIssueAttestationRequest,
     ) -> Result<AdminIssueAttestationResponse, ClientError> {
+        let csil_req = match encode_admin_issue_attestation_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "admin-issue-attestation",
-                &encode_admin_issue_attestation_request(&req),
-            )
+            .call("Admin", "admin-issue-attestation", &csil_req)
             .await?;
         decode_admin_issue_attestation_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// preview-release-policy (request/response).
@@ -1271,16 +1334,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: PreviewReleasePolicyRequest,
     ) -> Result<PreviewReleasePolicyResponse, ClientError> {
+        let csil_req = match encode_preview_release_policy_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "preview-release-policy",
-                &encode_preview_release_policy_request(&req),
-            )
+            .call("Admin", "preview-release-policy", &csil_req)
             .await?;
         decode_preview_release_policy_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// preview-issuer-policy (request/response).
@@ -1288,16 +1351,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: PreviewIssuerPolicyRequest,
     ) -> Result<PreviewIssuerPolicyResponse, ClientError> {
+        let csil_req = match encode_preview_issuer_policy_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "preview-issuer-policy",
-                &encode_preview_issuer_policy_request(&req),
-            )
+            .call("Admin", "preview-issuer-policy", &csil_req)
             .await?;
         decode_preview_issuer_policy_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// grant-relation (request/response).
@@ -1305,16 +1368,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: GrantRelationRequest,
     ) -> Result<GrantRelationResponse, ClientError> {
+        let csil_req = match encode_grant_relation_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "grant-relation",
-                &encode_grant_relation_request(&req),
-            )
+            .call("Admin", "grant-relation", &csil_req)
             .await?;
-        decode_grant_relation_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_grant_relation_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// remove-relation (request/response).
@@ -1322,16 +1384,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: RemoveRelationRequest,
     ) -> Result<RemoveRelationResponse, ClientError> {
+        let csil_req = match encode_remove_relation_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "remove-relation",
-                &encode_remove_relation_request(&req),
-            )
+            .call("Admin", "remove-relation", &csil_req)
             .await?;
-        decode_remove_relation_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_remove_relation_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// list-relations (request/response).
@@ -1339,16 +1400,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: ListRelationsRequest,
     ) -> Result<ListRelationsResponse, ClientError> {
+        let csil_req = match encode_list_relations_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "list-relations",
-                &encode_list_relations_request(&req),
-            )
+            .call("Admin", "list-relations", &csil_req)
             .await?;
-        decode_list_relations_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_list_relations_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// check-permission (request/response).
@@ -1356,16 +1416,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: CheckPermissionRequest,
     ) -> Result<CheckPermissionResponse, ClientError> {
+        let csil_req = match encode_check_permission_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "check-permission",
-                &encode_check_permission_request(&req),
-            )
+            .call("Admin", "check-permission", &csil_req)
             .await?;
-        decode_check_permission_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_check_permission_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// recheck-pins (request/response).
@@ -1373,11 +1432,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: RecheckPinsRequest,
     ) -> Result<RecheckPinsResponse, ClientError> {
+        let csil_req = match encode_recheck_pins_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("Admin", "recheck-pins", &encode_recheck_pins_request(&req))
+            .call("Admin", "recheck-pins", &csil_req)
             .await?;
-        decode_recheck_pins_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_recheck_pins_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// list-local-rps (request/response).
@@ -1385,16 +1448,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: ListLocalRpsRequest,
     ) -> Result<ListLocalRpsResponse, ClientError> {
+        let csil_req = match encode_list_local_rps_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "list-local-rps",
-                &encode_list_local_rps_request(&req),
-            )
+            .call("Admin", "list-local-rps", &csil_req)
             .await?;
-        decode_list_local_rps_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_list_local_rps_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// get-local-rp (request/response).
@@ -1402,11 +1464,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: GetLocalRpRequest,
     ) -> Result<GetLocalRpResponse, ClientError> {
+        let csil_req = match encode_get_local_rp_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("Admin", "get-local-rp", &encode_get_local_rp_request(&req))
+            .call("Admin", "get-local-rp", &csil_req)
             .await?;
-        decode_get_local_rp_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_get_local_rp_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// approve-local-rp (request/response).
@@ -1414,16 +1480,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: ApproveLocalRpRequest,
     ) -> Result<ApproveLocalRpResponse, ClientError> {
+        let csil_req = match encode_approve_local_rp_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "approve-local-rp",
-                &encode_approve_local_rp_request(&req),
-            )
+            .call("Admin", "approve-local-rp", &csil_req)
             .await?;
-        decode_approve_local_rp_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_approve_local_rp_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// deny-local-rp (request/response).
@@ -1431,15 +1496,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: DenyLocalRpRequest,
     ) -> Result<DenyLocalRpResponse, ClientError> {
+        let csil_req = match encode_deny_local_rp_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "deny-local-rp",
-                &encode_deny_local_rp_request(&req),
-            )
+            .call("Admin", "deny-local-rp", &csil_req)
             .await?;
-        decode_deny_local_rp_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_deny_local_rp_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// revoke-local-rp (request/response).
@@ -1447,16 +1512,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: RevokeLocalRpRequest,
     ) -> Result<RevokeLocalRpResponse, ClientError> {
+        let csil_req = match encode_revoke_local_rp_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "revoke-local-rp",
-                &encode_revoke_local_rp_request(&req),
-            )
+            .call("Admin", "revoke-local-rp", &csil_req)
             .await?;
-        decode_revoke_local_rp_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_revoke_local_rp_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// get-local-rp-policy (request/response).
@@ -1464,16 +1528,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: GetLocalRpPolicyRequest,
     ) -> Result<GetLocalRpPolicyResponse, ClientError> {
+        let csil_req = match encode_get_local_rp_policy_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "get-local-rp-policy",
-                &encode_get_local_rp_policy_request(&req),
-            )
+            .call("Admin", "get-local-rp-policy", &csil_req)
             .await?;
         decode_get_local_rp_policy_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// set-local-rp-policy (request/response).
@@ -1481,16 +1545,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: SetLocalRpPolicyRequest,
     ) -> Result<SetLocalRpPolicyResponse, ClientError> {
+        let csil_req = match encode_set_local_rp_policy_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "set-local-rp-policy",
-                &encode_set_local_rp_policy_request(&req),
-            )
+            .call("Admin", "set-local-rp-policy", &csil_req)
             .await?;
         decode_set_local_rp_policy_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// purge-local-rp-tickets (request/response).
@@ -1498,25 +1562,29 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: PurgeLocalRpTicketsRequest,
     ) -> Result<PurgeLocalRpTicketsResponse, ClientError> {
+        let csil_req = match encode_purge_local_rp_tickets_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "purge-local-rp-tickets",
-                &encode_purge_local_rp_tickets_request(&req),
-            )
+            .call("Admin", "purge-local-rp-tickets", &csil_req)
             .await?;
         decode_purge_local_rp_tickets_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// get-sign-in-policy (request/response).
     pub async fn get_sign_in_policy(&self, req: EmptyRequest) -> Result<SignInPolicy, ClientError> {
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("Admin", "get-sign-in-policy", &encode_empty_request(&req))
+            .call("Admin", "get-sign-in-policy", &csil_req)
             .await?;
-        decode_sign_in_policy(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_sign_in_policy(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// set-sign-in-policy (request/response).
@@ -1524,15 +1592,15 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: SetSignInPolicyRequest,
     ) -> Result<SignInPolicy, ClientError> {
+        let csil_req = match encode_set_sign_in_policy_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "set-sign-in-policy",
-                &encode_set_sign_in_policy_request(&req),
-            )
+            .call("Admin", "set-sign-in-policy", &csil_req)
             .await?;
-        decode_sign_in_policy(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_sign_in_policy(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// set-user-password-lock (request/response).
@@ -1540,16 +1608,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: SetUserPasswordLockRequest,
     ) -> Result<SetUserPasswordLockResponse, ClientError> {
+        let csil_req = match encode_set_user_password_lock_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "set-user-password-lock",
-                &encode_set_user_password_lock_request(&req),
-            )
+            .call("Admin", "set-user-password-lock", &csil_req)
             .await?;
         decode_set_user_password_lock_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// list-app-access-policies (request/response).
@@ -1557,16 +1625,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: EmptyRequest,
     ) -> Result<ListAppAccessPoliciesResponse, ClientError> {
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "list-app-access-policies",
-                &encode_empty_request(&req),
-            )
+            .call("Admin", "list-app-access-policies", &csil_req)
             .await?;
         decode_list_app_access_policies_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// set-app-access-policy (request/response).
@@ -1574,16 +1642,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: SetAppAccessPolicyRequest,
     ) -> Result<SetAppAccessPolicyResponse, ClientError> {
+        let csil_req = match encode_set_app_access_policy_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "set-app-access-policy",
-                &encode_set_app_access_policy_request(&req),
-            )
+            .call("Admin", "set-app-access-policy", &csil_req)
             .await?;
         decode_set_app_access_policy_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// remove-app-access-policy (request/response).
@@ -1591,16 +1659,16 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: RemoveAppAccessPolicyRequest,
     ) -> Result<RemoveAppAccessPolicyResponse, ClientError> {
+        let csil_req = match encode_remove_app_access_policy_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "remove-app-access-policy",
-                &encode_remove_app_access_policy_request(&req),
-            )
+            .call("Admin", "remove-app-access-policy", &csil_req)
             .await?;
         decode_remove_app_access_policy_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// preview-app-access (request/response).
@@ -1608,16 +1676,148 @@ impl<T: AsyncTransport> AdminAsyncClient<T> {
         &self,
         req: PreviewAppAccessRequest,
     ) -> Result<PreviewAppAccessResponse, ClientError> {
+        let csil_req = match encode_preview_app_access_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Admin",
-                "preview-app-access",
-                &encode_preview_app_access_request(&req),
-            )
+            .call("Admin", "preview-app-access", &csil_req)
             .await?;
         decode_preview_app_access_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
+    }
+
+    /// rename-user (request/response).
+    pub async fn rename_user(
+        &self,
+        req: RenameUserRequest,
+    ) -> Result<RenameUserResponse, ClientError> {
+        let csil_req = match encode_rename_user_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_resp = self
+            .transport
+            .call("Admin", "rename-user", &csil_req)
+            .await?;
+        decode_rename_user_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
+    }
+
+    /// set-application-id (request/response).
+    pub async fn set_application_id(
+        &self,
+        req: SetApplicationIdRequest,
+    ) -> Result<SetApplicationIdResponse, ClientError> {
+        let csil_req = match encode_set_application_id_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_resp = self
+            .transport
+            .call("Admin", "set-application-id", &csil_req)
+            .await?;
+        decode_set_application_id_response(&csil_resp)
+            .map_err(|e| ClientError::Decode(e.to_string()))
+    }
+
+    /// create-api-key (request/response).
+    pub async fn create_api_key(
+        &self,
+        req: CreateApiKeyRequest,
+    ) -> Result<CreateApiKeyResponse, ClientError> {
+        let csil_req = match encode_create_api_key_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_resp = self
+            .transport
+            .call("Admin", "create-api-key", &csil_req)
+            .await?;
+        decode_create_api_key_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
+    }
+
+    /// list-api-keys (request/response).
+    pub async fn list_api_keys(
+        &self,
+        req: ListApiKeysRequest,
+    ) -> Result<ListApiKeysResponse, ClientError> {
+        let csil_req = match encode_list_api_keys_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_resp = self
+            .transport
+            .call("Admin", "list-api-keys", &csil_req)
+            .await?;
+        decode_list_api_keys_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
+    }
+
+    /// revoke-api-key (request/response).
+    pub async fn revoke_api_key(
+        &self,
+        req: RevokeApiKeyRequest,
+    ) -> Result<RevokeApiKeyResponse, ClientError> {
+        let csil_req = match encode_revoke_api_key_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_resp = self
+            .transport
+            .call("Admin", "revoke-api-key", &csil_req)
+            .await?;
+        decode_revoke_api_key_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
+    }
+
+    /// get-account-limits (request/response).
+    pub async fn get_account_limits(
+        &self,
+        req: GetAccountLimitsRequest,
+    ) -> Result<GetAccountLimitsResponse, ClientError> {
+        let csil_req = match encode_get_account_limits_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_resp = self
+            .transport
+            .call("Admin", "get-account-limits", &csil_req)
+            .await?;
+        decode_get_account_limits_response(&csil_resp)
+            .map_err(|e| ClientError::Decode(e.to_string()))
+    }
+
+    /// set-account-limits (request/response).
+    pub async fn set_account_limits(
+        &self,
+        req: SetAccountLimitsRequest,
+    ) -> Result<SetAccountLimitsResponse, ClientError> {
+        let csil_req = match encode_set_account_limits_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_resp = self
+            .transport
+            .call("Admin", "set-account-limits", &csil_req)
+            .await?;
+        decode_set_account_limits_response(&csil_resp)
+            .map_err(|e| ClientError::Decode(e.to_string()))
+    }
+
+    /// get-application-usage (request/response).
+    pub async fn get_application_usage(
+        &self,
+        req: GetApplicationUsageRequest,
+    ) -> Result<GetApplicationUsageResponse, ClientError> {
+        let csil_req = match encode_get_application_usage_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_resp = self
+            .transport
+            .call("Admin", "get-application-usage", &csil_req)
+            .await?;
+        decode_get_application_usage_response(&csil_resp)
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -1637,25 +1837,28 @@ impl<T: AsyncTransport> AccountAsyncClient<T> {
         &self,
         req: ChangePasswordRequest,
     ) -> Result<ChangePasswordResponse, ClientError> {
+        let csil_req = match encode_change_password_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Account",
-                "change-password",
-                &encode_change_password_request(&req),
-            )
+            .call("Account", "change-password", &csil_req)
             .await?;
-        decode_change_password_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_change_password_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// get-my-info (request/response).
     pub async fn get_my_info(&self, req: EmptyRequest) -> Result<GetMyInfoResponse, ClientError> {
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("Account", "get-my-info", &encode_empty_request(&req))
+            .call("Account", "get-my-info", &csil_req)
             .await?;
-        decode_get_my_info_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_get_my_info_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// list-settable-policies (request/response).
@@ -1663,16 +1866,16 @@ impl<T: AsyncTransport> AccountAsyncClient<T> {
         &self,
         req: EmptyRequest,
     ) -> Result<ListSettablePoliciesResponse, ClientError> {
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Account",
-                "list-settable-policies",
-                &encode_empty_request(&req),
-            )
+            .call("Account", "list-settable-policies", &csil_req)
             .await?;
         decode_list_settable_policies_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// set-my-claim (request/response).
@@ -1680,15 +1883,15 @@ impl<T: AsyncTransport> AccountAsyncClient<T> {
         &self,
         req: SetMyClaimRequest,
     ) -> Result<SetMyClaimResponse, ClientError> {
+        let csil_req = match encode_set_my_claim_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Account",
-                "set-my-claim",
-                &encode_set_my_claim_request(&req),
-            )
+            .call("Account", "set-my-claim", &csil_req)
             .await?;
-        decode_set_my_claim_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_set_my_claim_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// remove-my-claim (request/response).
@@ -1696,16 +1899,15 @@ impl<T: AsyncTransport> AccountAsyncClient<T> {
         &self,
         req: RemoveMyClaimRequest,
     ) -> Result<RemoveMyClaimResponse, ClientError> {
+        let csil_req = match encode_remove_my_claim_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Account",
-                "remove-my-claim",
-                &encode_remove_my_claim_request(&req),
-            )
+            .call("Account", "remove-my-claim", &csil_req)
             .await?;
-        decode_remove_my_claim_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_remove_my_claim_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// set-my-claim-sharing (request/response).
@@ -1713,16 +1915,16 @@ impl<T: AsyncTransport> AccountAsyncClient<T> {
         &self,
         req: SetMyClaimSharingRequest,
     ) -> Result<SetMyClaimSharingResponse, ClientError> {
+        let csil_req = match encode_set_my_claim_sharing_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Account",
-                "set-my-claim-sharing",
-                &encode_set_my_claim_sharing_request(&req),
-            )
+            .call("Account", "set-my-claim-sharing", &csil_req)
             .await?;
         decode_set_my_claim_sharing_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// create-profile (request/response).
@@ -1730,16 +1932,15 @@ impl<T: AsyncTransport> AccountAsyncClient<T> {
         &self,
         req: CreateProfileRequest,
     ) -> Result<CreateProfileResponse, ClientError> {
+        let csil_req = match encode_create_profile_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Account",
-                "create-profile",
-                &encode_create_profile_request(&req),
-            )
+            .call("Account", "create-profile", &csil_req)
             .await?;
-        decode_create_profile_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+        decode_create_profile_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// get-my-claim-settings (request/response).
@@ -1747,16 +1948,16 @@ impl<T: AsyncTransport> AccountAsyncClient<T> {
         &self,
         req: EmptyRequest,
     ) -> Result<MyClaimSettingsResponse, ClientError> {
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Account",
-                "get-my-claim-settings",
-                &encode_empty_request(&req),
-            )
+            .call("Account", "get-my-claim-settings", &csil_req)
             .await?;
         decode_my_claim_settings_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// set-my-claim-keep-verified (request/response).
@@ -1764,16 +1965,16 @@ impl<T: AsyncTransport> AccountAsyncClient<T> {
         &self,
         req: SetMyClaimKeepVerifiedRequest,
     ) -> Result<SetMyClaimKeepVerifiedResponse, ClientError> {
+        let csil_req = match encode_set_my_claim_keep_verified_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Account",
-                "set-my-claim-keep-verified",
-                &encode_set_my_claim_keep_verified_request(&req),
-            )
+            .call("Account", "set-my-claim-keep-verified", &csil_req)
             .await?;
         decode_set_my_claim_keep_verified_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// request-verification (request/response).
@@ -1781,16 +1982,16 @@ impl<T: AsyncTransport> AccountAsyncClient<T> {
         &self,
         req: RequestVerificationRequest,
     ) -> Result<RequestVerificationResponse, ClientError> {
+        let csil_req = match encode_request_verification_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Account",
-                "request-verification",
-                &encode_request_verification_request(&req),
-            )
+            .call("Account", "request-verification", &csil_req)
             .await?;
         decode_request_verification_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// list-verified-contact-methods (request/response).
@@ -1798,16 +1999,16 @@ impl<T: AsyncTransport> AccountAsyncClient<T> {
         &self,
         req: EmptyRequest,
     ) -> Result<ListVerifiedContactMethodsResponse, ClientError> {
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Account",
-                "list-verified-contact-methods",
-                &encode_empty_request(&req),
-            )
+            .call("Account", "list-verified-contact-methods", &csil_req)
             .await?;
         decode_list_verified_contact_methods_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// revoke-verified-contact-method (request/response).
@@ -1815,16 +2016,16 @@ impl<T: AsyncTransport> AccountAsyncClient<T> {
         &self,
         req: RevokeVerifiedContactMethodRequest,
     ) -> Result<RevokeVerifiedContactMethodResponse, ClientError> {
+        let csil_req = match encode_revoke_verified_contact_method_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Account",
-                "revoke-verified-contact-method",
-                &encode_revoke_verified_contact_method_request(&req),
-            )
+            .call("Account", "revoke-verified-contact-method", &csil_req)
             .await?;
         decode_revoke_verified_contact_method_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// request-contact-verification (request/response).
@@ -1832,16 +2033,16 @@ impl<T: AsyncTransport> AccountAsyncClient<T> {
         &self,
         req: RequestContactVerificationRequest,
     ) -> Result<RequestContactVerificationResponse, ClientError> {
+        let csil_req = match encode_request_contact_verification_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Account",
-                "request-contact-verification",
-                &encode_request_contact_verification_request(&req),
-            )
+            .call("Account", "request-contact-verification", &csil_req)
             .await?;
         decode_request_contact_verification_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// confirm-contact-verification (request/response).
@@ -1849,16 +2050,16 @@ impl<T: AsyncTransport> AccountAsyncClient<T> {
         &self,
         req: ConfirmContactVerificationRequest,
     ) -> Result<ConfirmContactVerificationResponse, ClientError> {
+        let csil_req = match encode_confirm_contact_verification_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Account",
-                "confirm-contact-verification",
-                &encode_confirm_contact_verification_request(&req),
-            )
+            .call("Account", "confirm-contact-verification", &csil_req)
             .await?;
         decode_confirm_contact_verification_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// enroll-application-instance (request/response).
@@ -1866,16 +2067,16 @@ impl<T: AsyncTransport> AccountAsyncClient<T> {
         &self,
         req: EnrollApplicationInstanceRequest,
     ) -> Result<EnrollApplicationInstanceResponse, ClientError> {
+        let csil_req = match encode_enroll_application_instance_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Account",
-                "enroll-application-instance",
-                &encode_enroll_application_instance_request(&req),
-            )
+            .call("Account", "enroll-application-instance", &csil_req)
             .await?;
         decode_enroll_application_instance_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// list-act-as-grants (request/response).
@@ -1883,12 +2084,16 @@ impl<T: AsyncTransport> AccountAsyncClient<T> {
         &self,
         req: EmptyRequest,
     ) -> Result<ListActAsGrantsResponse, ClientError> {
+        let csil_req = match encode_empty_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call("Account", "list-act-as-grants", &encode_empty_request(&req))
+            .call("Account", "list-act-as-grants", &csil_req)
             .await?;
         decode_list_act_as_grants_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// revoke-act-as-grant (request/response).
@@ -1896,16 +2101,16 @@ impl<T: AsyncTransport> AccountAsyncClient<T> {
         &self,
         req: RevokeActAsGrantRequest,
     ) -> Result<RevokeActAsGrantResponse, ClientError> {
+        let csil_req = match encode_revoke_act_as_grant_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Account",
-                "revoke-act-as-grant",
-                &encode_revoke_act_as_grant_request(&req),
-            )
+            .call("Account", "revoke-act-as-grant", &csil_req)
             .await?;
         decode_revoke_act_as_grant_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -1925,15 +2130,15 @@ impl<T: AsyncTransport> AttestationAsyncClient<T> {
         &self,
         req: DepositClaimRequest,
     ) -> Result<DepositClaimResponse, ClientError> {
+        let csil_req = match encode_deposit_claim_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Attestation",
-                "deposit-claim",
-                &encode_deposit_claim_request(&req),
-            )
+            .call("Attestation", "deposit-claim", &csil_req)
             .await?;
-        decode_deposit_claim_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        decode_deposit_claim_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -1950,11 +2155,21 @@ impl<T: AsyncTransport> RpAsyncClient<T> {
 
     /// sign-request (request/response).
     pub async fn sign_request(&self, req: RpSignRequest) -> Result<RpSignResponse, ClientError> {
-        let csil_resp = self
+        let csil_req = match encode_rp_sign_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_reply = self
             .transport
-            .call("Rp", "sign-request", &encode_rp_sign_request(&req))
+            .call_reply("Rp", "sign-request", &csil_req)
             .await?;
-        decode_rp_sign_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        let csil_resp = super::client::resolve_rpc_reply(
+            "Rp",
+            "sign-request",
+            csil_reply.variant.as_deref(),
+            csil_reply.payload,
+        )?;
+        decode_rp_sign_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// decrypt-token (request/response).
@@ -1962,11 +2177,21 @@ impl<T: AsyncTransport> RpAsyncClient<T> {
         &self,
         req: RpDecryptRequest,
     ) -> Result<RpDecryptResponse, ClientError> {
-        let csil_resp = self
+        let csil_req = match encode_rp_decrypt_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_reply = self
             .transport
-            .call("Rp", "decrypt-token", &encode_rp_decrypt_request(&req))
+            .call_reply("Rp", "decrypt-token", &csil_req)
             .await?;
-        decode_rp_decrypt_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        let csil_resp = super::client::resolve_rpc_reply(
+            "Rp",
+            "decrypt-token",
+            csil_reply.variant.as_deref(),
+            csil_reply.payload,
+        )?;
+        decode_rp_decrypt_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// verify-assertion (request/response).
@@ -1974,20 +2199,40 @@ impl<T: AsyncTransport> RpAsyncClient<T> {
         &self,
         req: RpVerifyRequest,
     ) -> Result<RpVerifyResponse, ClientError> {
-        let csil_resp = self
+        let csil_req = match encode_rp_verify_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_reply = self
             .transport
-            .call("Rp", "verify-assertion", &encode_rp_verify_request(&req))
+            .call_reply("Rp", "verify-assertion", &csil_req)
             .await?;
-        decode_rp_verify_response(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        let csil_resp = super::client::resolve_rpc_reply(
+            "Rp",
+            "verify-assertion",
+            csil_reply.variant.as_deref(),
+            csil_reply.payload,
+        )?;
+        decode_rp_verify_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// userinfo-fetch (request/response).
     pub async fn userinfo_fetch(&self, req: RpUserInfoRequest) -> Result<UserInfo, ClientError> {
-        let csil_resp = self
+        let csil_req = match encode_rp_user_info_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_reply = self
             .transport
-            .call("Rp", "userinfo-fetch", &encode_rp_user_info_request(&req))
+            .call_reply("Rp", "userinfo-fetch", &csil_req)
             .await?;
-        decode_user_info(&csil_resp).map_err(|e| ClientError::Transport(e.to_string()))
+        let csil_resp = super::client::resolve_rpc_reply(
+            "Rp",
+            "userinfo-fetch",
+            csil_reply.variant.as_deref(),
+            csil_reply.payload,
+        )?;
+        decode_user_info(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// issue-attestation (request/response).
@@ -1995,16 +2240,16 @@ impl<T: AsyncTransport> RpAsyncClient<T> {
         &self,
         req: RpIssueAttestationRequest,
     ) -> Result<RpIssueAttestationResponse, ClientError> {
+        let csil_req = match encode_rp_issue_attestation_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Rp",
-                "issue-attestation",
-                &encode_rp_issue_attestation_request(&req),
-            )
+            .call("Rp", "issue-attestation", &csil_req)
             .await?;
         decode_rp_issue_attestation_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// resolve-domain-keys (request/response).
@@ -2012,16 +2257,16 @@ impl<T: AsyncTransport> RpAsyncClient<T> {
         &self,
         req: RpResolveDomainKeysRequest,
     ) -> Result<RpResolveDomainKeysResponse, ClientError> {
+        let csil_req = match encode_rp_resolve_domain_keys_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Rp",
-                "resolve-domain-keys",
-                &encode_rp_resolve_domain_keys_request(&req),
-            )
+            .call("Rp", "resolve-domain-keys", &csil_req)
             .await?;
         decode_rp_resolve_domain_keys_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// resolve-application-keys (request/response).
@@ -2029,16 +2274,16 @@ impl<T: AsyncTransport> RpAsyncClient<T> {
         &self,
         req: RpResolveApplicationKeysRequest,
     ) -> Result<RpResolveApplicationKeysResponse, ClientError> {
+        let csil_req = match encode_rp_resolve_application_keys_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Rp",
-                "resolve-application-keys",
-                &encode_rp_resolve_application_keys_request(&req),
-            )
+            .call("Rp", "resolve-application-keys", &csil_req)
             .await?;
         decode_rp_resolve_application_keys_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// act-as-refresh-grant (request/response).
@@ -2046,16 +2291,16 @@ impl<T: AsyncTransport> RpAsyncClient<T> {
         &self,
         req: RpActAsRefreshRequest,
     ) -> Result<RefreshActAsGrantResponse, ClientError> {
+        let csil_req = match encode_rp_act_as_refresh_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Rp",
-                "act-as-refresh-grant",
-                &encode_rp_act_as_refresh_request(&req),
-            )
+            .call("Rp", "act-as-refresh-grant", &csil_req)
             .await?;
         decode_refresh_act_as_grant_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// resolve-act-as-revocations (request/response).
@@ -2063,16 +2308,16 @@ impl<T: AsyncTransport> RpAsyncClient<T> {
         &self,
         req: RpResolveActAsRevocationsRequest,
     ) -> Result<GetActAsGrantRevocationsResponse, ClientError> {
+        let csil_req = match encode_rp_resolve_act_as_revocations_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "Rp",
-                "resolve-act-as-revocations",
-                &encode_rp_resolve_act_as_revocations_request(&req),
-            )
+            .call("Rp", "resolve-act-as-revocations", &csil_req)
             .await?;
         decode_get_act_as_grant_revocations_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -2092,16 +2337,16 @@ impl<T: AsyncTransport> ActAsAsyncClient<T> {
         &self,
         req: RefreshActAsGrantRequest,
     ) -> Result<RefreshActAsGrantResponse, ClientError> {
+        let csil_req = match encode_refresh_act_as_grant_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "ActAs",
-                "refresh-grant",
-                &encode_refresh_act_as_grant_request(&req),
-            )
+            .call("ActAs", "refresh-grant", &csil_req)
             .await?;
         decode_refresh_act_as_grant_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 
     /// get-grant-revocations (request/response).
@@ -2109,16 +2354,16 @@ impl<T: AsyncTransport> ActAsAsyncClient<T> {
         &self,
         req: GetActAsGrantRevocationsRequest,
     ) -> Result<GetActAsGrantRevocationsResponse, ClientError> {
+        let csil_req = match encode_get_act_as_grant_revocations_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "ActAs",
-                "get-grant-revocations",
-                &encode_get_act_as_grant_revocations_request(&req),
-            )
+            .call("ActAs", "get-grant-revocations", &csil_req)
             .await?;
         decode_get_act_as_grant_revocations_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 }
 
@@ -2138,15 +2383,15 @@ impl<T: AsyncTransport> LocalRpAsyncClient<T> {
         &self,
         req: SignedLocalRpTicketRedemptionRequest,
     ) -> Result<LocalRpTicketRedemptionResponse, ClientError> {
+        let csil_req = match encode_signed_local_rp_ticket_redemption_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
         let csil_resp = self
             .transport
-            .call(
-                "LocalRp",
-                "redeem-claim-ticket",
-                &encode_signed_local_rp_ticket_redemption_request(&req),
-            )
+            .call("LocalRp", "redeem-claim-ticket", &csil_req)
             .await?;
         decode_local_rp_ticket_redemption_response(&csil_resp)
-            .map_err(|e| ClientError::Transport(e.to_string()))
+            .map_err(|e| ClientError::Decode(e.to_string()))
     }
 }

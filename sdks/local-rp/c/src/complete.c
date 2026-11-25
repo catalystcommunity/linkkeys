@@ -70,10 +70,19 @@ static int get_own_allowed_suites(const lrp_identity *identity, char ***out_suit
         return lrp_fail(err, LRP_ERR_DECODE, "own descriptor: missing supported_suites");
     }
     char **suites = (char **)calloc(arr->items_len > 0 ? arr->items_len : 1, sizeof(char *));
+    if (suites == NULL) {
+        cbor_value_free(root);
+        free(root);
+        return lrp_fail(err, LRP_ERR_OUT_OF_MEMORY, "own descriptor: out of memory");
+    }
     size_t n = 0;
+    /* Each suite is an AeadSuite number; keep its text id. An unknown
+     * number is skipped, so it can never be allowed. */
     for (size_t i = 0; i < arr->items_len; i++) {
-        if (arr->items[i].type == CBOR_T_TEXT) {
-            suites[n++] = strdup((const char *)arr->items[i].bytes);
+        lrp_str label = {0};
+        lrp_error ignored = {0};
+        if (cbor_as_enum(&arr->items[i], &CBOR_ENUM_AEAD_SUITE, &label, &ignored) == 0) {
+            suites[n++] = label.data;
         }
     }
     cbor_value_free(root);

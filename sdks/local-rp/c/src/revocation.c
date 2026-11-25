@@ -7,12 +7,16 @@
 #include "crypto.h"
 #include "error.h"
 #include "local_rp.h"
+#include "time_util.h"
 
 static const char REVOCATION_TAG[] = "linkkeys-key-revocation-v1alpha";
 
 int lrp_revocation_payload(const char *target_key_id, const char *target_fingerprint,
                             const char *revoked_at, const char *signing_domain, lrp_bytes *out,
                             lrp_error *err) {
+    /* revoked_at is whole Unix seconds; a fraction cannot be signed. */
+    int64_t revoked_secs;
+    if (lrp_signed_seconds(revoked_at, &revoked_secs, err) != 0) return -1;
     cbor_buf b;
     cbor_buf_init(&b);
     int rc = 0;
@@ -20,7 +24,7 @@ int lrp_revocation_payload(const char *target_key_id, const char *target_fingerp
     rc |= cbor_write_text_cstr(&b, REVOCATION_TAG);
     rc |= cbor_write_text_cstr(&b, target_key_id);
     rc |= cbor_write_text_cstr(&b, target_fingerprint);
-    rc |= cbor_write_text_cstr(&b, revoked_at);
+    rc |= cbor_write_int(&b, revoked_secs);
     rc |= cbor_write_text_cstr(&b, signing_domain);
     if (rc != 0) {
         cbor_buf_free(&b);

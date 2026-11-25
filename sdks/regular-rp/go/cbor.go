@@ -2,7 +2,9 @@ package regularrp
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"time"
 )
 
 // This file implements the minimal canonical CBOR encoding/decoding this SDK
@@ -21,14 +23,14 @@ import (
 //   - The revocation's own eight-element tagged tuple (built from fields,
 //     not stored bytes — see crates/liblinkkeys/src/application_keys.rs's
 //     `revocation_payload`).
-//   - The sealed-challenge tuple (`CBOR([suite: tstr, ephemeral_public_key:
+//   - The sealed-challenge tuple (`CBOR([suite: AeadSuite uint, ephemeral_public_key:
 //     bstr, aead_nonce: bstr, ciphertext: bstr])`, a four-element array) —
 //     this one is decoded as well as encoded, since this SDK is the
 //     recipient side (`open_challenge`), not the sealing side.
 //
 // This file deliberately does NOT attempt to be a general CBOR
 // encoder/decoder (the generated codec already owns that for CSIL types); it
-// only builds/reads the specific "array of text/bytes items" shape these
+// only builds/reads the specific "array of text/bytes/integer items" shape these
 // three constructions need, using RFC 8949's shortest-form (preferred)
 // length encoding for output — the same encoding `ciborium` produces on the
 // Rust side. Verified byte-for-byte against sdks/regular-rp/conformance/ in
@@ -77,6 +79,30 @@ func cborText(s string) cborItem {
 // `serde_bytes::Bytes` produces for a `&[u8]` field in a signed tuple.
 func cborBytesVal(b []byte) cborItem {
 	return append(cborHead(2, uint64(len(b))), b...)
+}
+
+// cborInt encodes a CBOR integer: major type 0 for n >= 0, major type 1
+// (encoding -1-n) for n < 0. This is the shortest form `ciborium` writes.
+func cborInt(n int64) cborItem {
+	if n >= 0 {
+		return cborHead(0, uint64(n))
+	}
+	return cborHead(1, uint64(-1-n))
+}
+
+// errFractionalSignedTime is the error for a signed timestamp that has a
+// fraction of a second. A signer never signs such a time, so the verifier
+// does not round it: verification fails.
+var errFractionalSignedTime = errors.New("a signed timestamp must be a whole number of seconds")
+
+// cborSignedTime encodes a timestamp for a signed tuple payload: whole Unix
+// seconds as a CBOR integer. Mirrors `liblinkkeys::timestamp::SignedTime::new`:
+// a time with a fraction of a second is refused.
+func cborSignedTime(t time.Time) (cborItem, error) {
+	if t.Nanosecond() != 0 {
+		return nil, errFractionalSignedTime
+	}
+	return cborInt(t.Unix()), nil
 }
 
 // cborNull is the CBOR null (simple value 22): the wire form of a Rust
@@ -148,6 +174,18 @@ func cborReadArray(b []byte) (count uint64, rest []byte, err error) {
 	}
 	if major != 4 {
 		return 0, nil, fmt.Errorf("cbor: expected array (major type 4), got major type %d", major)
+	}
+	return n, rest, nil
+}
+
+// cborReadUint reads one CBOR unsigned integer (major type 0).
+func cborReadUint(b []byte) (uint64, []byte, error) {
+	major, n, rest, err := cborReadHead(b)
+	if err != nil {
+		return 0, nil, err
+	}
+	if major != 0 {
+		return 0, nil, fmt.Errorf("cbor: expected unsigned integer (major type 0), got major type %d", major)
 	}
 	return n, rest, nil
 }

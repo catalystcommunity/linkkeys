@@ -2,4 +2,37 @@
 
 package csilgen.generated;
 
-public record LocalRpPolicy(String value) {}
+import java.util.Map;
+
+public enum LocalRpPolicy {
+    DISABLED("disabled", 1L),
+    ADMIN_APPROVAL_REQUIRED("admin_approval_required", 2L),
+    ALLOW_BY_DEFAULT("allow_by_default", 3L);
+
+    private final String value;
+
+    LocalRpPolicy(String value, long number) { this.value = value; this.number = number; }
+
+    private final long number;
+    private static final Map<Long, LocalRpPolicy> byNumber = new java.util.HashMap<>();
+    static {
+        for (LocalRpPolicy member : values()) byNumber.put(member.number, member);
+    }
+
+    public long toNumber() { return number; }
+
+    public static LocalRpPolicy fromNumber(long number) {
+        LocalRpPolicy member = byNumber.get(number);
+        if (member != null) return member;
+        throw new IllegalArgumentException("unknown LocalRpPolicy number: " + number);
+    }
+
+    public String value() { return value; }
+
+    public static LocalRpPolicy fromWire(String value) {
+        for (LocalRpPolicy member : values()) {
+            if (member.value.equals(value)) return member;
+        }
+        throw new IllegalArgumentException("unknown LocalRpPolicy value: " + value);
+    }
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BrowserAuthorizationInspectResponse, BrowserConsentClaim } from "./generated/types.gen";
+import { ClaimValueType, ConsentRowPolicy, type BrowserAuthorizationInspectResponse, type BrowserConsentClaim } from "./generated/types.gen";
 import { CsilStatus, CsilTransportError } from "./transport";
 import {
   authenticationFailed,
@@ -34,13 +34,13 @@ import {
 const claim = (values: Partial<BrowserConsentClaim>): BrowserConsentClaim => ({
   claimType: "display_name",
   label: "Display name",
-  datatype: "text",
+  datatype: ClaimValueType.TEXT,
   maxBytes: 254,
   requiresApproval: false,
   required: false,
   available: true,
   defaultGranted: false,
-  policy: "user",
+  policy: ConsentRowPolicy.USER,
   userSettable: true,
   ...values,
 });
@@ -54,7 +54,7 @@ describe("browser UI decisions", () => {
 
   it("blocks consent when a required detail cannot be supplied", () => {
     expect(hasBlockedRequiredClaim([claim({ required: true, available: false, userSettable: false })])).toBe(true);
-    expect(hasBlockedRequiredClaim([claim({ required: true, policy: "forced_deny" })])).toBe(true);
+    expect(hasBlockedRequiredClaim([claim({ required: true, policy: ConsentRowPolicy.FORCED_DENY })])).toBe(true);
     expect(hasBlockedRequiredClaim([claim({ required: true, available: false, userSettable: true })])).toBe(false);
   });
 
@@ -72,7 +72,7 @@ describe("browser UI decisions", () => {
   it("uses a standing grant only after the first claim disclosure", () => {
     const firstDisclosure = {
       relyingParty: "app.example",
-      claims: [claim({ defaultGranted: true, policy: "forced_allow" })],
+      claims: [claim({ defaultGranted: true, policy: ConsentRowPolicy.FORCED_ALLOW })],
     } as BrowserAuthorizationInspectResponse;
     expect(standingAuthorization(firstDisclosure)).toBeUndefined();
 
@@ -84,10 +84,11 @@ describe("browser UI decisions", () => {
   });
 
   it("uses useful controls for common claim datatypes", () => {
-    expect(inputType("email")).toBe("email");
-    expect(inputType("url")).toBe("url");
-    expect(inputType("date")).toBe("date");
-    expect(inputType("integer")).toBe("number");
+    expect(inputType(ClaimValueType.EMAIL)).toBe("email");
+    expect(inputType(ClaimValueType.URL)).toBe("url");
+    expect(inputType(ClaimValueType.DATE)).toBe("date");
+    expect(inputType(ClaimValueType.INT)).toBe("number");
+    expect(inputType(ClaimValueType.TEXT)).toBe("text");
   });
 
   it("does not give an email recovery address to the password manager as a username", () => {
@@ -205,11 +206,11 @@ describe("act-as helpers", () => {
   it("classifies grants for the account list", async () => {
     const { actAsGrantState } = await import("./ui-logic");
     const now = new Date("2026-10-06T12:00:00Z");
-    expect(actAsGrantState({ expiresAt: "2026-10-06T13:00:00Z", renewableUntil: "2026-10-06T13:00:00Z" }, now)).toBe("active");
-    expect(actAsGrantState({ expiresAt: "2026-10-06T11:00:00Z", renewableUntil: "2026-10-06T11:00:00Z" }, now)).toBe("expired");
+    expect(actAsGrantState({ expiresAt: new Date("2026-10-06T13:00:00Z"), renewableUntil: new Date("2026-10-06T13:00:00Z") }, now)).toBe("active");
+    expect(actAsGrantState({ expiresAt: new Date("2026-10-06T11:00:00Z"), renewableUntil: new Date("2026-10-06T11:00:00Z") }, now)).toBe("expired");
     // An expired grant cannot be renewed, so an open renewal window does not keep it active.
-    expect(actAsGrantState({ expiresAt: "2026-10-06T11:00:00Z", renewableUntil: "2026-10-07T11:00:00Z" }, now)).toBe("expired");
-    expect(actAsGrantState({ expiresAt: "2026-10-06T13:00:00Z", renewableUntil: "2026-10-06T13:00:00Z", revokedAt: "2026-10-06T11:30:00Z" }, now)).toBe("revoked");
+    expect(actAsGrantState({ expiresAt: new Date("2026-10-06T11:00:00Z"), renewableUntil: new Date("2026-10-07T11:00:00Z") }, now)).toBe("expired");
+    expect(actAsGrantState({ expiresAt: new Date("2026-10-06T13:00:00Z"), renewableUntil: new Date("2026-10-06T13:00:00Z"), revokedAt: new Date("2026-10-06T11:30:00Z") }, now)).toBe("revoked");
   });
 });
 
@@ -261,10 +262,10 @@ describe("confirmation requests", () => {
 describe("consent decision", () => {
   it("sends forced and selected claims, and inline values only for authorized claims without a value", () => {
     const claims = [
-      claim({ claimType: "email", policy: "forced_allow", available: true }),
-      claim({ claimType: "handle", policy: "user", available: false, maxBytes: 5 }),
-      claim({ claimType: "phone", policy: "user", available: false }),
-      claim({ claimType: "ssn", policy: "forced_deny", available: true }),
+      claim({ claimType: "email", policy: ConsentRowPolicy.FORCED_ALLOW, available: true }),
+      claim({ claimType: "handle", policy: ConsentRowPolicy.USER, available: false, maxBytes: 5 }),
+      claim({ claimType: "phone", policy: ConsentRowPolicy.USER, available: false }),
+      claim({ claimType: "ssn", policy: ConsentRowPolicy.FORCED_DENY, available: true }),
     ];
     const decision = consentDecision(claims, { handle: true, ssn: true }, { handle: " neo ", phone: "555" });
     expect(decision.authorizedClaims).toEqual(["email", "handle"]);

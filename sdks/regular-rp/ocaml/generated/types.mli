@@ -5,13 +5,73 @@
 type check_value = Text of string | Int of int64 | Float of float
 and check_entries = (string * check_value) list
 and check_result = { result : bool; entries : check_entries }
+and key_algorithm = Ed_25519 | X_25519
+and key_usage = Sign | Encrypt | Agree
+and aead_suite = Aes_256_gcm | Chacha_20_poly_1305
+
+and claim_value_type =
+  | Text
+  | Url
+  | Email
+  | Bool
+  | Int
+  | Float
+  | Decimal
+  | Date
+  | Timestamp
+  | Opaque
+
+and set_rule =
+  | User_self
+  | Idp_on_request
+  | Trusted_issuer_only
+  | Admin_only
+  | Deny
+
+and signing_rule = Self_signed | Verified | Attested | Unsigned
+
+and set_claim_outcome =
+  | Signed
+  | Stored_unsigned
+  | Verification_required
+  | Queued
+
+and release_disposition = Forced_allow | Forced_deny
+and consent_row_policy = User | Forced_allow | Forced_deny
+and claim_approval_status = Pending | Approved | Rejected
+and pin_recheck_outcome = First_seen | Unchanged | Rotated | Mismatch | Error
+and notification_purpose = Verify_contact | Reset_password
+and notification_channel = Email
+and destination_kind = Email
+and local_rp_policy = Disabled | Admin_approval_required | Allow_by_default
+and local_rp_status = Pending | Approved | Denied | Revoked
+and local_rp_admission = Consent | Pending | Blocked
+and app_access_mode = Allow | Deny
+and app_access_target_kind = Everyone | User | Group | Claim
+and claim_operator = Present | Absent | Equals | Age_under | Age_at_least
+and application_key_challenge_purpose = Add | Renew
+and auth_flow = Login | Claims_update
+and rp_cache_status = Fresh | Refreshed | Stale
+and account_kind = Human | Application
+
+and rp_error_code =
+  | Not_application_account
+  | Application_mismatch
+  | Application_user_limit
+  | Bad_request
+  | Upstream_failed
+  | Internal
+
+and issued_claim_outcome = Deposited | Handoff | Skipped | Failed
 and hello_request = { name : string option }
 and hello_response = { greeting : string }
 
 and guestbook_entry = {
   id : string;
   name : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   created_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   updated_at : string;
 }
 
@@ -27,10 +87,13 @@ and domain_public_key = {
   key_id : string;
   public_key : bytes;
   fingerprint : string;
-  algorithm : string;
-  key_usage : string;
+  algorithm : key_algorithm;
+  key_usage : key_usage;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   created_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   revoked_at : string option;
   signed_by_key_id : string option;
   key_signature : bytes option;
@@ -42,10 +105,20 @@ and get_domain_keys_response = {
   recent_revocations_available : bool option;
 }
 
-and get_revocations_request = { since : string option }
+and get_revocations_request = {
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
+  since : string option;
+}
+
 and get_revocations_response = { revocations : revocation_certificate list }
 and recheck_pins_request = { domain : string option }
-and pin_recheck_result = { domain : string; outcome : string }
+
+and pin_recheck_result = {
+  domain : string;
+  outcome : pin_recheck_outcome;
+  message : string option;
+}
+
 and recheck_pins_response = { results : pin_recheck_result list }
 
 and user_public_key = {
@@ -53,10 +126,13 @@ and user_public_key = {
   user_id : string;
   public_key : bytes;
   fingerprint : string;
-  algorithm : string;
-  key_usage : string;
+  algorithm : key_algorithm;
+  key_usage : key_usage;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   created_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   revoked_at : string option;
   signed_by_key_id : string option;
   key_signature : bytes option;
@@ -79,6 +155,7 @@ and claim_signature = {
 and revocation_certificate = {
   target_key_id : string;
   target_fingerprint : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   revoked_at : string;
   signatures : claim_signature list;
 }
@@ -89,9 +166,13 @@ and claim = {
   claim_type : string;
   claim_value : bytes;
   signatures : claim_signature list;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   attested_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   created_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string option;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   revoked_at : string option;
 }
 
@@ -103,7 +184,7 @@ and get_user_claims_response = {
   claims : claim list;
 }
 
-and requested_claim = { claim_type : string; datatype : string }
+and requested_claim = { claim_type : string; datatype : claim_value_type }
 
 and claim_request = {
   required : requested_claim list;
@@ -113,7 +194,7 @@ and claim_request = {
 and authentication_requirements = { minimum_factor_count : int64 }
 
 and auth_flow_context = {
-  flow : string;
+  flow : auth_flow;
   prior_session : string option;
   request_reason : string option;
 }
@@ -124,8 +205,11 @@ and consent_grant = {
   subject_domain : string;
   audience : string;
   claim_types : string list;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   issued_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   revoked_at : string option;
   application : application_ref option;
 }
@@ -136,7 +220,9 @@ and domain_claim = {
   claim_type : string;
   claim_value : bytes;
   signatures : claim_signature list;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   attested_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string option;
 }
 
@@ -147,7 +233,9 @@ and signing_request = {
   issuer_domain : string;
   requested_claim_types : string list;
   nonce : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   issued_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
   callback : string option;
 }
@@ -165,10 +253,13 @@ and identity_assertion = {
   domain : string;
   audience : string;
   nonce : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   issued_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
   authorized_claims : string list;
   display_name : string option;
+  application : application_ref;
 }
 
 and signed_identity_assertion = {
@@ -182,6 +273,7 @@ and get_user_info_request = { token : bytes }
 and user_info_request = {
   token : bytes;
   relying_party : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   timestamp : string;
   nonce : string;
 }
@@ -209,13 +301,14 @@ and auth_request = {
   relying_party : string;
   callback_url : string;
   nonce : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   timestamp : string;
   signing_key_id : string;
   requested_claims : claim_request option;
   authentication_requirements : authentication_requirements option;
   flow_context : auth_flow_context option;
   relying_party_claims : domain_claim list option;
-  application : relying_party_application option;
+  application : relying_party_application;
 }
 
 and signed_auth_request = {
@@ -232,8 +325,8 @@ and encrypted_token = {
 }
 
 and algorithm_support = {
-  signing : string list;
-  encryption : string list option;
+  signing : key_algorithm list;
+  encryption : aead_suite list option;
 }
 
 and handshake_request = { version : string; algorithms : algorithm_support }
@@ -246,7 +339,9 @@ and relation = {
   relation : string;
   object_type : string;
   object_id : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   created_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   removed_at : string option;
 }
 
@@ -254,9 +349,14 @@ and admin_user = {
   id : string;
   username : string;
   display_name : string;
+  kind : account_kind;
+  application_id : string option;
   is_active : bool;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   created_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   updated_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   purged_at : string option;
   purge_reason : string option;
   password_locked : bool option;
@@ -274,7 +374,9 @@ and get_user_response = { user : admin_user }
 
 and user_authentication_activity = {
   user_id : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   last_authenticated_at : string option;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   last_seen_at : string option;
   successful_authentication_count : int64;
   active_browser_session_count : int64;
@@ -290,9 +392,65 @@ and create_user_request = {
   username : string;
   display_name : string;
   password : string option;
+  application_id : string option;
 }
 
 and create_user_response = { user : admin_user; api_key : string option }
+and rename_user_request = { user_id : string; username : string }
+and rename_user_response = { user : admin_user }
+and set_application_id_request = { user_id : string; application_id : string }
+and set_application_id_response = { user : admin_user }
+
+and api_key_info = {
+  key_id : string;
+  name : string;
+  hint : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
+  created_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
+  last_used_at : string option;
+}
+
+and create_api_key_request = { user_id : string; name : string }
+and create_api_key_response = { key : api_key_info; api_key : string }
+and list_api_keys_request = { user_id : string }
+and list_api_keys_response = { keys : api_key_info list }
+and revoke_api_key_request = { user_id : string; key_id : string }
+and revoke_api_key_response = { revoked : bool }
+
+and account_limits = {
+  max_api_keys : int64 option;
+  max_distinct_users : int64 option;
+  distinct_user_window_days : int64;
+  requests_per_minute : int64 option;
+  request_burst : int64 option;
+}
+
+and get_account_limits_request = { user_id : string }
+and get_account_limits_response = { limits : account_limits }
+and set_account_limits_request = { user_id : string; limits : account_limits }
+and set_account_limits_response = { limits : account_limits }
+
+and rp_usage_day = {
+  day : string;
+  operation : string;
+  succeeded : int64;
+  failed : int64;
+}
+
+and get_application_usage_request = {
+  user_id : string;
+  first_day : string;
+  last_day : string;
+}
+
+and get_application_usage_response = {
+  distinct_users : int64;
+  distinct_user_window_days : int64;
+  max_distinct_users : int64 option;
+  days : rp_usage_day list;
+}
+
 and update_user_request = { user_id : string; display_name : string option }
 and update_user_response = { user : admin_user }
 and deactivate_user_request = { user_id : string }
@@ -334,6 +492,7 @@ and set_claim_request = {
   user_id : string;
   claim_type : string;
   claim_value : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string option;
 }
 
@@ -351,17 +510,20 @@ and set_user_claim_request = {
   claim_value : string;
 }
 
-and set_user_claim_response = { outcome : string; claim : claim option }
+and set_user_claim_response = {
+  outcome : set_claim_outcome;
+  claim : claim option;
+}
 
 and settable_claim_policy = {
   claim_type : string;
   label : string;
   description : string;
-  datatype : string;
+  datatype : claim_value_type;
   max_bytes : int64;
-  set_rule : string;
+  set_rule : set_rule;
   requires_approval : bool;
-  signing_rule : string;
+  signing_rule : signing_rule;
 }
 
 and list_settable_policies_response = { policies : settable_claim_policy list }
@@ -370,10 +532,10 @@ and claim_type_policy = {
   claim_type : string;
   label : string;
   description : string;
-  value_type : string;
+  value_type : claim_value_type;
   max_bytes : int64;
-  set_rule : string;
-  signing_rule : string;
+  set_rule : set_rule;
+  signing_rule : signing_rule;
   requires_approval : bool;
   user_settable : bool;
   default_auto_sign : bool;
@@ -386,10 +548,10 @@ and set_claim_type_request = {
   claim_type : string;
   label : string;
   description : string option;
-  value_type : string;
+  value_type : claim_value_type;
   max_bytes : int64;
-  set_rule : string;
-  signing_rule : string;
+  set_rule : set_rule;
+  signing_rule : signing_rule;
   user_settable : bool;
   default_auto_sign : bool;
   requires_approval : bool;
@@ -438,7 +600,7 @@ and remove_trusted_issuer_response = { success : bool }
 and release_rule = {
   audience : string;
   claim_type : string;
-  disposition : string;
+  disposition : release_disposition;
 }
 
 and list_release_rules_response = { release_rules : release_rule list }
@@ -446,7 +608,7 @@ and list_release_rules_response = { release_rules : release_rule list }
 and set_release_rule_request = {
   audience : string;
   claim_type : string;
-  disposition : string;
+  disposition : release_disposition;
 }
 
 and set_release_rule_response = { release_rule : release_rule }
@@ -458,9 +620,11 @@ and claim_approval = {
   user_id : string;
   claim_type : string;
   claim_value : bytes;
-  status : string;
+  status : claim_approval_status;
   resolved_by : string option;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   resolved_at : string option;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   created_at : string;
 }
 
@@ -522,7 +686,12 @@ and get_my_info_response = {
 }
 
 and set_my_claim_request = { claim_type : string; claim_value : string }
-and set_my_claim_response = { outcome : string; claim : claim option }
+
+and set_my_claim_response = {
+  outcome : set_claim_outcome;
+  claim : claim option;
+}
+
 and remove_my_claim_request = { claim_id : string }
 and remove_my_claim_response = { success : bool }
 and set_my_claim_sharing_request = { claim_type : string; share : bool }
@@ -568,8 +737,11 @@ and password_policy = { min_length : int64; max_length : int64 }
 
 and browser_session_info = {
   user : admin_user;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   issued_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   authenticated_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
   authentication_methods : string list;
 }
@@ -583,15 +755,17 @@ and introspect_browser_session_request = { session_cookie : string }
 and introspect_browser_session_response = {
   user_id : string;
   user_domain : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   authenticated_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
   authentication_methods : string list;
 }
 
 and notification_capability = {
-  purpose : string;
-  channel : string;
-  destination_kind : string;
+  purpose : notification_purpose;
+  channel : notification_channel;
+  destination_kind : destination_kind;
 }
 
 and get_notification_capabilities_response = {
@@ -600,10 +774,12 @@ and get_notification_capabilities_response = {
 
 and verified_contact_method = {
   id : string;
-  channel : string;
+  channel : notification_channel;
   destination : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   verified_at : string;
-  purposes : string list;
+  purposes : notification_purpose list;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   revoked_at : string option;
 }
 
@@ -619,12 +795,16 @@ and revoke_verified_contact_method_request = {
 and revoke_verified_contact_method_response = { success : bool }
 
 and request_contact_verification_request = {
-  channel : string;
+  channel : notification_channel;
   destination : string;
   current_password : string;
 }
 
-and request_contact_verification_response = { expires_at : string }
+and request_contact_verification_response = {
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
+  expires_at : string;
+}
+
 and confirm_contact_verification_request = { token : string }
 
 and confirm_contact_verification_response = {
@@ -637,6 +817,7 @@ and request_password_recovery_response = unit
 and validate_password_recovery_request = { token : string }
 
 and validate_password_recovery_response = {
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
   password_policy : password_policy;
 }
@@ -652,11 +833,11 @@ and browser_authorization_inspect_request = { signed_request : string }
 and browser_consent_claim = {
   claim_type : string;
   label : string;
-  datatype : string;
+  datatype : claim_value_type;
   required : bool;
   available : bool;
   default_granted : bool;
-  policy : string;
+  policy : consent_row_policy;
   user_settable : bool;
   max_bytes : int64;
   requires_approval : bool;
@@ -687,10 +868,11 @@ and browser_authorization_complete_response = { redirect_url : string }
 and browser_local_rp_inspect_request = { signed_request : string }
 
 and browser_local_rp_inspect_response = {
-  admission : string;
+  admission : local_rp_admission;
   app_name : string;
   fingerprint : string;
   callback_host : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   first_seen_at : string option;
   claims : browser_consent_claim list;
   request_reason : string option;
@@ -738,7 +920,6 @@ and get_ui_configuration_response = {
 and rp_sign_request = {
   callback_url : string;
   nonce : string;
-  application_id : string option;
   requested_claims : claim_request option;
   authentication_requirements : authentication_requirements option;
   flow_context : auth_flow_context option;
@@ -755,6 +936,8 @@ and rp_user_info_request = {
   api_base : string;
   domain : string;
 }
+
+and rp_error = { code : rp_error_code; message : string }
 
 and rp_issue_attestation_request = {
   signed_request : signed_signing_request;
@@ -801,8 +984,6 @@ and api_error_code =
   | Internal
 
 and api_error = { code : api_error_code; message : string }
-and aead_suite = string
-and local_rp_policy = string
 
 and local_rp_descriptor = {
   app_name : string;
@@ -811,7 +992,9 @@ and local_rp_descriptor = {
   encryption_public_key : bytes;
   fingerprint : string;
   supported_suites : aead_suite list;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   created_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
 }
 
@@ -826,7 +1009,9 @@ and local_rp_login_request = {
   required_claims : string list;
   authentication_requirements : authentication_requirements option;
   flow_context : auth_flow_context option;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   issued_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
 }
 
@@ -839,7 +1024,9 @@ and local_rp_callback_header = {
   suite : aead_suite;
   ephemeral_public_key : bytes;
   aead_nonce : bytes;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   issued_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
 }
 
@@ -853,7 +1040,9 @@ and local_rp_callback_payload = {
   callback_url : string;
   nonce : bytes;
   state : bytes;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   issued_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
 }
 
@@ -866,6 +1055,7 @@ and signed_local_rp_callback_payload = {
 and local_rp_ticket_redemption_request = {
   claim_ticket : bytes;
   fingerprint : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   issued_at : string;
 }
 
@@ -878,6 +1068,7 @@ and local_rp_ticket_redemption_response = {
   user_id : string;
   user_domain : string;
   claims : claim list;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   ticket_expires_at : string;
 }
 
@@ -887,10 +1078,14 @@ and admin_local_rp = {
   encryption_public_key : bytes;
   app_name : string;
   local_domain_hint : string option;
-  status : string;
+  status : local_rp_status;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   created_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   updated_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string option;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   last_seen_at : string option;
   admin_notes : string option;
 }
@@ -898,7 +1093,7 @@ and admin_local_rp = {
 and list_local_rps_request = {
   offset : int64 option;
   limit : int64 option;
-  status : string option;
+  status : local_rp_status option;
 }
 
 and list_local_rps_response = { local_rps : admin_local_rp list }
@@ -942,18 +1137,18 @@ and set_user_password_lock_request = { user_id : string; locked : bool }
 and set_user_password_lock_response = { user : admin_user }
 
 and app_access_target = {
-  kind : string;
+  kind : app_access_target_kind;
   user_id : string option;
   group_name : string option;
   claim_type : string option;
-  claim_operator : string option;
+  claim_operator : claim_operator option;
   claim_value : string option;
 }
 
 and app_access_policy = {
   id : string;
   name : string;
-  mode : string;
+  mode : app_access_mode;
   patterns : string list;
   message : string option;
   targets : app_access_target list;
@@ -964,7 +1159,7 @@ and list_app_access_policies_response = { policies : app_access_policy list }
 and set_app_access_policy_request = {
   id : string option;
   name : string;
-  mode : string;
+  mode : app_access_mode;
   patterns : string list;
   message : string option;
   targets : app_access_target list;
@@ -1011,13 +1206,17 @@ and application_key_attestation = {
   application_id : string;
   instance_id : string;
   key_id : string;
-  key_usage : string;
-  algorithm : string;
+  key_usage : key_usage;
+  algorithm : key_algorithm;
   public_key : bytes;
   fingerprint : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   key_created_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   key_expires_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   attested_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   attestation_expires_at : string;
 }
 
@@ -1032,14 +1231,16 @@ and application_key_addition = {
   application_id : string;
   instance_id : string;
   key_id : string;
-  key_usage : string;
-  algorithm : string;
+  key_usage : key_usage;
+  algorithm : key_algorithm;
   public_key : bytes;
   fingerprint : string;
   requested_key_lifetime_seconds : int64;
   challenge_id : string;
   challenge : bytes;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   requested_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
 }
 
@@ -1057,7 +1258,9 @@ and application_key_renewal = {
   key_id : string;
   challenge_id : string;
   challenge : bytes;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   requested_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
 }
 
@@ -1074,6 +1277,7 @@ and application_key_revocation = {
   instance_id : string;
   target_key_id : string;
   target_fingerprint : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   revoked_at : string;
   signatures : application_key_signature list;
 }
@@ -1082,9 +1286,9 @@ and start_application_key_challenge_request = {
   subject_user_id : string;
   application_id : string;
   instance_id : string;
-  purpose : string;
-  key_usage : string;
-  algorithm : string;
+  purpose : application_key_challenge_purpose;
+  key_usage : key_usage;
+  algorithm : key_algorithm;
   public_key : bytes;
 }
 
@@ -1092,6 +1296,7 @@ and start_application_key_challenge_response = {
   challenge_id : string;
   challenge : bytes option;
   sealed_challenge : bytes option;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
 }
 
@@ -1114,7 +1319,10 @@ and revoke_application_key_request = {
   revocation : application_key_revocation;
 }
 
-and revoke_application_key_response = { revoked_at : string }
+and revoke_application_key_response = {
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
+  revoked_at : string;
+}
 
 and enroll_application_instance_request = {
   application_id : string;
@@ -1154,9 +1362,11 @@ and rp_resolve_domain_keys_response = {
   domain : string;
   keys : domain_public_key list;
   revocations : revocation_certificate list;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   fetched_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   revocations_checked_at : string;
-  cache_status : string;
+  cache_status : rp_cache_status;
 }
 
 and rp_resolve_application_keys_request = {
@@ -1176,9 +1386,11 @@ and rp_resolve_application_keys_response = {
   application_key_revocations : application_key_revocation list;
   home_domain_keys : domain_public_key list;
   home_domain_key_revocations : revocation_certificate list;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   fetched_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   revocations_checked_at : string;
-  cache_status : string;
+  cache_status : rp_cache_status;
 }
 
 and application_ref = {
@@ -1206,7 +1418,9 @@ and act_as_scope_set = {
   entries : act_as_scope_entry list;
   language : string option;
   audience_handle_claim : claim option;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   issued_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
 }
 
@@ -1230,9 +1444,13 @@ and act_as_grant = {
   audience : application_ref;
   scope_set : signed_act_as_scope_set;
   approved_scope : string list;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   issued_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   series_issued_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   renewable_until : string;
   device_fingerprint : string option;
 }
@@ -1247,7 +1465,9 @@ and act_as_grant_request = {
   grantee_handle_claim : claim option;
   callback_url : string;
   nonce : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   requested_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
 }
 
@@ -1256,7 +1476,9 @@ and signed_act_as_grant_request = { request : bytes; proof : grantee_proof }
 and act_as_refresh_request = {
   grant_id : string;
   grantee : grantee_ref;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   requested_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
   nonce : string;
 }
@@ -1273,6 +1495,7 @@ and act_as_presentation = {
   grant_hash : bytes;
   audience : application_ref;
   request_digest : bytes;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   presented_at : string;
   nonce : bytes;
 }
@@ -1291,6 +1514,7 @@ and act_as_grant_revocation = {
   grant_id : string;
   user_id : string;
   subject_domain : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   revoked_at : string;
 }
 
@@ -1364,15 +1588,23 @@ and act_as_grant_summary = {
   grantee : grantee_ref;
   audience : application_ref;
   approved_scope : string list;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   issued_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   renewable_until : string;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   revoked_at : string option;
 }
 
 and list_act_as_grants_response = { grants : act_as_grant_summary list }
 and revoke_act_as_grant_request = { grant_id : string }
-and revoke_act_as_grant_response = { revoked_at : string }
+
+and revoke_act_as_grant_response = {
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
+  revoked_at : string;
+}
 
 and preview_release_policy_request = {
   audience : string;
@@ -1382,7 +1614,7 @@ and preview_release_policy_request = {
   user_choices : string list;
   temp_audience : string option;
   temp_claim_type : string option;
-  temp_disposition : string option;
+  temp_disposition : release_disposition option;
 }
 
 and preview_release_row = {
@@ -1390,7 +1622,7 @@ and preview_release_row = {
   required : bool;
   available : bool;
   locked : bool;
-  policy : string;
+  policy : consent_row_policy;
   default_granted : bool;
 }
 
@@ -1424,6 +1656,7 @@ and inspect_signing_request_response = {
   subject_user_id : string;
   subject_domain : string;
   requested_claim_types : string list;
+  (* wire: CBOR tag 0 RFC3339 UTC timestamp text *)
   expires_at : string;
   issuable_claim_types : string list;
 }
@@ -1436,12 +1669,116 @@ and issue_for_signing_request_request = {
 
 and issued_claim_result = {
   claim_type : string;
-  outcome : string;
+  outcome : issued_claim_outcome;
   message : string option;
   claim_code : string option;
 }
 
 and issue_for_signing_request_response = { results : issued_claim_result list }
+
+val key_algorithm_label : key_algorithm -> string
+val key_algorithm_to_number : key_algorithm -> int64
+val key_algorithm_of_number : int64 -> key_algorithm option
+
+val key_usage_label : key_usage -> string
+val key_usage_to_number : key_usage -> int64
+val key_usage_of_number : int64 -> key_usage option
+
+val aead_suite_label : aead_suite -> string
+val aead_suite_to_number : aead_suite -> int64
+val aead_suite_of_number : int64 -> aead_suite option
+
+val claim_value_type_label : claim_value_type -> string
+val claim_value_type_to_number : claim_value_type -> int64
+val claim_value_type_of_number : int64 -> claim_value_type option
+
+val set_rule_label : set_rule -> string
+val set_rule_to_number : set_rule -> int64
+val set_rule_of_number : int64 -> set_rule option
+
+val signing_rule_label : signing_rule -> string
+val signing_rule_to_number : signing_rule -> int64
+val signing_rule_of_number : int64 -> signing_rule option
+
+val set_claim_outcome_label : set_claim_outcome -> string
+val set_claim_outcome_to_number : set_claim_outcome -> int64
+val set_claim_outcome_of_number : int64 -> set_claim_outcome option
+
+val release_disposition_label : release_disposition -> string
+val release_disposition_to_number : release_disposition -> int64
+val release_disposition_of_number : int64 -> release_disposition option
+
+val consent_row_policy_label : consent_row_policy -> string
+val consent_row_policy_to_number : consent_row_policy -> int64
+val consent_row_policy_of_number : int64 -> consent_row_policy option
+
+val claim_approval_status_label : claim_approval_status -> string
+val claim_approval_status_to_number : claim_approval_status -> int64
+val claim_approval_status_of_number : int64 -> claim_approval_status option
+
+val pin_recheck_outcome_label : pin_recheck_outcome -> string
+val pin_recheck_outcome_to_number : pin_recheck_outcome -> int64
+val pin_recheck_outcome_of_number : int64 -> pin_recheck_outcome option
+
+val notification_purpose_label : notification_purpose -> string
+val notification_purpose_to_number : notification_purpose -> int64
+val notification_purpose_of_number : int64 -> notification_purpose option
+
+val notification_channel_label : notification_channel -> string
+val notification_channel_to_number : notification_channel -> int64
+val notification_channel_of_number : int64 -> notification_channel option
+
+val destination_kind_label : destination_kind -> string
+val destination_kind_to_number : destination_kind -> int64
+val destination_kind_of_number : int64 -> destination_kind option
+
+val local_rp_policy_label : local_rp_policy -> string
+val local_rp_policy_to_number : local_rp_policy -> int64
+val local_rp_policy_of_number : int64 -> local_rp_policy option
+
+val local_rp_status_label : local_rp_status -> string
+val local_rp_status_to_number : local_rp_status -> int64
+val local_rp_status_of_number : int64 -> local_rp_status option
+
+val local_rp_admission_label : local_rp_admission -> string
+val local_rp_admission_to_number : local_rp_admission -> int64
+val local_rp_admission_of_number : int64 -> local_rp_admission option
+
+val app_access_mode_label : app_access_mode -> string
+val app_access_mode_to_number : app_access_mode -> int64
+val app_access_mode_of_number : int64 -> app_access_mode option
+
+val app_access_target_kind_label : app_access_target_kind -> string
+val app_access_target_kind_to_number : app_access_target_kind -> int64
+val app_access_target_kind_of_number : int64 -> app_access_target_kind option
+
+val claim_operator_label : claim_operator -> string
+val claim_operator_to_number : claim_operator -> int64
+val claim_operator_of_number : int64 -> claim_operator option
+
+val application_key_challenge_purpose_label : application_key_challenge_purpose -> string
+val application_key_challenge_purpose_to_number : application_key_challenge_purpose -> int64
+val application_key_challenge_purpose_of_number : int64 -> application_key_challenge_purpose option
+
+val auth_flow_label : auth_flow -> string
+val auth_flow_to_number : auth_flow -> int64
+val auth_flow_of_number : int64 -> auth_flow option
+
+val rp_cache_status_label : rp_cache_status -> string
+val rp_cache_status_to_number : rp_cache_status -> int64
+val rp_cache_status_of_number : int64 -> rp_cache_status option
+
+val account_kind_label : account_kind -> string
+val account_kind_to_number : account_kind -> int64
+val account_kind_of_number : int64 -> account_kind option
+
+val rp_error_code_label : rp_error_code -> string
+val rp_error_code_to_number : rp_error_code -> int64
+val rp_error_code_of_number : int64 -> rp_error_code option
+
+val issued_claim_outcome_label : issued_claim_outcome -> string
+val issued_claim_outcome_to_number : issued_claim_outcome -> int64
+val issued_claim_outcome_of_number : int64 -> issued_claim_outcome option
 
 val api_error_code_label : api_error_code -> string
 val api_error_code_to_number : api_error_code -> int64

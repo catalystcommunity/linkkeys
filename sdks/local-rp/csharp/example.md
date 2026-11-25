@@ -252,6 +252,19 @@ namespace RegularRpDemo.Rp;
 /// </summary>
 public static class RpTypes
 {
+    // Closed CSIL vocabularies are numbers on the wire. In memory this app keeps the
+    // text label (for example "text" or "login"). The SDK's Cbor.WireEnum maps the two.
+    public static readonly Cbor.WireEnum ClaimValueType = new("ClaimValueType",
+        ("text", 1), ("url", 2), ("email", 3), ("bool", 4), ("int", 5),
+        ("float", 6), ("decimal", 7), ("date", 8), ("timestamp", 9), ("opaque", 10));
+
+    public static readonly Cbor.WireEnum AuthFlow = new("AuthFlow", ("login", 1), ("claims_update", 2));
+
+    public static readonly Cbor.WireEnum RpErrorCode = new("RpErrorCode",
+        ("not_application_account", 1), ("application_mismatch", 2), ("application_user_limit", 3),
+        ("bad_request", 4), ("upstream_failed", 5), ("internal", 6));
+
+    /// <summary><c>Datatype</c> is a <see cref="ClaimValueType"/> label, for example <c>"text"</c>.</summary>
     public sealed record RequestedClaim(string ClaimType, string Datatype);
 
     public sealed record ClaimRequest(IReadOnlyList<RequestedClaim> Required, IReadOnlyList<RequestedClaim> Optional);
@@ -259,6 +272,10 @@ public static class RpTypes
     /// <summary>Optional signed context for first-login vs. claims-update flows. Not used by this walkthrough; included for CSIL completeness.</summary>
     public sealed record AuthFlowContext(string Flow, string? PriorSession, string? RequestReason);
 
+    /// <summary>
+    /// The RP server finds the application from the API key that calls it, so this
+    /// request has no <c>application_id</c> field.
+    /// </summary>
     public sealed record RpSignRequest(string CallbackUrl, string Nonce, ClaimRequest? RequestedClaims, AuthFlowContext? FlowContext);
 
     public sealed record RpSignResponse(string SignedRequest);
@@ -274,10 +291,11 @@ public static class RpTypes
         string Domain,
         string Audience,
         string Nonce,
-        string IssuedAt,
-        string ExpiresAt,
+        DateTimeOffset IssuedAt,
+        DateTimeOffset ExpiresAt,
         IReadOnlyList<string> AuthorizedClaims,
-        string? DisplayName);
+        string? DisplayName,
+        LinkKeys.LocalRp.Wire.Types.ApplicationRef Application);
 
     public sealed record RpVerifyResponse(IdentityAssertion Assertion, bool Verified);
 
@@ -288,6 +306,9 @@ public static class RpTypes
         string Domain,
         string DisplayName,
         IReadOnlyList<LinkKeys.LocalRp.Wire.Types.Claim> Claims);
+
+    /// <summary>The typed refusal every <c>Rp</c> op can send instead of its result.</summary>
+    public sealed record RpError(string Code, string Message);
 }
 
 /// <summary>
@@ -309,7 +330,7 @@ public static class RpCodec
     {
         var e = new List<Cbor.Entry>();
         Cbor.PutText(e, "claim_type", v.ClaimType);
-        Cbor.PutText(e, "datatype", v.Datatype);
+        e.Add(Cbor.EntryOf("datatype", RpTypes.ClaimValueType.Encode(v.Datatype)));
         return Cbor.VMapOf(e);
     }
 
@@ -326,7 +347,7 @@ public static class RpCodec
     private static Cbor.Value EncAuthFlowContext(RpTypes.AuthFlowContext v)
     {
         var e = new List<Cbor.Entry>();
-        Cbor.PutText(e, "flow", v.Flow);
+        e.Add(Cbor.EntryOf("flow", RpTypes.AuthFlow.Encode(v.Flow)));
         Cbor.PutOptText(e, "prior_session", v.PriorSession);
         Cbor.PutOptText(e, "request_reason", v.RequestReason);
         return Cbor.VMapOf(e);
@@ -394,10 +415,16 @@ public static class RpCodec
         Cbor.RequireText(m, "domain"),
         Cbor.RequireText(m, "audience"),
         Cbor.RequireText(m, "nonce"),
-        Cbor.RequireText(m, "issued_at"),
-        Cbor.RequireText(m, "expires_at"),
+        Cbor.RequireTimestamp(m, "issued_at"),
+        Cbor.RequireTimestamp(m, "expires_at"),
         Cbor.AsArray(Cbor.Require(m, "authorized_claims")).Select(Cbor.AsText).ToList(),
-        Cbor.OptText(m, "display_name"));
+        Cbor.OptText(m, "display_name"),
+        DecApplicationRef(Cbor.Require(m, "application")));
+
+    private static LinkKeys.LocalRp.Wire.Types.ApplicationRef DecApplicationRef(Cbor.Value m) => new(
+        Cbor.RequireText(m, "subject_user_id"),
+        Cbor.RequireText(m, "subject_domain"),
+        Cbor.RequireText(m, "application_id"));
 
     public static RpTypes.RpVerifyResponse DecodeRpVerifyResponse(byte[] data)
     {
@@ -445,10 +472,10 @@ public static class RpCodec
         Cbor.RequireText(m, "claim_type"),
         Cbor.RequireBytes(m, "claim_value"),
         Cbor.AsArray(Cbor.Require(m, "signatures")).Select(DecClaimSignature).ToList(),
-        Cbor.RequireText(m, "attested_at"),
-        Cbor.RequireText(m, "created_at"),
-        Cbor.OptText(m, "expires_at"),
-        Cbor.OptText(m, "revoked_at"));
+        Cbor.RequireTimestamp(m, "attested_at"),
+        Cbor.RequireTimestamp(m, "created_at"),
+        Cbor.OptTimestamp(m, "expires_at"),
+        Cbor.OptTimestamp(m, "revoked_at"));
 
     public static RpTypes.UserInfo DecodeUserInfo(byte[] data)
     {
@@ -459,8 +486,24 @@ public static class RpCodec
             Cbor.RequireText(m, "display_name"),
             Cbor.AsArray(Cbor.Require(m, "claims")).Select(DecClaim).ToList());
     }
+
+    // -----------------------------------------------------------------
+    // RpError
+    // -----------------------------------------------------------------
+
+    public static RpTypes.RpError DecodeRpError(byte[] data)
+    {
+        var m = Cbor.Decode(data);
+        return new RpTypes.RpError(
+            RpTypes.RpErrorCode.Decode(Cbor.Require(m, "code")),
+            Cbor.RequireText(m, "message"));
+    }
 }
 ```
+
+Timestamps use the SDK's `Cbor.RequireTimestamp` / `Cbor.OptTimestamp`. On the
+wire, a CSIL `timestamp` is CBOR tag 0 that holds RFC 3339 text in UTC. The
+decoder refuses a timestamp that has no tag 0.
 
 ### `RpClient.cs` — the RP-call glue
 
@@ -509,6 +552,17 @@ public sealed record RpConfig(string TcpAddr, IReadOnlyList<string> Fingerprints
 /// <see cref="ReadFrame"/> below inline the same ~20-line 4-byte-length-prefix routine,
 /// built from nothing but <see cref="Stream"/>.
 /// </summary>
+/// <summary>
+/// The RP server refused the call with a typed <c>RpError</c> (status 0, variant
+/// <c>RpError</c>). <see cref="Code"/> is an <c>RpErrorCode</c> label, for example
+/// <c>"not_application_account"</c>.
+/// </summary>
+public sealed class RpRefusedException(string op, string code, string message)
+    : Exception($"Rp/{op}: refused ({code}): {message}")
+{
+    public string Code { get; } = code;
+}
+
 public static class RpClient
 {
     /// <summary>Mirrors the SDK's own frame cap (<c>Rpc/StreamFraming.cs</c>'s <c>MaxFrameSize</c>) so a forged length prefix can't drive an unbounded allocation.</summary>
@@ -567,7 +621,7 @@ public static class RpClient
     /// <c>Rp</c> op additionally requires the key to hold the <c>api_access</c> relation
     /// server-side (SEC-06) — see example.md's Prerequisites.
     /// </summary>
-    private static byte[] Call(RpConfig cfg, string op, byte[] payload)
+    private static byte[] Call(RpConfig cfg, string op, string expectedVariant, byte[] payload)
     {
         var transport = new StdTransport();
         var raw = transport.Dial(cfg.TcpAddr);
@@ -584,20 +638,33 @@ public static class RpClient
             throw new InvalidOperationException($"Rp/{op}: server error ({resp.StatusCode}): {resp.Error}");
         }
 
+        // Status 0 has two arms: the op's result type, or a typed RpError. Read the
+        // variant name. Do not decode the payload as the result type without a check.
+        if (resp.Variant == "RpError")
+        {
+            var error = RpCodec.DecodeRpError(resp.Payload);
+            throw new RpRefusedException(op, error.Code, error.Message);
+        }
+
+        if (resp.Variant != expectedVariant)
+        {
+            throw new InvalidOperationException($"Rp/{op}: unexpected response variant '{resp.Variant}'");
+        }
+
         return resp.Payload;
     }
 
     public static RpTypes.RpSignResponse SignRequest(RpConfig cfg, RpTypes.RpSignRequest req) =>
-        RpCodec.DecodeRpSignResponse(Call(cfg, "sign-request", RpCodec.EncodeRpSignRequest(req)));
+        RpCodec.DecodeRpSignResponse(Call(cfg, "sign-request", "RpSignResponse", RpCodec.EncodeRpSignRequest(req)));
 
     public static RpTypes.RpDecryptResponse DecryptToken(RpConfig cfg, RpTypes.RpDecryptRequest req) =>
-        RpCodec.DecodeRpDecryptResponse(Call(cfg, "decrypt-token", RpCodec.EncodeRpDecryptRequest(req)));
+        RpCodec.DecodeRpDecryptResponse(Call(cfg, "decrypt-token", "RpDecryptResponse", RpCodec.EncodeRpDecryptRequest(req)));
 
     public static RpTypes.RpVerifyResponse VerifyAssertion(RpConfig cfg, RpTypes.RpVerifyRequest req) =>
-        RpCodec.DecodeRpVerifyResponse(Call(cfg, "verify-assertion", RpCodec.EncodeRpVerifyRequest(req)));
+        RpCodec.DecodeRpVerifyResponse(Call(cfg, "verify-assertion", "RpVerifyResponse", RpCodec.EncodeRpVerifyRequest(req)));
 
     public static RpTypes.UserInfo UserInfoFetch(RpConfig cfg, RpTypes.RpUserInfoRequest req) =>
-        RpCodec.DecodeUserInfo(Call(cfg, "userinfo-fetch", RpCodec.EncodeRpUserInfoRequest(req)));
+        RpCodec.DecodeUserInfo(Call(cfg, "userinfo-fetch", "UserInfo", RpCodec.EncodeRpUserInfoRequest(req)));
 }
 ```
 
@@ -1105,6 +1172,11 @@ checkout's `sdks/local-rp/csharp/src/LinkKeys.LocalRp`:
 source "${CATALYST_TOOLS:-$HOME/.local/catalyst-tools}/env.sh"   # dotnet 8.0.422
 dotnet build   # Build succeeded. 0 Warning(s), 0 Error(s)
 ```
+
+After the wire format change (tag-0 timestamps, number enums, the required
+`IdentityAssertion.application`, and the `RpError` response arm), the four
+files were built again against this checkout. The build had no warnings and no
+errors. The run below is from before that change.
 
 It was then actually **run** (`dotnet run`) with dummy
 `RP_TCP_ADDR`/`RP_FINGERPRINTS`/`RP_API_KEY` values, and exercised over HTTP:

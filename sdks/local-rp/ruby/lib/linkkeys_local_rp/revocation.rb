@@ -3,6 +3,7 @@
 require_relative 'crypto'
 require_relative 'cbor'
 require_relative 'types'
+require_relative 'timeutil'
 
 module LinkkeysLocalRp
   # Sibling-signed key revocation certificate verification.
@@ -58,8 +59,10 @@ module LinkkeysLocalRp
     # The canonical signed bytes: CBOR([tag, target_key_id,
     # target_fingerprint, revoked_at, signing_domain]) -- the signing
     # sibling's domain is bound per-signature to stop cross-domain reuse.
+    # `revoked_at` is signed as whole Unix seconds (a CBOR integer). Raises
+    # ArgumentError when `revoked_at` has a fraction of a second.
     def revocation_payload(target_key_id, target_fingerprint, revoked_at, signing_domain)
-      Cbor.encode([REVOCATION_TAG, target_key_id, target_fingerprint, revoked_at, signing_domain])
+      Cbor.encode([REVOCATION_TAG, target_key_id, target_fingerprint, Timeutil.signed_seconds(revoked_at), signing_domain])
     end
 
     # Count the DISTINCT signer key ids whose signature survives every
@@ -70,6 +73,13 @@ module LinkkeysLocalRp
     # tests only.
     def count_valid_signers(cert, domain_keys, domain, now = nil)
       now ||= Time.now.getutc
+      # A revoked_at with a fraction of a second cannot be signed, so no
+      # signature over it can count.
+      begin
+        Timeutil.signed_seconds(cert.revoked_at)
+      rescue ArgumentError
+        return 0
+      end
 
       valid_signers = {}
       cert.signatures.each do |sig|

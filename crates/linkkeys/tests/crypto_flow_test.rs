@@ -6,19 +6,31 @@ use liblinkkeys::auth_request;
 use liblinkkeys::crypto;
 use liblinkkeys::encoding;
 use liblinkkeys::generated::types::{DomainPublicKey, EncryptedToken};
-use liblinkkeys::timestamp::Rfc3339 as _;
+
+/// The application principal a relying party names in its auth request. It
+/// belongs to the domain that signs the request.
+fn rp_application(domain: &str) -> liblinkkeys::generated::types::RelyingPartyApplication {
+    liblinkkeys::generated::types::RelyingPartyApplication {
+        application: liblinkkeys::generated::types::ApplicationRef {
+            subject_user_id: "rp-app-account".to_string(),
+            subject_domain: domain.to_string(),
+            application_id: "test-app".to_string(),
+        },
+        display_name: "Test App".to_string(),
+    }
+}
 
 fn make_domain_key(key_id: &str, pk_bytes: &[u8]) -> DomainPublicKey {
     DomainPublicKey {
         key_id: key_id.to_string(),
         public_key: pk_bytes.to_vec(),
         fingerprint: crypto::fingerprint(pk_bytes),
-        algorithm: "ed25519".to_string(),
-        key_usage: "sign".to_string(),
+        algorithm: liblinkkeys::generated::types::KeyAlgorithm::Ed25519,
+        key_usage: liblinkkeys::generated::types::KeyUsage::Sign,
         signed_by_key_id: None,
         key_signature: None,
-        created_at: time::OffsetDateTime::now_utc().to_rfc3339(),
-        expires_at: (time::OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339(),
+        created_at: time::OffsetDateTime::now_utc(),
+        expires_at: time::OffsetDateTime::now_utc() + time::Duration::hours(1),
         revoked_at: None,
     }
 }
@@ -43,6 +55,7 @@ fn test_full_mutual_auth_flow() {
         "rp-key-1",
         None,
         None,
+        rp_application("rp.example.com"),
     );
     let signed_req = auth_request::sign_auth_request(
         &auth_req,
@@ -68,6 +81,7 @@ fn test_full_mutual_auth_flow() {
         Some("Alice"),
         300,
         vec![],
+        rp_application("rp.example.com").application,
     );
     let signed_assertion = assertions::sign_assertion(
         &assertion,
@@ -79,7 +93,7 @@ fn test_full_mutual_auth_flow() {
 
     // Step 4: IDP encrypts the signed assertion for the RP
     let assertion_cbor =
-        liblinkkeys::generated::encode_signed_identity_assertion(&signed_assertion);
+        liblinkkeys::generated::encode_signed_identity_assertion(&signed_assertion).unwrap();
 
     // The RP has a dedicated X25519 encryption key (NOT derived from its signing key).
     let (rp_enc_pub, rp_enc_priv) = crypto::generate_x25519_keypair();
@@ -87,7 +101,7 @@ fn test_full_mutual_auth_flow() {
     let sealed = crypto::sealed_box_encrypt(
         &assertion_cbor,
         &rp_enc_pub_arr,
-        crypto::AeadSuite::Aes256Gcm,
+        &crypto::AeadSuite::Aes256Gcm,
     )
     .unwrap();
 
@@ -106,13 +120,13 @@ fn test_full_mutual_auth_flow() {
     let decoded_token = encoding::encrypted_token_from_url_param(&token_param).unwrap();
 
     let rp_enc_priv_arr: [u8; 32] = rp_enc_priv.try_into().unwrap();
-    let suite = crypto::resolve_aead_suite(decoded_token.suite.as_deref()).unwrap();
+    let suite = crypto::resolve_aead_suite(decoded_token.suite.as_ref());
     let decrypted = crypto::sealed_box_decrypt(
         &decoded_token.ephemeral_public_key,
         &decoded_token.nonce,
         &decoded_token.ciphertext,
         &rp_enc_priv_arr,
-        suite,
+        &suite,
     )
     .unwrap();
 
@@ -137,7 +151,7 @@ fn test_encrypted_token_wrong_rp_fails() {
     let plaintext = b"signed assertion cbor bytes";
     let rp_enc_pub_arr: [u8; 32] = rp_enc_pub.try_into().unwrap();
     let sealed =
-        crypto::sealed_box_encrypt(plaintext, &rp_enc_pub_arr, crypto::AeadSuite::Aes256Gcm)
+        crypto::sealed_box_encrypt(plaintext, &rp_enc_pub_arr, &crypto::AeadSuite::Aes256Gcm)
             .unwrap();
 
     // Try to decrypt with the wrong RP's encryption key.
@@ -147,7 +161,7 @@ fn test_encrypted_token_wrong_rp_fails() {
         &sealed.nonce,
         &sealed.ciphertext,
         &wrong_priv_arr,
-        crypto::AeadSuite::Aes256Gcm,
+        &crypto::AeadSuite::Aes256Gcm,
     );
     assert!(result.is_err(), "Wrong RP should not be able to decrypt");
 }
@@ -166,6 +180,7 @@ fn test_auth_request_wrong_rp_key_rejected() {
         "rp-key-1",
         None,
         None,
+        rp_application("rp.example.com"),
     );
     let signed_req = auth_request::sign_auth_request(
         &auth_req,

@@ -50,6 +50,8 @@ pub mod pg {
             purged_at -> Nullable<Timestamptz>,
             purge_reason -> Nullable<Varchar>,
             password_locked -> Bool,
+            kind -> Varchar,
+            application_id -> Nullable<Varchar>,
         }
     }
 
@@ -63,6 +65,47 @@ pub mod pg {
             expires_at -> Nullable<Timestamptz>,
             revoked_at -> Nullable<Timestamptz>,
             updated_at -> Timestamptz,
+            name -> Nullable<Varchar>,
+            hint -> Nullable<Varchar>,
+            last_used_at -> Nullable<Timestamptz>,
+        }
+    }
+
+    diesel::table! {
+        account_limits (user_id) {
+            user_id -> Uuid,
+            max_api_keys -> Nullable<Integer>,
+            max_distinct_users -> Nullable<Integer>,
+            distinct_user_window_days -> Integer,
+            requests_per_minute -> Nullable<Integer>,
+            request_burst -> Nullable<Integer>,
+            updated_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        application_users (account_id, user_hash) {
+            account_id -> Uuid,
+            user_hash -> Bytea,
+            last_seen_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        rp_login_nonces (account_id, nonce_hash) {
+            account_id -> Uuid,
+            nonce_hash -> Bytea,
+            expires_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
+        rp_usage_days (account_id, day, operation) {
+            account_id -> Uuid,
+            day -> Date,
+            operation -> Varchar,
+            succeeded -> BigInt,
+            failed -> BigInt,
         }
     }
 
@@ -660,6 +703,10 @@ pub mod pg {
         app_access_policies,
         app_access_policy_patterns,
         app_access_policy_targets,
+        account_limits,
+        application_users,
+        rp_usage_days,
+        rp_login_nonces,
     );
 }
 
@@ -712,6 +759,8 @@ pub mod sqlite {
             purged_at -> Nullable<Text>,
             purge_reason -> Nullable<Text>,
             password_locked -> Integer,
+            kind -> Text,
+            application_id -> Nullable<Text>,
         }
     }
 
@@ -725,6 +774,47 @@ pub mod sqlite {
             expires_at -> Nullable<Text>,
             revoked_at -> Nullable<Text>,
             updated_at -> Text,
+            name -> Nullable<Text>,
+            hint -> Nullable<Text>,
+            last_used_at -> Nullable<Text>,
+        }
+    }
+
+    diesel::table! {
+        account_limits (user_id) {
+            user_id -> Text,
+            max_api_keys -> Nullable<Integer>,
+            max_distinct_users -> Nullable<Integer>,
+            distinct_user_window_days -> Integer,
+            requests_per_minute -> Nullable<Integer>,
+            request_burst -> Nullable<Integer>,
+            updated_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        application_users (account_id, user_hash) {
+            account_id -> Text,
+            user_hash -> Binary,
+            last_seen_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        rp_login_nonces (account_id, nonce_hash) {
+            account_id -> Text,
+            nonce_hash -> Binary,
+            expires_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        rp_usage_days (account_id, day, operation) {
+            account_id -> Text,
+            day -> Text,
+            operation -> Text,
+            succeeded -> BigInt,
+            failed -> BigInt,
         }
     }
 
@@ -1322,5 +1412,9 @@ pub mod sqlite {
         app_access_policies,
         app_access_policy_patterns,
         app_access_policy_targets,
+        account_limits,
+        application_users,
+        rp_usage_days,
+        rp_login_nonces,
     );
 }

@@ -25,8 +25,8 @@
 //!   certificates but forgets to *apply* them fails this case.
 
 use liblinkkeys::generated::types::{
-    ClaimSignature, DomainPublicKey, GetDomainKeysResponse, GetRevocationsResponse,
-    RevocationCertificate, SignedLocalRpCallbackPayload,
+    ClaimSignature, DomainPublicKey, GetDomainKeysResponse, GetRevocationsResponse, KeyAlgorithm,
+    KeyUsage, RevocationCertificate, SignedLocalRpCallbackPayload,
 };
 use liblinkkeys::revocation::{verify_revocation_certificate, RevocationError, REVOCATION_QUORUM};
 use linkkeys_local_rp::dns::{DnsLookupError, DnsResolver};
@@ -42,6 +42,10 @@ fn load_revocations() -> Value {
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("read {}: {} (run the generator?)", path.display(), e));
     serde_json::from_str(&text).unwrap_or_else(|e| panic!("parse {}: {}", path.display(), e))
+}
+
+fn ts(s: &str) -> time::OffsetDateTime {
+    liblinkkeys::timestamp::parse_rfc3339(s).unwrap_or_else(|e| panic!("bad RFC 3339 {s:?}: {e}"))
 }
 
 fn hex_decode(s: &str) -> Vec<u8> {
@@ -66,11 +70,11 @@ fn fixture_domain_keys(d: &Value) -> Vec<DomainPublicKey> {
             key_id: k["key_id"].as_str().unwrap().to_string(),
             public_key: hex_decode(k["public_key_hex"].as_str().unwrap()),
             fingerprint: k["fingerprint_hex"].as_str().unwrap().to_string(),
-            algorithm: k["algorithm"].as_str().unwrap().to_string(),
-            key_usage: k["key_usage"].as_str().unwrap().to_string(),
-            created_at: k["created_at"].as_str().unwrap().to_string(),
-            expires_at: k["expires_at"].as_str().unwrap().to_string(),
-            revoked_at: k["revoked_at"].as_str().map(|s| s.to_string()),
+            algorithm: KeyAlgorithm::from_label(k["algorithm"].as_str().unwrap()).unwrap(),
+            key_usage: KeyUsage::from_label(k["key_usage"].as_str().unwrap()).unwrap(),
+            created_at: ts(k["created_at"].as_str().unwrap()),
+            expires_at: ts(k["expires_at"].as_str().unwrap()),
+            revoked_at: k["revoked_at"].as_str().map(ts),
             signed_by_key_id: None,
             key_signature: None,
         })
@@ -84,7 +88,7 @@ fn certificate_from_case(case: &Value) -> RevocationCertificate {
     RevocationCertificate {
         target_key_id: cert["target_key_id"].as_str().unwrap().to_string(),
         target_fingerprint: cert["target_fingerprint"].as_str().unwrap().to_string(),
-        revoked_at: cert["revoked_at"].as_str().unwrap().to_string(),
+        revoked_at: ts(cert["revoked_at"].as_str().unwrap()),
         signatures: cert["signatures"]
             .as_array()
             .unwrap()
@@ -121,7 +125,7 @@ fn revocations_certificate_cbor_round_trips() {
             .unwrap_or_else(|e| panic!("{name}: decode certificate_cbor_hex: {e}"));
         assert_eq!(decoded, expected, "{name}: wire/expanded field mismatch");
         assert_eq!(
-            liblinkkeys::generated::encode_revocation_certificate(&expected),
+            liblinkkeys::generated::encode_revocation_certificate(&expected).unwrap(),
             cbor,
             "{name}: re-encode is not byte-identical"
         );
@@ -342,13 +346,15 @@ fn revocations_application_case_flips_envelope_from_valid_to_invalid() {
                     domain: domain_for_wire.clone(),
                     keys: keys_for_wire.clone(),
                     recent_revocations_available: Some(true),
-                }),
+                })
+                .unwrap(),
             ),
             ("DomainKeys", "get-revocations") => csilgen_transport::rpc::RpcResponse::ok(
                 "GetRevocationsResponse",
                 liblinkkeys::generated::encode_get_revocations_response(&GetRevocationsResponse {
                     revocations: vec![cert.clone()],
-                }),
+                })
+                .unwrap(),
             ),
             _ => csilgen_transport::rpc::RpcResponse::transport_error(
                 csilgen_transport::Status::UnknownServiceOrOp,

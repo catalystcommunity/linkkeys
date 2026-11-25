@@ -20,8 +20,8 @@ use common::data_factory::{
     create_user, DataMap,
 };
 use liblinkkeys::generated::types::{
-    AddTrustedIssuerRequest, EmptyRequest, RemoveReleaseRuleRequest, RemoveTrustedIssuerRequest,
-    SetReleaseRuleRequest,
+    AddTrustedIssuerRequest, EmptyRequest, ReleaseDisposition, RemoveReleaseRuleRequest,
+    RemoveTrustedIssuerRequest, SetReleaseRuleRequest,
 };
 use linkkeys::services::auth;
 
@@ -52,7 +52,7 @@ fn make_caller(pool: &linkkeys::db::DbPool, is_admin: bool) -> String {
 fn list_trusted_issuers_requires_admin() {
     let pool = setup();
     create_trusted_issuer(&pool, "age_over_21", "gov.example");
-    let payload = liblinkkeys::generated::encode_empty_request(&EmptyRequest {});
+    let payload = liblinkkeys::generated::encode_empty_request(&EmptyRequest {}).unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -93,7 +93,8 @@ fn add_trusted_issuer_requires_admin() {
         liblinkkeys::generated::encode_add_trusted_issuer_request(&AddTrustedIssuerRequest {
             claim_type: "citizenship".to_string(),
             issuer_domain: "passports.example".to_string(),
-        });
+        })
+        .unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -137,7 +138,8 @@ fn add_then_list_trusted_issuer_round_trips() {
         liblinkkeys::generated::encode_add_trusted_issuer_request(&AddTrustedIssuerRequest {
             claim_type: "age_over_21".to_string(),
             issuer_domain: "dmv.example".to_string(),
-        }),
+        })
+        .unwrap(),
         Some(&admin_key),
         &pool,
         None,
@@ -147,7 +149,7 @@ fn add_then_list_trusted_issuer_round_trips() {
     let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "list-trusted-issuers",
-        liblinkkeys::generated::encode_empty_request(&EmptyRequest {}),
+        liblinkkeys::generated::encode_empty_request(&EmptyRequest {}).unwrap(),
         Some(&admin_key),
         &pool,
         None,
@@ -176,7 +178,7 @@ fn add_trusted_issuer_is_idempotent() {
         let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
             "Admin",
             "add-trusted-issuer",
-            liblinkkeys::generated::encode_add_trusted_issuer_request(&req),
+            liblinkkeys::generated::encode_add_trusted_issuer_request(&req).unwrap(),
             Some(&admin_key),
             &pool,
             None,
@@ -205,7 +207,8 @@ fn remove_trusted_issuer_requires_admin_and_deletes() {
         liblinkkeys::generated::encode_remove_trusted_issuer_request(&RemoveTrustedIssuerRequest {
             claim_type: "age_over_21".to_string(),
             issuer_domain: "dmv.example".to_string(),
-        });
+        })
+        .unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -250,7 +253,7 @@ fn remove_trusted_issuer_requires_admin_and_deletes() {
 fn list_release_rules_requires_admin() {
     let pool = setup();
     create_release_rule(&pool, "*", "email", "forced_allow");
-    let payload = liblinkkeys::generated::encode_empty_request(&EmptyRequest {});
+    let payload = liblinkkeys::generated::encode_empty_request(&EmptyRequest {}).unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -278,7 +281,7 @@ fn list_release_rules_requires_admin() {
     assert_eq!(resp.release_rules.len(), 1);
     assert_eq!(resp.release_rules[0].audience, "*");
     assert_eq!(resp.release_rules[0].claim_type, "email");
-    assert_eq!(resp.release_rules[0].disposition, "forced_allow");
+    assert_eq!(resp.release_rules[0].disposition.as_str(), "forced_allow");
 }
 
 // ---------------------------------------------------------------------
@@ -291,8 +294,9 @@ fn set_release_rule_requires_admin() {
     let payload = liblinkkeys::generated::encode_set_release_rule_request(&SetReleaseRuleRequest {
         audience: "rp.example".to_string(),
         claim_type: "email".to_string(),
-        disposition: "forced_deny".to_string(),
-    });
+        disposition: ReleaseDisposition::ForcedDeny,
+    })
+    .unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -323,7 +327,7 @@ fn set_release_rule_requires_admin() {
         .expect("decode SetReleaseRuleResponse");
     assert_eq!(resp.release_rule.audience, "rp.example");
     assert_eq!(resp.release_rule.claim_type, "email");
-    assert_eq!(resp.release_rule.disposition, "forced_deny");
+    assert_eq!(resp.release_rule.disposition.as_str(), "forced_deny");
 }
 
 #[test]
@@ -337,8 +341,9 @@ fn set_then_list_release_rule_round_trips() {
         liblinkkeys::generated::encode_set_release_rule_request(&SetReleaseRuleRequest {
             audience: "rp.example".to_string(),
             claim_type: "handle".to_string(),
-            disposition: "forced_allow".to_string(),
-        }),
+            disposition: ReleaseDisposition::ForcedAllow,
+        })
+        .unwrap(),
         Some(&admin_key),
         &pool,
         None,
@@ -348,7 +353,7 @@ fn set_then_list_release_rule_round_trips() {
     let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "list-release-rules",
-        liblinkkeys::generated::encode_empty_request(&EmptyRequest {}),
+        liblinkkeys::generated::encode_empty_request(&EmptyRequest {}).unwrap(),
         Some(&admin_key),
         &pool,
         None,
@@ -361,7 +366,7 @@ fn set_then_list_release_rule_round_trips() {
         .iter()
         .find(|r| r.audience == "rp.example" && r.claim_type == "handle")
         .expect("release rule present after set");
-    assert_eq!(entry.disposition, "forced_allow");
+    assert_eq!(entry.disposition.as_str(), "forced_allow");
 }
 
 /// `set-release-rule` is an upsert keyed on (audience, claim_type): setting
@@ -372,15 +377,19 @@ fn set_release_rule_upserts_existing() {
     let pool = setup();
     let admin_key = make_caller(&pool, true);
 
-    for disposition in ["forced_allow", "forced_deny"] {
+    for disposition in [
+        ReleaseDisposition::ForcedAllow,
+        ReleaseDisposition::ForcedDeny,
+    ] {
         let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
             "Admin",
             "set-release-rule",
             liblinkkeys::generated::encode_set_release_rule_request(&SetReleaseRuleRequest {
                 audience: "*".to_string(),
                 claim_type: "role".to_string(),
-                disposition: disposition.to_string(),
-            }),
+                disposition,
+            })
+            .unwrap(),
             Some(&admin_key),
             &pool,
             None,
@@ -395,32 +404,7 @@ fn set_release_rule_upserts_existing() {
         .filter(|r| r.audience == "*" && r.claim_type == "role")
         .collect();
     assert_eq!(matches.len(), 1, "upsert must not create a duplicate row");
-    assert_eq!(matches[0].disposition, "forced_deny");
-}
-
-#[test]
-fn set_release_rule_rejects_invalid_disposition() {
-    let pool = setup();
-    let admin_key = make_caller(&pool, true);
-    let payload = liblinkkeys::generated::encode_set_release_rule_request(&SetReleaseRuleRequest {
-        audience: "*".to_string(),
-        claim_type: "email".to_string(),
-        disposition: "maybe".to_string(),
-    });
-
-    let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
-        "Admin",
-        "set-release-rule",
-        payload,
-        Some(&admin_key),
-        &pool,
-        None,
-    );
-    assert_ne!(status, 0, "an invalid disposition must be rejected");
-    assert!(
-        pool.list_release_policies().unwrap().is_empty(),
-        "a rejected set-release-rule call must not persist anything"
-    );
+    assert_eq!(matches[0].disposition.as_str(), "forced_deny");
 }
 
 // ---------------------------------------------------------------------
@@ -435,7 +419,8 @@ fn remove_release_rule_requires_admin_and_deletes() {
         liblinkkeys::generated::encode_remove_release_rule_request(&RemoveReleaseRuleRequest {
             audience: "*".to_string(),
             claim_type: "email".to_string(),
-        });
+        })
+        .unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(

@@ -22,6 +22,11 @@ final class Claims
      * (not the bare user_id), so a claim about a user_id at one domain can't
      * be replayed as the same user_id at another. `signing_domain` — the
      * attestor for THIS signature — is bound per-signature.
+     *
+     * `$expiresAt` and `$attestedAt` are RFC 3339 text. The payload carries
+     * them as whole Unix seconds (CBOR integers). Throws
+     * `\InvalidArgumentException` when one has a fraction of a second: such
+     * a claim was never signed.
      */
     public static function claimSignPayload(
         string $claimId,
@@ -41,8 +46,8 @@ final class Claims
             Cbor::bytes($claimValue),
             $subject,
             $signingDomain,
-            $expiresAt,
-            $attestedAt,
+            Time::signedSecondsOptional($expiresAt),
+            Time::signedSeconds($attestedAt),
         ]);
     }
 
@@ -115,16 +120,20 @@ final class Claims
                 throw new ClaimError(ClaimError::DOMAIN_KEYS_UNAVAILABLE, $signingDomain);
             }
 
-            $payload = self::claimSignPayload(
-                $claim->claimId,
-                $claim->claimType,
-                $claim->claimValue,
-                $claim->userId,
-                $subjectDomain,
-                $signingDomain,
-                $claim->expiresAt,
-                $claim->attestedAt
-            );
+            try {
+                $payload = self::claimSignPayload(
+                    $claim->claimId,
+                    $claim->claimType,
+                    $claim->claimValue,
+                    $claim->userId,
+                    $subjectDomain,
+                    $signingDomain,
+                    $claim->expiresAt,
+                    $claim->attestedAt
+                );
+            } catch (\InvalidArgumentException $e) {
+                throw new ClaimError(ClaimError::BAD_TIMESTAMP, 'claim has a timestamp that cannot be signed', $e);
+            }
 
             $satisfied = false;
             $lastErr = new ClaimError(ClaimError::DOMAIN_UNVERIFIED, $signingDomain);
@@ -197,6 +206,7 @@ final class ClaimError extends \RuntimeException
     public const REVOKED = 'revoked';
     public const EXPIRED = 'expired';
     public const BAD_EXPIRY = 'bad_expiry';
+    public const BAD_TIMESTAMP = 'bad_timestamp';
     public const UNSIGNED = 'unsigned';
     public const DOMAIN_KEYS_UNAVAILABLE = 'domain_keys_unavailable';
     public const DOMAIN_UNVERIFIED = 'domain_unverified';

@@ -1,10 +1,9 @@
 (* Shared JSON-vector loading helpers for the conformance test suite.
 
-   Vectors live in sdks/local-rp/conformance/, made available to this
-   test's sandbox via test/dune's glob_files_rec deps stanza covering
-   ../../conformance -- so at runtime (dune executes tests with cwd set to the build
-   directory mirroring this source directory) the relative path below
-   resolves correctly under `dune runtest`. *)
+   Vectors live in sdks/local-rp/conformance/, outside this dune
+   workspace. test/dune declares [(universe)] as a dependency, so
+   `dune runtest` runs the tests every time and a vector change is never
+   hidden behind a cached result. *)
 
 open Linkkeys_local_rp
 module J = Yojson.Safe.Util
@@ -12,7 +11,8 @@ module J = Yojson.Safe.Util
 (* The conformance vectors live in sdks/local-rp/conformance/, a sibling of
    this dune-project's root (sdks/local-rp/ocaml/) -- i.e. outside this
    dune workspace, which rules out declaring it as a tracked `deps` glob
-   ("path outside the workspace"). `dune runtest`'s default (unsandboxed)
+   ("path outside the workspace"); test/dune uses [(universe)] instead.
+   `dune runtest`'s default (unsandboxed)
    rule execution runs this test binary with cwd literally at
    [_build/default/test/] on the real filesystem, with `_build` created
    directly inside the invoked project root (ocaml/) -- so a plain

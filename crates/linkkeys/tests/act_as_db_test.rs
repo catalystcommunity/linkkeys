@@ -7,6 +7,10 @@ use common::data_factory::{create_act_as_grant, create_user, DataMap};
 use linkkeys::db::act_as::GranteeColumns;
 use serde_json::json;
 
+fn t(s: &str) -> time::OffsetDateTime {
+    liblinkkeys::timestamp::parse_rfc3339(s).unwrap()
+}
+
 fn map(entries: &[(&str, serde_json::Value)]) -> DataMap {
     entries
         .iter()
@@ -84,9 +88,9 @@ fn replace_current_requires_the_expiry_the_caller_read() {
         pool.replace_current_act_as_grant(
             &record.grant_id,
             b"renewed",
-            "2026-10-06T12:40:00Z",
-            "2026-10-06T13:40:00Z",
-            "2026-10-06T12:30:00Z",
+            &t("2026-10-06T12:40:00Z"),
+            &t("2026-10-06T13:40:00Z"),
+            &t("2026-10-06T12:30:00Z"),
         )
         .unwrap(),
         0
@@ -95,8 +99,8 @@ fn replace_current_requires_the_expiry_the_caller_read() {
         pool.replace_current_act_as_grant(
             &record.grant_id,
             b"renewed",
-            "2026-10-06T12:40:00Z",
-            "2026-10-06T13:40:00Z",
+            &t("2026-10-06T12:40:00Z"),
+            &t("2026-10-06T13:40:00Z"),
             &record.expires_at,
         )
         .unwrap(),
@@ -104,8 +108,8 @@ fn replace_current_requires_the_expiry_the_caller_read() {
     );
     let found = pool.find_act_as_grant(&record.grant_id).unwrap().unwrap();
     assert_eq!(found.signed_grant, b"renewed");
-    assert_eq!(found.issued_at, "2026-10-06T12:40:00Z");
-    assert_eq!(found.expires_at, "2026-10-06T13:40:00Z");
+    assert_eq!(found.issued_at, t("2026-10-06T12:40:00Z"));
+    assert_eq!(found.expires_at, t("2026-10-06T13:40:00Z"));
     assert_eq!(found.series_issued_at, record.series_issued_at);
     assert_eq!(found.renewable_until, record.renewable_until);
 }
@@ -119,7 +123,7 @@ fn revoke_is_owner_only_and_once() {
         pool.revoke_act_as_grant(
             &record.grant_id,
             &stranger.id,
-            "2026-10-06T12:30:00Z",
+            &t("2026-10-06T12:30:00Z"),
             b"rev"
         )
         .unwrap(),
@@ -129,7 +133,7 @@ fn revoke_is_owner_only_and_once() {
         pool.revoke_act_as_grant(
             &record.grant_id,
             &record.user_id,
-            "2026-10-06T12:30:00Z",
+            &t("2026-10-06T12:30:00Z"),
             b"rev"
         )
         .unwrap(),
@@ -139,22 +143,22 @@ fn revoke_is_owner_only_and_once() {
         pool.revoke_act_as_grant(
             &record.grant_id,
             &record.user_id,
-            "2026-10-06T12:31:00Z",
+            &t("2026-10-06T12:31:00Z"),
             b"rev2"
         )
         .unwrap(),
         0
     );
     let found = pool.find_act_as_grant(&record.grant_id).unwrap().unwrap();
-    assert_eq!(found.revoked_at.as_deref(), Some("2026-10-06T12:30:00Z"));
+    assert_eq!(found.revoked_at, Some(t("2026-10-06T12:30:00Z")));
     assert_eq!(found.signed_revocation.as_deref(), Some(&b"rev"[..]));
     // A revoked grant can no longer be renewed.
     assert_eq!(
         pool.replace_current_act_as_grant(
             &record.grant_id,
             b"renewed",
-            "2026-10-06T12:40:00Z",
-            "2026-10-06T13:40:00Z",
+            &t("2026-10-06T12:40:00Z"),
+            &t("2026-10-06T13:40:00Z"),
             &record.expires_at,
         )
         .unwrap(),
@@ -172,7 +176,7 @@ fn revocations_returns_only_requested_revoked_grants() {
         pool.revoke_act_as_grant(
             &g.grant_id,
             &g.user_id,
-            "2026-10-06T12:30:00Z",
+            &t("2026-10-06T12:30:00Z"),
             g.grant_id.as_bytes(),
         )
         .unwrap();

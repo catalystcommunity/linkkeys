@@ -32,13 +32,13 @@ use liblinkkeys::application_keys::{
 use liblinkkeys::generated::services::ServiceError;
 use liblinkkeys::generated::types::{
     AddApplicationKeyRequest, AddApplicationKeyResponse, ApplicationKeyAddition,
-    ApplicationKeyRevocation, EnrollApplicationInstanceRequest, EnrollApplicationInstanceResponse,
-    GetApplicationKeysRequest, GetApplicationKeysResponse, RenewApplicationKeyAttestationRequest,
+    ApplicationKeyChallengePurpose, ApplicationKeyRevocation, EnrollApplicationInstanceRequest,
+    EnrollApplicationInstanceResponse, GetApplicationKeysRequest, GetApplicationKeysResponse,
+    KeyAlgorithm, KeyUsage, RenewApplicationKeyAttestationRequest,
     RenewApplicationKeyAttestationResponse, RevokeApplicationKeyRequest,
     RevokeApplicationKeyResponse, SignedApplicationKeyAttestation,
     StartApplicationKeyChallengeRequest, StartApplicationKeyChallengeResponse,
 };
-use liblinkkeys::timestamp::Rfc3339 as _;
 use std::sync::LazyLock;
 use time::{Duration, OffsetDateTime};
 
@@ -235,19 +235,14 @@ fn protocol(e: ApplicationKeyError) -> ServiceError {
 fn to_key_ref(row: &ApplicationKeyRow) -> ApplicationKeyRef {
     ApplicationKeyRef {
         key_id: row.key_id.clone(),
-        key_usage: row.key_usage.clone(),
-        algorithm: row.algorithm.clone(),
+        key_usage: crate::conversions::stored_key_usage(&row.key_usage),
+        algorithm: crate::conversions::stored_key_algorithm(&row.algorithm),
         public_key: row.public_key.clone(),
         fingerprint: row.fingerprint.clone(),
-        created_at: row.created_at.clone(),
-        expires_at: row.expires_at.clone(),
-        revoked_at: row.revoked_at.clone(),
+        created_at: row.created_at,
+        expires_at: row.expires_at,
+        revoked_at: row.revoked_at,
     }
-}
-
-fn parse_rfc3339(value: &str) -> Result<OffsetDateTime, ServiceError> {
-    liblinkkeys::timestamp::parse_rfc3339(value)
-        .map_err(|e| bad_request(format!("bad timestamp: {e}")))
 }
 
 // ---------------------------------------------------------------------------
@@ -266,13 +261,6 @@ pub fn start_challenge(
     request: StartApplicationKeyChallengeRequest,
     now: OffsetDateTime,
 ) -> Result<StartApplicationKeyChallengeResponse, ServiceError> {
-    if request.purpose != ak::PURPOSE_ADD && request.purpose != ak::PURPOSE_RENEW {
-        return Err(bad_request(format!(
-            "purpose must be {} or {}",
-            ak::PURPOSE_ADD,
-            ak::PURPOSE_RENEW
-        )));
-    }
     // This operation is anonymous and it WRITES a row, so every value that
     // reaches storage is bounded first. Without this an unauthenticated caller
     // could use the identifier fields as a payload.
@@ -311,9 +299,9 @@ pub fn start_challenge(
         &request.subject_user_id,
         &request.application_id,
         &request.instance_id,
-        &request.purpose,
-        &request.key_usage,
-        &request.algorithm,
+        request.purpose.as_str(),
+        request.key_usage.as_str(),
+        request.algorithm.as_str(),
         &request.public_key,
         &nonce,
         expires_at,
@@ -337,7 +325,7 @@ pub fn start_challenge(
             challenge_id,
             challenge: None,
             sealed_challenge: Some(sealed),
-            expires_at: expires_at.to_rfc3339(),
+            expires_at,
         });
     }
 
@@ -345,7 +333,7 @@ pub fn start_challenge(
         challenge_id,
         challenge: Some(nonce),
         sealed_challenge: None,
-        expires_at: expires_at.to_rfc3339(),
+        expires_at,
     })
 }
 
@@ -381,10 +369,10 @@ fn random_nonce() -> Vec<u8> {
 struct ChallengeUse<'a> {
     challenge_id: &'a str,
     presented_nonce: &'a [u8],
-    purpose: &'a str,
+    purpose: ApplicationKeyChallengePurpose,
     instance: &'a InstanceRef<'a>,
-    key_usage: &'a str,
-    algorithm: &'a str,
+    key_usage: &'a KeyUsage,
+    algorithm: &'a KeyAlgorithm,
     public_key: &'a [u8],
 }
 
@@ -412,12 +400,12 @@ fn consume_challenge(
     if !constant_time_eq(&row.nonce, presented_nonce) {
         return Err(bad_request("challenge does not match"));
     }
-    if row.purpose != purpose
+    if row.purpose != purpose.as_str()
         || row.subject_user_id != instance.subject_user_id
         || row.application_id != instance.application_id
         || row.instance_id != instance.instance_id
-        || row.key_usage != key_usage
-        || row.algorithm != algorithm
+        || row.key_usage != key_usage.as_str()
+        || row.algorithm != algorithm.as_str()
         || row.public_key != public_key
     {
         return Err(bad_request("challenge was issued for a different request"));
@@ -470,8 +458,9 @@ fn issue_attestation(
     .map_err(|e| internal("signing attestation", e))?
     .map_err(|e| internal("signing attestation", e))?;
 
-    let expires_at = parse_rfc3339(&attestation.attestation_expires_at)?;
-    let bytes = liblinkkeys::generated::encode_signed_application_key_attestation(&signed);
+    let expires_at = attestation.attestation_expires_at;
+    let bytes = liblinkkeys::generated::encode_signed_application_key_attestation(&signed)
+        .map_err(|e| internal("encoding attestation", e))?;
     pool.upsert_application_key_attestation(key_row_id, &bytes, now, expires_at)
         .map_err(|e| internal("storing attestation", e))?;
 
@@ -516,6 +505,18 @@ pub fn enroll_instance(
     };
     check_identifier("application_id", &request.application_id)?;
     check_identifier("instance_id", &request.instance_id)?;
+    // An application account is one application: its instances enroll under
+    // the application id an administrator set, never one the caller names.
+    let account = pool
+        .find_user_by_id(subject_user_id)
+        .map_err(|e| internal("reading the enrolling account", e))?;
+    if account.is_application()
+        && account.application_id.as_deref() != Some(request.application_id.as_str())
+    {
+        return Err(bad_request(
+            "an application account enrolls only under its own application_id",
+        ));
+    }
 
     if request.keys.len() as i64 > cfg.max_keys_per_instance {
         return Err(bad_request(format!(
@@ -621,8 +622,8 @@ fn store_key(
     pool.insert_application_key(
         instance_row_id,
         &addition.key_id,
-        &addition.key_usage,
-        &addition.algorithm,
+        addition.key_usage.as_str(),
+        addition.algorithm.as_str(),
         &addition.public_key,
         &addition.fingerprint,
         now,
@@ -852,8 +853,9 @@ pub fn revoke_key(
         .map_err(protocol)?;
     ak::verify_revocation(&rev, &key_refs, &instance).map_err(protocol)?;
 
-    let effective = parse_rfc3339(&rev.revoked_at)?;
-    let record = liblinkkeys::generated::encode_application_key_revocation(&rev);
+    let effective = rev.revoked_at;
+    let record = liblinkkeys::generated::encode_application_key_revocation(&rev)
+        .map_err(|e| internal("encoding revocation", e))?;
     pool.insert_application_key_revocation(
         &row.id,
         &rev.target_key_id,
@@ -971,7 +973,8 @@ pub fn get_application_keys_encoded(
     let loaded = crate::services::pubkey_cache::APPLICATION_KEYS
         .get_or_load(&key, || match get_application_keys(pool, lookup, now) {
             Ok(response) => Ok(Some(
-                liblinkkeys::generated::encode_get_application_keys_response(&response),
+                liblinkkeys::generated::encode_get_application_keys_response(&response)
+                    .map_err(|e| crate::services::pubkey_cache::CacheError::Load(e.to_string()))?,
             )),
             // A missing instance is cached NEGATIVELY, for much less time than
             // a real answer, so a scan for unknown instances does not become a

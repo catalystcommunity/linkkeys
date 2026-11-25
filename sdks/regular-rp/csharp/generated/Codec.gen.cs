@@ -19,7 +19,9 @@ public abstract record CborValue
     public sealed record Text(string Value) : CborValue;
     public sealed record Bytes(byte[] Value) : CborValue;
     public sealed record Array(System.Collections.Generic.IReadOnlyList<CborValue> Items) : CborValue;
-    public sealed record Map(System.Collections.Generic.IReadOnlyList<(CborValue Key, CborValue Value)> Entries) : CborValue;
+    // Canonical is false when a decoded map's encoded keys were not strictly ascending
+    // bytewise (RFC 8949 section 4.2.1): a dynamic map rejects that, a record does not.
+    public sealed record Map(System.Collections.Generic.IReadOnlyList<(CborValue Key, CborValue Value)> Entries, bool Canonical = true) : CborValue;
     public sealed record Tag(ulong Number, CborValue Inner) : CborValue;
 }
 
@@ -187,6 +189,11 @@ public static partial class Cbor
                 case 21: csilPos += 1; return new CborValue.Bool(true);
                 case 22:
                 case 23: csilPos += 1; return new CborValue.Null();
+                case 25:
+                {
+                    var bits = ReadArg(b, ref csilPos, low);
+                    return new CborValue.Float((double)System.BitConverter.UInt16BitsToHalf((ushort)bits));
+                }
                 case 26:
                 {
                     var bits = ReadArg(b, ref csilPos, low);
@@ -241,13 +248,38 @@ public static partial class Cbor
                 if (arg > (ulong)(b.Length - csilPos)) { throw new CborException("map length exceeds remaining input"); }
                 var n = (int)arg;
                 var kvs = new System.Collections.Generic.List<(CborValue, CborValue)>(System.Math.Min(n, PreallocLimit));
+                // Each key is compared with the one before it as raw bytes, so the order
+                // check is O(n). Only a map out of order can repeat a key, so the set of
+                // seen keys is built only then.
+                var csilKeys = new System.Collections.Generic.List<(int Start, int Length)>(System.Math.Min(n, PreallocLimit));
+                System.Collections.Generic.HashSet<string>? csilSeen = null;
                 for (int csilI = 0; csilI < n; csilI++)
                 {
+                    var csilStart = csilPos;
                     var k = Dec(b, ref csilPos, csilDepth + 1);
+                    var csilKey = (Start: csilStart, Length: csilPos - csilStart);
+                    if (!ShortestHead(b, csilStart)) { throw new CborException("csil cbor: map key is not in shortest form"); }
+                    if (csilSeen == null && csilI > 0)
+                    {
+                        var csilPrev = csilKeys[csilI - 1];
+                        if (System.MemoryExtensions.SequenceCompareTo(new System.ReadOnlySpan<byte>(b, csilPrev.Start, csilPrev.Length), new System.ReadOnlySpan<byte>(b, csilKey.Start, csilKey.Length)) >= 0)
+                        {
+                            csilSeen = new System.Collections.Generic.HashSet<string>();
+                            foreach (var csilEarlier in csilKeys)
+                            {
+                                csilSeen.Add(System.Convert.ToHexString(b, csilEarlier.Start, csilEarlier.Length));
+                            }
+                        }
+                    }
+                    if (csilSeen != null && !csilSeen.Add(System.Convert.ToHexString(b, csilKey.Start, csilKey.Length)))
+                    {
+                        throw new CborException($"csil cbor: duplicate key {DescribeKey(k)}");
+                    }
+                    csilKeys.Add(csilKey);
                     var val = Dec(b, ref csilPos, csilDepth + 1);
                     kvs.Add((k, val));
                 }
-                return new CborValue.Map(kvs);
+                return new CborValue.Map(kvs, csilSeen == null);
             }
             case 6:
             {
@@ -331,8 +363,184 @@ public static partial class Cbor
     public static System.Collections.Generic.IReadOnlyList<(CborValue Key, CborValue Value)> AsMap(CborValue v) =>
         v is CborValue.Map x ? x.Entries : throw new CborException("expected map");
 
+    /// <summary>The entries of a dynamic map, which must arrive in canonical key order.</summary>
+    public static System.Collections.Generic.IReadOnlyList<(CborValue Key, CborValue Value)> AsDynamicMap(CborValue v) =>
+        v is CborValue.Map { Canonical: false }
+            ? throw new CborException("csil cbor: map keys are not in canonical order")
+            : AsMap(v);
+
+    /// <summary>The entries in canonical order: bytewise order of each key's encoding,
+    /// which is not the order of the .NET keys.</summary>
+    public static System.Collections.Generic.List<(CborValue, CborValue)> CanonicalEntries(
+        System.Collections.Generic.IEnumerable<(CborValue Key, CborValue Value)> entries) =>
+        entries
+            .Select(csilEntry => (Bytes: Encode(csilEntry.Key), Entry: csilEntry))
+            .OrderBy(csilEntry => csilEntry.Bytes, CsilKeyOrder.Instance)
+            .Select(csilEntry => ((CborValue)csilEntry.Entry.Key, csilEntry.Entry.Value))
+            .ToList();
+
+    sealed class CsilKeyOrder : System.Collections.Generic.IComparer<byte[]>
+    {
+        public static readonly CsilKeyOrder Instance = new();
+
+        public int Compare(byte[]? x, byte[]? y) =>
+            System.MemoryExtensions.SequenceCompareTo(new System.ReadOnlySpan<byte>(x), new System.ReadOnlySpan<byte>(y));
+    }
+
+    /// <summary>Whether the head at <paramref name="at"/> uses the shortest argument for
+    /// its value. A float head (major 7) carries no length, so it is not checked.</summary>
+    static bool ShortestHead(byte[] b, int at)
+    {
+        var major = b[at] >> 5;
+        var low = b[at] & 0x1f;
+        if (major == 7 || low < 24) { return true; }
+        var width = 1 << (low - 24);
+        ulong arg = 0;
+        for (int csilI = 1; csilI <= width; csilI++) { arg = (arg << 8) | b[at + csilI]; }
+        ulong floor = low == 24 ? 24UL : 1UL << (8 * (width / 2));
+        return arg >= floor;
+    }
+
+    static string DescribeKey(CborValue k) =>
+        k is CborValue.Text t ? $"\"{t.Value}\"" : System.Convert.ToHexString(Encode(k)).ToLowerInvariant();
+
     public static string AsTaggedText(CborValue v, ulong num) =>
         v is CborValue.Tag x && x.Number == num ? AsText(x.Inner) : throw new CborException("expected tagged text");
+}
+
+public static partial class Cbor
+{
+    public static CborValue EncDate(System.DateOnly value) =>
+        new CborValue.Tag(1004, new CborValue.Text(value.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)));
+
+    public static System.DateOnly AsDate(CborValue value) =>
+        System.DateOnly.ParseExact(AsTaggedText(value, 1004), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+}
+
+public static partial class Cbor
+{
+    public static CborValue EncTimestamp(System.DateTimeOffset value)
+    {
+        var u = value.UtcDateTime;
+        var b = new System.Text.StringBuilder(30);
+        TimestampDigits(b, u.Year, 4).Append('-');
+        TimestampDigits(b, u.Month, 2).Append('-');
+        TimestampDigits(b, u.Day, 2).Append('T');
+        TimestampDigits(b, u.Hour, 2).Append(':');
+        TimestampDigits(b, u.Minute, 2).Append(':');
+        TimestampDigits(b, u.Second, 2);
+        long nano = (u.Ticks % System.TimeSpan.TicksPerSecond) * 100;
+        if (nano != 0)
+        {
+            b.Append('.');
+            if (nano % 1_000_000 == 0) TimestampDigits(b, nano / 1_000_000, 3);
+            else if (nano % 1_000 == 0) TimestampDigits(b, nano / 1_000, 6);
+            else TimestampDigits(b, nano, 9);
+        }
+        b.Append('Z');
+        return new CborValue.Tag(0, new CborValue.Text(b.ToString()));
+    }
+
+    private static System.Text.StringBuilder TimestampDigits(System.Text.StringBuilder b, long value, int width)
+    {
+        var text = value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return b.Append('0', System.Math.Max(0, width - text.Length)).Append(text);
+    }
+
+    public static System.DateTimeOffset AsTimestamp(CborValue v) =>
+        v is CborValue.Tag t && t.Number == 0 && t.Inner is CborValue.Text text
+            ? ParseTimestamp(text.Value)
+            : throw new CborException("expected CBOR tag 0 timestamp");
+
+    private static int TimestampField(string s, int at, int width)
+    {
+        if (at + width > s.Length) throw new CborException("invalid timestamp text");
+        int value = 0;
+        for (int i = at; i < at + width; i++)
+        {
+            char c = s[i];
+            if (c < '0' || c > '9') throw new CborException("invalid timestamp text");
+            value = value * 10 + (c - '0');
+        }
+        return value;
+    }
+
+    private static void TimestampSeparator(string s, int at, char a, char b)
+    {
+        if (at >= s.Length || (s[at] != a && s[at] != b)) throw new CborException("invalid timestamp text");
+    }
+
+    // Days since 0001-01-01 in the proleptic Gregorian calendar. Computed by hand so the
+    // offset is applied in tick arithmetic, where a result outside 0001-9999 UTC is a
+    // range check and not a DateTime constructor exception.
+    private static long TimestampDays(int year, int month, int day)
+    {
+        long y = month <= 2 ? year - 1 : year;
+        long era = (y >= 0 ? y : y - 399) / 400;
+        long yoe = y - era * 400;
+        long doy = (153 * (month > 2 ? month - 3 : month + 9) + 2) / 5 + day - 1;
+        long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        return era * 146097 + doe - 306;
+    }
+
+    private static System.DateTimeOffset ParseTimestamp(string s)
+    {
+        int year = TimestampField(s, 0, 4);
+        TimestampSeparator(s, 4, '-', '-');
+        int month = TimestampField(s, 5, 2);
+        TimestampSeparator(s, 7, '-', '-');
+        int day = TimestampField(s, 8, 2);
+        TimestampSeparator(s, 10, 'T', 't');
+        int hour = TimestampField(s, 11, 2);
+        TimestampSeparator(s, 13, ':', ':');
+        int minute = TimestampField(s, 14, 2);
+        TimestampSeparator(s, 16, ':', ':');
+        int second = TimestampField(s, 17, 2);
+        bool leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+        int monthDays = month == 2 ? (leap ? 29 : 28) : (month == 4 || month == 6 || month == 9 || month == 11 ? 30 : 31);
+        if (year < 1 || month < 1 || month > 12 || day < 1 || day > monthDays || hour > 23 || minute > 59 || second > 59)
+            throw new CborException("invalid timestamp value");
+        int at = 19;
+        long fraction = 0;
+        if (at < s.Length && s[at] == '.')
+        {
+            int start = ++at;
+            while (at < s.Length && s[at] >= '0' && s[at] <= '9') at++;
+            int digits = at - start;
+            if (digits < 1 || digits > 9) throw new CborException("invalid timestamp fraction");
+            for (int i = start; i < start + 7; i++) fraction = fraction * 10 + (i < at ? s[i] - '0' : 0);
+            for (int i = start + 7; i < at; i++)
+                if (s[i] != '0') throw new CborException("timestamp fraction finer than 100 ns");
+        }
+        if (at >= s.Length) throw new CborException("timestamp has no offset");
+        char zone = s[at];
+        long offset;
+        if (zone == 'Z' || zone == 'z')
+        {
+            offset = 0;
+            at += 1;
+        }
+        else if (zone == '+' || zone == '-')
+        {
+            int offsetHour = TimestampField(s, at + 1, 2);
+            TimestampSeparator(s, at + 3, ':', ':');
+            int offsetMinute = TimestampField(s, at + 4, 2);
+            if (offsetHour > 23 || offsetMinute > 59) throw new CborException("invalid timestamp offset");
+            offset = (zone == '-' ? -1 : 1) * (offsetHour * 3600L + offsetMinute * 60L);
+            at += 6;
+        }
+        else
+        {
+            throw new CborException("invalid timestamp offset");
+        }
+        if (at != s.Length) throw new CborException("trailing timestamp text");
+        long seconds = TimestampDays(year, month, day) * 86_400L + hour * 3_600L + minute * 60L + second - offset;
+        long ticks = seconds * System.TimeSpan.TicksPerSecond + fraction;
+        // DateTime spans exactly 0001-01-01 through 9999-12-31 UTC, the contract's range.
+        if (ticks < 0 || ticks > System.DateTime.MaxValue.Ticks)
+            throw new CborException("timestamp year outside 0001-9999");
+        return new System.DateTimeOffset(ticks, System.TimeSpan.Zero);
+    }
 }
 
 /// <summary>The typed CBOR codec: encodes/decodes a generated record to and
@@ -347,6 +555,32 @@ public static class Codec
     {
         CheckValue csilTyped => CheckValueToCborValue(csilTyped),
         CheckResult csilTyped => CheckResultToCborValue(csilTyped),
+        KeyAlgorithm csilTyped => KeyAlgorithmToCborValue(csilTyped),
+        KeyUsage csilTyped => KeyUsageToCborValue(csilTyped),
+        AeadSuite csilTyped => AeadSuiteToCborValue(csilTyped),
+        ClaimValueType csilTyped => ClaimValueTypeToCborValue(csilTyped),
+        SetRule csilTyped => SetRuleToCborValue(csilTyped),
+        SigningRule csilTyped => SigningRuleToCborValue(csilTyped),
+        SetClaimOutcome csilTyped => SetClaimOutcomeToCborValue(csilTyped),
+        ReleaseDisposition csilTyped => ReleaseDispositionToCborValue(csilTyped),
+        ConsentRowPolicy csilTyped => ConsentRowPolicyToCborValue(csilTyped),
+        ClaimApprovalStatus csilTyped => ClaimApprovalStatusToCborValue(csilTyped),
+        PinRecheckOutcome csilTyped => PinRecheckOutcomeToCborValue(csilTyped),
+        NotificationPurpose csilTyped => NotificationPurposeToCborValue(csilTyped),
+        NotificationChannel csilTyped => NotificationChannelToCborValue(csilTyped),
+        DestinationKind csilTyped => DestinationKindToCborValue(csilTyped),
+        LocalRpPolicy csilTyped => LocalRpPolicyToCborValue(csilTyped),
+        LocalRpStatus csilTyped => LocalRpStatusToCborValue(csilTyped),
+        LocalRpAdmission csilTyped => LocalRpAdmissionToCborValue(csilTyped),
+        AppAccessMode csilTyped => AppAccessModeToCborValue(csilTyped),
+        AppAccessTargetKind csilTyped => AppAccessTargetKindToCborValue(csilTyped),
+        ClaimOperator csilTyped => ClaimOperatorToCborValue(csilTyped),
+        ApplicationKeyChallengePurpose csilTyped => ApplicationKeyChallengePurposeToCborValue(csilTyped),
+        AuthFlow csilTyped => AuthFlowToCborValue(csilTyped),
+        RpCacheStatus csilTyped => RpCacheStatusToCborValue(csilTyped),
+        AccountKind csilTyped => AccountKindToCborValue(csilTyped),
+        RpErrorCode csilTyped => RpErrorCodeToCborValue(csilTyped),
+        IssuedClaimOutcome csilTyped => IssuedClaimOutcomeToCborValue(csilTyped),
         HelloRequest csilTyped => HelloRequestToCborValue(csilTyped),
         HelloResponse csilTyped => HelloResponseToCborValue(csilTyped),
         GuestbookEntry csilTyped => GuestbookEntryToCborValue(csilTyped),
@@ -407,6 +641,25 @@ public static class Codec
         GetUserAuthenticationActivityResponse csilTyped => GetUserAuthenticationActivityResponseToCborValue(csilTyped),
         CreateUserRequest csilTyped => CreateUserRequestToCborValue(csilTyped),
         CreateUserResponse csilTyped => CreateUserResponseToCborValue(csilTyped),
+        RenameUserRequest csilTyped => RenameUserRequestToCborValue(csilTyped),
+        RenameUserResponse csilTyped => RenameUserResponseToCborValue(csilTyped),
+        SetApplicationIdRequest csilTyped => SetApplicationIdRequestToCborValue(csilTyped),
+        SetApplicationIdResponse csilTyped => SetApplicationIdResponseToCborValue(csilTyped),
+        ApiKeyInfo csilTyped => ApiKeyInfoToCborValue(csilTyped),
+        CreateApiKeyRequest csilTyped => CreateApiKeyRequestToCborValue(csilTyped),
+        CreateApiKeyResponse csilTyped => CreateApiKeyResponseToCborValue(csilTyped),
+        ListApiKeysRequest csilTyped => ListApiKeysRequestToCborValue(csilTyped),
+        ListApiKeysResponse csilTyped => ListApiKeysResponseToCborValue(csilTyped),
+        RevokeApiKeyRequest csilTyped => RevokeApiKeyRequestToCborValue(csilTyped),
+        RevokeApiKeyResponse csilTyped => RevokeApiKeyResponseToCborValue(csilTyped),
+        AccountLimits csilTyped => AccountLimitsToCborValue(csilTyped),
+        GetAccountLimitsRequest csilTyped => GetAccountLimitsRequestToCborValue(csilTyped),
+        GetAccountLimitsResponse csilTyped => GetAccountLimitsResponseToCborValue(csilTyped),
+        SetAccountLimitsRequest csilTyped => SetAccountLimitsRequestToCborValue(csilTyped),
+        SetAccountLimitsResponse csilTyped => SetAccountLimitsResponseToCborValue(csilTyped),
+        RpUsageDay csilTyped => RpUsageDayToCborValue(csilTyped),
+        GetApplicationUsageRequest csilTyped => GetApplicationUsageRequestToCborValue(csilTyped),
+        GetApplicationUsageResponse csilTyped => GetApplicationUsageResponseToCborValue(csilTyped),
         UpdateUserRequest csilTyped => UpdateUserRequestToCborValue(csilTyped),
         UpdateUserResponse csilTyped => UpdateUserResponseToCborValue(csilTyped),
         DeactivateUserRequest csilTyped => DeactivateUserRequestToCborValue(csilTyped),
@@ -537,6 +790,7 @@ public static class Codec
         RpVerifyRequest csilTyped => RpVerifyRequestToCborValue(csilTyped),
         RpVerifyResponse csilTyped => RpVerifyResponseToCborValue(csilTyped),
         RpUserInfoRequest csilTyped => RpUserInfoRequestToCborValue(csilTyped),
+        RpError csilTyped => RpErrorToCborValue(csilTyped),
         RpIssueAttestationRequest csilTyped => RpIssueAttestationRequestToCborValue(csilTyped),
         RpIssueAttestationResponse csilTyped => RpIssueAttestationResponseToCborValue(csilTyped),
         AuthorizeValidateRequest csilTyped => AuthorizeValidateRequestToCborValue(csilTyped),
@@ -665,6 +919,32 @@ public static class Codec
     {
         if (csilType == typeof(CheckValue)) return CheckValueFromCborValue(value);
         if (csilType == typeof(CheckResult)) return CheckResultFromCborValue(value);
+        if (csilType == typeof(KeyAlgorithm)) return KeyAlgorithmFromCborValue(value);
+        if (csilType == typeof(KeyUsage)) return KeyUsageFromCborValue(value);
+        if (csilType == typeof(AeadSuite)) return AeadSuiteFromCborValue(value);
+        if (csilType == typeof(ClaimValueType)) return ClaimValueTypeFromCborValue(value);
+        if (csilType == typeof(SetRule)) return SetRuleFromCborValue(value);
+        if (csilType == typeof(SigningRule)) return SigningRuleFromCborValue(value);
+        if (csilType == typeof(SetClaimOutcome)) return SetClaimOutcomeFromCborValue(value);
+        if (csilType == typeof(ReleaseDisposition)) return ReleaseDispositionFromCborValue(value);
+        if (csilType == typeof(ConsentRowPolicy)) return ConsentRowPolicyFromCborValue(value);
+        if (csilType == typeof(ClaimApprovalStatus)) return ClaimApprovalStatusFromCborValue(value);
+        if (csilType == typeof(PinRecheckOutcome)) return PinRecheckOutcomeFromCborValue(value);
+        if (csilType == typeof(NotificationPurpose)) return NotificationPurposeFromCborValue(value);
+        if (csilType == typeof(NotificationChannel)) return NotificationChannelFromCborValue(value);
+        if (csilType == typeof(DestinationKind)) return DestinationKindFromCborValue(value);
+        if (csilType == typeof(LocalRpPolicy)) return LocalRpPolicyFromCborValue(value);
+        if (csilType == typeof(LocalRpStatus)) return LocalRpStatusFromCborValue(value);
+        if (csilType == typeof(LocalRpAdmission)) return LocalRpAdmissionFromCborValue(value);
+        if (csilType == typeof(AppAccessMode)) return AppAccessModeFromCborValue(value);
+        if (csilType == typeof(AppAccessTargetKind)) return AppAccessTargetKindFromCborValue(value);
+        if (csilType == typeof(ClaimOperator)) return ClaimOperatorFromCborValue(value);
+        if (csilType == typeof(ApplicationKeyChallengePurpose)) return ApplicationKeyChallengePurposeFromCborValue(value);
+        if (csilType == typeof(AuthFlow)) return AuthFlowFromCborValue(value);
+        if (csilType == typeof(RpCacheStatus)) return RpCacheStatusFromCborValue(value);
+        if (csilType == typeof(AccountKind)) return AccountKindFromCborValue(value);
+        if (csilType == typeof(RpErrorCode)) return RpErrorCodeFromCborValue(value);
+        if (csilType == typeof(IssuedClaimOutcome)) return IssuedClaimOutcomeFromCborValue(value);
         if (csilType == typeof(HelloRequest)) return HelloRequestFromCborValue(value);
         if (csilType == typeof(HelloResponse)) return HelloResponseFromCborValue(value);
         if (csilType == typeof(GuestbookEntry)) return GuestbookEntryFromCborValue(value);
@@ -725,6 +1005,25 @@ public static class Codec
         if (csilType == typeof(GetUserAuthenticationActivityResponse)) return GetUserAuthenticationActivityResponseFromCborValue(value);
         if (csilType == typeof(CreateUserRequest)) return CreateUserRequestFromCborValue(value);
         if (csilType == typeof(CreateUserResponse)) return CreateUserResponseFromCborValue(value);
+        if (csilType == typeof(RenameUserRequest)) return RenameUserRequestFromCborValue(value);
+        if (csilType == typeof(RenameUserResponse)) return RenameUserResponseFromCborValue(value);
+        if (csilType == typeof(SetApplicationIdRequest)) return SetApplicationIdRequestFromCborValue(value);
+        if (csilType == typeof(SetApplicationIdResponse)) return SetApplicationIdResponseFromCborValue(value);
+        if (csilType == typeof(ApiKeyInfo)) return ApiKeyInfoFromCborValue(value);
+        if (csilType == typeof(CreateApiKeyRequest)) return CreateApiKeyRequestFromCborValue(value);
+        if (csilType == typeof(CreateApiKeyResponse)) return CreateApiKeyResponseFromCborValue(value);
+        if (csilType == typeof(ListApiKeysRequest)) return ListApiKeysRequestFromCborValue(value);
+        if (csilType == typeof(ListApiKeysResponse)) return ListApiKeysResponseFromCborValue(value);
+        if (csilType == typeof(RevokeApiKeyRequest)) return RevokeApiKeyRequestFromCborValue(value);
+        if (csilType == typeof(RevokeApiKeyResponse)) return RevokeApiKeyResponseFromCborValue(value);
+        if (csilType == typeof(AccountLimits)) return AccountLimitsFromCborValue(value);
+        if (csilType == typeof(GetAccountLimitsRequest)) return GetAccountLimitsRequestFromCborValue(value);
+        if (csilType == typeof(GetAccountLimitsResponse)) return GetAccountLimitsResponseFromCborValue(value);
+        if (csilType == typeof(SetAccountLimitsRequest)) return SetAccountLimitsRequestFromCborValue(value);
+        if (csilType == typeof(SetAccountLimitsResponse)) return SetAccountLimitsResponseFromCborValue(value);
+        if (csilType == typeof(RpUsageDay)) return RpUsageDayFromCborValue(value);
+        if (csilType == typeof(GetApplicationUsageRequest)) return GetApplicationUsageRequestFromCborValue(value);
+        if (csilType == typeof(GetApplicationUsageResponse)) return GetApplicationUsageResponseFromCborValue(value);
         if (csilType == typeof(UpdateUserRequest)) return UpdateUserRequestFromCborValue(value);
         if (csilType == typeof(UpdateUserResponse)) return UpdateUserResponseFromCborValue(value);
         if (csilType == typeof(DeactivateUserRequest)) return DeactivateUserRequestFromCborValue(value);
@@ -855,6 +1154,7 @@ public static class Codec
         if (csilType == typeof(RpVerifyRequest)) return RpVerifyRequestFromCborValue(value);
         if (csilType == typeof(RpVerifyResponse)) return RpVerifyResponseFromCborValue(value);
         if (csilType == typeof(RpUserInfoRequest)) return RpUserInfoRequestFromCborValue(value);
+        if (csilType == typeof(RpError)) return RpErrorFromCborValue(value);
         if (csilType == typeof(RpIssueAttestationRequest)) return RpIssueAttestationRequestFromCborValue(value);
         if (csilType == typeof(RpIssueAttestationResponse)) return RpIssueAttestationResponseFromCborValue(value);
         if (csilType == typeof(AuthorizeValidateRequest)) return AuthorizeValidateRequestFromCborValue(value);
@@ -992,11 +1292,12 @@ public static class Codec
     public static CheckValue CheckValueFromCborValue(CborValue value)
     {
         var csilArr = Cbor.AsArray(value);
+        if (csilArr.Count != 2) { throw new CborException("CheckValue is not a [variant_index, value] pair"); }
         return Cbor.AsU64(csilArr[0]) switch
         {
-        0 => new CheckValueVariant1(Cbor.AsText(csilArr[1])),
-        1 => new CheckValueVariant2(Cbor.AsI64(csilArr[1])),
-        2 => new CheckValueVariant3(Cbor.AsDouble(csilArr[1])),
+            0 => new CheckValueVariant1(Cbor.AsText(csilArr[1])),
+            1 => new CheckValueVariant2(Cbor.AsI64(csilArr[1])),
+            2 => new CheckValueVariant3(Cbor.AsDouble(csilArr[1])),
             _ => throw new CborException("invalid CheckValue variant"),
         };
     }
@@ -1006,7 +1307,7 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("result"), new CborValue.Bool(value.Result)));
-        csilEntries.Add((new CborValue.Text("entries"), new CborValue.Map(value.Entries.Select(csilKv => ((CborValue)new CborValue.Text(csilKv.Key), (CborValue)CheckValueToCborValue(csilKv.Value))).ToList())));
+        csilEntries.Add((new CborValue.Text("entries"), new CborValue.Map(Cbor.CanonicalEntries(value.Entries.Select(csilKv => ((CborValue)new CborValue.Text(csilKv.Key), (CborValue)CheckValueToCborValue(csilKv.Value)))))));
         return new CborValue.Map(csilEntries);
     }
 
@@ -1014,12 +1315,272 @@ public static class Codec
     public static CheckResult CheckResultFromCborValue(CborValue value)
     {
         var csilField0 = Cbor.AsBool(Cbor.Require(value, "result"));
-        var csilField1 = Cbor.AsMap(Cbor.Require(value, "entries")).ToDictionary(csilKv => Cbor.AsText(csilKv.Key), csilKv => CheckValueFromCborValue(csilKv.Value));
+        var csilField1 = Cbor.AsDynamicMap(Cbor.Require(value, "entries")).ToDictionary(csilKv => Cbor.AsText(csilKv.Key), csilKv => CheckValueFromCborValue(csilKv.Value));
         return new CheckResult
         {
             Result = csilField0,
             Entries = csilField1,
         };
+    }
+
+    public static CborValue KeyAlgorithmToCborValue(KeyAlgorithm value) => System.Enum.IsDefined(typeof(KeyAlgorithm), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid KeyAlgorithm");
+
+    public static KeyAlgorithm KeyAlgorithmFromCborValue(CborValue value)
+    {
+        try { return KeyAlgorithmNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid KeyAlgorithm value"); }
+    }
+
+    public static CborValue KeyUsageToCborValue(KeyUsage value) => System.Enum.IsDefined(typeof(KeyUsage), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid KeyUsage");
+
+    public static KeyUsage KeyUsageFromCborValue(CborValue value)
+    {
+        try { return KeyUsageNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid KeyUsage value"); }
+    }
+
+    public static CborValue AeadSuiteToCborValue(AeadSuite value) => System.Enum.IsDefined(typeof(AeadSuite), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid AeadSuite");
+
+    public static AeadSuite AeadSuiteFromCborValue(CborValue value)
+    {
+        try { return AeadSuiteNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid AeadSuite value"); }
+    }
+
+    public static CborValue ClaimValueTypeToCborValue(ClaimValueType value) => System.Enum.IsDefined(typeof(ClaimValueType), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid ClaimValueType");
+
+    public static ClaimValueType ClaimValueTypeFromCborValue(CborValue value)
+    {
+        try { return ClaimValueTypeNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid ClaimValueType value"); }
+    }
+
+    public static CborValue SetRuleToCborValue(SetRule value) => System.Enum.IsDefined(typeof(SetRule), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid SetRule");
+
+    public static SetRule SetRuleFromCborValue(CborValue value)
+    {
+        try { return SetRuleNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid SetRule value"); }
+    }
+
+    public static CborValue SigningRuleToCborValue(SigningRule value) => System.Enum.IsDefined(typeof(SigningRule), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid SigningRule");
+
+    public static SigningRule SigningRuleFromCborValue(CborValue value)
+    {
+        try { return SigningRuleNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid SigningRule value"); }
+    }
+
+    public static CborValue SetClaimOutcomeToCborValue(SetClaimOutcome value) => System.Enum.IsDefined(typeof(SetClaimOutcome), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid SetClaimOutcome");
+
+    public static SetClaimOutcome SetClaimOutcomeFromCborValue(CborValue value)
+    {
+        try { return SetClaimOutcomeNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid SetClaimOutcome value"); }
+    }
+
+    public static CborValue ReleaseDispositionToCborValue(ReleaseDisposition value) => System.Enum.IsDefined(typeof(ReleaseDisposition), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid ReleaseDisposition");
+
+    public static ReleaseDisposition ReleaseDispositionFromCborValue(CborValue value)
+    {
+        try { return ReleaseDispositionNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid ReleaseDisposition value"); }
+    }
+
+    public static CborValue ConsentRowPolicyToCborValue(ConsentRowPolicy value) => System.Enum.IsDefined(typeof(ConsentRowPolicy), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid ConsentRowPolicy");
+
+    public static ConsentRowPolicy ConsentRowPolicyFromCborValue(CborValue value)
+    {
+        try { return ConsentRowPolicyNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid ConsentRowPolicy value"); }
+    }
+
+    public static CborValue ClaimApprovalStatusToCborValue(ClaimApprovalStatus value) => System.Enum.IsDefined(typeof(ClaimApprovalStatus), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid ClaimApprovalStatus");
+
+    public static ClaimApprovalStatus ClaimApprovalStatusFromCborValue(CborValue value)
+    {
+        try { return ClaimApprovalStatusNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid ClaimApprovalStatus value"); }
+    }
+
+    public static CborValue PinRecheckOutcomeToCborValue(PinRecheckOutcome value) => System.Enum.IsDefined(typeof(PinRecheckOutcome), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid PinRecheckOutcome");
+
+    public static PinRecheckOutcome PinRecheckOutcomeFromCborValue(CborValue value)
+    {
+        try { return PinRecheckOutcomeNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid PinRecheckOutcome value"); }
+    }
+
+    public static CborValue NotificationPurposeToCborValue(NotificationPurpose value) => System.Enum.IsDefined(typeof(NotificationPurpose), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid NotificationPurpose");
+
+    public static NotificationPurpose NotificationPurposeFromCborValue(CborValue value)
+    {
+        try { return NotificationPurposeNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid NotificationPurpose value"); }
+    }
+
+    public static CborValue NotificationChannelToCborValue(NotificationChannel value) => System.Enum.IsDefined(typeof(NotificationChannel), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid NotificationChannel");
+
+    public static NotificationChannel NotificationChannelFromCborValue(CborValue value)
+    {
+        try { return NotificationChannelNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid NotificationChannel value"); }
+    }
+
+    public static CborValue DestinationKindToCborValue(DestinationKind value) => System.Enum.IsDefined(typeof(DestinationKind), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid DestinationKind");
+
+    public static DestinationKind DestinationKindFromCborValue(CborValue value)
+    {
+        try { return DestinationKindNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid DestinationKind value"); }
+    }
+
+    public static CborValue LocalRpPolicyToCborValue(LocalRpPolicy value) => System.Enum.IsDefined(typeof(LocalRpPolicy), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid LocalRpPolicy");
+
+    public static LocalRpPolicy LocalRpPolicyFromCborValue(CborValue value)
+    {
+        try { return LocalRpPolicyNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid LocalRpPolicy value"); }
+    }
+
+    public static CborValue LocalRpStatusToCborValue(LocalRpStatus value) => System.Enum.IsDefined(typeof(LocalRpStatus), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid LocalRpStatus");
+
+    public static LocalRpStatus LocalRpStatusFromCborValue(CborValue value)
+    {
+        try { return LocalRpStatusNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid LocalRpStatus value"); }
+    }
+
+    public static CborValue LocalRpAdmissionToCborValue(LocalRpAdmission value) => System.Enum.IsDefined(typeof(LocalRpAdmission), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid LocalRpAdmission");
+
+    public static LocalRpAdmission LocalRpAdmissionFromCborValue(CborValue value)
+    {
+        try { return LocalRpAdmissionNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid LocalRpAdmission value"); }
+    }
+
+    public static CborValue AppAccessModeToCborValue(AppAccessMode value) => System.Enum.IsDefined(typeof(AppAccessMode), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid AppAccessMode");
+
+    public static AppAccessMode AppAccessModeFromCborValue(CborValue value)
+    {
+        try { return AppAccessModeNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid AppAccessMode value"); }
+    }
+
+    public static CborValue AppAccessTargetKindToCborValue(AppAccessTargetKind value) => System.Enum.IsDefined(typeof(AppAccessTargetKind), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid AppAccessTargetKind");
+
+    public static AppAccessTargetKind AppAccessTargetKindFromCborValue(CborValue value)
+    {
+        try { return AppAccessTargetKindNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid AppAccessTargetKind value"); }
+    }
+
+    public static CborValue ClaimOperatorToCborValue(ClaimOperator value) => System.Enum.IsDefined(typeof(ClaimOperator), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid ClaimOperator");
+
+    public static ClaimOperator ClaimOperatorFromCborValue(CborValue value)
+    {
+        try { return ClaimOperatorNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid ClaimOperator value"); }
+    }
+
+    public static CborValue ApplicationKeyChallengePurposeToCborValue(ApplicationKeyChallengePurpose value) => System.Enum.IsDefined(typeof(ApplicationKeyChallengePurpose), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid ApplicationKeyChallengePurpose");
+
+    public static ApplicationKeyChallengePurpose ApplicationKeyChallengePurposeFromCborValue(CborValue value)
+    {
+        try { return ApplicationKeyChallengePurposeNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid ApplicationKeyChallengePurpose value"); }
+    }
+
+    public static CborValue AuthFlowToCborValue(AuthFlow value) => System.Enum.IsDefined(typeof(AuthFlow), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid AuthFlow");
+
+    public static AuthFlow AuthFlowFromCborValue(CborValue value)
+    {
+        try { return AuthFlowNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid AuthFlow value"); }
+    }
+
+    public static CborValue RpCacheStatusToCborValue(RpCacheStatus value) => System.Enum.IsDefined(typeof(RpCacheStatus), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid RpCacheStatus");
+
+    public static RpCacheStatus RpCacheStatusFromCborValue(CborValue value)
+    {
+        try { return RpCacheStatusNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid RpCacheStatus value"); }
+    }
+
+    public static CborValue AccountKindToCborValue(AccountKind value) => System.Enum.IsDefined(typeof(AccountKind), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid AccountKind");
+
+    public static AccountKind AccountKindFromCborValue(CborValue value)
+    {
+        try { return AccountKindNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid AccountKind value"); }
+    }
+
+    public static CborValue RpErrorCodeToCborValue(RpErrorCode value) => System.Enum.IsDefined(typeof(RpErrorCode), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid RpErrorCode");
+
+    public static RpErrorCode RpErrorCodeFromCborValue(CborValue value)
+    {
+        try { return RpErrorCodeNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid RpErrorCode value"); }
+    }
+
+    public static CborValue IssuedClaimOutcomeToCborValue(IssuedClaimOutcome value) => System.Enum.IsDefined(typeof(IssuedClaimOutcome), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid IssuedClaimOutcome");
+
+    public static IssuedClaimOutcome IssuedClaimOutcomeFromCborValue(CborValue value)
+    {
+        try { return IssuedClaimOutcomeNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid IssuedClaimOutcome value"); }
     }
 
     /// <summary>The canonical CBOR value tree for a HelloRequest.</summary>
@@ -1067,8 +1628,8 @@ public static class Codec
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("id"), new CborValue.Text(value.Id)));
         csilEntries.Add((new CborValue.Text("name"), new CborValue.Text(value.Name)));
-        csilEntries.Add((new CborValue.Text("created_at"), new CborValue.Text(value.CreatedAt)));
-        csilEntries.Add((new CborValue.Text("updated_at"), new CborValue.Text(value.UpdatedAt)));
+        csilEntries.Add((new CborValue.Text("created_at"), Cbor.EncTimestamp(value.CreatedAt)));
+        csilEntries.Add((new CborValue.Text("updated_at"), Cbor.EncTimestamp(value.UpdatedAt)));
         return new CborValue.Map(csilEntries);
     }
 
@@ -1077,8 +1638,8 @@ public static class Codec
     {
         var csilField0 = Cbor.AsText(Cbor.Require(value, "id"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "name"));
-        var csilField2 = Cbor.AsText(Cbor.Require(value, "created_at"));
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "updated_at"));
+        var csilField2 = Cbor.AsTimestamp(Cbor.Require(value, "created_at"));
+        var csilField3 = Cbor.AsTimestamp(Cbor.Require(value, "updated_at"));
         return new GuestbookEntry
         {
             Id = csilField0,
@@ -1228,14 +1789,14 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("key_id"), new CborValue.Text(value.KeyId)));
-        csilEntries.Add((new CborValue.Text("algorithm"), new CborValue.Text(value.Algorithm)));
-        csilEntries.Add((new CborValue.Text("key_usage"), new CborValue.Text(value.KeyUsage)));
-        csilEntries.Add((new CborValue.Text("created_at"), new CborValue.Text(value.CreatedAt)));
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("algorithm"), KeyAlgorithmToCborValue(value.Algorithm)));
+        csilEntries.Add((new CborValue.Text("key_usage"), KeyUsageToCborValue(value.KeyUsage)));
+        csilEntries.Add((new CborValue.Text("created_at"), Cbor.EncTimestamp(value.CreatedAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         csilEntries.Add((new CborValue.Text("public_key"), new CborValue.Bytes(value.PublicKey)));
         if (value.RevokedAt is { } csilV6)
         {
-            csilEntries.Add((new CborValue.Text("revoked_at"), new CborValue.Text(csilV6)));
+            csilEntries.Add((new CborValue.Text("revoked_at"), Cbor.EncTimestamp(csilV6)));
         }
         csilEntries.Add((new CborValue.Text("fingerprint"), new CborValue.Text(value.Fingerprint)));
         if (value.KeySignature is { } csilV8)
@@ -1255,11 +1816,11 @@ public static class Codec
         var csilField0 = Cbor.AsText(Cbor.Require(value, "key_id"));
         var csilField1 = Cbor.AsBytes(Cbor.Require(value, "public_key"));
         var csilField2 = Cbor.AsText(Cbor.Require(value, "fingerprint"));
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "algorithm"));
-        var csilField4 = Cbor.AsText(Cbor.Require(value, "key_usage"));
-        var csilField5 = Cbor.AsText(Cbor.Require(value, "created_at"));
-        var csilField6 = Cbor.AsText(Cbor.Require(value, "expires_at"));
-        string? csilField7 = Cbor.MapGet(value, "revoked_at") is { } csilRaw7 ? Cbor.AsText(csilRaw7) : null;
+        var csilField3 = KeyAlgorithmFromCborValue(Cbor.Require(value, "algorithm"));
+        var csilField4 = KeyUsageFromCborValue(Cbor.Require(value, "key_usage"));
+        var csilField5 = Cbor.AsTimestamp(Cbor.Require(value, "created_at"));
+        var csilField6 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
+        System.DateTimeOffset? csilField7 = Cbor.MapGet(value, "revoked_at") is { } csilRaw7 ? Cbor.AsTimestamp(csilRaw7) : null;
         string? csilField8 = Cbor.MapGet(value, "signed_by_key_id") is { } csilRaw8 ? Cbor.AsText(csilRaw8) : null;
         byte[]? csilField9 = Cbor.MapGet(value, "key_signature") is { } csilRaw9 ? Cbor.AsBytes(csilRaw9) : null;
         return new DomainPublicKey
@@ -1310,7 +1871,7 @@ public static class Codec
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         if (value.Since is { } csilV0)
         {
-            csilEntries.Add((new CborValue.Text("since"), new CborValue.Text(csilV0)));
+            csilEntries.Add((new CborValue.Text("since"), Cbor.EncTimestamp(csilV0)));
         }
         return new CborValue.Map(csilEntries);
     }
@@ -1318,7 +1879,7 @@ public static class Codec
     /// <summary>Reconstruct a GetRevocationsRequest from a decoded CBOR value tree.</summary>
     public static GetRevocationsRequest GetRevocationsRequestFromCborValue(CborValue value)
     {
-        string? csilField0 = Cbor.MapGet(value, "since") is { } csilRaw0 ? Cbor.AsText(csilRaw0) : null;
+        System.DateTimeOffset? csilField0 = Cbor.MapGet(value, "since") is { } csilRaw0 ? Cbor.AsTimestamp(csilRaw0) : null;
         return new GetRevocationsRequest
         {
             Since = csilField0,
@@ -1369,7 +1930,11 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("domain"), new CborValue.Text(value.Domain)));
-        csilEntries.Add((new CborValue.Text("outcome"), new CborValue.Text(value.Outcome)));
+        if (value.Message is { } csilV1)
+        {
+            csilEntries.Add((new CborValue.Text("message"), new CborValue.Text(csilV1)));
+        }
+        csilEntries.Add((new CborValue.Text("outcome"), PinRecheckOutcomeToCborValue(value.Outcome)));
         return new CborValue.Map(csilEntries);
     }
 
@@ -1377,11 +1942,13 @@ public static class Codec
     public static PinRecheckResult PinRecheckResultFromCborValue(CborValue value)
     {
         var csilField0 = Cbor.AsText(Cbor.Require(value, "domain"));
-        var csilField1 = Cbor.AsText(Cbor.Require(value, "outcome"));
+        var csilField1 = PinRecheckOutcomeFromCborValue(Cbor.Require(value, "outcome"));
+        string? csilField2 = Cbor.MapGet(value, "message") is { } csilRaw2 ? Cbor.AsText(csilRaw2) : null;
         return new PinRecheckResult
         {
             Domain = csilField0,
             Outcome = csilField1,
+            Message = csilField2,
         };
     }
 
@@ -1409,14 +1976,14 @@ public static class Codec
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("key_id"), new CborValue.Text(value.KeyId)));
         csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
-        csilEntries.Add((new CborValue.Text("algorithm"), new CborValue.Text(value.Algorithm)));
-        csilEntries.Add((new CborValue.Text("key_usage"), new CborValue.Text(value.KeyUsage)));
-        csilEntries.Add((new CborValue.Text("created_at"), new CborValue.Text(value.CreatedAt)));
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("algorithm"), KeyAlgorithmToCborValue(value.Algorithm)));
+        csilEntries.Add((new CborValue.Text("key_usage"), KeyUsageToCborValue(value.KeyUsage)));
+        csilEntries.Add((new CborValue.Text("created_at"), Cbor.EncTimestamp(value.CreatedAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         csilEntries.Add((new CborValue.Text("public_key"), new CborValue.Bytes(value.PublicKey)));
         if (value.RevokedAt is { } csilV7)
         {
-            csilEntries.Add((new CborValue.Text("revoked_at"), new CborValue.Text(csilV7)));
+            csilEntries.Add((new CborValue.Text("revoked_at"), Cbor.EncTimestamp(csilV7)));
         }
         csilEntries.Add((new CborValue.Text("fingerprint"), new CborValue.Text(value.Fingerprint)));
         if (value.KeySignature is { } csilV9)
@@ -1437,11 +2004,11 @@ public static class Codec
         var csilField1 = Cbor.AsText(Cbor.Require(value, "user_id"));
         var csilField2 = Cbor.AsBytes(Cbor.Require(value, "public_key"));
         var csilField3 = Cbor.AsText(Cbor.Require(value, "fingerprint"));
-        var csilField4 = Cbor.AsText(Cbor.Require(value, "algorithm"));
-        var csilField5 = Cbor.AsText(Cbor.Require(value, "key_usage"));
-        var csilField6 = Cbor.AsText(Cbor.Require(value, "created_at"));
-        var csilField7 = Cbor.AsText(Cbor.Require(value, "expires_at"));
-        string? csilField8 = Cbor.MapGet(value, "revoked_at") is { } csilRaw8 ? Cbor.AsText(csilRaw8) : null;
+        var csilField4 = KeyAlgorithmFromCborValue(Cbor.Require(value, "algorithm"));
+        var csilField5 = KeyUsageFromCborValue(Cbor.Require(value, "key_usage"));
+        var csilField6 = Cbor.AsTimestamp(Cbor.Require(value, "created_at"));
+        var csilField7 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
+        System.DateTimeOffset? csilField8 = Cbor.MapGet(value, "revoked_at") is { } csilRaw8 ? Cbor.AsTimestamp(csilRaw8) : null;
         string? csilField9 = Cbor.MapGet(value, "signed_by_key_id") is { } csilRaw9 ? Cbor.AsText(csilRaw9) : null;
         byte[]? csilField10 = Cbor.MapGet(value, "key_signature") is { } csilRaw10 ? Cbor.AsBytes(csilRaw10) : null;
         return new UserPublicKey
@@ -1530,7 +2097,7 @@ public static class Codec
     public static CborValue RevocationCertificateToCborValue(RevocationCertificate value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("revoked_at"), new CborValue.Text(value.RevokedAt)));
+        csilEntries.Add((new CborValue.Text("revoked_at"), Cbor.EncTimestamp(value.RevokedAt)));
         csilEntries.Add((new CborValue.Text("signatures"), new CborValue.Array(value.Signatures.Select(csilElem => (CborValue)ClaimSignatureToCborValue(csilElem)).ToList())));
         csilEntries.Add((new CborValue.Text("target_key_id"), new CborValue.Text(value.TargetKeyId)));
         csilEntries.Add((new CborValue.Text("target_fingerprint"), new CborValue.Text(value.TargetFingerprint)));
@@ -1542,7 +2109,7 @@ public static class Codec
     {
         var csilField0 = Cbor.AsText(Cbor.Require(value, "target_key_id"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "target_fingerprint"));
-        var csilField2 = Cbor.AsText(Cbor.Require(value, "revoked_at"));
+        var csilField2 = Cbor.AsTimestamp(Cbor.Require(value, "revoked_at"));
         var csilField3 = Cbor.AsArray(Cbor.Require(value, "signatures")).Select(csilElem => ClaimSignatureFromCborValue(csilElem)).ToList();
         return new RevocationCertificate
         {
@@ -1560,17 +2127,17 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
         csilEntries.Add((new CborValue.Text("claim_id"), new CborValue.Text(value.ClaimId)));
         csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
-        csilEntries.Add((new CborValue.Text("created_at"), new CborValue.Text(value.CreatedAt)));
+        csilEntries.Add((new CborValue.Text("created_at"), Cbor.EncTimestamp(value.CreatedAt)));
         if (value.ExpiresAt is { } csilV4)
         {
-            csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(csilV4)));
+            csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(csilV4)));
         }
         if (value.RevokedAt is { } csilV5)
         {
-            csilEntries.Add((new CborValue.Text("revoked_at"), new CborValue.Text(csilV5)));
+            csilEntries.Add((new CborValue.Text("revoked_at"), Cbor.EncTimestamp(csilV5)));
         }
         csilEntries.Add((new CborValue.Text("signatures"), new CborValue.Array(value.Signatures.Select(csilElem => (CborValue)ClaimSignatureToCborValue(csilElem)).ToList())));
-        csilEntries.Add((new CborValue.Text("attested_at"), new CborValue.Text(value.AttestedAt)));
+        csilEntries.Add((new CborValue.Text("attested_at"), Cbor.EncTimestamp(value.AttestedAt)));
         csilEntries.Add((new CborValue.Text("claim_value"), new CborValue.Bytes(value.ClaimValue)));
         return new CborValue.Map(csilEntries);
     }
@@ -1583,10 +2150,10 @@ public static class Codec
         var csilField2 = Cbor.AsText(Cbor.Require(value, "claim_type"));
         var csilField3 = Cbor.AsBytes(Cbor.Require(value, "claim_value"));
         var csilField4 = Cbor.AsArray(Cbor.Require(value, "signatures")).Select(csilElem => ClaimSignatureFromCborValue(csilElem)).ToList();
-        var csilField5 = Cbor.AsText(Cbor.Require(value, "attested_at"));
-        var csilField6 = Cbor.AsText(Cbor.Require(value, "created_at"));
-        string? csilField7 = Cbor.MapGet(value, "expires_at") is { } csilRaw7 ? Cbor.AsText(csilRaw7) : null;
-        string? csilField8 = Cbor.MapGet(value, "revoked_at") is { } csilRaw8 ? Cbor.AsText(csilRaw8) : null;
+        var csilField5 = Cbor.AsTimestamp(Cbor.Require(value, "attested_at"));
+        var csilField6 = Cbor.AsTimestamp(Cbor.Require(value, "created_at"));
+        System.DateTimeOffset? csilField7 = Cbor.MapGet(value, "expires_at") is { } csilRaw7 ? Cbor.AsTimestamp(csilRaw7) : null;
+        System.DateTimeOffset? csilField8 = Cbor.MapGet(value, "revoked_at") is { } csilRaw8 ? Cbor.AsTimestamp(csilRaw8) : null;
         return new Claim
         {
             ClaimId = csilField0,
@@ -1650,7 +2217,7 @@ public static class Codec
     public static CborValue RequestedClaimToCborValue(RequestedClaim value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("datatype"), new CborValue.Text(value.Datatype)));
+        csilEntries.Add((new CborValue.Text("datatype"), ClaimValueTypeToCborValue(value.Datatype)));
         csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
         return new CborValue.Map(csilEntries);
     }
@@ -1659,7 +2226,7 @@ public static class Codec
     public static RequestedClaim RequestedClaimFromCborValue(CborValue value)
     {
         var csilField0 = Cbor.AsText(Cbor.Require(value, "claim_type"));
-        var csilField1 = Cbor.AsText(Cbor.Require(value, "datatype"));
+        var csilField1 = ClaimValueTypeFromCborValue(Cbor.Require(value, "datatype"));
         return new RequestedClaim
         {
             ClaimType = csilField0,
@@ -1710,7 +2277,7 @@ public static class Codec
     public static CborValue AuthFlowContextToCborValue(AuthFlowContext value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("flow"), new CborValue.Text(value.Flow)));
+        csilEntries.Add((new CborValue.Text("flow"), AuthFlowToCborValue(value.Flow)));
         if (value.PriorSession is { } csilV1)
         {
             csilEntries.Add((new CborValue.Text("prior_session"), new CborValue.Text(csilV1)));
@@ -1725,7 +2292,7 @@ public static class Codec
     /// <summary>Reconstruct a AuthFlowContext from a decoded CBOR value tree.</summary>
     public static AuthFlowContext AuthFlowContextFromCborValue(CborValue value)
     {
-        var csilField0 = Cbor.AsText(Cbor.Require(value, "flow"));
+        var csilField0 = AuthFlowFromCborValue(Cbor.Require(value, "flow"));
         string? csilField1 = Cbor.MapGet(value, "prior_session") is { } csilRaw1 ? Cbor.AsText(csilRaw1) : null;
         string? csilField2 = Cbor.MapGet(value, "request_reason") is { } csilRaw2 ? Cbor.AsText(csilRaw2) : null;
         return new AuthFlowContext
@@ -1743,11 +2310,11 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
         csilEntries.Add((new CborValue.Text("audience"), new CborValue.Text(value.Audience)));
         csilEntries.Add((new CborValue.Text("grant_id"), new CborValue.Text(value.GrantId)));
-        csilEntries.Add((new CborValue.Text("issued_at"), new CborValue.Text(value.IssuedAt)));
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("issued_at"), Cbor.EncTimestamp(value.IssuedAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         if (value.RevokedAt is { } csilV5)
         {
-            csilEntries.Add((new CborValue.Text("revoked_at"), new CborValue.Text(csilV5)));
+            csilEntries.Add((new CborValue.Text("revoked_at"), Cbor.EncTimestamp(csilV5)));
         }
         if (value.Application is { } csilV6)
         {
@@ -1766,9 +2333,9 @@ public static class Codec
         var csilField2 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
         var csilField3 = Cbor.AsText(Cbor.Require(value, "audience"));
         var csilField4 = Cbor.AsArray(Cbor.Require(value, "claim_types")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
-        var csilField5 = Cbor.AsText(Cbor.Require(value, "issued_at"));
-        var csilField6 = Cbor.AsText(Cbor.Require(value, "expires_at"));
-        string? csilField7 = Cbor.MapGet(value, "revoked_at") is { } csilRaw7 ? Cbor.AsText(csilRaw7) : null;
+        var csilField5 = Cbor.AsTimestamp(Cbor.Require(value, "issued_at"));
+        var csilField6 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
+        System.DateTimeOffset? csilField7 = Cbor.MapGet(value, "revoked_at") is { } csilRaw7 ? Cbor.AsTimestamp(csilRaw7) : null;
         ApplicationRef? csilField8 = Cbor.MapGet(value, "application") is { } csilRaw8 ? ApplicationRefFromCborValue(csilRaw8) : null;
         return new ConsentGrant
         {
@@ -1812,10 +2379,10 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
         if (value.ExpiresAt is { } csilV1)
         {
-            csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(csilV1)));
+            csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(csilV1)));
         }
         csilEntries.Add((new CborValue.Text("signatures"), new CborValue.Array(value.Signatures.Select(csilElem => (CborValue)ClaimSignatureToCborValue(csilElem)).ToList())));
-        csilEntries.Add((new CborValue.Text("attested_at"), new CborValue.Text(value.AttestedAt)));
+        csilEntries.Add((new CborValue.Text("attested_at"), Cbor.EncTimestamp(value.AttestedAt)));
         csilEntries.Add((new CborValue.Text("claim_value"), new CborValue.Bytes(value.ClaimValue)));
         return new CborValue.Map(csilEntries);
     }
@@ -1826,8 +2393,8 @@ public static class Codec
         var csilField0 = Cbor.AsText(Cbor.Require(value, "claim_type"));
         var csilField1 = Cbor.AsBytes(Cbor.Require(value, "claim_value"));
         var csilField2 = Cbor.AsArray(Cbor.Require(value, "signatures")).Select(csilElem => ClaimSignatureFromCborValue(csilElem)).ToList();
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "attested_at"));
-        string? csilField4 = Cbor.MapGet(value, "expires_at") is { } csilRaw4 ? Cbor.AsText(csilRaw4) : null;
+        var csilField3 = Cbor.AsTimestamp(Cbor.Require(value, "attested_at"));
+        System.DateTimeOffset? csilField4 = Cbor.MapGet(value, "expires_at") is { } csilRaw4 ? Cbor.AsTimestamp(csilRaw4) : null;
         return new DomainClaim
         {
             ClaimType = csilField0,
@@ -1847,8 +2414,8 @@ public static class Codec
         {
             csilEntries.Add((new CborValue.Text("callback"), new CborValue.Text(csilV1)));
         }
-        csilEntries.Add((new CborValue.Text("issued_at"), new CborValue.Text(value.IssuedAt)));
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("issued_at"), Cbor.EncTimestamp(value.IssuedAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         csilEntries.Add((new CborValue.Text("request_id"), new CborValue.Text(value.RequestId)));
         csilEntries.Add((new CborValue.Text("issuer_domain"), new CborValue.Text(value.IssuerDomain)));
         csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
@@ -1866,8 +2433,8 @@ public static class Codec
         var csilField3 = Cbor.AsText(Cbor.Require(value, "issuer_domain"));
         var csilField4 = Cbor.AsArray(Cbor.Require(value, "requested_claim_types")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
         var csilField5 = Cbor.AsText(Cbor.Require(value, "nonce"));
-        var csilField6 = Cbor.AsText(Cbor.Require(value, "issued_at"));
-        var csilField7 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField6 = Cbor.AsTimestamp(Cbor.Require(value, "issued_at"));
+        var csilField7 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
         string? csilField8 = Cbor.MapGet(value, "callback") is { } csilRaw8 ? Cbor.AsText(csilRaw8) : null;
         return new SigningRequest
         {
@@ -1948,11 +2515,12 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("domain"), new CborValue.Text(value.Domain)));
         csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
         csilEntries.Add((new CborValue.Text("audience"), new CborValue.Text(value.Audience)));
-        csilEntries.Add((new CborValue.Text("issued_at"), new CborValue.Text(value.IssuedAt)));
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
-        if (value.DisplayName is { } csilV6)
+        csilEntries.Add((new CborValue.Text("issued_at"), Cbor.EncTimestamp(value.IssuedAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("application"), ApplicationRefToCborValue(value.Application)));
+        if (value.DisplayName is { } csilV7)
         {
-            csilEntries.Add((new CborValue.Text("display_name"), new CborValue.Text(csilV6)));
+            csilEntries.Add((new CborValue.Text("display_name"), new CborValue.Text(csilV7)));
         }
         csilEntries.Add((new CborValue.Text("authorized_claims"), new CborValue.Array(value.AuthorizedClaims.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
         return new CborValue.Map(csilEntries);
@@ -1965,10 +2533,11 @@ public static class Codec
         var csilField1 = Cbor.AsText(Cbor.Require(value, "domain"));
         var csilField2 = Cbor.AsText(Cbor.Require(value, "audience"));
         var csilField3 = Cbor.AsText(Cbor.Require(value, "nonce"));
-        var csilField4 = Cbor.AsText(Cbor.Require(value, "issued_at"));
-        var csilField5 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField4 = Cbor.AsTimestamp(Cbor.Require(value, "issued_at"));
+        var csilField5 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
         var csilField6 = Cbor.AsArray(Cbor.Require(value, "authorized_claims")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
         string? csilField7 = Cbor.MapGet(value, "display_name") is { } csilRaw7 ? Cbor.AsText(csilRaw7) : null;
+        var csilField8 = ApplicationRefFromCborValue(Cbor.Require(value, "application"));
         return new IdentityAssertion
         {
             UserId = csilField0,
@@ -1979,6 +2548,7 @@ public static class Codec
             ExpiresAt = csilField5,
             AuthorizedClaims = csilField6,
             DisplayName = csilField7,
+            Application = csilField8,
         };
     }
 
@@ -2030,7 +2600,7 @@ public static class Codec
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("nonce"), new CborValue.Text(value.Nonce)));
         csilEntries.Add((new CborValue.Text("token"), new CborValue.Bytes(value.Token)));
-        csilEntries.Add((new CborValue.Text("timestamp"), new CborValue.Text(value.Timestamp)));
+        csilEntries.Add((new CborValue.Text("timestamp"), Cbor.EncTimestamp(value.Timestamp)));
         csilEntries.Add((new CborValue.Text("relying_party"), new CborValue.Text(value.RelyingParty)));
         return new CborValue.Map(csilEntries);
     }
@@ -2040,7 +2610,7 @@ public static class Codec
     {
         var csilField0 = Cbor.AsBytes(Cbor.Require(value, "token"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "relying_party"));
-        var csilField2 = Cbor.AsText(Cbor.Require(value, "timestamp"));
+        var csilField2 = Cbor.AsTimestamp(Cbor.Require(value, "timestamp"));
         var csilField3 = Cbor.AsText(Cbor.Require(value, "nonce"));
         return new UserInfoRequest
         {
@@ -2134,11 +2704,8 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("nonce"), new CborValue.Text(value.Nonce)));
-        csilEntries.Add((new CborValue.Text("timestamp"), new CborValue.Text(value.Timestamp)));
-        if (value.Application is { } csilV2)
-        {
-            csilEntries.Add((new CborValue.Text("application"), RelyingPartyApplicationToCborValue(csilV2)));
-        }
+        csilEntries.Add((new CborValue.Text("timestamp"), Cbor.EncTimestamp(value.Timestamp)));
+        csilEntries.Add((new CborValue.Text("application"), RelyingPartyApplicationToCborValue(value.Application)));
         csilEntries.Add((new CborValue.Text("callback_url"), new CborValue.Text(value.CallbackUrl)));
         if (value.FlowContext is { } csilV4)
         {
@@ -2167,13 +2734,13 @@ public static class Codec
         var csilField0 = Cbor.AsText(Cbor.Require(value, "relying_party"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "callback_url"));
         var csilField2 = Cbor.AsText(Cbor.Require(value, "nonce"));
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "timestamp"));
+        var csilField3 = Cbor.AsTimestamp(Cbor.Require(value, "timestamp"));
         var csilField4 = Cbor.AsText(Cbor.Require(value, "signing_key_id"));
         ClaimRequest? csilField5 = Cbor.MapGet(value, "requested_claims") is { } csilRaw5 ? ClaimRequestFromCborValue(csilRaw5) : null;
         AuthenticationRequirements? csilField6 = Cbor.MapGet(value, "authentication_requirements") is { } csilRaw6 ? AuthenticationRequirementsFromCborValue(csilRaw6) : null;
         AuthFlowContext? csilField7 = Cbor.MapGet(value, "flow_context") is { } csilRaw7 ? AuthFlowContextFromCborValue(csilRaw7) : null;
         System.Collections.Generic.List<DomainClaim>? csilField8 = Cbor.MapGet(value, "relying_party_claims") is { } csilRaw8 ? Cbor.AsArray(csilRaw8).Select(csilElem => DomainClaimFromCborValue(csilElem)).ToList() : null;
-        RelyingPartyApplication? csilField9 = Cbor.MapGet(value, "application") is { } csilRaw9 ? RelyingPartyApplicationFromCborValue(csilRaw9) : null;
+        var csilField9 = RelyingPartyApplicationFromCborValue(Cbor.Require(value, "application"));
         return new AuthRequest
         {
             RelyingParty = csilField0,
@@ -2220,7 +2787,7 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("nonce"), new CborValue.Bytes(value.Nonce)));
         if (value.Suite is { } csilV1)
         {
-            csilEntries.Add((new CborValue.Text("suite"), new CborValue.Text(csilV1)));
+            csilEntries.Add((new CborValue.Text("suite"), AeadSuiteToCborValue(csilV1)));
         }
         csilEntries.Add((new CborValue.Text("ciphertext"), new CborValue.Bytes(value.Ciphertext)));
         csilEntries.Add((new CborValue.Text("ephemeral_public_key"), new CborValue.Bytes(value.EphemeralPublicKey)));
@@ -2233,7 +2800,7 @@ public static class Codec
         var csilField0 = Cbor.AsBytes(Cbor.Require(value, "ephemeral_public_key"));
         var csilField1 = Cbor.AsBytes(Cbor.Require(value, "ciphertext"));
         var csilField2 = Cbor.AsBytes(Cbor.Require(value, "nonce"));
-        AeadSuite? csilField3 = Cbor.MapGet(value, "suite") is { } csilRaw3 ? Cbor.AsText(csilRaw3) : null;
+        AeadSuite? csilField3 = Cbor.MapGet(value, "suite") is { } csilRaw3 ? AeadSuiteFromCborValue(csilRaw3) : null;
         return new EncryptedToken
         {
             EphemeralPublicKey = csilField0,
@@ -2247,10 +2814,10 @@ public static class Codec
     public static CborValue AlgorithmSupportToCborValue(AlgorithmSupport value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("signing"), new CborValue.Array(value.Signing.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("signing"), new CborValue.Array(value.Signing.Select(csilElem => (CborValue)KeyAlgorithmToCborValue(csilElem)).ToList())));
         if (value.Encryption is { } csilV1)
         {
-            csilEntries.Add((new CborValue.Text("encryption"), new CborValue.Array(csilV1.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+            csilEntries.Add((new CborValue.Text("encryption"), new CborValue.Array(csilV1.Select(csilElem => (CborValue)AeadSuiteToCborValue(csilElem)).ToList())));
         }
         return new CborValue.Map(csilEntries);
     }
@@ -2258,8 +2825,8 @@ public static class Codec
     /// <summary>Reconstruct a AlgorithmSupport from a decoded CBOR value tree.</summary>
     public static AlgorithmSupport AlgorithmSupportFromCborValue(CborValue value)
     {
-        var csilField0 = Cbor.AsArray(Cbor.Require(value, "signing")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
-        System.Collections.Generic.List<string>? csilField1 = Cbor.MapGet(value, "encryption") is { } csilRaw1 ? Cbor.AsArray(csilRaw1).Select(csilElem => Cbor.AsText(csilElem)).ToList() : null;
+        var csilField0 = Cbor.AsArray(Cbor.Require(value, "signing")).Select(csilElem => KeyAlgorithmFromCborValue(csilElem)).ToList();
+        System.Collections.Generic.List<AeadSuite>? csilField1 = Cbor.MapGet(value, "encryption") is { } csilRaw1 ? Cbor.AsArray(csilRaw1).Select(csilElem => AeadSuiteFromCborValue(csilElem)).ToList() : null;
         return new AlgorithmSupport
         {
             Signing = csilField0,
@@ -2316,10 +2883,10 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("id"), new CborValue.Text(value.Id)));
         csilEntries.Add((new CborValue.Text("relation"), new CborValue.Text(value.Relation_)));
         csilEntries.Add((new CborValue.Text("object_id"), new CborValue.Text(value.ObjectId)));
-        csilEntries.Add((new CborValue.Text("created_at"), new CborValue.Text(value.CreatedAt)));
+        csilEntries.Add((new CborValue.Text("created_at"), Cbor.EncTimestamp(value.CreatedAt)));
         if (value.RemovedAt is { } csilV4)
         {
-            csilEntries.Add((new CborValue.Text("removed_at"), new CborValue.Text(csilV4)));
+            csilEntries.Add((new CborValue.Text("removed_at"), Cbor.EncTimestamp(csilV4)));
         }
         csilEntries.Add((new CborValue.Text("subject_id"), new CborValue.Text(value.SubjectId)));
         csilEntries.Add((new CborValue.Text("object_type"), new CborValue.Text(value.ObjectType)));
@@ -2336,8 +2903,8 @@ public static class Codec
         var csilField3 = Cbor.AsText(Cbor.Require(value, "relation"));
         var csilField4 = Cbor.AsText(Cbor.Require(value, "object_type"));
         var csilField5 = Cbor.AsText(Cbor.Require(value, "object_id"));
-        var csilField6 = Cbor.AsText(Cbor.Require(value, "created_at"));
-        string? csilField7 = Cbor.MapGet(value, "removed_at") is { } csilRaw7 ? Cbor.AsText(csilRaw7) : null;
+        var csilField6 = Cbor.AsTimestamp(Cbor.Require(value, "created_at"));
+        System.DateTimeOffset? csilField7 = Cbor.MapGet(value, "removed_at") is { } csilRaw7 ? Cbor.AsTimestamp(csilRaw7) : null;
         return new Relation
         {
             Id = csilField0,
@@ -2356,22 +2923,27 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("id"), new CborValue.Text(value.Id)));
+        csilEntries.Add((new CborValue.Text("kind"), AccountKindToCborValue(value.Kind)));
         csilEntries.Add((new CborValue.Text("username"), new CborValue.Text(value.Username)));
         csilEntries.Add((new CborValue.Text("is_active"), new CborValue.Bool(value.IsActive)));
-        if (value.PurgedAt is { } csilV3)
+        if (value.PurgedAt is { } csilV4)
         {
-            csilEntries.Add((new CborValue.Text("purged_at"), new CborValue.Text(csilV3)));
+            csilEntries.Add((new CborValue.Text("purged_at"), Cbor.EncTimestamp(csilV4)));
         }
-        csilEntries.Add((new CborValue.Text("created_at"), new CborValue.Text(value.CreatedAt)));
-        csilEntries.Add((new CborValue.Text("updated_at"), new CborValue.Text(value.UpdatedAt)));
+        csilEntries.Add((new CborValue.Text("created_at"), Cbor.EncTimestamp(value.CreatedAt)));
+        csilEntries.Add((new CborValue.Text("updated_at"), Cbor.EncTimestamp(value.UpdatedAt)));
         csilEntries.Add((new CborValue.Text("display_name"), new CborValue.Text(value.DisplayName)));
-        if (value.PurgeReason is { } csilV7)
+        if (value.PurgeReason is { } csilV8)
         {
-            csilEntries.Add((new CborValue.Text("purge_reason"), new CborValue.Text(csilV7)));
+            csilEntries.Add((new CborValue.Text("purge_reason"), new CborValue.Text(csilV8)));
         }
-        if (value.PasswordLocked is { } csilV8)
+        if (value.ApplicationId is { } csilV9)
         {
-            csilEntries.Add((new CborValue.Text("password_locked"), new CborValue.Bool(csilV8)));
+            csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(csilV9)));
+        }
+        if (value.PasswordLocked is { } csilV10)
+        {
+            csilEntries.Add((new CborValue.Text("password_locked"), new CborValue.Bool(csilV10)));
         }
         return new CborValue.Map(csilEntries);
     }
@@ -2382,23 +2954,27 @@ public static class Codec
         var csilField0 = Cbor.AsText(Cbor.Require(value, "id"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "username"));
         var csilField2 = Cbor.AsText(Cbor.Require(value, "display_name"));
-        var csilField3 = Cbor.AsBool(Cbor.Require(value, "is_active"));
-        var csilField4 = Cbor.AsText(Cbor.Require(value, "created_at"));
-        var csilField5 = Cbor.AsText(Cbor.Require(value, "updated_at"));
-        string? csilField6 = Cbor.MapGet(value, "purged_at") is { } csilRaw6 ? Cbor.AsText(csilRaw6) : null;
-        string? csilField7 = Cbor.MapGet(value, "purge_reason") is { } csilRaw7 ? Cbor.AsText(csilRaw7) : null;
-        bool? csilField8 = Cbor.MapGet(value, "password_locked") is { } csilRaw8 ? Cbor.AsBool(csilRaw8) : null;
+        var csilField3 = AccountKindFromCborValue(Cbor.Require(value, "kind"));
+        string? csilField4 = Cbor.MapGet(value, "application_id") is { } csilRaw4 ? Cbor.AsText(csilRaw4) : null;
+        var csilField5 = Cbor.AsBool(Cbor.Require(value, "is_active"));
+        var csilField6 = Cbor.AsTimestamp(Cbor.Require(value, "created_at"));
+        var csilField7 = Cbor.AsTimestamp(Cbor.Require(value, "updated_at"));
+        System.DateTimeOffset? csilField8 = Cbor.MapGet(value, "purged_at") is { } csilRaw8 ? Cbor.AsTimestamp(csilRaw8) : null;
+        string? csilField9 = Cbor.MapGet(value, "purge_reason") is { } csilRaw9 ? Cbor.AsText(csilRaw9) : null;
+        bool? csilField10 = Cbor.MapGet(value, "password_locked") is { } csilRaw10 ? Cbor.AsBool(csilRaw10) : null;
         return new AdminUser
         {
             Id = csilField0,
             Username = csilField1,
             DisplayName = csilField2,
-            IsActive = csilField3,
-            CreatedAt = csilField4,
-            UpdatedAt = csilField5,
-            PurgedAt = csilField6,
-            PurgeReason = csilField7,
-            PasswordLocked = csilField8,
+            Kind = csilField3,
+            ApplicationId = csilField4,
+            IsActive = csilField5,
+            CreatedAt = csilField6,
+            UpdatedAt = csilField7,
+            PurgedAt = csilField8,
+            PurgeReason = csilField9,
+            PasswordLocked = csilField10,
         };
     }
 
@@ -2496,11 +3072,11 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
         if (value.LastSeenAt is { } csilV1)
         {
-            csilEntries.Add((new CborValue.Text("last_seen_at"), new CborValue.Text(csilV1)));
+            csilEntries.Add((new CborValue.Text("last_seen_at"), Cbor.EncTimestamp(csilV1)));
         }
         if (value.LastAuthenticatedAt is { } csilV2)
         {
-            csilEntries.Add((new CborValue.Text("last_authenticated_at"), new CborValue.Text(csilV2)));
+            csilEntries.Add((new CborValue.Text("last_authenticated_at"), Cbor.EncTimestamp(csilV2)));
         }
         csilEntries.Add((new CborValue.Text("active_browser_session_count"), new CborValue.Int(value.ActiveBrowserSessionCount)));
         csilEntries.Add((new CborValue.Text("successful_authentication_count"), new CborValue.Int(value.SuccessfulAuthenticationCount)));
@@ -2511,8 +3087,8 @@ public static class Codec
     public static UserAuthenticationActivity UserAuthenticationActivityFromCborValue(CborValue value)
     {
         var csilField0 = Cbor.AsText(Cbor.Require(value, "user_id"));
-        string? csilField1 = Cbor.MapGet(value, "last_authenticated_at") is { } csilRaw1 ? Cbor.AsText(csilRaw1) : null;
-        string? csilField2 = Cbor.MapGet(value, "last_seen_at") is { } csilRaw2 ? Cbor.AsText(csilRaw2) : null;
+        System.DateTimeOffset? csilField1 = Cbor.MapGet(value, "last_authenticated_at") is { } csilRaw1 ? Cbor.AsTimestamp(csilRaw1) : null;
+        System.DateTimeOffset? csilField2 = Cbor.MapGet(value, "last_seen_at") is { } csilRaw2 ? Cbor.AsTimestamp(csilRaw2) : null;
         var csilField3 = Cbor.AsI64(Cbor.Require(value, "successful_authentication_count"));
         var csilField4 = Cbor.AsI64(Cbor.Require(value, "active_browser_session_count"));
         return new UserAuthenticationActivity
@@ -2571,6 +3147,10 @@ public static class Codec
         }
         csilEntries.Add((new CborValue.Text("username"), new CborValue.Text(value.Username)));
         csilEntries.Add((new CborValue.Text("display_name"), new CborValue.Text(value.DisplayName)));
+        if (value.ApplicationId is { } csilV3)
+        {
+            csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(csilV3)));
+        }
         return new CborValue.Map(csilEntries);
     }
 
@@ -2580,11 +3160,13 @@ public static class Codec
         var csilField0 = Cbor.AsText(Cbor.Require(value, "username"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "display_name"));
         string? csilField2 = Cbor.MapGet(value, "password") is { } csilRaw2 ? Cbor.AsText(csilRaw2) : null;
+        string? csilField3 = Cbor.MapGet(value, "application_id") is { } csilRaw3 ? Cbor.AsText(csilRaw3) : null;
         return new CreateUserRequest
         {
             Username = csilField0,
             DisplayName = csilField1,
             Password = csilField2,
+            ApplicationId = csilField3,
         };
     }
 
@@ -2609,6 +3191,432 @@ public static class Codec
         {
             User = csilField0,
             ApiKey = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RenameUserRequest.</summary>
+    public static CborValue RenameUserRequestToCborValue(RenameUserRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
+        csilEntries.Add((new CborValue.Text("username"), new CborValue.Text(value.Username)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RenameUserRequest from a decoded CBOR value tree.</summary>
+    public static RenameUserRequest RenameUserRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "user_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "username"));
+        return new RenameUserRequest
+        {
+            UserId = csilField0,
+            Username = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RenameUserResponse.</summary>
+    public static CborValue RenameUserResponseToCborValue(RenameUserResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("user"), AdminUserToCborValue(value.User)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RenameUserResponse from a decoded CBOR value tree.</summary>
+    public static RenameUserResponse RenameUserResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = AdminUserFromCborValue(Cbor.Require(value, "user"));
+        return new RenameUserResponse
+        {
+            User = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SetApplicationIdRequest.</summary>
+    public static CborValue SetApplicationIdRequestToCborValue(SetApplicationIdRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
+        csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(value.ApplicationId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SetApplicationIdRequest from a decoded CBOR value tree.</summary>
+    public static SetApplicationIdRequest SetApplicationIdRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "user_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "application_id"));
+        return new SetApplicationIdRequest
+        {
+            UserId = csilField0,
+            ApplicationId = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SetApplicationIdResponse.</summary>
+    public static CborValue SetApplicationIdResponseToCborValue(SetApplicationIdResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("user"), AdminUserToCborValue(value.User)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SetApplicationIdResponse from a decoded CBOR value tree.</summary>
+    public static SetApplicationIdResponse SetApplicationIdResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = AdminUserFromCborValue(Cbor.Require(value, "user"));
+        return new SetApplicationIdResponse
+        {
+            User = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ApiKeyInfo.</summary>
+    public static CborValue ApiKeyInfoToCborValue(ApiKeyInfo value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("hint"), new CborValue.Text(value.Hint)));
+        csilEntries.Add((new CborValue.Text("name"), new CborValue.Text(value.Name)));
+        csilEntries.Add((new CborValue.Text("key_id"), new CborValue.Text(value.KeyId)));
+        csilEntries.Add((new CborValue.Text("created_at"), Cbor.EncTimestamp(value.CreatedAt)));
+        if (value.LastUsedAt is { } csilV4)
+        {
+            csilEntries.Add((new CborValue.Text("last_used_at"), Cbor.EncTimestamp(csilV4)));
+        }
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ApiKeyInfo from a decoded CBOR value tree.</summary>
+    public static ApiKeyInfo ApiKeyInfoFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "key_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "name"));
+        var csilField2 = Cbor.AsText(Cbor.Require(value, "hint"));
+        var csilField3 = Cbor.AsTimestamp(Cbor.Require(value, "created_at"));
+        System.DateTimeOffset? csilField4 = Cbor.MapGet(value, "last_used_at") is { } csilRaw4 ? Cbor.AsTimestamp(csilRaw4) : null;
+        return new ApiKeyInfo
+        {
+            KeyId = csilField0,
+            Name = csilField1,
+            Hint = csilField2,
+            CreatedAt = csilField3,
+            LastUsedAt = csilField4,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a CreateApiKeyRequest.</summary>
+    public static CborValue CreateApiKeyRequestToCborValue(CreateApiKeyRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("name"), new CborValue.Text(value.Name)));
+        csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a CreateApiKeyRequest from a decoded CBOR value tree.</summary>
+    public static CreateApiKeyRequest CreateApiKeyRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "user_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "name"));
+        return new CreateApiKeyRequest
+        {
+            UserId = csilField0,
+            Name = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a CreateApiKeyResponse.</summary>
+    public static CborValue CreateApiKeyResponseToCborValue(CreateApiKeyResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("key"), ApiKeyInfoToCborValue(value.Key)));
+        csilEntries.Add((new CborValue.Text("api_key"), new CborValue.Text(value.ApiKey)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a CreateApiKeyResponse from a decoded CBOR value tree.</summary>
+    public static CreateApiKeyResponse CreateApiKeyResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = ApiKeyInfoFromCborValue(Cbor.Require(value, "key"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "api_key"));
+        return new CreateApiKeyResponse
+        {
+            Key = csilField0,
+            ApiKey = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ListApiKeysRequest.</summary>
+    public static CborValue ListApiKeysRequestToCborValue(ListApiKeysRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ListApiKeysRequest from a decoded CBOR value tree.</summary>
+    public static ListApiKeysRequest ListApiKeysRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "user_id"));
+        return new ListApiKeysRequest
+        {
+            UserId = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ListApiKeysResponse.</summary>
+    public static CborValue ListApiKeysResponseToCborValue(ListApiKeysResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("keys"), new CborValue.Array(value.Keys.Select(csilElem => (CborValue)ApiKeyInfoToCborValue(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ListApiKeysResponse from a decoded CBOR value tree.</summary>
+    public static ListApiKeysResponse ListApiKeysResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsArray(Cbor.Require(value, "keys")).Select(csilElem => ApiKeyInfoFromCborValue(csilElem)).ToList();
+        return new ListApiKeysResponse
+        {
+            Keys = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RevokeApiKeyRequest.</summary>
+    public static CborValue RevokeApiKeyRequestToCborValue(RevokeApiKeyRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("key_id"), new CborValue.Text(value.KeyId)));
+        csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RevokeApiKeyRequest from a decoded CBOR value tree.</summary>
+    public static RevokeApiKeyRequest RevokeApiKeyRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "user_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "key_id"));
+        return new RevokeApiKeyRequest
+        {
+            UserId = csilField0,
+            KeyId = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RevokeApiKeyResponse.</summary>
+    public static CborValue RevokeApiKeyResponseToCborValue(RevokeApiKeyResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("revoked"), new CborValue.Bool(value.Revoked)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RevokeApiKeyResponse from a decoded CBOR value tree.</summary>
+    public static RevokeApiKeyResponse RevokeApiKeyResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsBool(Cbor.Require(value, "revoked"));
+        return new RevokeApiKeyResponse
+        {
+            Revoked = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a AccountLimits.</summary>
+    public static CborValue AccountLimitsToCborValue(AccountLimits value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        if (value.MaxApiKeys is { } csilV0)
+        {
+            csilEntries.Add((new CborValue.Text("max_api_keys"), new CborValue.Int(csilV0)));
+        }
+        if (value.RequestBurst is { } csilV1)
+        {
+            csilEntries.Add((new CborValue.Text("request_burst"), new CborValue.Int(csilV1)));
+        }
+        if (value.MaxDistinctUsers is { } csilV2)
+        {
+            csilEntries.Add((new CborValue.Text("max_distinct_users"), new CborValue.Int(csilV2)));
+        }
+        if (value.RequestsPerMinute is { } csilV3)
+        {
+            csilEntries.Add((new CborValue.Text("requests_per_minute"), new CborValue.Int(csilV3)));
+        }
+        csilEntries.Add((new CborValue.Text("distinct_user_window_days"), new CborValue.Int(value.DistinctUserWindowDays)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a AccountLimits from a decoded CBOR value tree.</summary>
+    public static AccountLimits AccountLimitsFromCborValue(CborValue value)
+    {
+        long? csilField0 = Cbor.MapGet(value, "max_api_keys") is { } csilRaw0 ? Cbor.AsI64(csilRaw0) : null;
+        long? csilField1 = Cbor.MapGet(value, "max_distinct_users") is { } csilRaw1 ? Cbor.AsI64(csilRaw1) : null;
+        var csilField2 = Cbor.AsI64(Cbor.Require(value, "distinct_user_window_days"));
+        long? csilField3 = Cbor.MapGet(value, "requests_per_minute") is { } csilRaw3 ? Cbor.AsI64(csilRaw3) : null;
+        long? csilField4 = Cbor.MapGet(value, "request_burst") is { } csilRaw4 ? Cbor.AsI64(csilRaw4) : null;
+        return new AccountLimits
+        {
+            MaxApiKeys = csilField0,
+            MaxDistinctUsers = csilField1,
+            DistinctUserWindowDays = csilField2,
+            RequestsPerMinute = csilField3,
+            RequestBurst = csilField4,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a GetAccountLimitsRequest.</summary>
+    public static CborValue GetAccountLimitsRequestToCborValue(GetAccountLimitsRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a GetAccountLimitsRequest from a decoded CBOR value tree.</summary>
+    public static GetAccountLimitsRequest GetAccountLimitsRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "user_id"));
+        return new GetAccountLimitsRequest
+        {
+            UserId = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a GetAccountLimitsResponse.</summary>
+    public static CborValue GetAccountLimitsResponseToCborValue(GetAccountLimitsResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("limits"), AccountLimitsToCborValue(value.Limits)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a GetAccountLimitsResponse from a decoded CBOR value tree.</summary>
+    public static GetAccountLimitsResponse GetAccountLimitsResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = AccountLimitsFromCborValue(Cbor.Require(value, "limits"));
+        return new GetAccountLimitsResponse
+        {
+            Limits = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SetAccountLimitsRequest.</summary>
+    public static CborValue SetAccountLimitsRequestToCborValue(SetAccountLimitsRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("limits"), AccountLimitsToCborValue(value.Limits)));
+        csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SetAccountLimitsRequest from a decoded CBOR value tree.</summary>
+    public static SetAccountLimitsRequest SetAccountLimitsRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "user_id"));
+        var csilField1 = AccountLimitsFromCborValue(Cbor.Require(value, "limits"));
+        return new SetAccountLimitsRequest
+        {
+            UserId = csilField0,
+            Limits = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a SetAccountLimitsResponse.</summary>
+    public static CborValue SetAccountLimitsResponseToCborValue(SetAccountLimitsResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("limits"), AccountLimitsToCborValue(value.Limits)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a SetAccountLimitsResponse from a decoded CBOR value tree.</summary>
+    public static SetAccountLimitsResponse SetAccountLimitsResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = AccountLimitsFromCborValue(Cbor.Require(value, "limits"));
+        return new SetAccountLimitsResponse
+        {
+            Limits = csilField0,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RpUsageDay.</summary>
+    public static CborValue RpUsageDayToCborValue(RpUsageDay value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("day"), Cbor.EncDate(value.Day)));
+        csilEntries.Add((new CborValue.Text("failed"), new CborValue.Int(value.Failed)));
+        csilEntries.Add((new CborValue.Text("operation"), new CborValue.Text(value.Operation)));
+        csilEntries.Add((new CborValue.Text("succeeded"), new CborValue.Int(value.Succeeded)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RpUsageDay from a decoded CBOR value tree.</summary>
+    public static RpUsageDay RpUsageDayFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsDate(Cbor.Require(value, "day"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "operation"));
+        var csilField2 = Cbor.AsI64(Cbor.Require(value, "succeeded"));
+        var csilField3 = Cbor.AsI64(Cbor.Require(value, "failed"));
+        return new RpUsageDay
+        {
+            Day = csilField0,
+            Operation = csilField1,
+            Succeeded = csilField2,
+            Failed = csilField3,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a GetApplicationUsageRequest.</summary>
+    public static CborValue GetApplicationUsageRequestToCborValue(GetApplicationUsageRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
+        csilEntries.Add((new CborValue.Text("last_day"), Cbor.EncDate(value.LastDay)));
+        csilEntries.Add((new CborValue.Text("first_day"), Cbor.EncDate(value.FirstDay)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a GetApplicationUsageRequest from a decoded CBOR value tree.</summary>
+    public static GetApplicationUsageRequest GetApplicationUsageRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "user_id"));
+        var csilField1 = Cbor.AsDate(Cbor.Require(value, "first_day"));
+        var csilField2 = Cbor.AsDate(Cbor.Require(value, "last_day"));
+        return new GetApplicationUsageRequest
+        {
+            UserId = csilField0,
+            FirstDay = csilField1,
+            LastDay = csilField2,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a GetApplicationUsageResponse.</summary>
+    public static CborValue GetApplicationUsageResponseToCborValue(GetApplicationUsageResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("days"), new CborValue.Array(value.Days.Select(csilElem => (CborValue)RpUsageDayToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("distinct_users"), new CborValue.Int(value.DistinctUsers)));
+        if (value.MaxDistinctUsers is { } csilV2)
+        {
+            csilEntries.Add((new CborValue.Text("max_distinct_users"), new CborValue.Int(csilV2)));
+        }
+        csilEntries.Add((new CborValue.Text("distinct_user_window_days"), new CborValue.Int(value.DistinctUserWindowDays)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a GetApplicationUsageResponse from a decoded CBOR value tree.</summary>
+    public static GetApplicationUsageResponse GetApplicationUsageResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsI64(Cbor.Require(value, "distinct_users"));
+        var csilField1 = Cbor.AsI64(Cbor.Require(value, "distinct_user_window_days"));
+        long? csilField2 = Cbor.MapGet(value, "max_distinct_users") is { } csilRaw2 ? Cbor.AsI64(csilRaw2) : null;
+        var csilField3 = Cbor.AsArray(Cbor.Require(value, "days")).Select(csilElem => RpUsageDayFromCborValue(csilElem)).ToList();
+        return new GetApplicationUsageResponse
+        {
+            DistinctUsers = csilField0,
+            DistinctUserWindowDays = csilField1,
+            MaxDistinctUsers = csilField2,
+            Days = csilField3,
         };
     }
 
@@ -2962,7 +3970,7 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
         if (value.ExpiresAt is { } csilV2)
         {
-            csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(csilV2)));
+            csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(csilV2)));
         }
         csilEntries.Add((new CborValue.Text("claim_value"), new CborValue.Text(value.ClaimValue)));
         return new CborValue.Map(csilEntries);
@@ -2974,7 +3982,7 @@ public static class Codec
         var csilField0 = Cbor.AsText(Cbor.Require(value, "user_id"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "claim_type"));
         var csilField2 = Cbor.AsText(Cbor.Require(value, "claim_value"));
-        string? csilField3 = Cbor.MapGet(value, "expires_at") is { } csilRaw3 ? Cbor.AsText(csilRaw3) : null;
+        System.DateTimeOffset? csilField3 = Cbor.MapGet(value, "expires_at") is { } csilRaw3 ? Cbor.AsTimestamp(csilRaw3) : null;
         return new SetClaimRequest
         {
             UserId = csilField0,
@@ -3142,14 +4150,14 @@ public static class Codec
         {
             csilEntries.Add((new CborValue.Text("claim"), ClaimToCborValue(csilV0)));
         }
-        csilEntries.Add((new CborValue.Text("outcome"), new CborValue.Text(value.Outcome)));
+        csilEntries.Add((new CborValue.Text("outcome"), SetClaimOutcomeToCborValue(value.Outcome)));
         return new CborValue.Map(csilEntries);
     }
 
     /// <summary>Reconstruct a SetUserClaimResponse from a decoded CBOR value tree.</summary>
     public static SetUserClaimResponse SetUserClaimResponseFromCborValue(CborValue value)
     {
-        var csilField0 = Cbor.AsText(Cbor.Require(value, "outcome"));
+        var csilField0 = SetClaimOutcomeFromCborValue(Cbor.Require(value, "outcome"));
         Claim? csilField1 = Cbor.MapGet(value, "claim") is { } csilRaw1 ? ClaimFromCborValue(csilRaw1) : null;
         return new SetUserClaimResponse
         {
@@ -3163,12 +4171,12 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("label"), new CborValue.Text(value.Label)));
-        csilEntries.Add((new CborValue.Text("datatype"), new CborValue.Text(value.Datatype)));
-        csilEntries.Add((new CborValue.Text("set_rule"), new CborValue.Text(value.SetRule)));
+        csilEntries.Add((new CborValue.Text("datatype"), ClaimValueTypeToCborValue(value.Datatype)));
+        csilEntries.Add((new CborValue.Text("set_rule"), SetRuleToCborValue(value.SetRule)));
         csilEntries.Add((new CborValue.Text("max_bytes"), new CborValue.Int(value.MaxBytes)));
         csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
         csilEntries.Add((new CborValue.Text("description"), new CborValue.Text(value.Description)));
-        csilEntries.Add((new CborValue.Text("signing_rule"), new CborValue.Text(value.SigningRule)));
+        csilEntries.Add((new CborValue.Text("signing_rule"), SigningRuleToCborValue(value.SigningRule)));
         csilEntries.Add((new CborValue.Text("requires_approval"), new CborValue.Bool(value.RequiresApproval)));
         return new CborValue.Map(csilEntries);
     }
@@ -3179,11 +4187,11 @@ public static class Codec
         var csilField0 = Cbor.AsText(Cbor.Require(value, "claim_type"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "label"));
         var csilField2 = Cbor.AsText(Cbor.Require(value, "description"));
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "datatype"));
+        var csilField3 = ClaimValueTypeFromCborValue(Cbor.Require(value, "datatype"));
         var csilField4 = Cbor.AsI64(Cbor.Require(value, "max_bytes"));
-        var csilField5 = Cbor.AsText(Cbor.Require(value, "set_rule"));
+        var csilField5 = SetRuleFromCborValue(Cbor.Require(value, "set_rule"));
         var csilField6 = Cbor.AsBool(Cbor.Require(value, "requires_approval"));
-        var csilField7 = Cbor.AsText(Cbor.Require(value, "signing_rule"));
+        var csilField7 = SigningRuleFromCborValue(Cbor.Require(value, "signing_rule"));
         return new SettableClaimPolicy
         {
             ClaimType = csilField0,
@@ -3220,13 +4228,13 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("label"), new CborValue.Text(value.Label)));
-        csilEntries.Add((new CborValue.Text("set_rule"), new CborValue.Text(value.SetRule)));
+        csilEntries.Add((new CborValue.Text("set_rule"), SetRuleToCborValue(value.SetRule)));
         csilEntries.Add((new CborValue.Text("max_bytes"), new CborValue.Int(value.MaxBytes)));
         csilEntries.Add((new CborValue.Text("suggested"), new CborValue.Bool(value.Suggested)));
         csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
-        csilEntries.Add((new CborValue.Text("value_type"), new CborValue.Text(value.ValueType)));
+        csilEntries.Add((new CborValue.Text("value_type"), ClaimValueTypeToCborValue(value.ValueType)));
         csilEntries.Add((new CborValue.Text("description"), new CborValue.Text(value.Description)));
-        csilEntries.Add((new CborValue.Text("signing_rule"), new CborValue.Text(value.SigningRule)));
+        csilEntries.Add((new CborValue.Text("signing_rule"), SigningRuleToCborValue(value.SigningRule)));
         csilEntries.Add((new CborValue.Text("user_settable"), new CborValue.Bool(value.UserSettable)));
         csilEntries.Add((new CborValue.Text("default_auto_sign"), new CborValue.Bool(value.DefaultAutoSign)));
         csilEntries.Add((new CborValue.Text("requires_approval"), new CborValue.Bool(value.RequiresApproval)));
@@ -3239,10 +4247,10 @@ public static class Codec
         var csilField0 = Cbor.AsText(Cbor.Require(value, "claim_type"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "label"));
         var csilField2 = Cbor.AsText(Cbor.Require(value, "description"));
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "value_type"));
+        var csilField3 = ClaimValueTypeFromCborValue(Cbor.Require(value, "value_type"));
         var csilField4 = Cbor.AsI64(Cbor.Require(value, "max_bytes"));
-        var csilField5 = Cbor.AsText(Cbor.Require(value, "set_rule"));
-        var csilField6 = Cbor.AsText(Cbor.Require(value, "signing_rule"));
+        var csilField5 = SetRuleFromCborValue(Cbor.Require(value, "set_rule"));
+        var csilField6 = SigningRuleFromCborValue(Cbor.Require(value, "signing_rule"));
         var csilField7 = Cbor.AsBool(Cbor.Require(value, "requires_approval"));
         var csilField8 = Cbor.AsBool(Cbor.Require(value, "user_settable"));
         var csilField9 = Cbor.AsBool(Cbor.Require(value, "default_auto_sign"));
@@ -3286,16 +4294,16 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("label"), new CborValue.Text(value.Label)));
-        csilEntries.Add((new CborValue.Text("set_rule"), new CborValue.Text(value.SetRule)));
+        csilEntries.Add((new CborValue.Text("set_rule"), SetRuleToCborValue(value.SetRule)));
         csilEntries.Add((new CborValue.Text("max_bytes"), new CborValue.Int(value.MaxBytes)));
         csilEntries.Add((new CborValue.Text("suggested"), new CborValue.Bool(value.Suggested)));
         csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
-        csilEntries.Add((new CborValue.Text("value_type"), new CborValue.Text(value.ValueType)));
+        csilEntries.Add((new CborValue.Text("value_type"), ClaimValueTypeToCborValue(value.ValueType)));
         if (value.Description is { } csilV6)
         {
             csilEntries.Add((new CborValue.Text("description"), new CborValue.Text(csilV6)));
         }
-        csilEntries.Add((new CborValue.Text("signing_rule"), new CborValue.Text(value.SigningRule)));
+        csilEntries.Add((new CborValue.Text("signing_rule"), SigningRuleToCborValue(value.SigningRule)));
         csilEntries.Add((new CborValue.Text("user_settable"), new CborValue.Bool(value.UserSettable)));
         csilEntries.Add((new CborValue.Text("default_auto_sign"), new CborValue.Bool(value.DefaultAutoSign)));
         csilEntries.Add((new CborValue.Text("requires_approval"), new CborValue.Bool(value.RequiresApproval)));
@@ -3308,10 +4316,10 @@ public static class Codec
         var csilField0 = Cbor.AsText(Cbor.Require(value, "claim_type"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "label"));
         string? csilField2 = Cbor.MapGet(value, "description") is { } csilRaw2 ? Cbor.AsText(csilRaw2) : null;
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "value_type"));
+        var csilField3 = ClaimValueTypeFromCborValue(Cbor.Require(value, "value_type"));
         var csilField4 = Cbor.AsI64(Cbor.Require(value, "max_bytes"));
-        var csilField5 = Cbor.AsText(Cbor.Require(value, "set_rule"));
-        var csilField6 = Cbor.AsText(Cbor.Require(value, "signing_rule"));
+        var csilField5 = SetRuleFromCborValue(Cbor.Require(value, "set_rule"));
+        var csilField6 = SigningRuleFromCborValue(Cbor.Require(value, "signing_rule"));
         var csilField7 = Cbor.AsBool(Cbor.Require(value, "user_settable"));
         var csilField8 = Cbor.AsBool(Cbor.Require(value, "default_auto_sign"));
         var csilField9 = Cbor.AsBool(Cbor.Require(value, "requires_approval"));
@@ -3644,7 +4652,7 @@ public static class Codec
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("audience"), new CborValue.Text(value.Audience)));
         csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
-        csilEntries.Add((new CborValue.Text("disposition"), new CborValue.Text(value.Disposition)));
+        csilEntries.Add((new CborValue.Text("disposition"), ReleaseDispositionToCborValue(value.Disposition)));
         return new CborValue.Map(csilEntries);
     }
 
@@ -3653,7 +4661,7 @@ public static class Codec
     {
         var csilField0 = Cbor.AsText(Cbor.Require(value, "audience"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "claim_type"));
-        var csilField2 = Cbor.AsText(Cbor.Require(value, "disposition"));
+        var csilField2 = ReleaseDispositionFromCborValue(Cbor.Require(value, "disposition"));
         return new ReleaseRule
         {
             Audience = csilField0,
@@ -3686,7 +4694,7 @@ public static class Codec
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("audience"), new CborValue.Text(value.Audience)));
         csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
-        csilEntries.Add((new CborValue.Text("disposition"), new CborValue.Text(value.Disposition)));
+        csilEntries.Add((new CborValue.Text("disposition"), ReleaseDispositionToCborValue(value.Disposition)));
         return new CborValue.Map(csilEntries);
     }
 
@@ -3695,7 +4703,7 @@ public static class Codec
     {
         var csilField0 = Cbor.AsText(Cbor.Require(value, "audience"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "claim_type"));
-        var csilField2 = Cbor.AsText(Cbor.Require(value, "disposition"));
+        var csilField2 = ReleaseDispositionFromCborValue(Cbor.Require(value, "disposition"));
         return new SetReleaseRuleRequest
         {
             Audience = csilField0,
@@ -3766,14 +4774,14 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("id"), new CborValue.Text(value.Id)));
-        csilEntries.Add((new CborValue.Text("status"), new CborValue.Text(value.Status)));
+        csilEntries.Add((new CborValue.Text("status"), ClaimApprovalStatusToCborValue(value.Status)));
         csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
         csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
-        csilEntries.Add((new CborValue.Text("created_at"), new CborValue.Text(value.CreatedAt)));
+        csilEntries.Add((new CborValue.Text("created_at"), Cbor.EncTimestamp(value.CreatedAt)));
         csilEntries.Add((new CborValue.Text("claim_value"), new CborValue.Bytes(value.ClaimValue)));
         if (value.ResolvedAt is { } csilV6)
         {
-            csilEntries.Add((new CborValue.Text("resolved_at"), new CborValue.Text(csilV6)));
+            csilEntries.Add((new CborValue.Text("resolved_at"), Cbor.EncTimestamp(csilV6)));
         }
         if (value.ResolvedBy is { } csilV7)
         {
@@ -3789,10 +4797,10 @@ public static class Codec
         var csilField1 = Cbor.AsText(Cbor.Require(value, "user_id"));
         var csilField2 = Cbor.AsText(Cbor.Require(value, "claim_type"));
         var csilField3 = Cbor.AsBytes(Cbor.Require(value, "claim_value"));
-        var csilField4 = Cbor.AsText(Cbor.Require(value, "status"));
+        var csilField4 = ClaimApprovalStatusFromCborValue(Cbor.Require(value, "status"));
         string? csilField5 = Cbor.MapGet(value, "resolved_by") is { } csilRaw5 ? Cbor.AsText(csilRaw5) : null;
-        string? csilField6 = Cbor.MapGet(value, "resolved_at") is { } csilRaw6 ? Cbor.AsText(csilRaw6) : null;
-        var csilField7 = Cbor.AsText(Cbor.Require(value, "created_at"));
+        System.DateTimeOffset? csilField6 = Cbor.MapGet(value, "resolved_at") is { } csilRaw6 ? Cbor.AsTimestamp(csilRaw6) : null;
+        var csilField7 = Cbor.AsTimestamp(Cbor.Require(value, "created_at"));
         return new ClaimApproval
         {
             Id = csilField0,
@@ -4216,14 +5224,14 @@ public static class Codec
         {
             csilEntries.Add((new CborValue.Text("claim"), ClaimToCborValue(csilV0)));
         }
-        csilEntries.Add((new CborValue.Text("outcome"), new CborValue.Text(value.Outcome)));
+        csilEntries.Add((new CborValue.Text("outcome"), SetClaimOutcomeToCborValue(value.Outcome)));
         return new CborValue.Map(csilEntries);
     }
 
     /// <summary>Reconstruct a SetMyClaimResponse from a decoded CBOR value tree.</summary>
     public static SetMyClaimResponse SetMyClaimResponseFromCborValue(CborValue value)
     {
-        var csilField0 = Cbor.AsText(Cbor.Require(value, "outcome"));
+        var csilField0 = SetClaimOutcomeFromCborValue(Cbor.Require(value, "outcome"));
         Claim? csilField1 = Cbor.MapGet(value, "claim") is { } csilRaw1 ? ClaimFromCborValue(csilRaw1) : null;
         return new SetMyClaimResponse
         {
@@ -4525,9 +5533,9 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("user"), AdminUserToCborValue(value.User)));
-        csilEntries.Add((new CborValue.Text("issued_at"), new CborValue.Text(value.IssuedAt)));
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
-        csilEntries.Add((new CborValue.Text("authenticated_at"), new CborValue.Text(value.AuthenticatedAt)));
+        csilEntries.Add((new CborValue.Text("issued_at"), Cbor.EncTimestamp(value.IssuedAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("authenticated_at"), Cbor.EncTimestamp(value.AuthenticatedAt)));
         csilEntries.Add((new CborValue.Text("authentication_methods"), new CborValue.Array(value.AuthenticationMethods.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
         return new CborValue.Map(csilEntries);
     }
@@ -4536,9 +5544,9 @@ public static class Codec
     public static BrowserSessionInfo BrowserSessionInfoFromCborValue(CborValue value)
     {
         var csilField0 = AdminUserFromCborValue(Cbor.Require(value, "user"));
-        var csilField1 = Cbor.AsText(Cbor.Require(value, "issued_at"));
-        var csilField2 = Cbor.AsText(Cbor.Require(value, "authenticated_at"));
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField1 = Cbor.AsTimestamp(Cbor.Require(value, "issued_at"));
+        var csilField2 = Cbor.AsTimestamp(Cbor.Require(value, "authenticated_at"));
+        var csilField3 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
         var csilField4 = Cbor.AsArray(Cbor.Require(value, "authentication_methods")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
         return new BrowserSessionInfo
         {
@@ -4648,9 +5656,9 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         csilEntries.Add((new CborValue.Text("user_domain"), new CborValue.Text(value.UserDomain)));
-        csilEntries.Add((new CborValue.Text("authenticated_at"), new CborValue.Text(value.AuthenticatedAt)));
+        csilEntries.Add((new CborValue.Text("authenticated_at"), Cbor.EncTimestamp(value.AuthenticatedAt)));
         csilEntries.Add((new CborValue.Text("authentication_methods"), new CborValue.Array(value.AuthenticationMethods.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
         return new CborValue.Map(csilEntries);
     }
@@ -4660,8 +5668,8 @@ public static class Codec
     {
         var csilField0 = Cbor.AsText(Cbor.Require(value, "user_id"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "user_domain"));
-        var csilField2 = Cbor.AsText(Cbor.Require(value, "authenticated_at"));
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField2 = Cbor.AsTimestamp(Cbor.Require(value, "authenticated_at"));
+        var csilField3 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
         var csilField4 = Cbor.AsArray(Cbor.Require(value, "authentication_methods")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
         return new IntrospectBrowserSessionResponse
         {
@@ -4677,18 +5685,18 @@ public static class Codec
     public static CborValue NotificationCapabilityToCborValue(NotificationCapability value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("channel"), new CborValue.Text(value.Channel)));
-        csilEntries.Add((new CborValue.Text("purpose"), new CborValue.Text(value.Purpose)));
-        csilEntries.Add((new CborValue.Text("destination_kind"), new CborValue.Text(value.DestinationKind)));
+        csilEntries.Add((new CborValue.Text("channel"), NotificationChannelToCborValue(value.Channel)));
+        csilEntries.Add((new CborValue.Text("purpose"), NotificationPurposeToCborValue(value.Purpose)));
+        csilEntries.Add((new CborValue.Text("destination_kind"), DestinationKindToCborValue(value.DestinationKind)));
         return new CborValue.Map(csilEntries);
     }
 
     /// <summary>Reconstruct a NotificationCapability from a decoded CBOR value tree.</summary>
     public static NotificationCapability NotificationCapabilityFromCborValue(CborValue value)
     {
-        var csilField0 = Cbor.AsText(Cbor.Require(value, "purpose"));
-        var csilField1 = Cbor.AsText(Cbor.Require(value, "channel"));
-        var csilField2 = Cbor.AsText(Cbor.Require(value, "destination_kind"));
+        var csilField0 = NotificationPurposeFromCborValue(Cbor.Require(value, "purpose"));
+        var csilField1 = NotificationChannelFromCborValue(Cbor.Require(value, "channel"));
+        var csilField2 = DestinationKindFromCborValue(Cbor.Require(value, "destination_kind"));
         return new NotificationCapability
         {
             Purpose = csilField0,
@@ -4720,14 +5728,14 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("id"), new CborValue.Text(value.Id)));
-        csilEntries.Add((new CborValue.Text("channel"), new CborValue.Text(value.Channel)));
-        csilEntries.Add((new CborValue.Text("purposes"), new CborValue.Array(value.Purposes.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("channel"), NotificationChannelToCborValue(value.Channel)));
+        csilEntries.Add((new CborValue.Text("purposes"), new CborValue.Array(value.Purposes.Select(csilElem => (CborValue)NotificationPurposeToCborValue(csilElem)).ToList())));
         if (value.RevokedAt is { } csilV3)
         {
-            csilEntries.Add((new CborValue.Text("revoked_at"), new CborValue.Text(csilV3)));
+            csilEntries.Add((new CborValue.Text("revoked_at"), Cbor.EncTimestamp(csilV3)));
         }
         csilEntries.Add((new CborValue.Text("destination"), new CborValue.Text(value.Destination)));
-        csilEntries.Add((new CborValue.Text("verified_at"), new CborValue.Text(value.VerifiedAt)));
+        csilEntries.Add((new CborValue.Text("verified_at"), Cbor.EncTimestamp(value.VerifiedAt)));
         return new CborValue.Map(csilEntries);
     }
 
@@ -4735,11 +5743,11 @@ public static class Codec
     public static VerifiedContactMethod VerifiedContactMethodFromCborValue(CborValue value)
     {
         var csilField0 = Cbor.AsText(Cbor.Require(value, "id"));
-        var csilField1 = Cbor.AsText(Cbor.Require(value, "channel"));
+        var csilField1 = NotificationChannelFromCborValue(Cbor.Require(value, "channel"));
         var csilField2 = Cbor.AsText(Cbor.Require(value, "destination"));
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "verified_at"));
-        var csilField4 = Cbor.AsArray(Cbor.Require(value, "purposes")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
-        string? csilField5 = Cbor.MapGet(value, "revoked_at") is { } csilRaw5 ? Cbor.AsText(csilRaw5) : null;
+        var csilField3 = Cbor.AsTimestamp(Cbor.Require(value, "verified_at"));
+        var csilField4 = Cbor.AsArray(Cbor.Require(value, "purposes")).Select(csilElem => NotificationPurposeFromCborValue(csilElem)).ToList();
+        System.DateTimeOffset? csilField5 = Cbor.MapGet(value, "revoked_at") is { } csilRaw5 ? Cbor.AsTimestamp(csilRaw5) : null;
         return new VerifiedContactMethod
         {
             Id = csilField0,
@@ -4812,7 +5820,7 @@ public static class Codec
     public static CborValue RequestContactVerificationRequestToCborValue(RequestContactVerificationRequest value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("channel"), new CborValue.Text(value.Channel)));
+        csilEntries.Add((new CborValue.Text("channel"), NotificationChannelToCborValue(value.Channel)));
         csilEntries.Add((new CborValue.Text("destination"), new CborValue.Text(value.Destination)));
         csilEntries.Add((new CborValue.Text("current_password"), new CborValue.Text(value.CurrentPassword)));
         return new CborValue.Map(csilEntries);
@@ -4821,7 +5829,7 @@ public static class Codec
     /// <summary>Reconstruct a RequestContactVerificationRequest from a decoded CBOR value tree.</summary>
     public static RequestContactVerificationRequest RequestContactVerificationRequestFromCborValue(CborValue value)
     {
-        var csilField0 = Cbor.AsText(Cbor.Require(value, "channel"));
+        var csilField0 = NotificationChannelFromCborValue(Cbor.Require(value, "channel"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "destination"));
         var csilField2 = Cbor.AsText(Cbor.Require(value, "current_password"));
         return new RequestContactVerificationRequest
@@ -4836,14 +5844,14 @@ public static class Codec
     public static CborValue RequestContactVerificationResponseToCborValue(RequestContactVerificationResponse value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         return new CborValue.Map(csilEntries);
     }
 
     /// <summary>Reconstruct a RequestContactVerificationResponse from a decoded CBOR value tree.</summary>
     public static RequestContactVerificationResponse RequestContactVerificationResponseFromCborValue(CborValue value)
     {
-        var csilField0 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField0 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
         return new RequestContactVerificationResponse
         {
             ExpiresAt = csilField0,
@@ -4944,7 +5952,7 @@ public static class Codec
     public static CborValue ValidatePasswordRecoveryResponseToCborValue(ValidatePasswordRecoveryResponse value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         csilEntries.Add((new CborValue.Text("password_policy"), PasswordPolicyToCborValue(value.PasswordPolicy)));
         return new CborValue.Map(csilEntries);
     }
@@ -4952,7 +5960,7 @@ public static class Codec
     /// <summary>Reconstruct a ValidatePasswordRecoveryResponse from a decoded CBOR value tree.</summary>
     public static ValidatePasswordRecoveryResponse ValidatePasswordRecoveryResponseFromCborValue(CborValue value)
     {
-        var csilField0 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField0 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
         var csilField1 = PasswordPolicyFromCborValue(Cbor.Require(value, "password_policy"));
         return new ValidatePasswordRecoveryResponse
         {
@@ -5023,8 +6031,8 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("label"), new CborValue.Text(value.Label)));
-        csilEntries.Add((new CborValue.Text("policy"), new CborValue.Text(value.Policy)));
-        csilEntries.Add((new CborValue.Text("datatype"), new CborValue.Text(value.Datatype)));
+        csilEntries.Add((new CborValue.Text("policy"), ConsentRowPolicyToCborValue(value.Policy)));
+        csilEntries.Add((new CborValue.Text("datatype"), ClaimValueTypeToCborValue(value.Datatype)));
         csilEntries.Add((new CborValue.Text("required"), new CborValue.Bool(value.Required)));
         csilEntries.Add((new CborValue.Text("available"), new CborValue.Bool(value.Available)));
         csilEntries.Add((new CborValue.Text("max_bytes"), new CborValue.Int(value.MaxBytes)));
@@ -5044,11 +6052,11 @@ public static class Codec
     {
         var csilField0 = Cbor.AsText(Cbor.Require(value, "claim_type"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "label"));
-        var csilField2 = Cbor.AsText(Cbor.Require(value, "datatype"));
+        var csilField2 = ClaimValueTypeFromCborValue(Cbor.Require(value, "datatype"));
         var csilField3 = Cbor.AsBool(Cbor.Require(value, "required"));
         var csilField4 = Cbor.AsBool(Cbor.Require(value, "available"));
         var csilField5 = Cbor.AsBool(Cbor.Require(value, "default_granted"));
-        var csilField6 = Cbor.AsText(Cbor.Require(value, "policy"));
+        var csilField6 = ConsentRowPolicyFromCborValue(Cbor.Require(value, "policy"));
         var csilField7 = Cbor.AsBool(Cbor.Require(value, "user_settable"));
         var csilField8 = Cbor.AsI64(Cbor.Require(value, "max_bytes"));
         var csilField9 = Cbor.AsBool(Cbor.Require(value, "requires_approval"));
@@ -5207,7 +6215,7 @@ public static class Codec
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("claims"), new CborValue.Array(value.Claims.Select(csilElem => (CborValue)BrowserConsentClaimToCborValue(csilElem)).ToList())));
         csilEntries.Add((new CborValue.Text("app_name"), new CborValue.Text(value.AppName)));
-        csilEntries.Add((new CborValue.Text("admission"), new CborValue.Text(value.Admission)));
+        csilEntries.Add((new CborValue.Text("admission"), LocalRpAdmissionToCborValue(value.Admission)));
         csilEntries.Add((new CborValue.Text("fingerprint"), new CborValue.Text(value.Fingerprint)));
         if (value.AccessDenied is { } csilV4)
         {
@@ -5216,7 +6224,7 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("callback_host"), new CborValue.Text(value.CallbackHost)));
         if (value.FirstSeenAt is { } csilV6)
         {
-            csilEntries.Add((new CborValue.Text("first_seen_at"), new CborValue.Text(csilV6)));
+            csilEntries.Add((new CborValue.Text("first_seen_at"), Cbor.EncTimestamp(csilV6)));
         }
         if (value.RequestReason is { } csilV7)
         {
@@ -5236,11 +6244,11 @@ public static class Codec
     /// <summary>Reconstruct a BrowserLocalRpInspectResponse from a decoded CBOR value tree.</summary>
     public static BrowserLocalRpInspectResponse BrowserLocalRpInspectResponseFromCborValue(CborValue value)
     {
-        var csilField0 = Cbor.AsText(Cbor.Require(value, "admission"));
+        var csilField0 = LocalRpAdmissionFromCborValue(Cbor.Require(value, "admission"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "app_name"));
         var csilField2 = Cbor.AsText(Cbor.Require(value, "fingerprint"));
         var csilField3 = Cbor.AsText(Cbor.Require(value, "callback_host"));
-        string? csilField4 = Cbor.MapGet(value, "first_seen_at") is { } csilRaw4 ? Cbor.AsText(csilRaw4) : null;
+        System.DateTimeOffset? csilField4 = Cbor.MapGet(value, "first_seen_at") is { } csilRaw4 ? Cbor.AsTimestamp(csilRaw4) : null;
         var csilField5 = Cbor.AsArray(Cbor.Require(value, "claims")).Select(csilElem => BrowserConsentClaimFromCborValue(csilElem)).ToList();
         string? csilField6 = Cbor.MapGet(value, "request_reason") is { } csilRaw6 ? Cbor.AsText(csilRaw6) : null;
         bool? csilField7 = Cbor.MapGet(value, "already_consented") is { } csilRaw7 ? Cbor.AsBool(csilRaw7) : null;
@@ -5457,17 +6465,13 @@ public static class Codec
         {
             csilEntries.Add((new CborValue.Text("flow_context"), AuthFlowContextToCborValue(csilV2)));
         }
-        if (value.ApplicationId is { } csilV3)
+        if (value.RequestedClaims is { } csilV3)
         {
-            csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(csilV3)));
+            csilEntries.Add((new CborValue.Text("requested_claims"), ClaimRequestToCborValue(csilV3)));
         }
-        if (value.RequestedClaims is { } csilV4)
+        if (value.AuthenticationRequirements is { } csilV4)
         {
-            csilEntries.Add((new CborValue.Text("requested_claims"), ClaimRequestToCborValue(csilV4)));
-        }
-        if (value.AuthenticationRequirements is { } csilV5)
-        {
-            csilEntries.Add((new CborValue.Text("authentication_requirements"), AuthenticationRequirementsToCborValue(csilV5)));
+            csilEntries.Add((new CborValue.Text("authentication_requirements"), AuthenticationRequirementsToCborValue(csilV4)));
         }
         return new CborValue.Map(csilEntries);
     }
@@ -5477,18 +6481,16 @@ public static class Codec
     {
         var csilField0 = Cbor.AsText(Cbor.Require(value, "callback_url"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "nonce"));
-        string? csilField2 = Cbor.MapGet(value, "application_id") is { } csilRaw2 ? Cbor.AsText(csilRaw2) : null;
-        ClaimRequest? csilField3 = Cbor.MapGet(value, "requested_claims") is { } csilRaw3 ? ClaimRequestFromCborValue(csilRaw3) : null;
-        AuthenticationRequirements? csilField4 = Cbor.MapGet(value, "authentication_requirements") is { } csilRaw4 ? AuthenticationRequirementsFromCborValue(csilRaw4) : null;
-        AuthFlowContext? csilField5 = Cbor.MapGet(value, "flow_context") is { } csilRaw5 ? AuthFlowContextFromCborValue(csilRaw5) : null;
+        ClaimRequest? csilField2 = Cbor.MapGet(value, "requested_claims") is { } csilRaw2 ? ClaimRequestFromCborValue(csilRaw2) : null;
+        AuthenticationRequirements? csilField3 = Cbor.MapGet(value, "authentication_requirements") is { } csilRaw3 ? AuthenticationRequirementsFromCborValue(csilRaw3) : null;
+        AuthFlowContext? csilField4 = Cbor.MapGet(value, "flow_context") is { } csilRaw4 ? AuthFlowContextFromCborValue(csilRaw4) : null;
         return new RpSignRequest
         {
             CallbackUrl = csilField0,
             Nonce = csilField1,
-            ApplicationId = csilField2,
-            RequestedClaims = csilField3,
-            AuthenticationRequirements = csilField4,
-            FlowContext = csilField5,
+            RequestedClaims = csilField2,
+            AuthenticationRequirements = csilField3,
+            FlowContext = csilField4,
         };
     }
 
@@ -5609,6 +6611,27 @@ public static class Codec
             Token = csilField0,
             ApiBase = csilField1,
             Domain = csilField2,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RpError.</summary>
+    public static CborValue RpErrorToCborValue(RpError value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("code"), RpErrorCodeToCborValue(value.Code)));
+        csilEntries.Add((new CborValue.Text("message"), new CborValue.Text(value.Message)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RpError from a decoded CBOR value tree.</summary>
+    public static RpError RpErrorFromCborValue(CborValue value)
+    {
+        var csilField0 = RpErrorCodeFromCborValue(Cbor.Require(value, "code"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "message"));
+        return new RpError
+        {
+            Code = csilField0,
+            Message = csilField1,
         };
     }
 
@@ -5813,10 +6836,10 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("app_name"), new CborValue.Text(value.AppName)));
-        csilEntries.Add((new CborValue.Text("created_at"), new CborValue.Text(value.CreatedAt)));
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("created_at"), Cbor.EncTimestamp(value.CreatedAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         csilEntries.Add((new CborValue.Text("fingerprint"), new CborValue.Text(value.Fingerprint)));
-        csilEntries.Add((new CborValue.Text("supported_suites"), new CborValue.Array(value.SupportedSuites.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("supported_suites"), new CborValue.Array(value.SupportedSuites.Select(csilElem => (CborValue)AeadSuiteToCborValue(csilElem)).ToList())));
         if (value.LocalDomainHint is { } csilV5)
         {
             csilEntries.Add((new CborValue.Text("local_domain_hint"), new CborValue.Text(csilV5)));
@@ -5834,9 +6857,9 @@ public static class Codec
         var csilField2 = Cbor.AsBytes(Cbor.Require(value, "signing_public_key"));
         var csilField3 = Cbor.AsBytes(Cbor.Require(value, "encryption_public_key"));
         var csilField4 = Cbor.AsText(Cbor.Require(value, "fingerprint"));
-        var csilField5 = Cbor.AsArray(Cbor.Require(value, "supported_suites")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
-        var csilField6 = Cbor.AsText(Cbor.Require(value, "created_at"));
-        var csilField7 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField5 = Cbor.AsArray(Cbor.Require(value, "supported_suites")).Select(csilElem => AeadSuiteFromCborValue(csilElem)).ToList();
+        var csilField6 = Cbor.AsTimestamp(Cbor.Require(value, "created_at"));
+        var csilField7 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
         return new LocalRpDescriptor
         {
             AppName = csilField0,
@@ -5877,9 +6900,9 @@ public static class Codec
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("nonce"), new CborValue.Bytes(value.Nonce)));
         csilEntries.Add((new CborValue.Text("state"), new CborValue.Bytes(value.State)));
-        csilEntries.Add((new CborValue.Text("issued_at"), new CborValue.Text(value.IssuedAt)));
+        csilEntries.Add((new CborValue.Text("issued_at"), Cbor.EncTimestamp(value.IssuedAt)));
         csilEntries.Add((new CborValue.Text("descriptor"), SignedLocalRpDescriptorToCborValue(value.Descriptor)));
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         csilEntries.Add((new CborValue.Text("callback_url"), new CborValue.Text(value.CallbackUrl)));
         if (value.FlowContext is { } csilV6)
         {
@@ -5905,8 +6928,8 @@ public static class Codec
         var csilField5 = Cbor.AsArray(Cbor.Require(value, "required_claims")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
         AuthenticationRequirements? csilField6 = Cbor.MapGet(value, "authentication_requirements") is { } csilRaw6 ? AuthenticationRequirementsFromCborValue(csilRaw6) : null;
         AuthFlowContext? csilField7 = Cbor.MapGet(value, "flow_context") is { } csilRaw7 ? AuthFlowContextFromCborValue(csilRaw7) : null;
-        var csilField8 = Cbor.AsText(Cbor.Require(value, "issued_at"));
-        var csilField9 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField8 = Cbor.AsTimestamp(Cbor.Require(value, "issued_at"));
+        var csilField9 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
         return new LocalRpLoginRequest
         {
             Descriptor = csilField0,
@@ -5949,10 +6972,10 @@ public static class Codec
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("nonce"), new CborValue.Bytes(value.Nonce)));
         csilEntries.Add((new CborValue.Text("state"), new CborValue.Bytes(value.State)));
-        csilEntries.Add((new CborValue.Text("suite"), new CborValue.Text(value.Suite)));
-        csilEntries.Add((new CborValue.Text("issued_at"), new CborValue.Text(value.IssuedAt)));
+        csilEntries.Add((new CborValue.Text("suite"), AeadSuiteToCborValue(value.Suite)));
+        csilEntries.Add((new CborValue.Text("issued_at"), Cbor.EncTimestamp(value.IssuedAt)));
         csilEntries.Add((new CborValue.Text("aead_nonce"), new CborValue.Bytes(value.AeadNonce)));
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         csilEntries.Add((new CborValue.Text("fingerprint"), new CborValue.Text(value.Fingerprint)));
         csilEntries.Add((new CborValue.Text("ephemeral_public_key"), new CborValue.Bytes(value.EphemeralPublicKey)));
         return new CborValue.Map(csilEntries);
@@ -5964,11 +6987,11 @@ public static class Codec
         var csilField0 = Cbor.AsText(Cbor.Require(value, "fingerprint"));
         var csilField1 = Cbor.AsBytes(Cbor.Require(value, "nonce"));
         var csilField2 = Cbor.AsBytes(Cbor.Require(value, "state"));
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "suite"));
+        var csilField3 = AeadSuiteFromCborValue(Cbor.Require(value, "suite"));
         var csilField4 = Cbor.AsBytes(Cbor.Require(value, "ephemeral_public_key"));
         var csilField5 = Cbor.AsBytes(Cbor.Require(value, "aead_nonce"));
-        var csilField6 = Cbor.AsText(Cbor.Require(value, "issued_at"));
-        var csilField7 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField6 = Cbor.AsTimestamp(Cbor.Require(value, "issued_at"));
+        var csilField7 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
         return new LocalRpCallbackHeader
         {
             Fingerprint = csilField0,
@@ -6010,8 +7033,8 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("nonce"), new CborValue.Bytes(value.Nonce)));
         csilEntries.Add((new CborValue.Text("state"), new CborValue.Bytes(value.State)));
         csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
-        csilEntries.Add((new CborValue.Text("issued_at"), new CborValue.Text(value.IssuedAt)));
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("issued_at"), Cbor.EncTimestamp(value.IssuedAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         csilEntries.Add((new CborValue.Text("user_domain"), new CborValue.Text(value.UserDomain)));
         csilEntries.Add((new CborValue.Text("callback_url"), new CborValue.Text(value.CallbackUrl)));
         csilEntries.Add((new CborValue.Text("claim_ticket"), new CborValue.Bytes(value.ClaimTicket)));
@@ -6029,8 +7052,8 @@ public static class Codec
         var csilField4 = Cbor.AsText(Cbor.Require(value, "callback_url"));
         var csilField5 = Cbor.AsBytes(Cbor.Require(value, "nonce"));
         var csilField6 = Cbor.AsBytes(Cbor.Require(value, "state"));
-        var csilField7 = Cbor.AsText(Cbor.Require(value, "issued_at"));
-        var csilField8 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField7 = Cbor.AsTimestamp(Cbor.Require(value, "issued_at"));
+        var csilField8 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
         return new LocalRpCallbackPayload
         {
             UserId = csilField0,
@@ -6073,7 +7096,7 @@ public static class Codec
     public static CborValue LocalRpTicketRedemptionRequestToCborValue(LocalRpTicketRedemptionRequest value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("issued_at"), new CborValue.Text(value.IssuedAt)));
+        csilEntries.Add((new CborValue.Text("issued_at"), Cbor.EncTimestamp(value.IssuedAt)));
         csilEntries.Add((new CborValue.Text("fingerprint"), new CborValue.Text(value.Fingerprint)));
         csilEntries.Add((new CborValue.Text("claim_ticket"), new CborValue.Bytes(value.ClaimTicket)));
         return new CborValue.Map(csilEntries);
@@ -6084,7 +7107,7 @@ public static class Codec
     {
         var csilField0 = Cbor.AsBytes(Cbor.Require(value, "claim_ticket"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "fingerprint"));
-        var csilField2 = Cbor.AsText(Cbor.Require(value, "issued_at"));
+        var csilField2 = Cbor.AsTimestamp(Cbor.Require(value, "issued_at"));
         return new LocalRpTicketRedemptionRequest
         {
             ClaimTicket = csilField0,
@@ -6121,7 +7144,7 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("claims"), new CborValue.Array(value.Claims.Select(csilElem => (CborValue)ClaimToCborValue(csilElem)).ToList())));
         csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
         csilEntries.Add((new CborValue.Text("user_domain"), new CborValue.Text(value.UserDomain)));
-        csilEntries.Add((new CborValue.Text("ticket_expires_at"), new CborValue.Text(value.TicketExpiresAt)));
+        csilEntries.Add((new CborValue.Text("ticket_expires_at"), Cbor.EncTimestamp(value.TicketExpiresAt)));
         return new CborValue.Map(csilEntries);
     }
 
@@ -6131,7 +7154,7 @@ public static class Codec
         var csilField0 = Cbor.AsText(Cbor.Require(value, "user_id"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "user_domain"));
         var csilField2 = Cbor.AsArray(Cbor.Require(value, "claims")).Select(csilElem => ClaimFromCborValue(csilElem)).ToList();
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "ticket_expires_at"));
+        var csilField3 = Cbor.AsTimestamp(Cbor.Require(value, "ticket_expires_at"));
         return new LocalRpTicketRedemptionResponse
         {
             UserId = csilField0,
@@ -6145,14 +7168,14 @@ public static class Codec
     public static CborValue AdminLocalRpToCborValue(AdminLocalRp value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("status"), new CborValue.Text(value.Status)));
+        csilEntries.Add((new CborValue.Text("status"), LocalRpStatusToCborValue(value.Status)));
         csilEntries.Add((new CborValue.Text("app_name"), new CborValue.Text(value.AppName)));
-        csilEntries.Add((new CborValue.Text("created_at"), new CborValue.Text(value.CreatedAt)));
+        csilEntries.Add((new CborValue.Text("created_at"), Cbor.EncTimestamp(value.CreatedAt)));
         if (value.ExpiresAt is { } csilV3)
         {
-            csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(csilV3)));
+            csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(csilV3)));
         }
-        csilEntries.Add((new CborValue.Text("updated_at"), new CborValue.Text(value.UpdatedAt)));
+        csilEntries.Add((new CborValue.Text("updated_at"), Cbor.EncTimestamp(value.UpdatedAt)));
         if (value.AdminNotes is { } csilV5)
         {
             csilEntries.Add((new CborValue.Text("admin_notes"), new CborValue.Text(csilV5)));
@@ -6160,7 +7183,7 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("fingerprint"), new CborValue.Text(value.Fingerprint)));
         if (value.LastSeenAt is { } csilV7)
         {
-            csilEntries.Add((new CborValue.Text("last_seen_at"), new CborValue.Text(csilV7)));
+            csilEntries.Add((new CborValue.Text("last_seen_at"), Cbor.EncTimestamp(csilV7)));
         }
         if (value.LocalDomainHint is { } csilV8)
         {
@@ -6179,11 +7202,11 @@ public static class Codec
         var csilField2 = Cbor.AsBytes(Cbor.Require(value, "encryption_public_key"));
         var csilField3 = Cbor.AsText(Cbor.Require(value, "app_name"));
         string? csilField4 = Cbor.MapGet(value, "local_domain_hint") is { } csilRaw4 ? Cbor.AsText(csilRaw4) : null;
-        var csilField5 = Cbor.AsText(Cbor.Require(value, "status"));
-        var csilField6 = Cbor.AsText(Cbor.Require(value, "created_at"));
-        var csilField7 = Cbor.AsText(Cbor.Require(value, "updated_at"));
-        string? csilField8 = Cbor.MapGet(value, "expires_at") is { } csilRaw8 ? Cbor.AsText(csilRaw8) : null;
-        string? csilField9 = Cbor.MapGet(value, "last_seen_at") is { } csilRaw9 ? Cbor.AsText(csilRaw9) : null;
+        var csilField5 = LocalRpStatusFromCborValue(Cbor.Require(value, "status"));
+        var csilField6 = Cbor.AsTimestamp(Cbor.Require(value, "created_at"));
+        var csilField7 = Cbor.AsTimestamp(Cbor.Require(value, "updated_at"));
+        System.DateTimeOffset? csilField8 = Cbor.MapGet(value, "expires_at") is { } csilRaw8 ? Cbor.AsTimestamp(csilRaw8) : null;
+        System.DateTimeOffset? csilField9 = Cbor.MapGet(value, "last_seen_at") is { } csilRaw9 ? Cbor.AsTimestamp(csilRaw9) : null;
         string? csilField10 = Cbor.MapGet(value, "admin_notes") is { } csilRaw10 ? Cbor.AsText(csilRaw10) : null;
         return new AdminLocalRp
         {
@@ -6215,7 +7238,7 @@ public static class Codec
         }
         if (value.Status is { } csilV2)
         {
-            csilEntries.Add((new CborValue.Text("status"), new CborValue.Text(csilV2)));
+            csilEntries.Add((new CborValue.Text("status"), LocalRpStatusToCborValue(csilV2)));
         }
         return new CborValue.Map(csilEntries);
     }
@@ -6225,7 +7248,7 @@ public static class Codec
     {
         long? csilField0 = Cbor.MapGet(value, "offset") is { } csilRaw0 ? Cbor.AsI64(csilRaw0) : null;
         long? csilField1 = Cbor.MapGet(value, "limit") is { } csilRaw1 ? Cbor.AsI64(csilRaw1) : null;
-        string? csilField2 = Cbor.MapGet(value, "status") is { } csilRaw2 ? Cbor.AsText(csilRaw2) : null;
+        LocalRpStatus? csilField2 = Cbor.MapGet(value, "status") is { } csilRaw2 ? LocalRpStatusFromCborValue(csilRaw2) : null;
         return new ListLocalRpsRequest
         {
             Offset = csilField0,
@@ -6433,14 +7456,14 @@ public static class Codec
     public static CborValue GetLocalRpPolicyResponseToCborValue(GetLocalRpPolicyResponse value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("policy"), new CborValue.Text(value.Policy)));
+        csilEntries.Add((new CborValue.Text("policy"), LocalRpPolicyToCborValue(value.Policy)));
         return new CborValue.Map(csilEntries);
     }
 
     /// <summary>Reconstruct a GetLocalRpPolicyResponse from a decoded CBOR value tree.</summary>
     public static GetLocalRpPolicyResponse GetLocalRpPolicyResponseFromCborValue(CborValue value)
     {
-        var csilField0 = Cbor.AsText(Cbor.Require(value, "policy"));
+        var csilField0 = LocalRpPolicyFromCborValue(Cbor.Require(value, "policy"));
         return new GetLocalRpPolicyResponse
         {
             Policy = csilField0,
@@ -6451,14 +7474,14 @@ public static class Codec
     public static CborValue SetLocalRpPolicyRequestToCborValue(SetLocalRpPolicyRequest value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("policy"), new CborValue.Text(value.Policy)));
+        csilEntries.Add((new CborValue.Text("policy"), LocalRpPolicyToCborValue(value.Policy)));
         return new CborValue.Map(csilEntries);
     }
 
     /// <summary>Reconstruct a SetLocalRpPolicyRequest from a decoded CBOR value tree.</summary>
     public static SetLocalRpPolicyRequest SetLocalRpPolicyRequestFromCborValue(CborValue value)
     {
-        var csilField0 = Cbor.AsText(Cbor.Require(value, "policy"));
+        var csilField0 = LocalRpPolicyFromCborValue(Cbor.Require(value, "policy"));
         return new SetLocalRpPolicyRequest
         {
             Policy = csilField0,
@@ -6469,14 +7492,14 @@ public static class Codec
     public static CborValue SetLocalRpPolicyResponseToCborValue(SetLocalRpPolicyResponse value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("policy"), new CborValue.Text(value.Policy)));
+        csilEntries.Add((new CborValue.Text("policy"), LocalRpPolicyToCborValue(value.Policy)));
         return new CborValue.Map(csilEntries);
     }
 
     /// <summary>Reconstruct a SetLocalRpPolicyResponse from a decoded CBOR value tree.</summary>
     public static SetLocalRpPolicyResponse SetLocalRpPolicyResponseFromCborValue(CborValue value)
     {
-        var csilField0 = Cbor.AsText(Cbor.Require(value, "policy"));
+        var csilField0 = LocalRpPolicyFromCborValue(Cbor.Require(value, "policy"));
         return new SetLocalRpPolicyResponse
         {
             Policy = csilField0,
@@ -6571,7 +7594,7 @@ public static class Codec
     public static CborValue AppAccessTargetToCborValue(AppAccessTarget value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("kind"), new CborValue.Text(value.Kind)));
+        csilEntries.Add((new CborValue.Text("kind"), AppAccessTargetKindToCborValue(value.Kind)));
         if (value.UserId is { } csilV1)
         {
             csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(csilV1)));
@@ -6590,7 +7613,7 @@ public static class Codec
         }
         if (value.ClaimOperator is { } csilV5)
         {
-            csilEntries.Add((new CborValue.Text("claim_operator"), new CborValue.Text(csilV5)));
+            csilEntries.Add((new CborValue.Text("claim_operator"), ClaimOperatorToCborValue(csilV5)));
         }
         return new CborValue.Map(csilEntries);
     }
@@ -6598,11 +7621,11 @@ public static class Codec
     /// <summary>Reconstruct a AppAccessTarget from a decoded CBOR value tree.</summary>
     public static AppAccessTarget AppAccessTargetFromCborValue(CborValue value)
     {
-        var csilField0 = Cbor.AsText(Cbor.Require(value, "kind"));
+        var csilField0 = AppAccessTargetKindFromCborValue(Cbor.Require(value, "kind"));
         string? csilField1 = Cbor.MapGet(value, "user_id") is { } csilRaw1 ? Cbor.AsText(csilRaw1) : null;
         string? csilField2 = Cbor.MapGet(value, "group_name") is { } csilRaw2 ? Cbor.AsText(csilRaw2) : null;
         string? csilField3 = Cbor.MapGet(value, "claim_type") is { } csilRaw3 ? Cbor.AsText(csilRaw3) : null;
-        string? csilField4 = Cbor.MapGet(value, "claim_operator") is { } csilRaw4 ? Cbor.AsText(csilRaw4) : null;
+        ClaimOperator? csilField4 = Cbor.MapGet(value, "claim_operator") is { } csilRaw4 ? ClaimOperatorFromCborValue(csilRaw4) : null;
         string? csilField5 = Cbor.MapGet(value, "claim_value") is { } csilRaw5 ? Cbor.AsText(csilRaw5) : null;
         return new AppAccessTarget
         {
@@ -6620,7 +7643,7 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("id"), new CborValue.Text(value.Id)));
-        csilEntries.Add((new CborValue.Text("mode"), new CborValue.Text(value.Mode)));
+        csilEntries.Add((new CborValue.Text("mode"), AppAccessModeToCborValue(value.Mode)));
         csilEntries.Add((new CborValue.Text("name"), new CborValue.Text(value.Name)));
         if (value.Message is { } csilV3)
         {
@@ -6636,7 +7659,7 @@ public static class Codec
     {
         var csilField0 = Cbor.AsText(Cbor.Require(value, "id"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "name"));
-        var csilField2 = Cbor.AsText(Cbor.Require(value, "mode"));
+        var csilField2 = AppAccessModeFromCborValue(Cbor.Require(value, "mode"));
         var csilField3 = Cbor.AsArray(Cbor.Require(value, "patterns")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
         string? csilField4 = Cbor.MapGet(value, "message") is { } csilRaw4 ? Cbor.AsText(csilRaw4) : null;
         var csilField5 = Cbor.AsArray(Cbor.Require(value, "targets")).Select(csilElem => AppAccessTargetFromCborValue(csilElem)).ToList();
@@ -6677,7 +7700,7 @@ public static class Codec
         {
             csilEntries.Add((new CborValue.Text("id"), new CborValue.Text(csilV0)));
         }
-        csilEntries.Add((new CborValue.Text("mode"), new CborValue.Text(value.Mode)));
+        csilEntries.Add((new CborValue.Text("mode"), AppAccessModeToCborValue(value.Mode)));
         csilEntries.Add((new CborValue.Text("name"), new CborValue.Text(value.Name)));
         if (value.Message is { } csilV3)
         {
@@ -6693,7 +7716,7 @@ public static class Codec
     {
         string? csilField0 = Cbor.MapGet(value, "id") is { } csilRaw0 ? Cbor.AsText(csilRaw0) : null;
         var csilField1 = Cbor.AsText(Cbor.Require(value, "name"));
-        var csilField2 = Cbor.AsText(Cbor.Require(value, "mode"));
+        var csilField2 = AppAccessModeFromCborValue(Cbor.Require(value, "mode"));
         var csilField3 = Cbor.AsArray(Cbor.Require(value, "patterns")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
         string? csilField4 = Cbor.MapGet(value, "message") is { } csilRaw4 ? Cbor.AsText(csilRaw4) : null;
         var csilField5 = Cbor.AsArray(Cbor.Require(value, "targets")).Select(csilElem => AppAccessTargetFromCborValue(csilElem)).ToList();
@@ -6902,7 +7925,7 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("locale"), new CborValue.Text(value.Locale)));
-        csilEntries.Add((new CborValue.Text("messages"), new CborValue.Map(value.Messages.Select(csilKv => ((CborValue)new CborValue.Text(csilKv.Key), (CborValue)new CborValue.Text(csilKv.Value))).ToList())));
+        csilEntries.Add((new CborValue.Text("messages"), new CborValue.Map(Cbor.CanonicalEntries(value.Messages.Select(csilKv => ((CborValue)new CborValue.Text(csilKv.Key), (CborValue)new CborValue.Text(csilKv.Value)))))));
         csilEntries.Add((new CborValue.Text("available_locales"), new CborValue.Array(value.AvailableLocales.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
         return new CborValue.Map(csilEntries);
     }
@@ -6912,7 +7935,7 @@ public static class Codec
     {
         var csilField0 = Cbor.AsText(Cbor.Require(value, "locale"));
         var csilField1 = Cbor.AsArray(Cbor.Require(value, "available_locales")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
-        var csilField2 = Cbor.AsMap(Cbor.Require(value, "messages")).ToDictionary(csilKv => Cbor.AsText(csilKv.Key), csilKv => Cbor.AsText(csilKv.Value));
+        var csilField2 = Cbor.AsDynamicMap(Cbor.Require(value, "messages")).ToDictionary(csilKv => Cbor.AsText(csilKv.Key), csilKv => Cbor.AsText(csilKv.Value));
         return new TranslationsResponse
         {
             Locale = csilField0,
@@ -6965,18 +7988,18 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("key_id"), new CborValue.Text(value.KeyId)));
-        csilEntries.Add((new CborValue.Text("algorithm"), new CborValue.Text(value.Algorithm)));
-        csilEntries.Add((new CborValue.Text("key_usage"), new CborValue.Text(value.KeyUsage)));
+        csilEntries.Add((new CborValue.Text("algorithm"), KeyAlgorithmToCborValue(value.Algorithm)));
+        csilEntries.Add((new CborValue.Text("key_usage"), KeyUsageToCborValue(value.KeyUsage)));
         csilEntries.Add((new CborValue.Text("public_key"), new CborValue.Bytes(value.PublicKey)));
-        csilEntries.Add((new CborValue.Text("attested_at"), new CborValue.Text(value.AttestedAt)));
+        csilEntries.Add((new CborValue.Text("attested_at"), Cbor.EncTimestamp(value.AttestedAt)));
         csilEntries.Add((new CborValue.Text("fingerprint"), new CborValue.Text(value.Fingerprint)));
         csilEntries.Add((new CborValue.Text("instance_id"), new CborValue.Text(value.InstanceId)));
         csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(value.ApplicationId)));
-        csilEntries.Add((new CborValue.Text("key_created_at"), new CborValue.Text(value.KeyCreatedAt)));
-        csilEntries.Add((new CborValue.Text("key_expires_at"), new CborValue.Text(value.KeyExpiresAt)));
+        csilEntries.Add((new CborValue.Text("key_created_at"), Cbor.EncTimestamp(value.KeyCreatedAt)));
+        csilEntries.Add((new CborValue.Text("key_expires_at"), Cbor.EncTimestamp(value.KeyExpiresAt)));
         csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
         csilEntries.Add((new CborValue.Text("subject_user_id"), new CborValue.Text(value.SubjectUserId)));
-        csilEntries.Add((new CborValue.Text("attestation_expires_at"), new CborValue.Text(value.AttestationExpiresAt)));
+        csilEntries.Add((new CborValue.Text("attestation_expires_at"), Cbor.EncTimestamp(value.AttestationExpiresAt)));
         return new CborValue.Map(csilEntries);
     }
 
@@ -6988,14 +8011,14 @@ public static class Codec
         var csilField2 = Cbor.AsText(Cbor.Require(value, "application_id"));
         var csilField3 = Cbor.AsText(Cbor.Require(value, "instance_id"));
         var csilField4 = Cbor.AsText(Cbor.Require(value, "key_id"));
-        var csilField5 = Cbor.AsText(Cbor.Require(value, "key_usage"));
-        var csilField6 = Cbor.AsText(Cbor.Require(value, "algorithm"));
+        var csilField5 = KeyUsageFromCborValue(Cbor.Require(value, "key_usage"));
+        var csilField6 = KeyAlgorithmFromCborValue(Cbor.Require(value, "algorithm"));
         var csilField7 = Cbor.AsBytes(Cbor.Require(value, "public_key"));
         var csilField8 = Cbor.AsText(Cbor.Require(value, "fingerprint"));
-        var csilField9 = Cbor.AsText(Cbor.Require(value, "key_created_at"));
-        var csilField10 = Cbor.AsText(Cbor.Require(value, "key_expires_at"));
-        var csilField11 = Cbor.AsText(Cbor.Require(value, "attested_at"));
-        var csilField12 = Cbor.AsText(Cbor.Require(value, "attestation_expires_at"));
+        var csilField9 = Cbor.AsTimestamp(Cbor.Require(value, "key_created_at"));
+        var csilField10 = Cbor.AsTimestamp(Cbor.Require(value, "key_expires_at"));
+        var csilField11 = Cbor.AsTimestamp(Cbor.Require(value, "attested_at"));
+        var csilField12 = Cbor.AsTimestamp(Cbor.Require(value, "attestation_expires_at"));
         return new ApplicationKeyAttestation
         {
             SubjectUserId = csilField0,
@@ -7040,15 +8063,15 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("key_id"), new CborValue.Text(value.KeyId)));
-        csilEntries.Add((new CborValue.Text("algorithm"), new CborValue.Text(value.Algorithm)));
+        csilEntries.Add((new CborValue.Text("algorithm"), KeyAlgorithmToCborValue(value.Algorithm)));
         csilEntries.Add((new CborValue.Text("challenge"), new CborValue.Bytes(value.Challenge)));
-        csilEntries.Add((new CborValue.Text("key_usage"), new CborValue.Text(value.KeyUsage)));
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("key_usage"), KeyUsageToCborValue(value.KeyUsage)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         csilEntries.Add((new CborValue.Text("public_key"), new CborValue.Bytes(value.PublicKey)));
         csilEntries.Add((new CborValue.Text("fingerprint"), new CborValue.Text(value.Fingerprint)));
         csilEntries.Add((new CborValue.Text("instance_id"), new CborValue.Text(value.InstanceId)));
         csilEntries.Add((new CborValue.Text("challenge_id"), new CborValue.Text(value.ChallengeId)));
-        csilEntries.Add((new CborValue.Text("requested_at"), new CborValue.Text(value.RequestedAt)));
+        csilEntries.Add((new CborValue.Text("requested_at"), Cbor.EncTimestamp(value.RequestedAt)));
         csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(value.ApplicationId)));
         csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
         csilEntries.Add((new CborValue.Text("subject_user_id"), new CborValue.Text(value.SubjectUserId)));
@@ -7064,15 +8087,15 @@ public static class Codec
         var csilField2 = Cbor.AsText(Cbor.Require(value, "application_id"));
         var csilField3 = Cbor.AsText(Cbor.Require(value, "instance_id"));
         var csilField4 = Cbor.AsText(Cbor.Require(value, "key_id"));
-        var csilField5 = Cbor.AsText(Cbor.Require(value, "key_usage"));
-        var csilField6 = Cbor.AsText(Cbor.Require(value, "algorithm"));
+        var csilField5 = KeyUsageFromCborValue(Cbor.Require(value, "key_usage"));
+        var csilField6 = KeyAlgorithmFromCborValue(Cbor.Require(value, "algorithm"));
         var csilField7 = Cbor.AsBytes(Cbor.Require(value, "public_key"));
         var csilField8 = Cbor.AsText(Cbor.Require(value, "fingerprint"));
         var csilField9 = Cbor.AsI64(Cbor.Require(value, "requested_key_lifetime_seconds"));
         var csilField10 = Cbor.AsText(Cbor.Require(value, "challenge_id"));
         var csilField11 = Cbor.AsBytes(Cbor.Require(value, "challenge"));
-        var csilField12 = Cbor.AsText(Cbor.Require(value, "requested_at"));
-        var csilField13 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField12 = Cbor.AsTimestamp(Cbor.Require(value, "requested_at"));
+        var csilField13 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
         return new ApplicationKeyAddition
         {
             SubjectUserId = csilField0,
@@ -7125,10 +8148,10 @@ public static class Codec
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("key_id"), new CborValue.Text(value.KeyId)));
         csilEntries.Add((new CborValue.Text("challenge"), new CborValue.Bytes(value.Challenge)));
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         csilEntries.Add((new CborValue.Text("instance_id"), new CborValue.Text(value.InstanceId)));
         csilEntries.Add((new CborValue.Text("challenge_id"), new CborValue.Text(value.ChallengeId)));
-        csilEntries.Add((new CborValue.Text("requested_at"), new CborValue.Text(value.RequestedAt)));
+        csilEntries.Add((new CborValue.Text("requested_at"), Cbor.EncTimestamp(value.RequestedAt)));
         csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(value.ApplicationId)));
         csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
         csilEntries.Add((new CborValue.Text("subject_user_id"), new CborValue.Text(value.SubjectUserId)));
@@ -7145,8 +8168,8 @@ public static class Codec
         var csilField4 = Cbor.AsText(Cbor.Require(value, "key_id"));
         var csilField5 = Cbor.AsText(Cbor.Require(value, "challenge_id"));
         var csilField6 = Cbor.AsBytes(Cbor.Require(value, "challenge"));
-        var csilField7 = Cbor.AsText(Cbor.Require(value, "requested_at"));
-        var csilField8 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField7 = Cbor.AsTimestamp(Cbor.Require(value, "requested_at"));
+        var csilField8 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
         return new ApplicationKeyRenewal
         {
             SubjectUserId = csilField0,
@@ -7192,7 +8215,7 @@ public static class Codec
     public static CborValue ApplicationKeyRevocationToCborValue(ApplicationKeyRevocation value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("revoked_at"), new CborValue.Text(value.RevokedAt)));
+        csilEntries.Add((new CborValue.Text("revoked_at"), Cbor.EncTimestamp(value.RevokedAt)));
         csilEntries.Add((new CborValue.Text("signatures"), new CborValue.Array(value.Signatures.Select(csilElem => (CborValue)ApplicationKeySignatureToCborValue(csilElem)).ToList())));
         csilEntries.Add((new CborValue.Text("instance_id"), new CborValue.Text(value.InstanceId)));
         csilEntries.Add((new CborValue.Text("target_key_id"), new CborValue.Text(value.TargetKeyId)));
@@ -7212,7 +8235,7 @@ public static class Codec
         var csilField3 = Cbor.AsText(Cbor.Require(value, "instance_id"));
         var csilField4 = Cbor.AsText(Cbor.Require(value, "target_key_id"));
         var csilField5 = Cbor.AsText(Cbor.Require(value, "target_fingerprint"));
-        var csilField6 = Cbor.AsText(Cbor.Require(value, "revoked_at"));
+        var csilField6 = Cbor.AsTimestamp(Cbor.Require(value, "revoked_at"));
         var csilField7 = Cbor.AsArray(Cbor.Require(value, "signatures")).Select(csilElem => ApplicationKeySignatureFromCborValue(csilElem)).ToList();
         return new ApplicationKeyRevocation
         {
@@ -7231,9 +8254,9 @@ public static class Codec
     public static CborValue StartApplicationKeyChallengeRequestToCborValue(StartApplicationKeyChallengeRequest value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("purpose"), new CborValue.Text(value.Purpose)));
-        csilEntries.Add((new CborValue.Text("algorithm"), new CborValue.Text(value.Algorithm)));
-        csilEntries.Add((new CborValue.Text("key_usage"), new CborValue.Text(value.KeyUsage)));
+        csilEntries.Add((new CborValue.Text("purpose"), ApplicationKeyChallengePurposeToCborValue(value.Purpose)));
+        csilEntries.Add((new CborValue.Text("algorithm"), KeyAlgorithmToCborValue(value.Algorithm)));
+        csilEntries.Add((new CborValue.Text("key_usage"), KeyUsageToCborValue(value.KeyUsage)));
         csilEntries.Add((new CborValue.Text("public_key"), new CborValue.Bytes(value.PublicKey)));
         csilEntries.Add((new CborValue.Text("instance_id"), new CborValue.Text(value.InstanceId)));
         csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(value.ApplicationId)));
@@ -7247,9 +8270,9 @@ public static class Codec
         var csilField0 = Cbor.AsText(Cbor.Require(value, "subject_user_id"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "application_id"));
         var csilField2 = Cbor.AsText(Cbor.Require(value, "instance_id"));
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "purpose"));
-        var csilField4 = Cbor.AsText(Cbor.Require(value, "key_usage"));
-        var csilField5 = Cbor.AsText(Cbor.Require(value, "algorithm"));
+        var csilField3 = ApplicationKeyChallengePurposeFromCborValue(Cbor.Require(value, "purpose"));
+        var csilField4 = KeyUsageFromCborValue(Cbor.Require(value, "key_usage"));
+        var csilField5 = KeyAlgorithmFromCborValue(Cbor.Require(value, "algorithm"));
         var csilField6 = Cbor.AsBytes(Cbor.Require(value, "public_key"));
         return new StartApplicationKeyChallengeRequest
         {
@@ -7271,7 +8294,7 @@ public static class Codec
         {
             csilEntries.Add((new CborValue.Text("challenge"), new CborValue.Bytes(csilV0)));
         }
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         csilEntries.Add((new CborValue.Text("challenge_id"), new CborValue.Text(value.ChallengeId)));
         if (value.SealedChallenge is { } csilV3)
         {
@@ -7286,7 +8309,7 @@ public static class Codec
         var csilField0 = Cbor.AsText(Cbor.Require(value, "challenge_id"));
         byte[]? csilField1 = Cbor.MapGet(value, "challenge") is { } csilRaw1 ? Cbor.AsBytes(csilRaw1) : null;
         byte[]? csilField2 = Cbor.MapGet(value, "sealed_challenge") is { } csilRaw2 ? Cbor.AsBytes(csilRaw2) : null;
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField3 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
         return new StartApplicationKeyChallengeResponse
         {
             ChallengeId = csilField0,
@@ -7393,14 +8416,14 @@ public static class Codec
     public static CborValue RevokeApplicationKeyResponseToCborValue(RevokeApplicationKeyResponse value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("revoked_at"), new CborValue.Text(value.RevokedAt)));
+        csilEntries.Add((new CborValue.Text("revoked_at"), Cbor.EncTimestamp(value.RevokedAt)));
         return new CborValue.Map(csilEntries);
     }
 
     /// <summary>Reconstruct a RevokeApplicationKeyResponse from a decoded CBOR value tree.</summary>
     public static RevokeApplicationKeyResponse RevokeApplicationKeyResponseFromCborValue(CborValue value)
     {
-        var csilField0 = Cbor.AsText(Cbor.Require(value, "revoked_at"));
+        var csilField0 = Cbor.AsTimestamp(Cbor.Require(value, "revoked_at"));
         return new RevokeApplicationKeyResponse
         {
             RevokedAt = csilField0,
@@ -7548,10 +8571,10 @@ public static class Codec
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("keys"), new CborValue.Array(value.Keys.Select(csilElem => (CborValue)DomainPublicKeyToCborValue(csilElem)).ToList())));
         csilEntries.Add((new CborValue.Text("domain"), new CborValue.Text(value.Domain)));
-        csilEntries.Add((new CborValue.Text("fetched_at"), new CborValue.Text(value.FetchedAt)));
+        csilEntries.Add((new CborValue.Text("fetched_at"), Cbor.EncTimestamp(value.FetchedAt)));
         csilEntries.Add((new CborValue.Text("revocations"), new CborValue.Array(value.Revocations.Select(csilElem => (CborValue)RevocationCertificateToCborValue(csilElem)).ToList())));
-        csilEntries.Add((new CborValue.Text("cache_status"), new CborValue.Text(value.CacheStatus)));
-        csilEntries.Add((new CborValue.Text("revocations_checked_at"), new CborValue.Text(value.RevocationsCheckedAt)));
+        csilEntries.Add((new CborValue.Text("cache_status"), RpCacheStatusToCborValue(value.CacheStatus)));
+        csilEntries.Add((new CborValue.Text("revocations_checked_at"), Cbor.EncTimestamp(value.RevocationsCheckedAt)));
         return new CborValue.Map(csilEntries);
     }
 
@@ -7561,9 +8584,9 @@ public static class Codec
         var csilField0 = Cbor.AsText(Cbor.Require(value, "domain"));
         var csilField1 = Cbor.AsArray(Cbor.Require(value, "keys")).Select(csilElem => DomainPublicKeyFromCborValue(csilElem)).ToList();
         var csilField2 = Cbor.AsArray(Cbor.Require(value, "revocations")).Select(csilElem => RevocationCertificateFromCborValue(csilElem)).ToList();
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "fetched_at"));
-        var csilField4 = Cbor.AsText(Cbor.Require(value, "revocations_checked_at"));
-        var csilField5 = Cbor.AsText(Cbor.Require(value, "cache_status"));
+        var csilField3 = Cbor.AsTimestamp(Cbor.Require(value, "fetched_at"));
+        var csilField4 = Cbor.AsTimestamp(Cbor.Require(value, "revocations_checked_at"));
+        var csilField5 = RpCacheStatusFromCborValue(Cbor.Require(value, "cache_status"));
         return new RpResolveDomainKeysResponse
         {
             Domain = csilField0,
@@ -7612,15 +8635,15 @@ public static class Codec
     public static CborValue RpResolveApplicationKeysResponseToCborValue(RpResolveApplicationKeysResponse value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("fetched_at"), new CborValue.Text(value.FetchedAt)));
+        csilEntries.Add((new CborValue.Text("fetched_at"), Cbor.EncTimestamp(value.FetchedAt)));
         csilEntries.Add((new CborValue.Text("instance_id"), new CborValue.Text(value.InstanceId)));
-        csilEntries.Add((new CborValue.Text("cache_status"), new CborValue.Text(value.CacheStatus)));
+        csilEntries.Add((new CborValue.Text("cache_status"), RpCacheStatusToCborValue(value.CacheStatus)));
         csilEntries.Add((new CborValue.Text("application_id"), new CborValue.Text(value.ApplicationId)));
         csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
         csilEntries.Add((new CborValue.Text("subject_user_id"), new CborValue.Text(value.SubjectUserId)));
         csilEntries.Add((new CborValue.Text("application_keys"), new CborValue.Array(value.ApplicationKeys.Select(csilElem => (CborValue)SignedApplicationKeyAttestationToCborValue(csilElem)).ToList())));
         csilEntries.Add((new CborValue.Text("home_domain_keys"), new CborValue.Array(value.HomeDomainKeys.Select(csilElem => (CborValue)DomainPublicKeyToCborValue(csilElem)).ToList())));
-        csilEntries.Add((new CborValue.Text("revocations_checked_at"), new CborValue.Text(value.RevocationsCheckedAt)));
+        csilEntries.Add((new CborValue.Text("revocations_checked_at"), Cbor.EncTimestamp(value.RevocationsCheckedAt)));
         csilEntries.Add((new CborValue.Text("application_key_revocations"), new CborValue.Array(value.ApplicationKeyRevocations.Select(csilElem => (CborValue)ApplicationKeyRevocationToCborValue(csilElem)).ToList())));
         csilEntries.Add((new CborValue.Text("home_domain_key_revocations"), new CborValue.Array(value.HomeDomainKeyRevocations.Select(csilElem => (CborValue)RevocationCertificateToCborValue(csilElem)).ToList())));
         return new CborValue.Map(csilEntries);
@@ -7637,9 +8660,9 @@ public static class Codec
         var csilField5 = Cbor.AsArray(Cbor.Require(value, "application_key_revocations")).Select(csilElem => ApplicationKeyRevocationFromCborValue(csilElem)).ToList();
         var csilField6 = Cbor.AsArray(Cbor.Require(value, "home_domain_keys")).Select(csilElem => DomainPublicKeyFromCborValue(csilElem)).ToList();
         var csilField7 = Cbor.AsArray(Cbor.Require(value, "home_domain_key_revocations")).Select(csilElem => RevocationCertificateFromCborValue(csilElem)).ToList();
-        var csilField8 = Cbor.AsText(Cbor.Require(value, "fetched_at"));
-        var csilField9 = Cbor.AsText(Cbor.Require(value, "revocations_checked_at"));
-        var csilField10 = Cbor.AsText(Cbor.Require(value, "cache_status"));
+        var csilField8 = Cbor.AsTimestamp(Cbor.Require(value, "fetched_at"));
+        var csilField9 = Cbor.AsTimestamp(Cbor.Require(value, "revocations_checked_at"));
+        var csilField10 = RpCacheStatusFromCborValue(Cbor.Require(value, "cache_status"));
         return new RpResolveApplicationKeysResponse
         {
             SubjectUserId = csilField0,
@@ -7772,8 +8795,8 @@ public static class Codec
         {
             csilEntries.Add((new CborValue.Text("language"), new CborValue.Text(csilV3)));
         }
-        csilEntries.Add((new CborValue.Text("issued_at"), new CborValue.Text(value.IssuedAt)));
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("issued_at"), Cbor.EncTimestamp(value.IssuedAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         if (value.AudienceHandleClaim is { } csilV6)
         {
             csilEntries.Add((new CborValue.Text("audience_handle_claim"), ClaimToCborValue(csilV6)));
@@ -7789,8 +8812,8 @@ public static class Codec
         var csilField2 = Cbor.AsArray(Cbor.Require(value, "entries")).Select(csilElem => ActAsScopeEntryFromCborValue(csilElem)).ToList();
         string? csilField3 = Cbor.MapGet(value, "language") is { } csilRaw3 ? Cbor.AsText(csilRaw3) : null;
         Claim? csilField4 = Cbor.MapGet(value, "audience_handle_claim") is { } csilRaw4 ? ClaimFromCborValue(csilRaw4) : null;
-        var csilField5 = Cbor.AsText(Cbor.Require(value, "issued_at"));
-        var csilField6 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField5 = Cbor.AsTimestamp(Cbor.Require(value, "issued_at"));
+        var csilField6 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
         return new ActAsScopeSet
         {
             Audience = csilField0,
@@ -7862,13 +8885,13 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
         csilEntries.Add((new CborValue.Text("audience"), ApplicationRefToCborValue(value.Audience)));
         csilEntries.Add((new CborValue.Text("grant_id"), new CborValue.Text(value.GrantId)));
-        csilEntries.Add((new CborValue.Text("issued_at"), new CborValue.Text(value.IssuedAt)));
+        csilEntries.Add((new CborValue.Text("issued_at"), Cbor.EncTimestamp(value.IssuedAt)));
         csilEntries.Add((new CborValue.Text("scope_set"), SignedActAsScopeSetToCborValue(value.ScopeSet)));
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         csilEntries.Add((new CborValue.Text("approved_scope"), new CborValue.Array(value.ApprovedScope.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
         csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
-        csilEntries.Add((new CborValue.Text("renewable_until"), new CborValue.Text(value.RenewableUntil)));
-        csilEntries.Add((new CborValue.Text("series_issued_at"), new CborValue.Text(value.SeriesIssuedAt)));
+        csilEntries.Add((new CborValue.Text("renewable_until"), Cbor.EncTimestamp(value.RenewableUntil)));
+        csilEntries.Add((new CborValue.Text("series_issued_at"), Cbor.EncTimestamp(value.SeriesIssuedAt)));
         if (value.DeviceFingerprint is { } csilV11)
         {
             csilEntries.Add((new CborValue.Text("device_fingerprint"), new CborValue.Text(csilV11)));
@@ -7886,10 +8909,10 @@ public static class Codec
         var csilField4 = ApplicationRefFromCborValue(Cbor.Require(value, "audience"));
         var csilField5 = SignedActAsScopeSetFromCborValue(Cbor.Require(value, "scope_set"));
         var csilField6 = Cbor.AsArray(Cbor.Require(value, "approved_scope")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
-        var csilField7 = Cbor.AsText(Cbor.Require(value, "issued_at"));
-        var csilField8 = Cbor.AsText(Cbor.Require(value, "expires_at"));
-        var csilField9 = Cbor.AsText(Cbor.Require(value, "series_issued_at"));
-        var csilField10 = Cbor.AsText(Cbor.Require(value, "renewable_until"));
+        var csilField7 = Cbor.AsTimestamp(Cbor.Require(value, "issued_at"));
+        var csilField8 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
+        var csilField9 = Cbor.AsTimestamp(Cbor.Require(value, "series_issued_at"));
+        var csilField10 = Cbor.AsTimestamp(Cbor.Require(value, "renewable_until"));
         string? csilField11 = Cbor.MapGet(value, "device_fingerprint") is { } csilRaw11 ? Cbor.AsText(csilRaw11) : null;
         return new ActAsGrant
         {
@@ -7936,9 +8959,9 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("nonce"), new CborValue.Text(value.Nonce)));
         csilEntries.Add((new CborValue.Text("grantee"), GranteeRefToCborValue(value.Grantee)));
         csilEntries.Add((new CborValue.Text("scope_set"), SignedActAsScopeSetToCborValue(value.ScopeSet)));
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         csilEntries.Add((new CborValue.Text("callback_url"), new CborValue.Text(value.CallbackUrl)));
-        csilEntries.Add((new CborValue.Text("requested_at"), new CborValue.Text(value.RequestedAt)));
+        csilEntries.Add((new CborValue.Text("requested_at"), Cbor.EncTimestamp(value.RequestedAt)));
         if (value.GranteeHandleClaim is { } csilV6)
         {
             csilEntries.Add((new CborValue.Text("grantee_handle_claim"), ClaimToCborValue(csilV6)));
@@ -7964,8 +8987,8 @@ public static class Codec
         Claim? csilField4 = Cbor.MapGet(value, "grantee_handle_claim") is { } csilRaw4 ? ClaimFromCborValue(csilRaw4) : null;
         var csilField5 = Cbor.AsText(Cbor.Require(value, "callback_url"));
         var csilField6 = Cbor.AsText(Cbor.Require(value, "nonce"));
-        var csilField7 = Cbor.AsText(Cbor.Require(value, "requested_at"));
-        var csilField8 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField7 = Cbor.AsTimestamp(Cbor.Require(value, "requested_at"));
+        var csilField8 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
         return new ActAsGrantRequest
         {
             Grantee = csilField0,
@@ -8008,8 +9031,8 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("nonce"), new CborValue.Text(value.Nonce)));
         csilEntries.Add((new CborValue.Text("grantee"), GranteeRefToCborValue(value.Grantee)));
         csilEntries.Add((new CborValue.Text("grant_id"), new CborValue.Text(value.GrantId)));
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
-        csilEntries.Add((new CborValue.Text("requested_at"), new CborValue.Text(value.RequestedAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("requested_at"), Cbor.EncTimestamp(value.RequestedAt)));
         return new CborValue.Map(csilEntries);
     }
 
@@ -8018,8 +9041,8 @@ public static class Codec
     {
         var csilField0 = Cbor.AsText(Cbor.Require(value, "grant_id"));
         var csilField1 = GranteeRefFromCborValue(Cbor.Require(value, "grantee"));
-        var csilField2 = Cbor.AsText(Cbor.Require(value, "requested_at"));
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField2 = Cbor.AsTimestamp(Cbor.Require(value, "requested_at"));
+        var csilField3 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
         var csilField4 = Cbor.AsText(Cbor.Require(value, "nonce"));
         return new ActAsRefreshRequest
         {
@@ -8098,7 +9121,7 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("nonce"), new CborValue.Bytes(value.Nonce)));
         csilEntries.Add((new CborValue.Text("audience"), ApplicationRefToCborValue(value.Audience)));
         csilEntries.Add((new CborValue.Text("grant_hash"), new CborValue.Bytes(value.GrantHash)));
-        csilEntries.Add((new CborValue.Text("presented_at"), new CborValue.Text(value.PresentedAt)));
+        csilEntries.Add((new CborValue.Text("presented_at"), Cbor.EncTimestamp(value.PresentedAt)));
         csilEntries.Add((new CborValue.Text("request_digest"), new CborValue.Bytes(value.RequestDigest)));
         return new CborValue.Map(csilEntries);
     }
@@ -8109,7 +9132,7 @@ public static class Codec
         var csilField0 = Cbor.AsBytes(Cbor.Require(value, "grant_hash"));
         var csilField1 = ApplicationRefFromCborValue(Cbor.Require(value, "audience"));
         var csilField2 = Cbor.AsBytes(Cbor.Require(value, "request_digest"));
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "presented_at"));
+        var csilField3 = Cbor.AsTimestamp(Cbor.Require(value, "presented_at"));
         var csilField4 = Cbor.AsBytes(Cbor.Require(value, "nonce"));
         return new ActAsPresentation
         {
@@ -8169,7 +9192,7 @@ public static class Codec
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
         csilEntries.Add((new CborValue.Text("grant_id"), new CborValue.Text(value.GrantId)));
-        csilEntries.Add((new CborValue.Text("revoked_at"), new CborValue.Text(value.RevokedAt)));
+        csilEntries.Add((new CborValue.Text("revoked_at"), Cbor.EncTimestamp(value.RevokedAt)));
         csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
         return new CborValue.Map(csilEntries);
     }
@@ -8180,7 +9203,7 @@ public static class Codec
         var csilField0 = Cbor.AsText(Cbor.Require(value, "grant_id"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "user_id"));
         var csilField2 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "revoked_at"));
+        var csilField3 = Cbor.AsTimestamp(Cbor.Require(value, "revoked_at"));
         return new ActAsGrantRevocation
         {
             GrantId = csilField0,
@@ -8503,14 +9526,14 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("grantee"), GranteeRefToCborValue(value.Grantee)));
         csilEntries.Add((new CborValue.Text("audience"), ApplicationRefToCborValue(value.Audience)));
         csilEntries.Add((new CborValue.Text("grant_id"), new CborValue.Text(value.GrantId)));
-        csilEntries.Add((new CborValue.Text("issued_at"), new CborValue.Text(value.IssuedAt)));
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("issued_at"), Cbor.EncTimestamp(value.IssuedAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         if (value.RevokedAt is { } csilV5)
         {
-            csilEntries.Add((new CborValue.Text("revoked_at"), new CborValue.Text(csilV5)));
+            csilEntries.Add((new CborValue.Text("revoked_at"), Cbor.EncTimestamp(csilV5)));
         }
         csilEntries.Add((new CborValue.Text("approved_scope"), new CborValue.Array(value.ApprovedScope.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
-        csilEntries.Add((new CborValue.Text("renewable_until"), new CborValue.Text(value.RenewableUntil)));
+        csilEntries.Add((new CborValue.Text("renewable_until"), Cbor.EncTimestamp(value.RenewableUntil)));
         return new CborValue.Map(csilEntries);
     }
 
@@ -8521,10 +9544,10 @@ public static class Codec
         var csilField1 = GranteeRefFromCborValue(Cbor.Require(value, "grantee"));
         var csilField2 = ApplicationRefFromCborValue(Cbor.Require(value, "audience"));
         var csilField3 = Cbor.AsArray(Cbor.Require(value, "approved_scope")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
-        var csilField4 = Cbor.AsText(Cbor.Require(value, "issued_at"));
-        var csilField5 = Cbor.AsText(Cbor.Require(value, "expires_at"));
-        var csilField6 = Cbor.AsText(Cbor.Require(value, "renewable_until"));
-        string? csilField7 = Cbor.MapGet(value, "revoked_at") is { } csilRaw7 ? Cbor.AsText(csilRaw7) : null;
+        var csilField4 = Cbor.AsTimestamp(Cbor.Require(value, "issued_at"));
+        var csilField5 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
+        var csilField6 = Cbor.AsTimestamp(Cbor.Require(value, "renewable_until"));
+        System.DateTimeOffset? csilField7 = Cbor.MapGet(value, "revoked_at") is { } csilRaw7 ? Cbor.AsTimestamp(csilRaw7) : null;
         return new ActAsGrantSummary
         {
             GrantId = csilField0,
@@ -8578,14 +9601,14 @@ public static class Codec
     public static CborValue RevokeActAsGrantResponseToCborValue(RevokeActAsGrantResponse value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("revoked_at"), new CborValue.Text(value.RevokedAt)));
+        csilEntries.Add((new CborValue.Text("revoked_at"), Cbor.EncTimestamp(value.RevokedAt)));
         return new CborValue.Map(csilEntries);
     }
 
     /// <summary>Reconstruct a RevokeActAsGrantResponse from a decoded CBOR value tree.</summary>
     public static RevokeActAsGrantResponse RevokeActAsGrantResponseFromCborValue(CborValue value)
     {
-        var csilField0 = Cbor.AsText(Cbor.Require(value, "revoked_at"));
+        var csilField0 = Cbor.AsTimestamp(Cbor.Require(value, "revoked_at"));
         return new RevokeActAsGrantResponse
         {
             RevokedAt = csilField0,
@@ -8611,7 +9634,7 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("available_claims"), new CborValue.Array(value.AvailableClaims.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
         if (value.TempDisposition is { } csilV7)
         {
-            csilEntries.Add((new CborValue.Text("temp_disposition"), new CborValue.Text(csilV7)));
+            csilEntries.Add((new CborValue.Text("temp_disposition"), ReleaseDispositionToCborValue(csilV7)));
         }
         return new CborValue.Map(csilEntries);
     }
@@ -8626,7 +9649,7 @@ public static class Codec
         var csilField4 = Cbor.AsArray(Cbor.Require(value, "user_choices")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
         string? csilField5 = Cbor.MapGet(value, "temp_audience") is { } csilRaw5 ? Cbor.AsText(csilRaw5) : null;
         string? csilField6 = Cbor.MapGet(value, "temp_claim_type") is { } csilRaw6 ? Cbor.AsText(csilRaw6) : null;
-        string? csilField7 = Cbor.MapGet(value, "temp_disposition") is { } csilRaw7 ? Cbor.AsText(csilRaw7) : null;
+        ReleaseDisposition? csilField7 = Cbor.MapGet(value, "temp_disposition") is { } csilRaw7 ? ReleaseDispositionFromCborValue(csilRaw7) : null;
         return new PreviewReleasePolicyRequest
         {
             Audience = csilField0,
@@ -8645,7 +9668,7 @@ public static class Codec
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("locked"), new CborValue.Bool(value.Locked)));
-        csilEntries.Add((new CborValue.Text("policy"), new CborValue.Text(value.Policy)));
+        csilEntries.Add((new CborValue.Text("policy"), ConsentRowPolicyToCborValue(value.Policy)));
         csilEntries.Add((new CborValue.Text("required"), new CborValue.Bool(value.Required)));
         csilEntries.Add((new CborValue.Text("available"), new CborValue.Bool(value.Available)));
         csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
@@ -8660,7 +9683,7 @@ public static class Codec
         var csilField1 = Cbor.AsBool(Cbor.Require(value, "required"));
         var csilField2 = Cbor.AsBool(Cbor.Require(value, "available"));
         var csilField3 = Cbor.AsBool(Cbor.Require(value, "locked"));
-        var csilField4 = Cbor.AsText(Cbor.Require(value, "policy"));
+        var csilField4 = ConsentRowPolicyFromCborValue(Cbor.Require(value, "policy"));
         var csilField5 = Cbor.AsBool(Cbor.Require(value, "default_granted"));
         return new PreviewReleaseRow
         {
@@ -8800,7 +9823,7 @@ public static class Codec
     public static CborValue InspectSigningRequestResponseToCborValue(InspectSigningRequestResponse value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
-        csilEntries.Add((new CborValue.Text("expires_at"), new CborValue.Text(value.ExpiresAt)));
+        csilEntries.Add((new CborValue.Text("expires_at"), Cbor.EncTimestamp(value.ExpiresAt)));
         csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
         csilEntries.Add((new CborValue.Text("subject_user_id"), new CborValue.Text(value.SubjectUserId)));
         csilEntries.Add((new CborValue.Text("issuable_claim_types"), new CborValue.Array(value.IssuableClaimTypes.Select(csilElem => (CborValue)new CborValue.Text(csilElem)).ToList())));
@@ -8814,7 +9837,7 @@ public static class Codec
         var csilField0 = Cbor.AsText(Cbor.Require(value, "subject_user_id"));
         var csilField1 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
         var csilField2 = Cbor.AsArray(Cbor.Require(value, "requested_claim_types")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
-        var csilField3 = Cbor.AsText(Cbor.Require(value, "expires_at"));
+        var csilField3 = Cbor.AsTimestamp(Cbor.Require(value, "expires_at"));
         var csilField4 = Cbor.AsArray(Cbor.Require(value, "issuable_claim_types")).Select(csilElem => Cbor.AsText(csilElem)).ToList();
         return new InspectSigningRequestResponse
         {
@@ -8858,7 +9881,7 @@ public static class Codec
         {
             csilEntries.Add((new CborValue.Text("message"), new CborValue.Text(csilV0)));
         }
-        csilEntries.Add((new CborValue.Text("outcome"), new CborValue.Text(value.Outcome)));
+        csilEntries.Add((new CborValue.Text("outcome"), IssuedClaimOutcomeToCborValue(value.Outcome)));
         if (value.ClaimCode is { } csilV2)
         {
             csilEntries.Add((new CborValue.Text("claim_code"), new CborValue.Text(csilV2)));
@@ -8871,7 +9894,7 @@ public static class Codec
     public static IssuedClaimResult IssuedClaimResultFromCborValue(CborValue value)
     {
         var csilField0 = Cbor.AsText(Cbor.Require(value, "claim_type"));
-        var csilField1 = Cbor.AsText(Cbor.Require(value, "outcome"));
+        var csilField1 = IssuedClaimOutcomeFromCborValue(Cbor.Require(value, "outcome"));
         string? csilField2 = Cbor.MapGet(value, "message") is { } csilRaw2 ? Cbor.AsText(csilRaw2) : null;
         string? csilField3 = Cbor.MapGet(value, "claim_code") is { } csilRaw3 ? Cbor.AsText(csilRaw3) : null;
         return new IssuedClaimResult
@@ -8901,8 +9924,101 @@ public static class Codec
         };
     }
 
+    public sealed class RpErrorRefusal(RpError value) : System.Exception("RpError")
+    {
+        public RpError Value { get; } = value;
+    }
+
+    public static (string Variant, byte[] Payload) EncodeRpSignRequestReply(System.Func<RpSignResponse> handler)
+    {
+        try
+        {
+            var value = handler();
+            return ("RpSignResponse", Cbor.Encode(RpSignResponseToCborValue(value)));
+        }
+        catch (RpErrorRefusal refusal)
+        {
+            return ("RpError", Cbor.Encode(RpErrorToCborValue(refusal.Value)));
+        }
+    }
+
+    public static (string Variant, byte[] Payload) EncodeRpDecryptTokenReply(System.Func<RpDecryptResponse> handler)
+    {
+        try
+        {
+            var value = handler();
+            return ("RpDecryptResponse", Cbor.Encode(RpDecryptResponseToCborValue(value)));
+        }
+        catch (RpErrorRefusal refusal)
+        {
+            return ("RpError", Cbor.Encode(RpErrorToCborValue(refusal.Value)));
+        }
+    }
+
+    public static (string Variant, byte[] Payload) EncodeRpVerifyAssertionReply(System.Func<RpVerifyResponse> handler)
+    {
+        try
+        {
+            var value = handler();
+            return ("RpVerifyResponse", Cbor.Encode(RpVerifyResponseToCborValue(value)));
+        }
+        catch (RpErrorRefusal refusal)
+        {
+            return ("RpError", Cbor.Encode(RpErrorToCborValue(refusal.Value)));
+        }
+    }
+
+    public static (string Variant, byte[] Payload) EncodeRpUserinfoFetchReply(System.Func<UserInfo> handler)
+    {
+        try
+        {
+            var value = handler();
+            return ("UserInfo", Cbor.Encode(UserInfoToCborValue(value)));
+        }
+        catch (RpErrorRefusal refusal)
+        {
+            return ("RpError", Cbor.Encode(RpErrorToCborValue(refusal.Value)));
+        }
+    }
+
     public static byte[] ResolveRpcReply(string service, string op, string? variant, byte[] payload)
     {
+        if (service == "Rp" && op == "sign-request")
+        {
+            return variant switch
+            {
+                "RpSignResponse" => payload,
+                "RpError" => throw new RpErrorRefusal(RpErrorFromCborValue(Cbor.Decode(payload))),
+                _ => throw new CborException("invalid RPC reply variant: " + variant),
+            };
+        }
+        if (service == "Rp" && op == "decrypt-token")
+        {
+            return variant switch
+            {
+                "RpDecryptResponse" => payload,
+                "RpError" => throw new RpErrorRefusal(RpErrorFromCborValue(Cbor.Decode(payload))),
+                _ => throw new CborException("invalid RPC reply variant: " + variant),
+            };
+        }
+        if (service == "Rp" && op == "verify-assertion")
+        {
+            return variant switch
+            {
+                "RpVerifyResponse" => payload,
+                "RpError" => throw new RpErrorRefusal(RpErrorFromCborValue(Cbor.Decode(payload))),
+                _ => throw new CborException("invalid RPC reply variant: " + variant),
+            };
+        }
+        if (service == "Rp" && op == "userinfo-fetch")
+        {
+            return variant switch
+            {
+                "UserInfo" => payload,
+                "RpError" => throw new RpErrorRefusal(RpErrorFromCborValue(Cbor.Decode(payload))),
+                _ => throw new CborException("invalid RPC reply variant: " + variant),
+            };
+        }
         return payload;
     }
 }

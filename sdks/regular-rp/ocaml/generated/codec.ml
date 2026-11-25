@@ -19,6 +19,58 @@ and encode_check_result (v : check_result) : Cbor.t =
          Some (Cbor.Text "entries", (Cbor.Map (List.map (fun (csil_k, csil_v) -> ((Cbor.Text csil_k), (encode_check_value csil_v))) v.entries)));
        ])
 
+and encode_key_algorithm (v : key_algorithm) : Cbor.t = Cbor.int64 (key_algorithm_to_number v)
+
+and encode_key_usage (v : key_usage) : Cbor.t = Cbor.int64 (key_usage_to_number v)
+
+and encode_aead_suite (v : aead_suite) : Cbor.t = Cbor.int64 (aead_suite_to_number v)
+
+and encode_claim_value_type (v : claim_value_type) : Cbor.t = Cbor.int64 (claim_value_type_to_number v)
+
+and encode_set_rule (v : set_rule) : Cbor.t = Cbor.int64 (set_rule_to_number v)
+
+and encode_signing_rule (v : signing_rule) : Cbor.t = Cbor.int64 (signing_rule_to_number v)
+
+and encode_set_claim_outcome (v : set_claim_outcome) : Cbor.t = Cbor.int64 (set_claim_outcome_to_number v)
+
+and encode_release_disposition (v : release_disposition) : Cbor.t = Cbor.int64 (release_disposition_to_number v)
+
+and encode_consent_row_policy (v : consent_row_policy) : Cbor.t = Cbor.int64 (consent_row_policy_to_number v)
+
+and encode_claim_approval_status (v : claim_approval_status) : Cbor.t = Cbor.int64 (claim_approval_status_to_number v)
+
+and encode_pin_recheck_outcome (v : pin_recheck_outcome) : Cbor.t = Cbor.int64 (pin_recheck_outcome_to_number v)
+
+and encode_notification_purpose (v : notification_purpose) : Cbor.t = Cbor.int64 (notification_purpose_to_number v)
+
+and encode_notification_channel (v : notification_channel) : Cbor.t = Cbor.int64 (notification_channel_to_number v)
+
+and encode_destination_kind (v : destination_kind) : Cbor.t = Cbor.int64 (destination_kind_to_number v)
+
+and encode_local_rp_policy (v : local_rp_policy) : Cbor.t = Cbor.int64 (local_rp_policy_to_number v)
+
+and encode_local_rp_status (v : local_rp_status) : Cbor.t = Cbor.int64 (local_rp_status_to_number v)
+
+and encode_local_rp_admission (v : local_rp_admission) : Cbor.t = Cbor.int64 (local_rp_admission_to_number v)
+
+and encode_app_access_mode (v : app_access_mode) : Cbor.t = Cbor.int64 (app_access_mode_to_number v)
+
+and encode_app_access_target_kind (v : app_access_target_kind) : Cbor.t = Cbor.int64 (app_access_target_kind_to_number v)
+
+and encode_claim_operator (v : claim_operator) : Cbor.t = Cbor.int64 (claim_operator_to_number v)
+
+and encode_application_key_challenge_purpose (v : application_key_challenge_purpose) : Cbor.t = Cbor.int64 (application_key_challenge_purpose_to_number v)
+
+and encode_auth_flow (v : auth_flow) : Cbor.t = Cbor.int64 (auth_flow_to_number v)
+
+and encode_rp_cache_status (v : rp_cache_status) : Cbor.t = Cbor.int64 (rp_cache_status_to_number v)
+
+and encode_account_kind (v : account_kind) : Cbor.t = Cbor.int64 (account_kind_to_number v)
+
+and encode_rp_error_code (v : rp_error_code) : Cbor.t = Cbor.int64 (rp_error_code_to_number v)
+
+and encode_issued_claim_outcome (v : issued_claim_outcome) : Cbor.t = Cbor.int64 (issued_claim_outcome_to_number v)
+
 and encode_hello_request (v : hello_request) : Cbor.t =
   Cbor.Map
     (List.filter_map
@@ -42,8 +94,8 @@ and encode_guestbook_entry (v : guestbook_entry) : Cbor.t =
        [
          Some (Cbor.Text "id", (Cbor.Text v.id));
          Some (Cbor.Text "name", (Cbor.Text v.name));
-         Some (Cbor.Text "created_at", (Cbor.Text v.created_at));
-         Some (Cbor.Text "updated_at", (Cbor.Text v.updated_at));
+         Some (Cbor.Text "created_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.created_at))));
+         Some (Cbor.Text "updated_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.updated_at))));
        ])
 
 and encode_create_guestbook_request (v : create_guestbook_request) : Cbor.t =
@@ -104,12 +156,12 @@ and encode_domain_public_key (v : domain_public_key) : Cbor.t =
        (fun x -> x)
        [
          Some (Cbor.Text "key_id", (Cbor.Text v.key_id));
-         Some (Cbor.Text "algorithm", (Cbor.Text v.algorithm));
-         Some (Cbor.Text "key_usage", (Cbor.Text v.key_usage));
-         Some (Cbor.Text "created_at", (Cbor.Text v.created_at));
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "algorithm", (encode_key_algorithm v.algorithm));
+         Some (Cbor.Text "key_usage", (encode_key_usage v.key_usage));
+         Some (Cbor.Text "created_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.created_at))));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
          Some (Cbor.Text "public_key", (Cbor.Bytes v.public_key));
-         (match v.revoked_at with Some csil_x -> Some (Cbor.Text "revoked_at", (Cbor.Text csil_x)) | None -> None);
+         (match v.revoked_at with Some csil_x -> Some (Cbor.Text "revoked_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
          Some (Cbor.Text "fingerprint", (Cbor.Text v.fingerprint));
          (match v.key_signature with Some csil_x -> Some (Cbor.Text "key_signature", (Cbor.Bytes csil_x)) | None -> None);
          (match v.signed_by_key_id with Some csil_x -> Some (Cbor.Text "signed_by_key_id", (Cbor.Text csil_x)) | None -> None);
@@ -130,7 +182,7 @@ and encode_get_revocations_request (v : get_revocations_request) : Cbor.t =
     (List.filter_map
        (fun x -> x)
        [
-         (match v.since with Some csil_x -> Some (Cbor.Text "since", (Cbor.Text csil_x)) | None -> None);
+         (match v.since with Some csil_x -> Some (Cbor.Text "since", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
        ])
 
 and encode_get_revocations_response (v : get_revocations_response) : Cbor.t =
@@ -155,7 +207,8 @@ and encode_pin_recheck_result (v : pin_recheck_result) : Cbor.t =
        (fun x -> x)
        [
          Some (Cbor.Text "domain", (Cbor.Text v.domain));
-         Some (Cbor.Text "outcome", (Cbor.Text v.outcome));
+         (match v.message with Some csil_x -> Some (Cbor.Text "message", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "outcome", (encode_pin_recheck_outcome v.outcome));
        ])
 
 and encode_recheck_pins_response (v : recheck_pins_response) : Cbor.t =
@@ -173,12 +226,12 @@ and encode_user_public_key (v : user_public_key) : Cbor.t =
        [
          Some (Cbor.Text "key_id", (Cbor.Text v.key_id));
          Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
-         Some (Cbor.Text "algorithm", (Cbor.Text v.algorithm));
-         Some (Cbor.Text "key_usage", (Cbor.Text v.key_usage));
-         Some (Cbor.Text "created_at", (Cbor.Text v.created_at));
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "algorithm", (encode_key_algorithm v.algorithm));
+         Some (Cbor.Text "key_usage", (encode_key_usage v.key_usage));
+         Some (Cbor.Text "created_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.created_at))));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
          Some (Cbor.Text "public_key", (Cbor.Bytes v.public_key));
-         (match v.revoked_at with Some csil_x -> Some (Cbor.Text "revoked_at", (Cbor.Text csil_x)) | None -> None);
+         (match v.revoked_at with Some csil_x -> Some (Cbor.Text "revoked_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
          Some (Cbor.Text "fingerprint", (Cbor.Text v.fingerprint));
          (match v.key_signature with Some csil_x -> Some (Cbor.Text "key_signature", (Cbor.Bytes csil_x)) | None -> None);
          (match v.signed_by_key_id with Some csil_x -> Some (Cbor.Text "signed_by_key_id", (Cbor.Text csil_x)) | None -> None);
@@ -217,7 +270,7 @@ and encode_revocation_certificate (v : revocation_certificate) : Cbor.t =
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "revoked_at", (Cbor.Text v.revoked_at));
+         Some (Cbor.Text "revoked_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.revoked_at))));
          Some (Cbor.Text "signatures", (Cbor.Array (List.map (fun csil_e -> (encode_claim_signature csil_e)) v.signatures)));
          Some (Cbor.Text "target_key_id", (Cbor.Text v.target_key_id));
          Some (Cbor.Text "target_fingerprint", (Cbor.Text v.target_fingerprint));
@@ -231,11 +284,11 @@ and encode_claim (v : claim) : Cbor.t =
          Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
          Some (Cbor.Text "claim_id", (Cbor.Text v.claim_id));
          Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
-         Some (Cbor.Text "created_at", (Cbor.Text v.created_at));
-         (match v.expires_at with Some csil_x -> Some (Cbor.Text "expires_at", (Cbor.Text csil_x)) | None -> None);
-         (match v.revoked_at with Some csil_x -> Some (Cbor.Text "revoked_at", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "created_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.created_at))));
+         (match v.expires_at with Some csil_x -> Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
+         (match v.revoked_at with Some csil_x -> Some (Cbor.Text "revoked_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
          Some (Cbor.Text "signatures", (Cbor.Array (List.map (fun csil_e -> (encode_claim_signature csil_e)) v.signatures)));
-         Some (Cbor.Text "attested_at", (Cbor.Text v.attested_at));
+         Some (Cbor.Text "attested_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.attested_at))));
          Some (Cbor.Text "claim_value", (Cbor.Bytes v.claim_value));
        ])
 
@@ -263,7 +316,7 @@ and encode_requested_claim (v : requested_claim) : Cbor.t =
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "datatype", (Cbor.Text v.datatype));
+         Some (Cbor.Text "datatype", (encode_claim_value_type v.datatype));
          Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
        ])
 
@@ -289,7 +342,7 @@ and encode_auth_flow_context (v : auth_flow_context) : Cbor.t =
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "flow", (Cbor.Text v.flow));
+         Some (Cbor.Text "flow", (encode_auth_flow v.flow));
          (match v.prior_session with Some csil_x -> Some (Cbor.Text "prior_session", (Cbor.Text csil_x)) | None -> None);
          (match v.request_reason with Some csil_x -> Some (Cbor.Text "request_reason", (Cbor.Text csil_x)) | None -> None);
        ])
@@ -302,9 +355,9 @@ and encode_consent_grant (v : consent_grant) : Cbor.t =
          Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
          Some (Cbor.Text "audience", (Cbor.Text v.audience));
          Some (Cbor.Text "grant_id", (Cbor.Text v.grant_id));
-         Some (Cbor.Text "issued_at", (Cbor.Text v.issued_at));
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
-         (match v.revoked_at with Some csil_x -> Some (Cbor.Text "revoked_at", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "issued_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.issued_at))));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
+         (match v.revoked_at with Some csil_x -> Some (Cbor.Text "revoked_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
          (match v.application with Some csil_x -> Some (Cbor.Text "application", (encode_application_ref csil_x)) | None -> None);
          Some (Cbor.Text "claim_types", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.claim_types)));
          Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
@@ -325,9 +378,9 @@ and encode_domain_claim (v : domain_claim) : Cbor.t =
        (fun x -> x)
        [
          Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
-         (match v.expires_at with Some csil_x -> Some (Cbor.Text "expires_at", (Cbor.Text csil_x)) | None -> None);
+         (match v.expires_at with Some csil_x -> Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
          Some (Cbor.Text "signatures", (Cbor.Array (List.map (fun csil_e -> (encode_claim_signature csil_e)) v.signatures)));
-         Some (Cbor.Text "attested_at", (Cbor.Text v.attested_at));
+         Some (Cbor.Text "attested_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.attested_at))));
          Some (Cbor.Text "claim_value", (Cbor.Bytes v.claim_value));
        ])
 
@@ -338,8 +391,8 @@ and encode_signing_request (v : signing_request) : Cbor.t =
        [
          Some (Cbor.Text "nonce", (Cbor.Text v.nonce));
          (match v.callback with Some csil_x -> Some (Cbor.Text "callback", (Cbor.Text csil_x)) | None -> None);
-         Some (Cbor.Text "issued_at", (Cbor.Text v.issued_at));
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "issued_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.issued_at))));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
          Some (Cbor.Text "request_id", (Cbor.Text v.request_id));
          Some (Cbor.Text "issuer_domain", (Cbor.Text v.issuer_domain));
          Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
@@ -381,8 +434,9 @@ and encode_identity_assertion (v : identity_assertion) : Cbor.t =
          Some (Cbor.Text "domain", (Cbor.Text v.domain));
          Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
          Some (Cbor.Text "audience", (Cbor.Text v.audience));
-         Some (Cbor.Text "issued_at", (Cbor.Text v.issued_at));
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "issued_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.issued_at))));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
+         Some (Cbor.Text "application", (encode_application_ref v.application));
          (match v.display_name with Some csil_x -> Some (Cbor.Text "display_name", (Cbor.Text csil_x)) | None -> None);
          Some (Cbor.Text "authorized_claims", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.authorized_claims)));
        ])
@@ -412,7 +466,7 @@ and encode_user_info_request (v : user_info_request) : Cbor.t =
        [
          Some (Cbor.Text "nonce", (Cbor.Text v.nonce));
          Some (Cbor.Text "token", (Cbor.Bytes v.token));
-         Some (Cbor.Text "timestamp", (Cbor.Text v.timestamp));
+         Some (Cbor.Text "timestamp", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.timestamp))));
          Some (Cbor.Text "relying_party", (Cbor.Text v.relying_party));
        ])
 
@@ -453,8 +507,8 @@ and encode_auth_request (v : auth_request) : Cbor.t =
        (fun x -> x)
        [
          Some (Cbor.Text "nonce", (Cbor.Text v.nonce));
-         Some (Cbor.Text "timestamp", (Cbor.Text v.timestamp));
-         (match v.application with Some csil_x -> Some (Cbor.Text "application", (encode_relying_party_application csil_x)) | None -> None);
+         Some (Cbor.Text "timestamp", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.timestamp))));
+         Some (Cbor.Text "application", (encode_relying_party_application v.application));
          Some (Cbor.Text "callback_url", (Cbor.Text v.callback_url));
          (match v.flow_context with Some csil_x -> Some (Cbor.Text "flow_context", (encode_auth_flow_context csil_x)) | None -> None);
          Some (Cbor.Text "relying_party", (Cbor.Text v.relying_party));
@@ -480,7 +534,7 @@ and encode_encrypted_token (v : encrypted_token) : Cbor.t =
        (fun x -> x)
        [
          Some (Cbor.Text "nonce", (Cbor.Bytes v.nonce));
-         (match v.suite with Some csil_x -> Some (Cbor.Text "suite", (Cbor.Text csil_x)) | None -> None);
+         (match v.suite with Some csil_x -> Some (Cbor.Text "suite", (encode_aead_suite csil_x)) | None -> None);
          Some (Cbor.Text "ciphertext", (Cbor.Bytes v.ciphertext));
          Some (Cbor.Text "ephemeral_public_key", (Cbor.Bytes v.ephemeral_public_key));
        ])
@@ -490,8 +544,8 @@ and encode_algorithm_support (v : algorithm_support) : Cbor.t =
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "signing", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.signing)));
-         (match v.encryption with Some csil_x -> Some (Cbor.Text "encryption", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) csil_x))) | None -> None);
+         Some (Cbor.Text "signing", (Cbor.Array (List.map (fun csil_e -> (encode_key_algorithm csil_e)) v.signing)));
+         (match v.encryption with Some csil_x -> Some (Cbor.Text "encryption", (Cbor.Array (List.map (fun csil_e -> (encode_aead_suite csil_e)) csil_x))) | None -> None);
        ])
 
 and encode_handshake_request (v : handshake_request) : Cbor.t =
@@ -520,8 +574,8 @@ and encode_relation (v : relation) : Cbor.t =
          Some (Cbor.Text "id", (Cbor.Text v.id));
          Some (Cbor.Text "relation", (Cbor.Text v.relation));
          Some (Cbor.Text "object_id", (Cbor.Text v.object_id));
-         Some (Cbor.Text "created_at", (Cbor.Text v.created_at));
-         (match v.removed_at with Some csil_x -> Some (Cbor.Text "removed_at", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "created_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.created_at))));
+         (match v.removed_at with Some csil_x -> Some (Cbor.Text "removed_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
          Some (Cbor.Text "subject_id", (Cbor.Text v.subject_id));
          Some (Cbor.Text "object_type", (Cbor.Text v.object_type));
          Some (Cbor.Text "subject_type", (Cbor.Text v.subject_type));
@@ -533,13 +587,15 @@ and encode_admin_user (v : admin_user) : Cbor.t =
        (fun x -> x)
        [
          Some (Cbor.Text "id", (Cbor.Text v.id));
+         Some (Cbor.Text "kind", (encode_account_kind v.kind));
          Some (Cbor.Text "username", (Cbor.Text v.username));
          Some (Cbor.Text "is_active", (Cbor.Bool v.is_active));
-         (match v.purged_at with Some csil_x -> Some (Cbor.Text "purged_at", (Cbor.Text csil_x)) | None -> None);
-         Some (Cbor.Text "created_at", (Cbor.Text v.created_at));
-         Some (Cbor.Text "updated_at", (Cbor.Text v.updated_at));
+         (match v.purged_at with Some csil_x -> Some (Cbor.Text "purged_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
+         Some (Cbor.Text "created_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.created_at))));
+         Some (Cbor.Text "updated_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.updated_at))));
          Some (Cbor.Text "display_name", (Cbor.Text v.display_name));
          (match v.purge_reason with Some csil_x -> Some (Cbor.Text "purge_reason", (Cbor.Text csil_x)) | None -> None);
+         (match v.application_id with Some csil_x -> Some (Cbor.Text "application_id", (Cbor.Text csil_x)) | None -> None);
          (match v.password_locked with Some csil_x -> Some (Cbor.Text "password_locked", (Cbor.Bool csil_x)) | None -> None);
        ])
 
@@ -583,8 +639,8 @@ and encode_user_authentication_activity (v : user_authentication_activity) : Cbo
        (fun x -> x)
        [
          Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
-         (match v.last_seen_at with Some csil_x -> Some (Cbor.Text "last_seen_at", (Cbor.Text csil_x)) | None -> None);
-         (match v.last_authenticated_at with Some csil_x -> Some (Cbor.Text "last_authenticated_at", (Cbor.Text csil_x)) | None -> None);
+         (match v.last_seen_at with Some csil_x -> Some (Cbor.Text "last_seen_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
+         (match v.last_authenticated_at with Some csil_x -> Some (Cbor.Text "last_authenticated_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
          Some (Cbor.Text "active_browser_session_count", (Cbor.int64 v.active_browser_session_count));
          Some (Cbor.Text "successful_authentication_count", (Cbor.int64 v.successful_authentication_count));
        ])
@@ -613,6 +669,7 @@ and encode_create_user_request (v : create_user_request) : Cbor.t =
          (match v.password with Some csil_x -> Some (Cbor.Text "password", (Cbor.Text csil_x)) | None -> None);
          Some (Cbor.Text "username", (Cbor.Text v.username));
          Some (Cbor.Text "display_name", (Cbor.Text v.display_name));
+         (match v.application_id with Some csil_x -> Some (Cbor.Text "application_id", (Cbor.Text csil_x)) | None -> None);
        ])
 
 and encode_create_user_response (v : create_user_response) : Cbor.t =
@@ -622,6 +679,180 @@ and encode_create_user_response (v : create_user_response) : Cbor.t =
        [
          Some (Cbor.Text "user", (encode_admin_user v.user));
          (match v.api_key with Some csil_x -> Some (Cbor.Text "api_key", (Cbor.Text csil_x)) | None -> None);
+       ])
+
+and encode_rename_user_request (v : rename_user_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
+         Some (Cbor.Text "username", (Cbor.Text v.username));
+       ])
+
+and encode_rename_user_response (v : rename_user_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "user", (encode_admin_user v.user));
+       ])
+
+and encode_set_application_id_request (v : set_application_id_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
+         Some (Cbor.Text "application_id", (Cbor.Text v.application_id));
+       ])
+
+and encode_set_application_id_response (v : set_application_id_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "user", (encode_admin_user v.user));
+       ])
+
+and encode_api_key_info (v : api_key_info) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "hint", (Cbor.Text v.hint));
+         Some (Cbor.Text "name", (Cbor.Text v.name));
+         Some (Cbor.Text "key_id", (Cbor.Text v.key_id));
+         Some (Cbor.Text "created_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.created_at))));
+         (match v.last_used_at with Some csil_x -> Some (Cbor.Text "last_used_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
+       ])
+
+and encode_create_api_key_request (v : create_api_key_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "name", (Cbor.Text v.name));
+         Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
+       ])
+
+and encode_create_api_key_response (v : create_api_key_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "key", (encode_api_key_info v.key));
+         Some (Cbor.Text "api_key", (Cbor.Text v.api_key));
+       ])
+
+and encode_list_api_keys_request (v : list_api_keys_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
+       ])
+
+and encode_list_api_keys_response (v : list_api_keys_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "keys", (Cbor.Array (List.map (fun csil_e -> (encode_api_key_info csil_e)) v.keys)));
+       ])
+
+and encode_revoke_api_key_request (v : revoke_api_key_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "key_id", (Cbor.Text v.key_id));
+         Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
+       ])
+
+and encode_revoke_api_key_response (v : revoke_api_key_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "revoked", (Cbor.Bool v.revoked));
+       ])
+
+and encode_account_limits (v : account_limits) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         (match v.max_api_keys with Some csil_x -> Some (Cbor.Text "max_api_keys", (Cbor.int64 csil_x)) | None -> None);
+         (match v.request_burst with Some csil_x -> Some (Cbor.Text "request_burst", (Cbor.int64 csil_x)) | None -> None);
+         (match v.max_distinct_users with Some csil_x -> Some (Cbor.Text "max_distinct_users", (Cbor.int64 csil_x)) | None -> None);
+         (match v.requests_per_minute with Some csil_x -> Some (Cbor.Text "requests_per_minute", (Cbor.int64 csil_x)) | None -> None);
+         Some (Cbor.Text "distinct_user_window_days", (Cbor.int64 v.distinct_user_window_days));
+       ])
+
+and encode_get_account_limits_request (v : get_account_limits_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
+       ])
+
+and encode_get_account_limits_response (v : get_account_limits_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "limits", (encode_account_limits v.limits));
+       ])
+
+and encode_set_account_limits_request (v : set_account_limits_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "limits", (encode_account_limits v.limits));
+         Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
+       ])
+
+and encode_set_account_limits_response (v : set_account_limits_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "limits", (encode_account_limits v.limits));
+       ])
+
+and encode_rp_usage_day (v : rp_usage_day) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "day", (Cbor.Tag (1004, Cbor.Text (Cbor.calendar_date v.day))));
+         Some (Cbor.Text "failed", (Cbor.int64 v.failed));
+         Some (Cbor.Text "operation", (Cbor.Text v.operation));
+         Some (Cbor.Text "succeeded", (Cbor.int64 v.succeeded));
+       ])
+
+and encode_get_application_usage_request (v : get_application_usage_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
+         Some (Cbor.Text "last_day", (Cbor.Tag (1004, Cbor.Text (Cbor.calendar_date v.last_day))));
+         Some (Cbor.Text "first_day", (Cbor.Tag (1004, Cbor.Text (Cbor.calendar_date v.first_day))));
+       ])
+
+and encode_get_application_usage_response (v : get_application_usage_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "days", (Cbor.Array (List.map (fun csil_e -> (encode_rp_usage_day csil_e)) v.days)));
+         Some (Cbor.Text "distinct_users", (Cbor.int64 v.distinct_users));
+         (match v.max_distinct_users with Some csil_x -> Some (Cbor.Text "max_distinct_users", (Cbor.int64 csil_x)) | None -> None);
+         Some (Cbor.Text "distinct_user_window_days", (Cbor.int64 v.distinct_user_window_days));
        ])
 
 and encode_update_user_request (v : update_user_request) : Cbor.t =
@@ -775,7 +1006,7 @@ and encode_set_claim_request (v : set_claim_request) : Cbor.t =
        [
          Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
          Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
-         (match v.expires_at with Some csil_x -> Some (Cbor.Text "expires_at", (Cbor.Text csil_x)) | None -> None);
+         (match v.expires_at with Some csil_x -> Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
          Some (Cbor.Text "claim_value", (Cbor.Text v.claim_value));
        ])
 
@@ -851,7 +1082,7 @@ and encode_set_user_claim_response (v : set_user_claim_response) : Cbor.t =
        (fun x -> x)
        [
          (match v.claim with Some csil_x -> Some (Cbor.Text "claim", (encode_claim csil_x)) | None -> None);
-         Some (Cbor.Text "outcome", (Cbor.Text v.outcome));
+         Some (Cbor.Text "outcome", (encode_set_claim_outcome v.outcome));
        ])
 
 and encode_settable_claim_policy (v : settable_claim_policy) : Cbor.t =
@@ -860,12 +1091,12 @@ and encode_settable_claim_policy (v : settable_claim_policy) : Cbor.t =
        (fun x -> x)
        [
          Some (Cbor.Text "label", (Cbor.Text v.label));
-         Some (Cbor.Text "datatype", (Cbor.Text v.datatype));
-         Some (Cbor.Text "set_rule", (Cbor.Text v.set_rule));
+         Some (Cbor.Text "datatype", (encode_claim_value_type v.datatype));
+         Some (Cbor.Text "set_rule", (encode_set_rule v.set_rule));
          Some (Cbor.Text "max_bytes", (Cbor.int64 v.max_bytes));
          Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
          Some (Cbor.Text "description", (Cbor.Text v.description));
-         Some (Cbor.Text "signing_rule", (Cbor.Text v.signing_rule));
+         Some (Cbor.Text "signing_rule", (encode_signing_rule v.signing_rule));
          Some (Cbor.Text "requires_approval", (Cbor.Bool v.requires_approval));
        ])
 
@@ -883,13 +1114,13 @@ and encode_claim_type_policy (v : claim_type_policy) : Cbor.t =
        (fun x -> x)
        [
          Some (Cbor.Text "label", (Cbor.Text v.label));
-         Some (Cbor.Text "set_rule", (Cbor.Text v.set_rule));
+         Some (Cbor.Text "set_rule", (encode_set_rule v.set_rule));
          Some (Cbor.Text "max_bytes", (Cbor.int64 v.max_bytes));
          Some (Cbor.Text "suggested", (Cbor.Bool v.suggested));
          Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
-         Some (Cbor.Text "value_type", (Cbor.Text v.value_type));
+         Some (Cbor.Text "value_type", (encode_claim_value_type v.value_type));
          Some (Cbor.Text "description", (Cbor.Text v.description));
-         Some (Cbor.Text "signing_rule", (Cbor.Text v.signing_rule));
+         Some (Cbor.Text "signing_rule", (encode_signing_rule v.signing_rule));
          Some (Cbor.Text "user_settable", (Cbor.Bool v.user_settable));
          Some (Cbor.Text "default_auto_sign", (Cbor.Bool v.default_auto_sign));
          Some (Cbor.Text "requires_approval", (Cbor.Bool v.requires_approval));
@@ -909,13 +1140,13 @@ and encode_set_claim_type_request (v : set_claim_type_request) : Cbor.t =
        (fun x -> x)
        [
          Some (Cbor.Text "label", (Cbor.Text v.label));
-         Some (Cbor.Text "set_rule", (Cbor.Text v.set_rule));
+         Some (Cbor.Text "set_rule", (encode_set_rule v.set_rule));
          Some (Cbor.Text "max_bytes", (Cbor.int64 v.max_bytes));
          Some (Cbor.Text "suggested", (Cbor.Bool v.suggested));
          Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
-         Some (Cbor.Text "value_type", (Cbor.Text v.value_type));
+         Some (Cbor.Text "value_type", (encode_claim_value_type v.value_type));
          (match v.description with Some csil_x -> Some (Cbor.Text "description", (Cbor.Text csil_x)) | None -> None);
-         Some (Cbor.Text "signing_rule", (Cbor.Text v.signing_rule));
+         Some (Cbor.Text "signing_rule", (encode_signing_rule v.signing_rule));
          Some (Cbor.Text "user_settable", (Cbor.Bool v.user_settable));
          Some (Cbor.Text "default_auto_sign", (Cbor.Bool v.default_auto_sign));
          Some (Cbor.Text "requires_approval", (Cbor.Bool v.requires_approval));
@@ -1058,7 +1289,7 @@ and encode_release_rule (v : release_rule) : Cbor.t =
        [
          Some (Cbor.Text "audience", (Cbor.Text v.audience));
          Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
-         Some (Cbor.Text "disposition", (Cbor.Text v.disposition));
+         Some (Cbor.Text "disposition", (encode_release_disposition v.disposition));
        ])
 
 and encode_list_release_rules_response (v : list_release_rules_response) : Cbor.t =
@@ -1076,7 +1307,7 @@ and encode_set_release_rule_request (v : set_release_rule_request) : Cbor.t =
        [
          Some (Cbor.Text "audience", (Cbor.Text v.audience));
          Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
-         Some (Cbor.Text "disposition", (Cbor.Text v.disposition));
+         Some (Cbor.Text "disposition", (encode_release_disposition v.disposition));
        ])
 
 and encode_set_release_rule_response (v : set_release_rule_response) : Cbor.t =
@@ -1110,12 +1341,12 @@ and encode_claim_approval (v : claim_approval) : Cbor.t =
        (fun x -> x)
        [
          Some (Cbor.Text "id", (Cbor.Text v.id));
-         Some (Cbor.Text "status", (Cbor.Text v.status));
+         Some (Cbor.Text "status", (encode_claim_approval_status v.status));
          Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
          Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
-         Some (Cbor.Text "created_at", (Cbor.Text v.created_at));
+         Some (Cbor.Text "created_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.created_at))));
          Some (Cbor.Text "claim_value", (Cbor.Bytes v.claim_value));
-         (match v.resolved_at with Some csil_x -> Some (Cbor.Text "resolved_at", (Cbor.Text csil_x)) | None -> None);
+         (match v.resolved_at with Some csil_x -> Some (Cbor.Text "resolved_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
          (match v.resolved_by with Some csil_x -> Some (Cbor.Text "resolved_by", (Cbor.Text csil_x)) | None -> None);
        ])
 
@@ -1293,7 +1524,7 @@ and encode_set_my_claim_response (v : set_my_claim_response) : Cbor.t =
        (fun x -> x)
        [
          (match v.claim with Some csil_x -> Some (Cbor.Text "claim", (encode_claim csil_x)) | None -> None);
-         Some (Cbor.Text "outcome", (Cbor.Text v.outcome));
+         Some (Cbor.Text "outcome", (encode_set_claim_outcome v.outcome));
        ])
 
 and encode_remove_my_claim_request (v : remove_my_claim_request) : Cbor.t =
@@ -1414,9 +1645,9 @@ and encode_browser_session_info (v : browser_session_info) : Cbor.t =
        (fun x -> x)
        [
          Some (Cbor.Text "user", (encode_admin_user v.user));
-         Some (Cbor.Text "issued_at", (Cbor.Text v.issued_at));
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
-         Some (Cbor.Text "authenticated_at", (Cbor.Text v.authenticated_at));
+         Some (Cbor.Text "issued_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.issued_at))));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
+         Some (Cbor.Text "authenticated_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.authenticated_at))));
          Some (Cbor.Text "authentication_methods", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.authentication_methods)));
        ])
 
@@ -1467,9 +1698,9 @@ and encode_introspect_browser_session_response (v : introspect_browser_session_r
        (fun x -> x)
        [
          Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
          Some (Cbor.Text "user_domain", (Cbor.Text v.user_domain));
-         Some (Cbor.Text "authenticated_at", (Cbor.Text v.authenticated_at));
+         Some (Cbor.Text "authenticated_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.authenticated_at))));
          Some (Cbor.Text "authentication_methods", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.authentication_methods)));
        ])
 
@@ -1478,9 +1709,9 @@ and encode_notification_capability (v : notification_capability) : Cbor.t =
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "channel", (Cbor.Text v.channel));
-         Some (Cbor.Text "purpose", (Cbor.Text v.purpose));
-         Some (Cbor.Text "destination_kind", (Cbor.Text v.destination_kind));
+         Some (Cbor.Text "channel", (encode_notification_channel v.channel));
+         Some (Cbor.Text "purpose", (encode_notification_purpose v.purpose));
+         Some (Cbor.Text "destination_kind", (encode_destination_kind v.destination_kind));
        ])
 
 and encode_get_notification_capabilities_response (v : get_notification_capabilities_response) : Cbor.t =
@@ -1497,11 +1728,11 @@ and encode_verified_contact_method (v : verified_contact_method) : Cbor.t =
        (fun x -> x)
        [
          Some (Cbor.Text "id", (Cbor.Text v.id));
-         Some (Cbor.Text "channel", (Cbor.Text v.channel));
-         Some (Cbor.Text "purposes", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.purposes)));
-         (match v.revoked_at with Some csil_x -> Some (Cbor.Text "revoked_at", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "channel", (encode_notification_channel v.channel));
+         Some (Cbor.Text "purposes", (Cbor.Array (List.map (fun csil_e -> (encode_notification_purpose csil_e)) v.purposes)));
+         (match v.revoked_at with Some csil_x -> Some (Cbor.Text "revoked_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
          Some (Cbor.Text "destination", (Cbor.Text v.destination));
-         Some (Cbor.Text "verified_at", (Cbor.Text v.verified_at));
+         Some (Cbor.Text "verified_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.verified_at))));
        ])
 
 and encode_list_verified_contact_methods_response (v : list_verified_contact_methods_response) : Cbor.t =
@@ -1534,7 +1765,7 @@ and encode_request_contact_verification_request (v : request_contact_verificatio
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "channel", (Cbor.Text v.channel));
+         Some (Cbor.Text "channel", (encode_notification_channel v.channel));
          Some (Cbor.Text "destination", (Cbor.Text v.destination));
          Some (Cbor.Text "current_password", (Cbor.Text v.current_password));
        ])
@@ -1544,7 +1775,7 @@ and encode_request_contact_verification_response (v : request_contact_verificati
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
        ])
 
 and encode_confirm_contact_verification_request (v : confirm_contact_verification_request) : Cbor.t =
@@ -1587,7 +1818,7 @@ and encode_validate_password_recovery_response (v : validate_password_recovery_r
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
          Some (Cbor.Text "password_policy", (encode_password_policy v.password_policy));
        ])
 
@@ -1622,8 +1853,8 @@ and encode_browser_consent_claim (v : browser_consent_claim) : Cbor.t =
        (fun x -> x)
        [
          Some (Cbor.Text "label", (Cbor.Text v.label));
-         Some (Cbor.Text "policy", (Cbor.Text v.policy));
-         Some (Cbor.Text "datatype", (Cbor.Text v.datatype));
+         Some (Cbor.Text "policy", (encode_consent_row_policy v.policy));
+         Some (Cbor.Text "datatype", (encode_claim_value_type v.datatype));
          Some (Cbor.Text "required", (Cbor.Bool v.required));
          Some (Cbor.Text "available", (Cbor.Bool v.available));
          Some (Cbor.Text "max_bytes", (Cbor.int64 v.max_bytes));
@@ -1685,11 +1916,11 @@ and encode_browser_local_rp_inspect_response (v : browser_local_rp_inspect_respo
        [
          Some (Cbor.Text "claims", (Cbor.Array (List.map (fun csil_e -> (encode_browser_consent_claim csil_e)) v.claims)));
          Some (Cbor.Text "app_name", (Cbor.Text v.app_name));
-         Some (Cbor.Text "admission", (Cbor.Text v.admission));
+         Some (Cbor.Text "admission", (encode_local_rp_admission v.admission));
          Some (Cbor.Text "fingerprint", (Cbor.Text v.fingerprint));
          (match v.access_denied with Some csil_x -> Some (Cbor.Text "access_denied", (encode_app_access_denial csil_x)) | None -> None);
          Some (Cbor.Text "callback_host", (Cbor.Text v.callback_host));
-         (match v.first_seen_at with Some csil_x -> Some (Cbor.Text "first_seen_at", (Cbor.Text csil_x)) | None -> None);
+         (match v.first_seen_at with Some csil_x -> Some (Cbor.Text "first_seen_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
          (match v.request_reason with Some csil_x -> Some (Cbor.Text "request_reason", (Cbor.Text csil_x)) | None -> None);
          (match v.already_consented with Some csil_x -> Some (Cbor.Text "already_consented", (Cbor.Bool csil_x)) | None -> None);
          (match v.authorized_claims with Some csil_x -> Some (Cbor.Text "authorized_claims", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) csil_x))) | None -> None);
@@ -1768,7 +1999,6 @@ and encode_rp_sign_request (v : rp_sign_request) : Cbor.t =
          Some (Cbor.Text "nonce", (Cbor.Text v.nonce));
          Some (Cbor.Text "callback_url", (Cbor.Text v.callback_url));
          (match v.flow_context with Some csil_x -> Some (Cbor.Text "flow_context", (encode_auth_flow_context csil_x)) | None -> None);
-         (match v.application_id with Some csil_x -> Some (Cbor.Text "application_id", (Cbor.Text csil_x)) | None -> None);
          (match v.requested_claims with Some csil_x -> Some (Cbor.Text "requested_claims", (encode_claim_request csil_x)) | None -> None);
          (match v.authentication_requirements with Some csil_x -> Some (Cbor.Text "authentication_requirements", (encode_authentication_requirements csil_x)) | None -> None);
        ])
@@ -1823,6 +2053,15 @@ and encode_rp_user_info_request (v : rp_user_info_request) : Cbor.t =
          Some (Cbor.Text "token", (Cbor.Text v.token));
          Some (Cbor.Text "domain", (Cbor.Text v.domain));
          Some (Cbor.Text "api_base", (Cbor.Text v.api_base));
+       ])
+
+and encode_rp_error (v : rp_error) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "code", (encode_rp_error_code v.code));
+         Some (Cbor.Text "message", (Cbor.Text v.message));
        ])
 
 and encode_rp_issue_attestation_request (v : rp_issue_attestation_request) : Cbor.t =
@@ -1903,10 +2142,10 @@ and encode_local_rp_descriptor (v : local_rp_descriptor) : Cbor.t =
        (fun x -> x)
        [
          Some (Cbor.Text "app_name", (Cbor.Text v.app_name));
-         Some (Cbor.Text "created_at", (Cbor.Text v.created_at));
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "created_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.created_at))));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
          Some (Cbor.Text "fingerprint", (Cbor.Text v.fingerprint));
-         Some (Cbor.Text "supported_suites", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.supported_suites)));
+         Some (Cbor.Text "supported_suites", (Cbor.Array (List.map (fun csil_e -> (encode_aead_suite csil_e)) v.supported_suites)));
          (match v.local_domain_hint with Some csil_x -> Some (Cbor.Text "local_domain_hint", (Cbor.Text csil_x)) | None -> None);
          Some (Cbor.Text "signing_public_key", (Cbor.Bytes v.signing_public_key));
          Some (Cbor.Text "encryption_public_key", (Cbor.Bytes v.encryption_public_key));
@@ -1928,9 +2167,9 @@ and encode_local_rp_login_request (v : local_rp_login_request) : Cbor.t =
        [
          Some (Cbor.Text "nonce", (Cbor.Bytes v.nonce));
          Some (Cbor.Text "state", (Cbor.Bytes v.state));
-         Some (Cbor.Text "issued_at", (Cbor.Text v.issued_at));
+         Some (Cbor.Text "issued_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.issued_at))));
          Some (Cbor.Text "descriptor", (encode_signed_local_rp_descriptor v.descriptor));
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
          Some (Cbor.Text "callback_url", (Cbor.Text v.callback_url));
          (match v.flow_context with Some csil_x -> Some (Cbor.Text "flow_context", (encode_auth_flow_context csil_x)) | None -> None);
          Some (Cbor.Text "required_claims", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.required_claims)));
@@ -1954,10 +2193,10 @@ and encode_local_rp_callback_header (v : local_rp_callback_header) : Cbor.t =
        [
          Some (Cbor.Text "nonce", (Cbor.Bytes v.nonce));
          Some (Cbor.Text "state", (Cbor.Bytes v.state));
-         Some (Cbor.Text "suite", (Cbor.Text v.suite));
-         Some (Cbor.Text "issued_at", (Cbor.Text v.issued_at));
+         Some (Cbor.Text "suite", (encode_aead_suite v.suite));
+         Some (Cbor.Text "issued_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.issued_at))));
          Some (Cbor.Text "aead_nonce", (Cbor.Bytes v.aead_nonce));
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
          Some (Cbor.Text "fingerprint", (Cbor.Text v.fingerprint));
          Some (Cbor.Text "ephemeral_public_key", (Cbor.Bytes v.ephemeral_public_key));
        ])
@@ -1979,8 +2218,8 @@ and encode_local_rp_callback_payload (v : local_rp_callback_payload) : Cbor.t =
          Some (Cbor.Text "nonce", (Cbor.Bytes v.nonce));
          Some (Cbor.Text "state", (Cbor.Bytes v.state));
          Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
-         Some (Cbor.Text "issued_at", (Cbor.Text v.issued_at));
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "issued_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.issued_at))));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
          Some (Cbor.Text "user_domain", (Cbor.Text v.user_domain));
          Some (Cbor.Text "callback_url", (Cbor.Text v.callback_url));
          Some (Cbor.Text "claim_ticket", (Cbor.Bytes v.claim_ticket));
@@ -2002,7 +2241,7 @@ and encode_local_rp_ticket_redemption_request (v : local_rp_ticket_redemption_re
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "issued_at", (Cbor.Text v.issued_at));
+         Some (Cbor.Text "issued_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.issued_at))));
          Some (Cbor.Text "fingerprint", (Cbor.Text v.fingerprint));
          Some (Cbor.Text "claim_ticket", (Cbor.Bytes v.claim_ticket));
        ])
@@ -2024,7 +2263,7 @@ and encode_local_rp_ticket_redemption_response (v : local_rp_ticket_redemption_r
          Some (Cbor.Text "claims", (Cbor.Array (List.map (fun csil_e -> (encode_claim csil_e)) v.claims)));
          Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
          Some (Cbor.Text "user_domain", (Cbor.Text v.user_domain));
-         Some (Cbor.Text "ticket_expires_at", (Cbor.Text v.ticket_expires_at));
+         Some (Cbor.Text "ticket_expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.ticket_expires_at))));
        ])
 
 and encode_admin_local_rp (v : admin_local_rp) : Cbor.t =
@@ -2032,14 +2271,14 @@ and encode_admin_local_rp (v : admin_local_rp) : Cbor.t =
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "status", (Cbor.Text v.status));
+         Some (Cbor.Text "status", (encode_local_rp_status v.status));
          Some (Cbor.Text "app_name", (Cbor.Text v.app_name));
-         Some (Cbor.Text "created_at", (Cbor.Text v.created_at));
-         (match v.expires_at with Some csil_x -> Some (Cbor.Text "expires_at", (Cbor.Text csil_x)) | None -> None);
-         Some (Cbor.Text "updated_at", (Cbor.Text v.updated_at));
+         Some (Cbor.Text "created_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.created_at))));
+         (match v.expires_at with Some csil_x -> Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
+         Some (Cbor.Text "updated_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.updated_at))));
          (match v.admin_notes with Some csil_x -> Some (Cbor.Text "admin_notes", (Cbor.Text csil_x)) | None -> None);
          Some (Cbor.Text "fingerprint", (Cbor.Text v.fingerprint));
-         (match v.last_seen_at with Some csil_x -> Some (Cbor.Text "last_seen_at", (Cbor.Text csil_x)) | None -> None);
+         (match v.last_seen_at with Some csil_x -> Some (Cbor.Text "last_seen_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
          (match v.local_domain_hint with Some csil_x -> Some (Cbor.Text "local_domain_hint", (Cbor.Text csil_x)) | None -> None);
          Some (Cbor.Text "signing_public_key", (Cbor.Bytes v.signing_public_key));
          Some (Cbor.Text "encryption_public_key", (Cbor.Bytes v.encryption_public_key));
@@ -2052,7 +2291,7 @@ and encode_list_local_rps_request (v : list_local_rps_request) : Cbor.t =
        [
          (match v.limit with Some csil_x -> Some (Cbor.Text "limit", (Cbor.int64 csil_x)) | None -> None);
          (match v.offset with Some csil_x -> Some (Cbor.Text "offset", (Cbor.int64 csil_x)) | None -> None);
-         (match v.status with Some csil_x -> Some (Cbor.Text "status", (Cbor.Text csil_x)) | None -> None);
+         (match v.status with Some csil_x -> Some (Cbor.Text "status", (encode_local_rp_status csil_x)) | None -> None);
        ])
 
 and encode_list_local_rps_response (v : list_local_rps_response) : Cbor.t =
@@ -2137,7 +2376,7 @@ and encode_get_local_rp_policy_response (v : get_local_rp_policy_response) : Cbo
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "policy", (Cbor.Text v.policy));
+         Some (Cbor.Text "policy", (encode_local_rp_policy v.policy));
        ])
 
 and encode_set_local_rp_policy_request (v : set_local_rp_policy_request) : Cbor.t =
@@ -2145,7 +2384,7 @@ and encode_set_local_rp_policy_request (v : set_local_rp_policy_request) : Cbor.
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "policy", (Cbor.Text v.policy));
+         Some (Cbor.Text "policy", (encode_local_rp_policy v.policy));
        ])
 
 and encode_set_local_rp_policy_response (v : set_local_rp_policy_response) : Cbor.t =
@@ -2153,7 +2392,7 @@ and encode_set_local_rp_policy_response (v : set_local_rp_policy_response) : Cbo
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "policy", (Cbor.Text v.policy));
+         Some (Cbor.Text "policy", (encode_local_rp_policy v.policy));
        ])
 
 and encode_sign_in_policy (v : sign_in_policy) : Cbor.t =
@@ -2197,12 +2436,12 @@ and encode_app_access_target (v : app_access_target) : Cbor.t =
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "kind", (Cbor.Text v.kind));
+         Some (Cbor.Text "kind", (encode_app_access_target_kind v.kind));
          (match v.user_id with Some csil_x -> Some (Cbor.Text "user_id", (Cbor.Text csil_x)) | None -> None);
          (match v.claim_type with Some csil_x -> Some (Cbor.Text "claim_type", (Cbor.Text csil_x)) | None -> None);
          (match v.group_name with Some csil_x -> Some (Cbor.Text "group_name", (Cbor.Text csil_x)) | None -> None);
          (match v.claim_value with Some csil_x -> Some (Cbor.Text "claim_value", (Cbor.Text csil_x)) | None -> None);
-         (match v.claim_operator with Some csil_x -> Some (Cbor.Text "claim_operator", (Cbor.Text csil_x)) | None -> None);
+         (match v.claim_operator with Some csil_x -> Some (Cbor.Text "claim_operator", (encode_claim_operator csil_x)) | None -> None);
        ])
 
 and encode_app_access_policy (v : app_access_policy) : Cbor.t =
@@ -2211,7 +2450,7 @@ and encode_app_access_policy (v : app_access_policy) : Cbor.t =
        (fun x -> x)
        [
          Some (Cbor.Text "id", (Cbor.Text v.id));
-         Some (Cbor.Text "mode", (Cbor.Text v.mode));
+         Some (Cbor.Text "mode", (encode_app_access_mode v.mode));
          Some (Cbor.Text "name", (Cbor.Text v.name));
          (match v.message with Some csil_x -> Some (Cbor.Text "message", (Cbor.Text csil_x)) | None -> None);
          Some (Cbor.Text "targets", (Cbor.Array (List.map (fun csil_e -> (encode_app_access_target csil_e)) v.targets)));
@@ -2232,7 +2471,7 @@ and encode_set_app_access_policy_request (v : set_app_access_policy_request) : C
        (fun x -> x)
        [
          (match v.id with Some csil_x -> Some (Cbor.Text "id", (Cbor.Text csil_x)) | None -> None);
-         Some (Cbor.Text "mode", (Cbor.Text v.mode));
+         Some (Cbor.Text "mode", (encode_app_access_mode v.mode));
          Some (Cbor.Text "name", (Cbor.Text v.name));
          (match v.message with Some csil_x -> Some (Cbor.Text "message", (Cbor.Text csil_x)) | None -> None);
          Some (Cbor.Text "targets", (Cbor.Array (List.map (fun csil_e -> (encode_app_access_target csil_e)) v.targets)));
@@ -2344,18 +2583,18 @@ and encode_application_key_attestation (v : application_key_attestation) : Cbor.
        (fun x -> x)
        [
          Some (Cbor.Text "key_id", (Cbor.Text v.key_id));
-         Some (Cbor.Text "algorithm", (Cbor.Text v.algorithm));
-         Some (Cbor.Text "key_usage", (Cbor.Text v.key_usage));
+         Some (Cbor.Text "algorithm", (encode_key_algorithm v.algorithm));
+         Some (Cbor.Text "key_usage", (encode_key_usage v.key_usage));
          Some (Cbor.Text "public_key", (Cbor.Bytes v.public_key));
-         Some (Cbor.Text "attested_at", (Cbor.Text v.attested_at));
+         Some (Cbor.Text "attested_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.attested_at))));
          Some (Cbor.Text "fingerprint", (Cbor.Text v.fingerprint));
          Some (Cbor.Text "instance_id", (Cbor.Text v.instance_id));
          Some (Cbor.Text "application_id", (Cbor.Text v.application_id));
-         Some (Cbor.Text "key_created_at", (Cbor.Text v.key_created_at));
-         Some (Cbor.Text "key_expires_at", (Cbor.Text v.key_expires_at));
+         Some (Cbor.Text "key_created_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.key_created_at))));
+         Some (Cbor.Text "key_expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.key_expires_at))));
          Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
          Some (Cbor.Text "subject_user_id", (Cbor.Text v.subject_user_id));
-         Some (Cbor.Text "attestation_expires_at", (Cbor.Text v.attestation_expires_at));
+         Some (Cbor.Text "attestation_expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.attestation_expires_at))));
        ])
 
 and encode_signed_application_key_attestation (v : signed_application_key_attestation) : Cbor.t =
@@ -2373,15 +2612,15 @@ and encode_application_key_addition (v : application_key_addition) : Cbor.t =
        (fun x -> x)
        [
          Some (Cbor.Text "key_id", (Cbor.Text v.key_id));
-         Some (Cbor.Text "algorithm", (Cbor.Text v.algorithm));
+         Some (Cbor.Text "algorithm", (encode_key_algorithm v.algorithm));
          Some (Cbor.Text "challenge", (Cbor.Bytes v.challenge));
-         Some (Cbor.Text "key_usage", (Cbor.Text v.key_usage));
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "key_usage", (encode_key_usage v.key_usage));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
          Some (Cbor.Text "public_key", (Cbor.Bytes v.public_key));
          Some (Cbor.Text "fingerprint", (Cbor.Text v.fingerprint));
          Some (Cbor.Text "instance_id", (Cbor.Text v.instance_id));
          Some (Cbor.Text "challenge_id", (Cbor.Text v.challenge_id));
-         Some (Cbor.Text "requested_at", (Cbor.Text v.requested_at));
+         Some (Cbor.Text "requested_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.requested_at))));
          Some (Cbor.Text "application_id", (Cbor.Text v.application_id));
          Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
          Some (Cbor.Text "subject_user_id", (Cbor.Text v.subject_user_id));
@@ -2405,10 +2644,10 @@ and encode_application_key_renewal (v : application_key_renewal) : Cbor.t =
        [
          Some (Cbor.Text "key_id", (Cbor.Text v.key_id));
          Some (Cbor.Text "challenge", (Cbor.Bytes v.challenge));
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
          Some (Cbor.Text "instance_id", (Cbor.Text v.instance_id));
          Some (Cbor.Text "challenge_id", (Cbor.Text v.challenge_id));
-         Some (Cbor.Text "requested_at", (Cbor.Text v.requested_at));
+         Some (Cbor.Text "requested_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.requested_at))));
          Some (Cbor.Text "application_id", (Cbor.Text v.application_id));
          Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
          Some (Cbor.Text "subject_user_id", (Cbor.Text v.subject_user_id));
@@ -2429,7 +2668,7 @@ and encode_application_key_revocation (v : application_key_revocation) : Cbor.t 
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "revoked_at", (Cbor.Text v.revoked_at));
+         Some (Cbor.Text "revoked_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.revoked_at))));
          Some (Cbor.Text "signatures", (Cbor.Array (List.map (fun csil_e -> (encode_application_key_signature csil_e)) v.signatures)));
          Some (Cbor.Text "instance_id", (Cbor.Text v.instance_id));
          Some (Cbor.Text "target_key_id", (Cbor.Text v.target_key_id));
@@ -2444,9 +2683,9 @@ and encode_start_application_key_challenge_request (v : start_application_key_ch
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "purpose", (Cbor.Text v.purpose));
-         Some (Cbor.Text "algorithm", (Cbor.Text v.algorithm));
-         Some (Cbor.Text "key_usage", (Cbor.Text v.key_usage));
+         Some (Cbor.Text "purpose", (encode_application_key_challenge_purpose v.purpose));
+         Some (Cbor.Text "algorithm", (encode_key_algorithm v.algorithm));
+         Some (Cbor.Text "key_usage", (encode_key_usage v.key_usage));
          Some (Cbor.Text "public_key", (Cbor.Bytes v.public_key));
          Some (Cbor.Text "instance_id", (Cbor.Text v.instance_id));
          Some (Cbor.Text "application_id", (Cbor.Text v.application_id));
@@ -2459,7 +2698,7 @@ and encode_start_application_key_challenge_response (v : start_application_key_c
        (fun x -> x)
        [
          (match v.challenge with Some csil_x -> Some (Cbor.Text "challenge", (Cbor.Bytes csil_x)) | None -> None);
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
          Some (Cbor.Text "challenge_id", (Cbor.Text v.challenge_id));
          (match v.sealed_challenge with Some csil_x -> Some (Cbor.Text "sealed_challenge", (Cbor.Bytes csil_x)) | None -> None);
        ])
@@ -2510,7 +2749,7 @@ and encode_revoke_application_key_response (v : revoke_application_key_response)
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "revoked_at", (Cbor.Text v.revoked_at));
+         Some (Cbor.Text "revoked_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.revoked_at))));
        ])
 
 and encode_enroll_application_instance_request (v : enroll_application_instance_request) : Cbor.t =
@@ -2574,10 +2813,10 @@ and encode_rp_resolve_domain_keys_response (v : rp_resolve_domain_keys_response)
        [
          Some (Cbor.Text "keys", (Cbor.Array (List.map (fun csil_e -> (encode_domain_public_key csil_e)) v.keys)));
          Some (Cbor.Text "domain", (Cbor.Text v.domain));
-         Some (Cbor.Text "fetched_at", (Cbor.Text v.fetched_at));
+         Some (Cbor.Text "fetched_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.fetched_at))));
          Some (Cbor.Text "revocations", (Cbor.Array (List.map (fun csil_e -> (encode_revocation_certificate csil_e)) v.revocations)));
-         Some (Cbor.Text "cache_status", (Cbor.Text v.cache_status));
-         Some (Cbor.Text "revocations_checked_at", (Cbor.Text v.revocations_checked_at));
+         Some (Cbor.Text "cache_status", (encode_rp_cache_status v.cache_status));
+         Some (Cbor.Text "revocations_checked_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.revocations_checked_at))));
        ])
 
 and encode_rp_resolve_application_keys_request (v : rp_resolve_application_keys_request) : Cbor.t =
@@ -2597,15 +2836,15 @@ and encode_rp_resolve_application_keys_response (v : rp_resolve_application_keys
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "fetched_at", (Cbor.Text v.fetched_at));
+         Some (Cbor.Text "fetched_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.fetched_at))));
          Some (Cbor.Text "instance_id", (Cbor.Text v.instance_id));
-         Some (Cbor.Text "cache_status", (Cbor.Text v.cache_status));
+         Some (Cbor.Text "cache_status", (encode_rp_cache_status v.cache_status));
          Some (Cbor.Text "application_id", (Cbor.Text v.application_id));
          Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
          Some (Cbor.Text "subject_user_id", (Cbor.Text v.subject_user_id));
          Some (Cbor.Text "application_keys", (Cbor.Array (List.map (fun csil_e -> (encode_signed_application_key_attestation csil_e)) v.application_keys)));
          Some (Cbor.Text "home_domain_keys", (Cbor.Array (List.map (fun csil_e -> (encode_domain_public_key csil_e)) v.home_domain_keys)));
-         Some (Cbor.Text "revocations_checked_at", (Cbor.Text v.revocations_checked_at));
+         Some (Cbor.Text "revocations_checked_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.revocations_checked_at))));
          Some (Cbor.Text "application_key_revocations", (Cbor.Array (List.map (fun csil_e -> (encode_application_key_revocation csil_e)) v.application_key_revocations)));
          Some (Cbor.Text "home_domain_key_revocations", (Cbor.Array (List.map (fun csil_e -> (encode_revocation_certificate csil_e)) v.home_domain_key_revocations)));
        ])
@@ -2657,8 +2896,8 @@ and encode_act_as_scope_set (v : act_as_scope_set) : Cbor.t =
          Some (Cbor.Text "grantee", (encode_grantee_ref v.grantee));
          Some (Cbor.Text "audience", (encode_application_ref v.audience));
          (match v.language with Some csil_x -> Some (Cbor.Text "language", (Cbor.Text csil_x)) | None -> None);
-         Some (Cbor.Text "issued_at", (Cbor.Text v.issued_at));
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "issued_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.issued_at))));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
          (match v.audience_handle_claim with Some csil_x -> Some (Cbor.Text "audience_handle_claim", (encode_claim csil_x)) | None -> None);
        ])
 
@@ -2691,13 +2930,13 @@ and encode_act_as_grant (v : act_as_grant) : Cbor.t =
          Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
          Some (Cbor.Text "audience", (encode_application_ref v.audience));
          Some (Cbor.Text "grant_id", (Cbor.Text v.grant_id));
-         Some (Cbor.Text "issued_at", (Cbor.Text v.issued_at));
+         Some (Cbor.Text "issued_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.issued_at))));
          Some (Cbor.Text "scope_set", (encode_signed_act_as_scope_set v.scope_set));
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
          Some (Cbor.Text "approved_scope", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.approved_scope)));
          Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
-         Some (Cbor.Text "renewable_until", (Cbor.Text v.renewable_until));
-         Some (Cbor.Text "series_issued_at", (Cbor.Text v.series_issued_at));
+         Some (Cbor.Text "renewable_until", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.renewable_until))));
+         Some (Cbor.Text "series_issued_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.series_issued_at))));
          (match v.device_fingerprint with Some csil_x -> Some (Cbor.Text "device_fingerprint", (Cbor.Text csil_x)) | None -> None);
        ])
 
@@ -2718,9 +2957,9 @@ and encode_act_as_grant_request (v : act_as_grant_request) : Cbor.t =
          Some (Cbor.Text "nonce", (Cbor.Text v.nonce));
          Some (Cbor.Text "grantee", (encode_grantee_ref v.grantee));
          Some (Cbor.Text "scope_set", (encode_signed_act_as_scope_set v.scope_set));
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
          Some (Cbor.Text "callback_url", (Cbor.Text v.callback_url));
-         Some (Cbor.Text "requested_at", (Cbor.Text v.requested_at));
+         Some (Cbor.Text "requested_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.requested_at))));
          (match v.grantee_handle_claim with Some csil_x -> Some (Cbor.Text "grantee_handle_claim", (encode_claim csil_x)) | None -> None);
          (match v.requested_lifetime_seconds with Some csil_x -> Some (Cbor.Text "requested_lifetime_seconds", (Cbor.int64 csil_x)) | None -> None);
          (match v.requested_renewal_window_seconds with Some csil_x -> Some (Cbor.Text "requested_renewal_window_seconds", (Cbor.int64 csil_x)) | None -> None);
@@ -2743,8 +2982,8 @@ and encode_act_as_refresh_request (v : act_as_refresh_request) : Cbor.t =
          Some (Cbor.Text "nonce", (Cbor.Text v.nonce));
          Some (Cbor.Text "grantee", (encode_grantee_ref v.grantee));
          Some (Cbor.Text "grant_id", (Cbor.Text v.grant_id));
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
-         Some (Cbor.Text "requested_at", (Cbor.Text v.requested_at));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
+         Some (Cbor.Text "requested_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.requested_at))));
        ])
 
 and encode_signed_act_as_refresh_request (v : signed_act_as_refresh_request) : Cbor.t =
@@ -2781,7 +3020,7 @@ and encode_act_as_presentation (v : act_as_presentation) : Cbor.t =
          Some (Cbor.Text "nonce", (Cbor.Bytes v.nonce));
          Some (Cbor.Text "audience", (encode_application_ref v.audience));
          Some (Cbor.Text "grant_hash", (Cbor.Bytes v.grant_hash));
-         Some (Cbor.Text "presented_at", (Cbor.Text v.presented_at));
+         Some (Cbor.Text "presented_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.presented_at))));
          Some (Cbor.Text "request_digest", (Cbor.Bytes v.request_digest));
        ])
 
@@ -2810,7 +3049,7 @@ and encode_act_as_grant_revocation (v : act_as_grant_revocation) : Cbor.t =
        [
          Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
          Some (Cbor.Text "grant_id", (Cbor.Text v.grant_id));
-         Some (Cbor.Text "revoked_at", (Cbor.Text v.revoked_at));
+         Some (Cbor.Text "revoked_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.revoked_at))));
          Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
        ])
 
@@ -2937,11 +3176,11 @@ and encode_act_as_grant_summary (v : act_as_grant_summary) : Cbor.t =
          Some (Cbor.Text "grantee", (encode_grantee_ref v.grantee));
          Some (Cbor.Text "audience", (encode_application_ref v.audience));
          Some (Cbor.Text "grant_id", (Cbor.Text v.grant_id));
-         Some (Cbor.Text "issued_at", (Cbor.Text v.issued_at));
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
-         (match v.revoked_at with Some csil_x -> Some (Cbor.Text "revoked_at", (Cbor.Text csil_x)) | None -> None);
+         Some (Cbor.Text "issued_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.issued_at))));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
+         (match v.revoked_at with Some csil_x -> Some (Cbor.Text "revoked_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp csil_x)))) | None -> None);
          Some (Cbor.Text "approved_scope", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.approved_scope)));
-         Some (Cbor.Text "renewable_until", (Cbor.Text v.renewable_until));
+         Some (Cbor.Text "renewable_until", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.renewable_until))));
        ])
 
 and encode_list_act_as_grants_response (v : list_act_as_grants_response) : Cbor.t =
@@ -2965,7 +3204,7 @@ and encode_revoke_act_as_grant_response (v : revoke_act_as_grant_response) : Cbo
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "revoked_at", (Cbor.Text v.revoked_at));
+         Some (Cbor.Text "revoked_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.revoked_at))));
        ])
 
 and encode_preview_release_policy_request (v : preview_release_policy_request) : Cbor.t =
@@ -2980,7 +3219,7 @@ and encode_preview_release_policy_request (v : preview_release_policy_request) :
          Some (Cbor.Text "required_claims", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.required_claims)));
          (match v.temp_claim_type with Some csil_x -> Some (Cbor.Text "temp_claim_type", (Cbor.Text csil_x)) | None -> None);
          Some (Cbor.Text "available_claims", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.available_claims)));
-         (match v.temp_disposition with Some csil_x -> Some (Cbor.Text "temp_disposition", (Cbor.Text csil_x)) | None -> None);
+         (match v.temp_disposition with Some csil_x -> Some (Cbor.Text "temp_disposition", (encode_release_disposition csil_x)) | None -> None);
        ])
 
 and encode_preview_release_row (v : preview_release_row) : Cbor.t =
@@ -2989,7 +3228,7 @@ and encode_preview_release_row (v : preview_release_row) : Cbor.t =
        (fun x -> x)
        [
          Some (Cbor.Text "locked", (Cbor.Bool v.locked));
-         Some (Cbor.Text "policy", (Cbor.Text v.policy));
+         Some (Cbor.Text "policy", (encode_consent_row_policy v.policy));
          Some (Cbor.Text "required", (Cbor.Bool v.required));
          Some (Cbor.Text "available", (Cbor.Bool v.available));
          Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
@@ -3045,7 +3284,7 @@ and encode_inspect_signing_request_response (v : inspect_signing_request_respons
     (List.filter_map
        (fun x -> x)
        [
-         Some (Cbor.Text "expires_at", (Cbor.Text v.expires_at));
+         Some (Cbor.Text "expires_at", (Cbor.Tag (0, Cbor.Text (Cbor.canonical_timestamp v.expires_at))));
          Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
          Some (Cbor.Text "subject_user_id", (Cbor.Text v.subject_user_id));
          Some (Cbor.Text "issuable_claim_types", (Cbor.Array (List.map (fun csil_e -> (Cbor.Text csil_e)) v.issuable_claim_types)));
@@ -3068,7 +3307,7 @@ and encode_issued_claim_result (v : issued_claim_result) : Cbor.t =
        (fun x -> x)
        [
          (match v.message with Some csil_x -> Some (Cbor.Text "message", (Cbor.Text csil_x)) | None -> None);
-         Some (Cbor.Text "outcome", (Cbor.Text v.outcome));
+         Some (Cbor.Text "outcome", (encode_issued_claim_outcome v.outcome));
          (match v.claim_code with Some csil_x -> Some (Cbor.Text "claim_code", (Cbor.Text csil_x)) | None -> None);
          Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
        ])
@@ -3096,9 +3335,87 @@ and decode_check_result (csil_c : Cbor.t) : check_result =
       ignore csil_req;
       {
         result = (Cbor.to_bool (csil_req "result"));
-        entries = (match (csil_req "entries") with Cbor.Map csil_kvs -> List.map (fun (csil_k, csil_v) -> ((Cbor.to_text csil_k), (decode_check_value csil_v))) csil_kvs | _ -> failwith "csilgen: expected map");
+        entries = (match (csil_req "entries") with Cbor.Map csil_kvs -> List.map (fun (csil_k, csil_v) -> ((Cbor.to_text csil_k), (decode_check_value csil_v))) (Cbor.canonical_map csil_kvs) | _ -> failwith "csilgen: expected map");
       }
   | _ -> failwith "csilgen: expected map for check_result"
+
+and decode_key_algorithm (csil_c : Cbor.t) : key_algorithm =
+  match key_algorithm_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_key_usage (csil_c : Cbor.t) : key_usage =
+  match key_usage_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_aead_suite (csil_c : Cbor.t) : aead_suite =
+  match aead_suite_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_claim_value_type (csil_c : Cbor.t) : claim_value_type =
+  match claim_value_type_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_set_rule (csil_c : Cbor.t) : set_rule =
+  match set_rule_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_signing_rule (csil_c : Cbor.t) : signing_rule =
+  match signing_rule_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_set_claim_outcome (csil_c : Cbor.t) : set_claim_outcome =
+  match set_claim_outcome_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_release_disposition (csil_c : Cbor.t) : release_disposition =
+  match release_disposition_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_consent_row_policy (csil_c : Cbor.t) : consent_row_policy =
+  match consent_row_policy_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_claim_approval_status (csil_c : Cbor.t) : claim_approval_status =
+  match claim_approval_status_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_pin_recheck_outcome (csil_c : Cbor.t) : pin_recheck_outcome =
+  match pin_recheck_outcome_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_notification_purpose (csil_c : Cbor.t) : notification_purpose =
+  match notification_purpose_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_notification_channel (csil_c : Cbor.t) : notification_channel =
+  match notification_channel_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_destination_kind (csil_c : Cbor.t) : destination_kind =
+  match destination_kind_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_local_rp_policy (csil_c : Cbor.t) : local_rp_policy =
+  match local_rp_policy_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_local_rp_status (csil_c : Cbor.t) : local_rp_status =
+  match local_rp_status_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_local_rp_admission (csil_c : Cbor.t) : local_rp_admission =
+  match local_rp_admission_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_app_access_mode (csil_c : Cbor.t) : app_access_mode =
+  match app_access_mode_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_app_access_target_kind (csil_c : Cbor.t) : app_access_target_kind =
+  match app_access_target_kind_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_claim_operator (csil_c : Cbor.t) : claim_operator =
+  match claim_operator_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_application_key_challenge_purpose (csil_c : Cbor.t) : application_key_challenge_purpose =
+  match application_key_challenge_purpose_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_auth_flow (csil_c : Cbor.t) : auth_flow =
+  match auth_flow_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_rp_cache_status (csil_c : Cbor.t) : rp_cache_status =
+  match rp_cache_status_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_account_kind (csil_c : Cbor.t) : account_kind =
+  match account_kind_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_rp_error_code (csil_c : Cbor.t) : rp_error_code =
+  match rp_error_code_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_issued_claim_outcome (csil_c : Cbor.t) : issued_claim_outcome =
+  match issued_claim_outcome_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
 
 and decode_hello_request (csil_c : Cbor.t) : hello_request =
   match csil_c with
@@ -3137,8 +3454,8 @@ and decode_guestbook_entry (csil_c : Cbor.t) : guestbook_entry =
       {
         id = (Cbor.to_text (csil_req "id"));
         name = (Cbor.to_text (csil_req "name"));
-        created_at = (Cbor.to_text (csil_req "created_at"));
-        updated_at = (Cbor.to_text (csil_req "updated_at"));
+        created_at = (match (csil_req "created_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        updated_at = (match (csil_req "updated_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
       }
   | _ -> failwith "csilgen: expected map for guestbook_entry"
 
@@ -3235,12 +3552,12 @@ and decode_domain_public_key (csil_c : Cbor.t) : domain_public_key =
       ignore csil_req;
       {
         key_id = (Cbor.to_text (csil_req "key_id"));
-        algorithm = (Cbor.to_text (csil_req "algorithm"));
-        key_usage = (Cbor.to_text (csil_req "key_usage"));
-        created_at = (Cbor.to_text (csil_req "created_at"));
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        algorithm = (decode_key_algorithm (csil_req "algorithm"));
+        key_usage = (decode_key_usage (csil_req "key_usage"));
+        created_at = (match (csil_req "created_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         public_key = (Cbor.to_bytes (csil_req "public_key"));
-        revoked_at = (match csil_field "revoked_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        revoked_at = (match csil_field "revoked_at" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
         fingerprint = (Cbor.to_text (csil_req "fingerprint"));
         key_signature = (match csil_field "key_signature" with Some csil_v -> Some (Cbor.to_bytes csil_v) | None -> None);
         signed_by_key_id = (match csil_field "signed_by_key_id" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
@@ -3271,7 +3588,7 @@ and decode_get_revocations_request (csil_c : Cbor.t) : get_revocations_request =
       in
       ignore csil_req;
       {
-        since = (match csil_field "since" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        since = (match csil_field "since" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
       }
   | _ -> failwith "csilgen: expected map for get_revocations_request"
 
@@ -3311,7 +3628,8 @@ and decode_pin_recheck_result (csil_c : Cbor.t) : pin_recheck_result =
       ignore csil_req;
       {
         domain = (Cbor.to_text (csil_req "domain"));
-        outcome = (Cbor.to_text (csil_req "outcome"));
+        message = (match csil_field "message" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        outcome = (decode_pin_recheck_outcome (csil_req "outcome"));
       }
   | _ -> failwith "csilgen: expected map for pin_recheck_result"
 
@@ -3339,12 +3657,12 @@ and decode_user_public_key (csil_c : Cbor.t) : user_public_key =
       {
         key_id = (Cbor.to_text (csil_req "key_id"));
         user_id = (Cbor.to_text (csil_req "user_id"));
-        algorithm = (Cbor.to_text (csil_req "algorithm"));
-        key_usage = (Cbor.to_text (csil_req "key_usage"));
-        created_at = (Cbor.to_text (csil_req "created_at"));
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        algorithm = (decode_key_algorithm (csil_req "algorithm"));
+        key_usage = (decode_key_usage (csil_req "key_usage"));
+        created_at = (match (csil_req "created_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         public_key = (Cbor.to_bytes (csil_req "public_key"));
-        revoked_at = (match csil_field "revoked_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        revoked_at = (match csil_field "revoked_at" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
         fingerprint = (Cbor.to_text (csil_req "fingerprint"));
         key_signature = (match csil_field "key_signature" with Some csil_v -> Some (Cbor.to_bytes csil_v) | None -> None);
         signed_by_key_id = (match csil_field "signed_by_key_id" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
@@ -3403,7 +3721,7 @@ and decode_revocation_certificate (csil_c : Cbor.t) : revocation_certificate =
       in
       ignore csil_req;
       {
-        revoked_at = (Cbor.to_text (csil_req "revoked_at"));
+        revoked_at = (match (csil_req "revoked_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         signatures = (match (csil_req "signatures") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_claim_signature csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
         target_key_id = (Cbor.to_text (csil_req "target_key_id"));
         target_fingerprint = (Cbor.to_text (csil_req "target_fingerprint"));
@@ -3422,11 +3740,11 @@ and decode_claim (csil_c : Cbor.t) : claim =
         user_id = (Cbor.to_text (csil_req "user_id"));
         claim_id = (Cbor.to_text (csil_req "claim_id"));
         claim_type = (Cbor.to_text (csil_req "claim_type"));
-        created_at = (Cbor.to_text (csil_req "created_at"));
-        expires_at = (match csil_field "expires_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
-        revoked_at = (match csil_field "revoked_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        created_at = (match (csil_req "created_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        expires_at = (match csil_field "expires_at" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
+        revoked_at = (match csil_field "revoked_at" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
         signatures = (match (csil_req "signatures") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_claim_signature csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
-        attested_at = (Cbor.to_text (csil_req "attested_at"));
+        attested_at = (match (csil_req "attested_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         claim_value = (Cbor.to_bytes (csil_req "claim_value"));
       }
   | _ -> failwith "csilgen: expected map for claim"
@@ -3469,7 +3787,7 @@ and decode_requested_claim (csil_c : Cbor.t) : requested_claim =
       in
       ignore csil_req;
       {
-        datatype = (Cbor.to_text (csil_req "datatype"));
+        datatype = (decode_claim_value_type (csil_req "datatype"));
         claim_type = (Cbor.to_text (csil_req "claim_type"));
       }
   | _ -> failwith "csilgen: expected map for requested_claim"
@@ -3510,7 +3828,7 @@ and decode_auth_flow_context (csil_c : Cbor.t) : auth_flow_context =
       in
       ignore csil_req;
       {
-        flow = (Cbor.to_text (csil_req "flow"));
+        flow = (decode_auth_flow (csil_req "flow"));
         prior_session = (match csil_field "prior_session" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         request_reason = (match csil_field "request_reason" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
       }
@@ -3528,9 +3846,9 @@ and decode_consent_grant (csil_c : Cbor.t) : consent_grant =
         user_id = (Cbor.to_text (csil_req "user_id"));
         audience = (Cbor.to_text (csil_req "audience"));
         grant_id = (Cbor.to_text (csil_req "grant_id"));
-        issued_at = (Cbor.to_text (csil_req "issued_at"));
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
-        revoked_at = (match csil_field "revoked_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        issued_at = (match (csil_req "issued_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        revoked_at = (match csil_field "revoked_at" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
         application = (match csil_field "application" with Some csil_v -> Some (decode_application_ref csil_v) | None -> None);
         claim_types = (match (csil_req "claim_types") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
         subject_domain = (Cbor.to_text (csil_req "subject_domain"));
@@ -3561,9 +3879,9 @@ and decode_domain_claim (csil_c : Cbor.t) : domain_claim =
       ignore csil_req;
       {
         claim_type = (Cbor.to_text (csil_req "claim_type"));
-        expires_at = (match csil_field "expires_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        expires_at = (match csil_field "expires_at" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
         signatures = (match (csil_req "signatures") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_claim_signature csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
-        attested_at = (Cbor.to_text (csil_req "attested_at"));
+        attested_at = (match (csil_req "attested_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         claim_value = (Cbor.to_bytes (csil_req "claim_value"));
       }
   | _ -> failwith "csilgen: expected map for domain_claim"
@@ -3579,8 +3897,8 @@ and decode_signing_request (csil_c : Cbor.t) : signing_request =
       {
         nonce = (Cbor.to_text (csil_req "nonce"));
         callback = (match csil_field "callback" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
-        issued_at = (Cbor.to_text (csil_req "issued_at"));
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        issued_at = (match (csil_req "issued_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         request_id = (Cbor.to_text (csil_req "request_id"));
         issuer_domain = (Cbor.to_text (csil_req "issuer_domain"));
         subject_domain = (Cbor.to_text (csil_req "subject_domain"));
@@ -3642,8 +3960,9 @@ and decode_identity_assertion (csil_c : Cbor.t) : identity_assertion =
         domain = (Cbor.to_text (csil_req "domain"));
         user_id = (Cbor.to_text (csil_req "user_id"));
         audience = (Cbor.to_text (csil_req "audience"));
-        issued_at = (Cbor.to_text (csil_req "issued_at"));
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        issued_at = (match (csil_req "issued_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        application = (decode_application_ref (csil_req "application"));
         display_name = (match csil_field "display_name" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         authorized_claims = (match (csil_req "authorized_claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
       }
@@ -3688,7 +4007,7 @@ and decode_user_info_request (csil_c : Cbor.t) : user_info_request =
       {
         nonce = (Cbor.to_text (csil_req "nonce"));
         token = (Cbor.to_bytes (csil_req "token"));
-        timestamp = (Cbor.to_text (csil_req "timestamp"));
+        timestamp = (match (csil_req "timestamp") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         relying_party = (Cbor.to_text (csil_req "relying_party"));
       }
   | _ -> failwith "csilgen: expected map for user_info_request"
@@ -3749,8 +4068,8 @@ and decode_auth_request (csil_c : Cbor.t) : auth_request =
       ignore csil_req;
       {
         nonce = (Cbor.to_text (csil_req "nonce"));
-        timestamp = (Cbor.to_text (csil_req "timestamp"));
-        application = (match csil_field "application" with Some csil_v -> Some (decode_relying_party_application csil_v) | None -> None);
+        timestamp = (match (csil_req "timestamp") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        application = (decode_relying_party_application (csil_req "application"));
         callback_url = (Cbor.to_text (csil_req "callback_url"));
         flow_context = (match csil_field "flow_context" with Some csil_v -> Some (decode_auth_flow_context csil_v) | None -> None);
         relying_party = (Cbor.to_text (csil_req "relying_party"));
@@ -3786,7 +4105,7 @@ and decode_encrypted_token (csil_c : Cbor.t) : encrypted_token =
       ignore csil_req;
       {
         nonce = (Cbor.to_bytes (csil_req "nonce"));
-        suite = (match csil_field "suite" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        suite = (match csil_field "suite" with Some csil_v -> Some (decode_aead_suite csil_v) | None -> None);
         ciphertext = (Cbor.to_bytes (csil_req "ciphertext"));
         ephemeral_public_key = (Cbor.to_bytes (csil_req "ephemeral_public_key"));
       }
@@ -3801,8 +4120,8 @@ and decode_algorithm_support (csil_c : Cbor.t) : algorithm_support =
       in
       ignore csil_req;
       {
-        signing = (match (csil_req "signing") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
-        encryption = (match csil_field "encryption" with Some csil_v -> Some (match csil_v with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array") | None -> None);
+        signing = (match (csil_req "signing") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_key_algorithm csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        encryption = (match csil_field "encryption" with Some csil_v -> Some (match csil_v with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_aead_suite csil_e)) csil_xs | _ -> failwith "csilgen: expected array") | None -> None);
       }
   | _ -> failwith "csilgen: expected map for algorithm_support"
 
@@ -3846,8 +4165,8 @@ and decode_relation (csil_c : Cbor.t) : relation =
         id = (Cbor.to_text (csil_req "id"));
         relation = (Cbor.to_text (csil_req "relation"));
         object_id = (Cbor.to_text (csil_req "object_id"));
-        created_at = (Cbor.to_text (csil_req "created_at"));
-        removed_at = (match csil_field "removed_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        created_at = (match (csil_req "created_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        removed_at = (match csil_field "removed_at" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
         subject_id = (Cbor.to_text (csil_req "subject_id"));
         object_type = (Cbor.to_text (csil_req "object_type"));
         subject_type = (Cbor.to_text (csil_req "subject_type"));
@@ -3864,13 +4183,15 @@ and decode_admin_user (csil_c : Cbor.t) : admin_user =
       ignore csil_req;
       {
         id = (Cbor.to_text (csil_req "id"));
+        kind = (decode_account_kind (csil_req "kind"));
         username = (Cbor.to_text (csil_req "username"));
         is_active = (Cbor.to_bool (csil_req "is_active"));
-        purged_at = (match csil_field "purged_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
-        created_at = (Cbor.to_text (csil_req "created_at"));
-        updated_at = (Cbor.to_text (csil_req "updated_at"));
+        purged_at = (match csil_field "purged_at" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
+        created_at = (match (csil_req "created_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        updated_at = (match (csil_req "updated_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         display_name = (Cbor.to_text (csil_req "display_name"));
         purge_reason = (match csil_field "purge_reason" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        application_id = (match csil_field "application_id" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         password_locked = (match csil_field "password_locked" with Some csil_v -> Some (Cbor.to_bool csil_v) | None -> None);
       }
   | _ -> failwith "csilgen: expected map for admin_user"
@@ -3939,8 +4260,8 @@ and decode_user_authentication_activity (csil_c : Cbor.t) : user_authentication_
       ignore csil_req;
       {
         user_id = (Cbor.to_text (csil_req "user_id"));
-        last_seen_at = (match csil_field "last_seen_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
-        last_authenticated_at = (match csil_field "last_authenticated_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        last_seen_at = (match csil_field "last_seen_at" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
+        last_authenticated_at = (match csil_field "last_authenticated_at" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
         active_browser_session_count = (Cbor.to_i64 (csil_req "active_browser_session_count"));
         successful_authentication_count = (Cbor.to_i64 (csil_req "successful_authentication_count"));
       }
@@ -3984,6 +4305,7 @@ and decode_create_user_request (csil_c : Cbor.t) : create_user_request =
         password = (match csil_field "password" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         username = (Cbor.to_text (csil_req "username"));
         display_name = (Cbor.to_text (csil_req "display_name"));
+        application_id = (match csil_field "application_id" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
       }
   | _ -> failwith "csilgen: expected map for create_user_request"
 
@@ -4000,6 +4322,275 @@ and decode_create_user_response (csil_c : Cbor.t) : create_user_response =
         api_key = (match csil_field "api_key" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
       }
   | _ -> failwith "csilgen: expected map for create_user_response"
+
+and decode_rename_user_request (csil_c : Cbor.t) : rename_user_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        user_id = (Cbor.to_text (csil_req "user_id"));
+        username = (Cbor.to_text (csil_req "username"));
+      }
+  | _ -> failwith "csilgen: expected map for rename_user_request"
+
+and decode_rename_user_response (csil_c : Cbor.t) : rename_user_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        user = (decode_admin_user (csil_req "user"));
+      }
+  | _ -> failwith "csilgen: expected map for rename_user_response"
+
+and decode_set_application_id_request (csil_c : Cbor.t) : set_application_id_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        user_id = (Cbor.to_text (csil_req "user_id"));
+        application_id = (Cbor.to_text (csil_req "application_id"));
+      }
+  | _ -> failwith "csilgen: expected map for set_application_id_request"
+
+and decode_set_application_id_response (csil_c : Cbor.t) : set_application_id_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        user = (decode_admin_user (csil_req "user"));
+      }
+  | _ -> failwith "csilgen: expected map for set_application_id_response"
+
+and decode_api_key_info (csil_c : Cbor.t) : api_key_info =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        hint = (Cbor.to_text (csil_req "hint"));
+        name = (Cbor.to_text (csil_req "name"));
+        key_id = (Cbor.to_text (csil_req "key_id"));
+        created_at = (match (csil_req "created_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        last_used_at = (match csil_field "last_used_at" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
+      }
+  | _ -> failwith "csilgen: expected map for api_key_info"
+
+and decode_create_api_key_request (csil_c : Cbor.t) : create_api_key_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        name = (Cbor.to_text (csil_req "name"));
+        user_id = (Cbor.to_text (csil_req "user_id"));
+      }
+  | _ -> failwith "csilgen: expected map for create_api_key_request"
+
+and decode_create_api_key_response (csil_c : Cbor.t) : create_api_key_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        key = (decode_api_key_info (csil_req "key"));
+        api_key = (Cbor.to_text (csil_req "api_key"));
+      }
+  | _ -> failwith "csilgen: expected map for create_api_key_response"
+
+and decode_list_api_keys_request (csil_c : Cbor.t) : list_api_keys_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        user_id = (Cbor.to_text (csil_req "user_id"));
+      }
+  | _ -> failwith "csilgen: expected map for list_api_keys_request"
+
+and decode_list_api_keys_response (csil_c : Cbor.t) : list_api_keys_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        keys = (match (csil_req "keys") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_api_key_info csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for list_api_keys_response"
+
+and decode_revoke_api_key_request (csil_c : Cbor.t) : revoke_api_key_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        key_id = (Cbor.to_text (csil_req "key_id"));
+        user_id = (Cbor.to_text (csil_req "user_id"));
+      }
+  | _ -> failwith "csilgen: expected map for revoke_api_key_request"
+
+and decode_revoke_api_key_response (csil_c : Cbor.t) : revoke_api_key_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        revoked = (Cbor.to_bool (csil_req "revoked"));
+      }
+  | _ -> failwith "csilgen: expected map for revoke_api_key_response"
+
+and decode_account_limits (csil_c : Cbor.t) : account_limits =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        max_api_keys = (match csil_field "max_api_keys" with Some csil_v -> Some (Cbor.to_i64 csil_v) | None -> None);
+        request_burst = (match csil_field "request_burst" with Some csil_v -> Some (Cbor.to_i64 csil_v) | None -> None);
+        max_distinct_users = (match csil_field "max_distinct_users" with Some csil_v -> Some (Cbor.to_i64 csil_v) | None -> None);
+        requests_per_minute = (match csil_field "requests_per_minute" with Some csil_v -> Some (Cbor.to_i64 csil_v) | None -> None);
+        distinct_user_window_days = (Cbor.to_i64 (csil_req "distinct_user_window_days"));
+      }
+  | _ -> failwith "csilgen: expected map for account_limits"
+
+and decode_get_account_limits_request (csil_c : Cbor.t) : get_account_limits_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        user_id = (Cbor.to_text (csil_req "user_id"));
+      }
+  | _ -> failwith "csilgen: expected map for get_account_limits_request"
+
+and decode_get_account_limits_response (csil_c : Cbor.t) : get_account_limits_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        limits = (decode_account_limits (csil_req "limits"));
+      }
+  | _ -> failwith "csilgen: expected map for get_account_limits_response"
+
+and decode_set_account_limits_request (csil_c : Cbor.t) : set_account_limits_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        limits = (decode_account_limits (csil_req "limits"));
+        user_id = (Cbor.to_text (csil_req "user_id"));
+      }
+  | _ -> failwith "csilgen: expected map for set_account_limits_request"
+
+and decode_set_account_limits_response (csil_c : Cbor.t) : set_account_limits_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        limits = (decode_account_limits (csil_req "limits"));
+      }
+  | _ -> failwith "csilgen: expected map for set_account_limits_response"
+
+and decode_rp_usage_day (csil_c : Cbor.t) : rp_usage_day =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        day = (match (csil_req "day") with Cbor.Tag (1004, Cbor.Text s) -> Cbor.calendar_date s | _ -> failwith "expected calendar date tag 1004");
+        failed = (Cbor.to_i64 (csil_req "failed"));
+        operation = (Cbor.to_text (csil_req "operation"));
+        succeeded = (Cbor.to_i64 (csil_req "succeeded"));
+      }
+  | _ -> failwith "csilgen: expected map for rp_usage_day"
+
+and decode_get_application_usage_request (csil_c : Cbor.t) : get_application_usage_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        user_id = (Cbor.to_text (csil_req "user_id"));
+        last_day = (match (csil_req "last_day") with Cbor.Tag (1004, Cbor.Text s) -> Cbor.calendar_date s | _ -> failwith "expected calendar date tag 1004");
+        first_day = (match (csil_req "first_day") with Cbor.Tag (1004, Cbor.Text s) -> Cbor.calendar_date s | _ -> failwith "expected calendar date tag 1004");
+      }
+  | _ -> failwith "csilgen: expected map for get_application_usage_request"
+
+and decode_get_application_usage_response (csil_c : Cbor.t) : get_application_usage_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        days = (match (csil_req "days") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_rp_usage_day csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        distinct_users = (Cbor.to_i64 (csil_req "distinct_users"));
+        max_distinct_users = (match csil_field "max_distinct_users" with Some csil_v -> Some (Cbor.to_i64 csil_v) | None -> None);
+        distinct_user_window_days = (Cbor.to_i64 (csil_req "distinct_user_window_days"));
+      }
+  | _ -> failwith "csilgen: expected map for get_application_usage_response"
 
 and decode_update_user_request (csil_c : Cbor.t) : update_user_request =
   match csil_c with
@@ -4236,7 +4827,7 @@ and decode_set_claim_request (csil_c : Cbor.t) : set_claim_request =
       {
         user_id = (Cbor.to_text (csil_req "user_id"));
         claim_type = (Cbor.to_text (csil_req "claim_type"));
-        expires_at = (match csil_field "expires_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        expires_at = (match csil_field "expires_at" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
         claim_value = (Cbor.to_text (csil_req "claim_value"));
       }
   | _ -> failwith "csilgen: expected map for set_claim_request"
@@ -4357,7 +4948,7 @@ and decode_set_user_claim_response (csil_c : Cbor.t) : set_user_claim_response =
       ignore csil_req;
       {
         claim = (match csil_field "claim" with Some csil_v -> Some (decode_claim csil_v) | None -> None);
-        outcome = (Cbor.to_text (csil_req "outcome"));
+        outcome = (decode_set_claim_outcome (csil_req "outcome"));
       }
   | _ -> failwith "csilgen: expected map for set_user_claim_response"
 
@@ -4371,12 +4962,12 @@ and decode_settable_claim_policy (csil_c : Cbor.t) : settable_claim_policy =
       ignore csil_req;
       {
         label = (Cbor.to_text (csil_req "label"));
-        datatype = (Cbor.to_text (csil_req "datatype"));
-        set_rule = (Cbor.to_text (csil_req "set_rule"));
+        datatype = (decode_claim_value_type (csil_req "datatype"));
+        set_rule = (decode_set_rule (csil_req "set_rule"));
         max_bytes = (Cbor.to_i64 (csil_req "max_bytes"));
         claim_type = (Cbor.to_text (csil_req "claim_type"));
         description = (Cbor.to_text (csil_req "description"));
-        signing_rule = (Cbor.to_text (csil_req "signing_rule"));
+        signing_rule = (decode_signing_rule (csil_req "signing_rule"));
         requires_approval = (Cbor.to_bool (csil_req "requires_approval"));
       }
   | _ -> failwith "csilgen: expected map for settable_claim_policy"
@@ -4404,13 +4995,13 @@ and decode_claim_type_policy (csil_c : Cbor.t) : claim_type_policy =
       ignore csil_req;
       {
         label = (Cbor.to_text (csil_req "label"));
-        set_rule = (Cbor.to_text (csil_req "set_rule"));
+        set_rule = (decode_set_rule (csil_req "set_rule"));
         max_bytes = (Cbor.to_i64 (csil_req "max_bytes"));
         suggested = (Cbor.to_bool (csil_req "suggested"));
         claim_type = (Cbor.to_text (csil_req "claim_type"));
-        value_type = (Cbor.to_text (csil_req "value_type"));
+        value_type = (decode_claim_value_type (csil_req "value_type"));
         description = (Cbor.to_text (csil_req "description"));
-        signing_rule = (Cbor.to_text (csil_req "signing_rule"));
+        signing_rule = (decode_signing_rule (csil_req "signing_rule"));
         user_settable = (Cbor.to_bool (csil_req "user_settable"));
         default_auto_sign = (Cbor.to_bool (csil_req "default_auto_sign"));
         requires_approval = (Cbor.to_bool (csil_req "requires_approval"));
@@ -4440,13 +5031,13 @@ and decode_set_claim_type_request (csil_c : Cbor.t) : set_claim_type_request =
       ignore csil_req;
       {
         label = (Cbor.to_text (csil_req "label"));
-        set_rule = (Cbor.to_text (csil_req "set_rule"));
+        set_rule = (decode_set_rule (csil_req "set_rule"));
         max_bytes = (Cbor.to_i64 (csil_req "max_bytes"));
         suggested = (Cbor.to_bool (csil_req "suggested"));
         claim_type = (Cbor.to_text (csil_req "claim_type"));
-        value_type = (Cbor.to_text (csil_req "value_type"));
+        value_type = (decode_claim_value_type (csil_req "value_type"));
         description = (match csil_field "description" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
-        signing_rule = (Cbor.to_text (csil_req "signing_rule"));
+        signing_rule = (decode_signing_rule (csil_req "signing_rule"));
         user_settable = (Cbor.to_bool (csil_req "user_settable"));
         default_auto_sign = (Cbor.to_bool (csil_req "default_auto_sign"));
         requires_approval = (Cbor.to_bool (csil_req "requires_approval"));
@@ -4669,7 +5260,7 @@ and decode_release_rule (csil_c : Cbor.t) : release_rule =
       {
         audience = (Cbor.to_text (csil_req "audience"));
         claim_type = (Cbor.to_text (csil_req "claim_type"));
-        disposition = (Cbor.to_text (csil_req "disposition"));
+        disposition = (decode_release_disposition (csil_req "disposition"));
       }
   | _ -> failwith "csilgen: expected map for release_rule"
 
@@ -4697,7 +5288,7 @@ and decode_set_release_rule_request (csil_c : Cbor.t) : set_release_rule_request
       {
         audience = (Cbor.to_text (csil_req "audience"));
         claim_type = (Cbor.to_text (csil_req "claim_type"));
-        disposition = (Cbor.to_text (csil_req "disposition"));
+        disposition = (decode_release_disposition (csil_req "disposition"));
       }
   | _ -> failwith "csilgen: expected map for set_release_rule_request"
 
@@ -4751,12 +5342,12 @@ and decode_claim_approval (csil_c : Cbor.t) : claim_approval =
       ignore csil_req;
       {
         id = (Cbor.to_text (csil_req "id"));
-        status = (Cbor.to_text (csil_req "status"));
+        status = (decode_claim_approval_status (csil_req "status"));
         user_id = (Cbor.to_text (csil_req "user_id"));
         claim_type = (Cbor.to_text (csil_req "claim_type"));
-        created_at = (Cbor.to_text (csil_req "created_at"));
+        created_at = (match (csil_req "created_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         claim_value = (Cbor.to_bytes (csil_req "claim_value"));
-        resolved_at = (match csil_field "resolved_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        resolved_at = (match csil_field "resolved_at" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
         resolved_by = (match csil_field "resolved_by" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
       }
   | _ -> failwith "csilgen: expected map for claim_approval"
@@ -5034,7 +5625,7 @@ and decode_set_my_claim_response (csil_c : Cbor.t) : set_my_claim_response =
       ignore csil_req;
       {
         claim = (match csil_field "claim" with Some csil_v -> Some (decode_claim csil_v) | None -> None);
-        outcome = (Cbor.to_text (csil_req "outcome"));
+        outcome = (decode_set_claim_outcome (csil_req "outcome"));
       }
   | _ -> failwith "csilgen: expected map for set_my_claim_response"
 
@@ -5222,9 +5813,9 @@ and decode_browser_session_info (csil_c : Cbor.t) : browser_session_info =
       ignore csil_req;
       {
         user = (decode_admin_user (csil_req "user"));
-        issued_at = (Cbor.to_text (csil_req "issued_at"));
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
-        authenticated_at = (Cbor.to_text (csil_req "authenticated_at"));
+        issued_at = (match (csil_req "issued_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        authenticated_at = (match (csil_req "authenticated_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         authentication_methods = (match (csil_req "authentication_methods") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
       }
   | _ -> failwith "csilgen: expected map for browser_session_info"
@@ -5305,9 +5896,9 @@ and decode_introspect_browser_session_response (csil_c : Cbor.t) : introspect_br
       ignore csil_req;
       {
         user_id = (Cbor.to_text (csil_req "user_id"));
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         user_domain = (Cbor.to_text (csil_req "user_domain"));
-        authenticated_at = (Cbor.to_text (csil_req "authenticated_at"));
+        authenticated_at = (match (csil_req "authenticated_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         authentication_methods = (match (csil_req "authentication_methods") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
       }
   | _ -> failwith "csilgen: expected map for introspect_browser_session_response"
@@ -5321,9 +5912,9 @@ and decode_notification_capability (csil_c : Cbor.t) : notification_capability =
       in
       ignore csil_req;
       {
-        channel = (Cbor.to_text (csil_req "channel"));
-        purpose = (Cbor.to_text (csil_req "purpose"));
-        destination_kind = (Cbor.to_text (csil_req "destination_kind"));
+        channel = (decode_notification_channel (csil_req "channel"));
+        purpose = (decode_notification_purpose (csil_req "purpose"));
+        destination_kind = (decode_destination_kind (csil_req "destination_kind"));
       }
   | _ -> failwith "csilgen: expected map for notification_capability"
 
@@ -5350,11 +5941,11 @@ and decode_verified_contact_method (csil_c : Cbor.t) : verified_contact_method =
       ignore csil_req;
       {
         id = (Cbor.to_text (csil_req "id"));
-        channel = (Cbor.to_text (csil_req "channel"));
-        purposes = (match (csil_req "purposes") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
-        revoked_at = (match csil_field "revoked_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        channel = (decode_notification_channel (csil_req "channel"));
+        purposes = (match (csil_req "purposes") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_notification_purpose csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        revoked_at = (match csil_field "revoked_at" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
         destination = (Cbor.to_text (csil_req "destination"));
-        verified_at = (Cbor.to_text (csil_req "verified_at"));
+        verified_at = (match (csil_req "verified_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
       }
   | _ -> failwith "csilgen: expected map for verified_contact_method"
 
@@ -5407,7 +5998,7 @@ and decode_request_contact_verification_request (csil_c : Cbor.t) : request_cont
       in
       ignore csil_req;
       {
-        channel = (Cbor.to_text (csil_req "channel"));
+        channel = (decode_notification_channel (csil_req "channel"));
         destination = (Cbor.to_text (csil_req "destination"));
         current_password = (Cbor.to_text (csil_req "current_password"));
       }
@@ -5422,7 +6013,7 @@ and decode_request_contact_verification_response (csil_c : Cbor.t) : request_con
       in
       ignore csil_req;
       {
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
       }
   | _ -> failwith "csilgen: expected map for request_contact_verification_response"
 
@@ -5491,7 +6082,7 @@ and decode_validate_password_recovery_response (csil_c : Cbor.t) : validate_pass
       in
       ignore csil_req;
       {
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         password_policy = (decode_password_policy (csil_req "password_policy"));
       }
   | _ -> failwith "csilgen: expected map for validate_password_recovery_response"
@@ -5546,8 +6137,8 @@ and decode_browser_consent_claim (csil_c : Cbor.t) : browser_consent_claim =
       ignore csil_req;
       {
         label = (Cbor.to_text (csil_req "label"));
-        policy = (Cbor.to_text (csil_req "policy"));
-        datatype = (Cbor.to_text (csil_req "datatype"));
+        policy = (decode_consent_row_policy (csil_req "policy"));
+        datatype = (decode_claim_value_type (csil_req "datatype"));
         required = (Cbor.to_bool (csil_req "required"));
         available = (Cbor.to_bool (csil_req "available"));
         max_bytes = (Cbor.to_i64 (csil_req "max_bytes"));
@@ -5634,11 +6225,11 @@ and decode_browser_local_rp_inspect_response (csil_c : Cbor.t) : browser_local_r
       {
         claims = (match (csil_req "claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_browser_consent_claim csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
         app_name = (Cbor.to_text (csil_req "app_name"));
-        admission = (Cbor.to_text (csil_req "admission"));
+        admission = (decode_local_rp_admission (csil_req "admission"));
         fingerprint = (Cbor.to_text (csil_req "fingerprint"));
         access_denied = (match csil_field "access_denied" with Some csil_v -> Some (decode_app_access_denial csil_v) | None -> None);
         callback_host = (Cbor.to_text (csil_req "callback_host"));
-        first_seen_at = (match csil_field "first_seen_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        first_seen_at = (match csil_field "first_seen_at" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
         request_reason = (match csil_field "request_reason" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         already_consented = (match csil_field "already_consented" with Some csil_v -> Some (Cbor.to_bool csil_v) | None -> None);
         authorized_claims = (match csil_field "authorized_claims" with Some csil_v -> Some (match csil_v with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array") | None -> None);
@@ -5752,7 +6343,6 @@ and decode_rp_sign_request (csil_c : Cbor.t) : rp_sign_request =
         nonce = (Cbor.to_text (csil_req "nonce"));
         callback_url = (Cbor.to_text (csil_req "callback_url"));
         flow_context = (match csil_field "flow_context" with Some csil_v -> Some (decode_auth_flow_context csil_v) | None -> None);
-        application_id = (match csil_field "application_id" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         requested_claims = (match csil_field "requested_claims" with Some csil_v -> Some (decode_claim_request csil_v) | None -> None);
         authentication_requirements = (match csil_field "authentication_requirements" with Some csil_v -> Some (decode_authentication_requirements csil_v) | None -> None);
       }
@@ -5839,6 +6429,20 @@ and decode_rp_user_info_request (csil_c : Cbor.t) : rp_user_info_request =
         api_base = (Cbor.to_text (csil_req "api_base"));
       }
   | _ -> failwith "csilgen: expected map for rp_user_info_request"
+
+and decode_rp_error (csil_c : Cbor.t) : rp_error =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        code = (decode_rp_error_code (csil_req "code"));
+        message = (Cbor.to_text (csil_req "message"));
+      }
+  | _ -> failwith "csilgen: expected map for rp_error"
 
 and decode_rp_issue_attestation_request (csil_c : Cbor.t) : rp_issue_attestation_request =
   match csil_c with
@@ -5958,10 +6562,10 @@ and decode_local_rp_descriptor (csil_c : Cbor.t) : local_rp_descriptor =
       ignore csil_req;
       {
         app_name = (Cbor.to_text (csil_req "app_name"));
-        created_at = (Cbor.to_text (csil_req "created_at"));
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        created_at = (match (csil_req "created_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         fingerprint = (Cbor.to_text (csil_req "fingerprint"));
-        supported_suites = (match (csil_req "supported_suites") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        supported_suites = (match (csil_req "supported_suites") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_aead_suite csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
         local_domain_hint = (match csil_field "local_domain_hint" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         signing_public_key = (Cbor.to_bytes (csil_req "signing_public_key"));
         encryption_public_key = (Cbor.to_bytes (csil_req "encryption_public_key"));
@@ -5993,9 +6597,9 @@ and decode_local_rp_login_request (csil_c : Cbor.t) : local_rp_login_request =
       {
         nonce = (Cbor.to_bytes (csil_req "nonce"));
         state = (Cbor.to_bytes (csil_req "state"));
-        issued_at = (Cbor.to_text (csil_req "issued_at"));
+        issued_at = (match (csil_req "issued_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         descriptor = (decode_signed_local_rp_descriptor (csil_req "descriptor"));
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         callback_url = (Cbor.to_text (csil_req "callback_url"));
         flow_context = (match csil_field "flow_context" with Some csil_v -> Some (decode_auth_flow_context csil_v) | None -> None);
         required_claims = (match (csil_req "required_claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
@@ -6029,10 +6633,10 @@ and decode_local_rp_callback_header (csil_c : Cbor.t) : local_rp_callback_header
       {
         nonce = (Cbor.to_bytes (csil_req "nonce"));
         state = (Cbor.to_bytes (csil_req "state"));
-        suite = (Cbor.to_text (csil_req "suite"));
-        issued_at = (Cbor.to_text (csil_req "issued_at"));
+        suite = (decode_aead_suite (csil_req "suite"));
+        issued_at = (match (csil_req "issued_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         aead_nonce = (Cbor.to_bytes (csil_req "aead_nonce"));
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         fingerprint = (Cbor.to_text (csil_req "fingerprint"));
         ephemeral_public_key = (Cbor.to_bytes (csil_req "ephemeral_public_key"));
       }
@@ -6064,8 +6668,8 @@ and decode_local_rp_callback_payload (csil_c : Cbor.t) : local_rp_callback_paylo
         nonce = (Cbor.to_bytes (csil_req "nonce"));
         state = (Cbor.to_bytes (csil_req "state"));
         user_id = (Cbor.to_text (csil_req "user_id"));
-        issued_at = (Cbor.to_text (csil_req "issued_at"));
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        issued_at = (match (csil_req "issued_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         user_domain = (Cbor.to_text (csil_req "user_domain"));
         callback_url = (Cbor.to_text (csil_req "callback_url"));
         claim_ticket = (Cbor.to_bytes (csil_req "claim_ticket"));
@@ -6097,7 +6701,7 @@ and decode_local_rp_ticket_redemption_request (csil_c : Cbor.t) : local_rp_ticke
       in
       ignore csil_req;
       {
-        issued_at = (Cbor.to_text (csil_req "issued_at"));
+        issued_at = (match (csil_req "issued_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         fingerprint = (Cbor.to_text (csil_req "fingerprint"));
         claim_ticket = (Cbor.to_bytes (csil_req "claim_ticket"));
       }
@@ -6129,7 +6733,7 @@ and decode_local_rp_ticket_redemption_response (csil_c : Cbor.t) : local_rp_tick
         claims = (match (csil_req "claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_claim csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
         user_id = (Cbor.to_text (csil_req "user_id"));
         user_domain = (Cbor.to_text (csil_req "user_domain"));
-        ticket_expires_at = (Cbor.to_text (csil_req "ticket_expires_at"));
+        ticket_expires_at = (match (csil_req "ticket_expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
       }
   | _ -> failwith "csilgen: expected map for local_rp_ticket_redemption_response"
 
@@ -6142,14 +6746,14 @@ and decode_admin_local_rp (csil_c : Cbor.t) : admin_local_rp =
       in
       ignore csil_req;
       {
-        status = (Cbor.to_text (csil_req "status"));
+        status = (decode_local_rp_status (csil_req "status"));
         app_name = (Cbor.to_text (csil_req "app_name"));
-        created_at = (Cbor.to_text (csil_req "created_at"));
-        expires_at = (match csil_field "expires_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
-        updated_at = (Cbor.to_text (csil_req "updated_at"));
+        created_at = (match (csil_req "created_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        expires_at = (match csil_field "expires_at" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
+        updated_at = (match (csil_req "updated_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         admin_notes = (match csil_field "admin_notes" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         fingerprint = (Cbor.to_text (csil_req "fingerprint"));
-        last_seen_at = (match csil_field "last_seen_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        last_seen_at = (match csil_field "last_seen_at" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
         local_domain_hint = (match csil_field "local_domain_hint" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         signing_public_key = (Cbor.to_bytes (csil_req "signing_public_key"));
         encryption_public_key = (Cbor.to_bytes (csil_req "encryption_public_key"));
@@ -6167,7 +6771,7 @@ and decode_list_local_rps_request (csil_c : Cbor.t) : list_local_rps_request =
       {
         limit = (match csil_field "limit" with Some csil_v -> Some (Cbor.to_i64 csil_v) | None -> None);
         offset = (match csil_field "offset" with Some csil_v -> Some (Cbor.to_i64 csil_v) | None -> None);
-        status = (match csil_field "status" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        status = (match csil_field "status" with Some csil_v -> Some (decode_local_rp_status csil_v) | None -> None);
       }
   | _ -> failwith "csilgen: expected map for list_local_rps_request"
 
@@ -6303,7 +6907,7 @@ and decode_get_local_rp_policy_response (csil_c : Cbor.t) : get_local_rp_policy_
       in
       ignore csil_req;
       {
-        policy = (Cbor.to_text (csil_req "policy"));
+        policy = (decode_local_rp_policy (csil_req "policy"));
       }
   | _ -> failwith "csilgen: expected map for get_local_rp_policy_response"
 
@@ -6316,7 +6920,7 @@ and decode_set_local_rp_policy_request (csil_c : Cbor.t) : set_local_rp_policy_r
       in
       ignore csil_req;
       {
-        policy = (Cbor.to_text (csil_req "policy"));
+        policy = (decode_local_rp_policy (csil_req "policy"));
       }
   | _ -> failwith "csilgen: expected map for set_local_rp_policy_request"
 
@@ -6329,7 +6933,7 @@ and decode_set_local_rp_policy_response (csil_c : Cbor.t) : set_local_rp_policy_
       in
       ignore csil_req;
       {
-        policy = (Cbor.to_text (csil_req "policy"));
+        policy = (decode_local_rp_policy (csil_req "policy"));
       }
   | _ -> failwith "csilgen: expected map for set_local_rp_policy_response"
 
@@ -6398,12 +7002,12 @@ and decode_app_access_target (csil_c : Cbor.t) : app_access_target =
       in
       ignore csil_req;
       {
-        kind = (Cbor.to_text (csil_req "kind"));
+        kind = (decode_app_access_target_kind (csil_req "kind"));
         user_id = (match csil_field "user_id" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         claim_type = (match csil_field "claim_type" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         group_name = (match csil_field "group_name" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         claim_value = (match csil_field "claim_value" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
-        claim_operator = (match csil_field "claim_operator" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        claim_operator = (match csil_field "claim_operator" with Some csil_v -> Some (decode_claim_operator csil_v) | None -> None);
       }
   | _ -> failwith "csilgen: expected map for app_access_target"
 
@@ -6417,7 +7021,7 @@ and decode_app_access_policy (csil_c : Cbor.t) : app_access_policy =
       ignore csil_req;
       {
         id = (Cbor.to_text (csil_req "id"));
-        mode = (Cbor.to_text (csil_req "mode"));
+        mode = (decode_app_access_mode (csil_req "mode"));
         name = (Cbor.to_text (csil_req "name"));
         message = (match csil_field "message" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         targets = (match (csil_req "targets") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_app_access_target csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
@@ -6448,7 +7052,7 @@ and decode_set_app_access_policy_request (csil_c : Cbor.t) : set_app_access_poli
       ignore csil_req;
       {
         id = (match csil_field "id" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
-        mode = (Cbor.to_text (csil_req "mode"));
+        mode = (decode_app_access_mode (csil_req "mode"));
         name = (Cbor.to_text (csil_req "name"));
         message = (match csil_field "message" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         targets = (match (csil_req "targets") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_app_access_target csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
@@ -6579,7 +7183,7 @@ and decode_translations_response (csil_c : Cbor.t) : translations_response =
       ignore csil_req;
       {
         locale = (Cbor.to_text (csil_req "locale"));
-        messages = (match (csil_req "messages") with Cbor.Map csil_kvs -> List.map (fun (csil_k, csil_v) -> ((Cbor.to_text csil_k), (Cbor.to_text csil_v))) csil_kvs | _ -> failwith "csilgen: expected map");
+        messages = (match (csil_req "messages") with Cbor.Map csil_kvs -> List.map (fun (csil_k, csil_v) -> ((Cbor.to_text csil_k), (Cbor.to_text csil_v))) (Cbor.canonical_map csil_kvs) | _ -> failwith "csilgen: expected map");
         available_locales = (match (csil_req "available_locales") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
       }
   | _ -> failwith "csilgen: expected map for translations_response"
@@ -6621,18 +7225,18 @@ and decode_application_key_attestation (csil_c : Cbor.t) : application_key_attes
       ignore csil_req;
       {
         key_id = (Cbor.to_text (csil_req "key_id"));
-        algorithm = (Cbor.to_text (csil_req "algorithm"));
-        key_usage = (Cbor.to_text (csil_req "key_usage"));
+        algorithm = (decode_key_algorithm (csil_req "algorithm"));
+        key_usage = (decode_key_usage (csil_req "key_usage"));
         public_key = (Cbor.to_bytes (csil_req "public_key"));
-        attested_at = (Cbor.to_text (csil_req "attested_at"));
+        attested_at = (match (csil_req "attested_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         fingerprint = (Cbor.to_text (csil_req "fingerprint"));
         instance_id = (Cbor.to_text (csil_req "instance_id"));
         application_id = (Cbor.to_text (csil_req "application_id"));
-        key_created_at = (Cbor.to_text (csil_req "key_created_at"));
-        key_expires_at = (Cbor.to_text (csil_req "key_expires_at"));
+        key_created_at = (match (csil_req "key_created_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        key_expires_at = (match (csil_req "key_expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         subject_domain = (Cbor.to_text (csil_req "subject_domain"));
         subject_user_id = (Cbor.to_text (csil_req "subject_user_id"));
-        attestation_expires_at = (Cbor.to_text (csil_req "attestation_expires_at"));
+        attestation_expires_at = (match (csil_req "attestation_expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
       }
   | _ -> failwith "csilgen: expected map for application_key_attestation"
 
@@ -6660,15 +7264,15 @@ and decode_application_key_addition (csil_c : Cbor.t) : application_key_addition
       ignore csil_req;
       {
         key_id = (Cbor.to_text (csil_req "key_id"));
-        algorithm = (Cbor.to_text (csil_req "algorithm"));
+        algorithm = (decode_key_algorithm (csil_req "algorithm"));
         challenge = (Cbor.to_bytes (csil_req "challenge"));
-        key_usage = (Cbor.to_text (csil_req "key_usage"));
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        key_usage = (decode_key_usage (csil_req "key_usage"));
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         public_key = (Cbor.to_bytes (csil_req "public_key"));
         fingerprint = (Cbor.to_text (csil_req "fingerprint"));
         instance_id = (Cbor.to_text (csil_req "instance_id"));
         challenge_id = (Cbor.to_text (csil_req "challenge_id"));
-        requested_at = (Cbor.to_text (csil_req "requested_at"));
+        requested_at = (match (csil_req "requested_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         application_id = (Cbor.to_text (csil_req "application_id"));
         subject_domain = (Cbor.to_text (csil_req "subject_domain"));
         subject_user_id = (Cbor.to_text (csil_req "subject_user_id"));
@@ -6702,10 +7306,10 @@ and decode_application_key_renewal (csil_c : Cbor.t) : application_key_renewal =
       {
         key_id = (Cbor.to_text (csil_req "key_id"));
         challenge = (Cbor.to_bytes (csil_req "challenge"));
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         instance_id = (Cbor.to_text (csil_req "instance_id"));
         challenge_id = (Cbor.to_text (csil_req "challenge_id"));
-        requested_at = (Cbor.to_text (csil_req "requested_at"));
+        requested_at = (match (csil_req "requested_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         application_id = (Cbor.to_text (csil_req "application_id"));
         subject_domain = (Cbor.to_text (csil_req "subject_domain"));
         subject_user_id = (Cbor.to_text (csil_req "subject_user_id"));
@@ -6736,7 +7340,7 @@ and decode_application_key_revocation (csil_c : Cbor.t) : application_key_revoca
       in
       ignore csil_req;
       {
-        revoked_at = (Cbor.to_text (csil_req "revoked_at"));
+        revoked_at = (match (csil_req "revoked_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         signatures = (match (csil_req "signatures") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_application_key_signature csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
         instance_id = (Cbor.to_text (csil_req "instance_id"));
         target_key_id = (Cbor.to_text (csil_req "target_key_id"));
@@ -6756,9 +7360,9 @@ and decode_start_application_key_challenge_request (csil_c : Cbor.t) : start_app
       in
       ignore csil_req;
       {
-        purpose = (Cbor.to_text (csil_req "purpose"));
-        algorithm = (Cbor.to_text (csil_req "algorithm"));
-        key_usage = (Cbor.to_text (csil_req "key_usage"));
+        purpose = (decode_application_key_challenge_purpose (csil_req "purpose"));
+        algorithm = (decode_key_algorithm (csil_req "algorithm"));
+        key_usage = (decode_key_usage (csil_req "key_usage"));
         public_key = (Cbor.to_bytes (csil_req "public_key"));
         instance_id = (Cbor.to_text (csil_req "instance_id"));
         application_id = (Cbor.to_text (csil_req "application_id"));
@@ -6776,7 +7380,7 @@ and decode_start_application_key_challenge_response (csil_c : Cbor.t) : start_ap
       ignore csil_req;
       {
         challenge = (match csil_field "challenge" with Some csil_v -> Some (Cbor.to_bytes csil_v) | None -> None);
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         challenge_id = (Cbor.to_text (csil_req "challenge_id"));
         sealed_challenge = (match csil_field "sealed_challenge" with Some csil_v -> Some (Cbor.to_bytes csil_v) | None -> None);
       }
@@ -6857,7 +7461,7 @@ and decode_revoke_application_key_response (csil_c : Cbor.t) : revoke_applicatio
       in
       ignore csil_req;
       {
-        revoked_at = (Cbor.to_text (csil_req "revoked_at"));
+        revoked_at = (match (csil_req "revoked_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
       }
   | _ -> failwith "csilgen: expected map for revoke_application_key_response"
 
@@ -6951,10 +7555,10 @@ and decode_rp_resolve_domain_keys_response (csil_c : Cbor.t) : rp_resolve_domain
       {
         keys = (match (csil_req "keys") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_domain_public_key csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
         domain = (Cbor.to_text (csil_req "domain"));
-        fetched_at = (Cbor.to_text (csil_req "fetched_at"));
+        fetched_at = (match (csil_req "fetched_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         revocations = (match (csil_req "revocations") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_revocation_certificate csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
-        cache_status = (Cbor.to_text (csil_req "cache_status"));
-        revocations_checked_at = (Cbor.to_text (csil_req "revocations_checked_at"));
+        cache_status = (decode_rp_cache_status (csil_req "cache_status"));
+        revocations_checked_at = (match (csil_req "revocations_checked_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
       }
   | _ -> failwith "csilgen: expected map for rp_resolve_domain_keys_response"
 
@@ -6984,15 +7588,15 @@ and decode_rp_resolve_application_keys_response (csil_c : Cbor.t) : rp_resolve_a
       in
       ignore csil_req;
       {
-        fetched_at = (Cbor.to_text (csil_req "fetched_at"));
+        fetched_at = (match (csil_req "fetched_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         instance_id = (Cbor.to_text (csil_req "instance_id"));
-        cache_status = (Cbor.to_text (csil_req "cache_status"));
+        cache_status = (decode_rp_cache_status (csil_req "cache_status"));
         application_id = (Cbor.to_text (csil_req "application_id"));
         subject_domain = (Cbor.to_text (csil_req "subject_domain"));
         subject_user_id = (Cbor.to_text (csil_req "subject_user_id"));
         application_keys = (match (csil_req "application_keys") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_signed_application_key_attestation csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
         home_domain_keys = (match (csil_req "home_domain_keys") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_domain_public_key csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
-        revocations_checked_at = (Cbor.to_text (csil_req "revocations_checked_at"));
+        revocations_checked_at = (match (csil_req "revocations_checked_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         application_key_revocations = (match (csil_req "application_key_revocations") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_application_key_revocation csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
         home_domain_key_revocations = (match (csil_req "home_domain_key_revocations") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_revocation_certificate csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
       }
@@ -7069,8 +7673,8 @@ and decode_act_as_scope_set (csil_c : Cbor.t) : act_as_scope_set =
         grantee = (decode_grantee_ref (csil_req "grantee"));
         audience = (decode_application_ref (csil_req "audience"));
         language = (match csil_field "language" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
-        issued_at = (Cbor.to_text (csil_req "issued_at"));
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        issued_at = (match (csil_req "issued_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         audience_handle_claim = (match csil_field "audience_handle_claim" with Some csil_v -> Some (decode_claim csil_v) | None -> None);
       }
   | _ -> failwith "csilgen: expected map for act_as_scope_set"
@@ -7118,13 +7722,13 @@ and decode_act_as_grant (csil_c : Cbor.t) : act_as_grant =
         user_id = (Cbor.to_text (csil_req "user_id"));
         audience = (decode_application_ref (csil_req "audience"));
         grant_id = (Cbor.to_text (csil_req "grant_id"));
-        issued_at = (Cbor.to_text (csil_req "issued_at"));
+        issued_at = (match (csil_req "issued_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         scope_set = (decode_signed_act_as_scope_set (csil_req "scope_set"));
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         approved_scope = (match (csil_req "approved_scope") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
         subject_domain = (Cbor.to_text (csil_req "subject_domain"));
-        renewable_until = (Cbor.to_text (csil_req "renewable_until"));
-        series_issued_at = (Cbor.to_text (csil_req "series_issued_at"));
+        renewable_until = (match (csil_req "renewable_until") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        series_issued_at = (match (csil_req "series_issued_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         device_fingerprint = (match csil_field "device_fingerprint" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
       }
   | _ -> failwith "csilgen: expected map for act_as_grant"
@@ -7155,9 +7759,9 @@ and decode_act_as_grant_request (csil_c : Cbor.t) : act_as_grant_request =
         nonce = (Cbor.to_text (csil_req "nonce"));
         grantee = (decode_grantee_ref (csil_req "grantee"));
         scope_set = (decode_signed_act_as_scope_set (csil_req "scope_set"));
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         callback_url = (Cbor.to_text (csil_req "callback_url"));
-        requested_at = (Cbor.to_text (csil_req "requested_at"));
+        requested_at = (match (csil_req "requested_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         grantee_handle_claim = (match csil_field "grantee_handle_claim" with Some csil_v -> Some (decode_claim csil_v) | None -> None);
         requested_lifetime_seconds = (match csil_field "requested_lifetime_seconds" with Some csil_v -> Some (Cbor.to_i64 csil_v) | None -> None);
         requested_renewal_window_seconds = (match csil_field "requested_renewal_window_seconds" with Some csil_v -> Some (Cbor.to_i64 csil_v) | None -> None);
@@ -7190,8 +7794,8 @@ and decode_act_as_refresh_request (csil_c : Cbor.t) : act_as_refresh_request =
         nonce = (Cbor.to_text (csil_req "nonce"));
         grantee = (decode_grantee_ref (csil_req "grantee"));
         grant_id = (Cbor.to_text (csil_req "grant_id"));
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
-        requested_at = (Cbor.to_text (csil_req "requested_at"));
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        requested_at = (match (csil_req "requested_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
       }
   | _ -> failwith "csilgen: expected map for act_as_refresh_request"
 
@@ -7248,7 +7852,7 @@ and decode_act_as_presentation (csil_c : Cbor.t) : act_as_presentation =
         nonce = (Cbor.to_bytes (csil_req "nonce"));
         audience = (decode_application_ref (csil_req "audience"));
         grant_hash = (Cbor.to_bytes (csil_req "grant_hash"));
-        presented_at = (Cbor.to_text (csil_req "presented_at"));
+        presented_at = (match (csil_req "presented_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         request_digest = (Cbor.to_bytes (csil_req "request_digest"));
       }
   | _ -> failwith "csilgen: expected map for act_as_presentation"
@@ -7292,7 +7896,7 @@ and decode_act_as_grant_revocation (csil_c : Cbor.t) : act_as_grant_revocation =
       {
         user_id = (Cbor.to_text (csil_req "user_id"));
         grant_id = (Cbor.to_text (csil_req "grant_id"));
-        revoked_at = (Cbor.to_text (csil_req "revoked_at"));
+        revoked_at = (match (csil_req "revoked_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         subject_domain = (Cbor.to_text (csil_req "subject_domain"));
       }
   | _ -> failwith "csilgen: expected map for act_as_grant_revocation"
@@ -7479,11 +8083,11 @@ and decode_act_as_grant_summary (csil_c : Cbor.t) : act_as_grant_summary =
         grantee = (decode_grantee_ref (csil_req "grantee"));
         audience = (decode_application_ref (csil_req "audience"));
         grant_id = (Cbor.to_text (csil_req "grant_id"));
-        issued_at = (Cbor.to_text (csil_req "issued_at"));
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
-        revoked_at = (match csil_field "revoked_at" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        issued_at = (match (csil_req "issued_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
+        revoked_at = (match csil_field "revoked_at" with Some csil_v -> Some (match csil_v with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp") | None -> None);
         approved_scope = (match (csil_req "approved_scope") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
-        renewable_until = (Cbor.to_text (csil_req "renewable_until"));
+        renewable_until = (match (csil_req "renewable_until") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
       }
   | _ -> failwith "csilgen: expected map for act_as_grant_summary"
 
@@ -7522,7 +8126,7 @@ and decode_revoke_act_as_grant_response (csil_c : Cbor.t) : revoke_act_as_grant_
       in
       ignore csil_req;
       {
-        revoked_at = (Cbor.to_text (csil_req "revoked_at"));
+        revoked_at = (match (csil_req "revoked_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
       }
   | _ -> failwith "csilgen: expected map for revoke_act_as_grant_response"
 
@@ -7542,7 +8146,7 @@ and decode_preview_release_policy_request (csil_c : Cbor.t) : preview_release_po
         required_claims = (match (csil_req "required_claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
         temp_claim_type = (match csil_field "temp_claim_type" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         available_claims = (match (csil_req "available_claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
-        temp_disposition = (match csil_field "temp_disposition" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
+        temp_disposition = (match csil_field "temp_disposition" with Some csil_v -> Some (decode_release_disposition csil_v) | None -> None);
       }
   | _ -> failwith "csilgen: expected map for preview_release_policy_request"
 
@@ -7556,7 +8160,7 @@ and decode_preview_release_row (csil_c : Cbor.t) : preview_release_row =
       ignore csil_req;
       {
         locked = (Cbor.to_bool (csil_req "locked"));
-        policy = (Cbor.to_text (csil_req "policy"));
+        policy = (decode_consent_row_policy (csil_req "policy"));
         required = (Cbor.to_bool (csil_req "required"));
         available = (Cbor.to_bool (csil_req "available"));
         claim_type = (Cbor.to_text (csil_req "claim_type"));
@@ -7637,7 +8241,7 @@ and decode_inspect_signing_request_response (csil_c : Cbor.t) : inspect_signing_
       in
       ignore csil_req;
       {
-        expires_at = (Cbor.to_text (csil_req "expires_at"));
+        expires_at = (match (csil_req "expires_at") with Cbor.Tag (0, Cbor.Text csil_s) -> Cbor.canonical_timestamp csil_s | _ -> failwith "csilgen: bad timestamp");
         subject_domain = (Cbor.to_text (csil_req "subject_domain"));
         subject_user_id = (Cbor.to_text (csil_req "subject_user_id"));
         issuable_claim_types = (match (csil_req "issuable_claim_types") with Cbor.Array csil_xs -> List.map (fun csil_e -> (Cbor.to_text csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
@@ -7670,7 +8274,7 @@ and decode_issued_claim_result (csil_c : Cbor.t) : issued_claim_result =
       ignore csil_req;
       {
         message = (match csil_field "message" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
-        outcome = (Cbor.to_text (csil_req "outcome"));
+        outcome = (decode_issued_claim_outcome (csil_req "outcome"));
         claim_code = (match csil_field "claim_code" with Some csil_v -> Some (Cbor.to_text csil_v) | None -> None);
         claim_type = (Cbor.to_text (csil_req "claim_type"));
       }
@@ -7696,6 +8300,110 @@ let decode_check_value_bytes (b : bytes) : check_value =
 let encode_check_result_bytes (v : check_result) : bytes = Cbor.encode (encode_check_result v)
 let decode_check_result_bytes (b : bytes) : check_result =
   match Cbor.decode b with Ok c -> decode_check_result c | Error e -> failwith e
+
+let encode_key_algorithm_bytes (v : key_algorithm) : bytes = Cbor.encode (encode_key_algorithm v)
+let decode_key_algorithm_bytes (b : bytes) : key_algorithm =
+  match Cbor.decode b with Ok c -> decode_key_algorithm c | Error e -> failwith e
+
+let encode_key_usage_bytes (v : key_usage) : bytes = Cbor.encode (encode_key_usage v)
+let decode_key_usage_bytes (b : bytes) : key_usage =
+  match Cbor.decode b with Ok c -> decode_key_usage c | Error e -> failwith e
+
+let encode_aead_suite_bytes (v : aead_suite) : bytes = Cbor.encode (encode_aead_suite v)
+let decode_aead_suite_bytes (b : bytes) : aead_suite =
+  match Cbor.decode b with Ok c -> decode_aead_suite c | Error e -> failwith e
+
+let encode_claim_value_type_bytes (v : claim_value_type) : bytes = Cbor.encode (encode_claim_value_type v)
+let decode_claim_value_type_bytes (b : bytes) : claim_value_type =
+  match Cbor.decode b with Ok c -> decode_claim_value_type c | Error e -> failwith e
+
+let encode_set_rule_bytes (v : set_rule) : bytes = Cbor.encode (encode_set_rule v)
+let decode_set_rule_bytes (b : bytes) : set_rule =
+  match Cbor.decode b with Ok c -> decode_set_rule c | Error e -> failwith e
+
+let encode_signing_rule_bytes (v : signing_rule) : bytes = Cbor.encode (encode_signing_rule v)
+let decode_signing_rule_bytes (b : bytes) : signing_rule =
+  match Cbor.decode b with Ok c -> decode_signing_rule c | Error e -> failwith e
+
+let encode_set_claim_outcome_bytes (v : set_claim_outcome) : bytes = Cbor.encode (encode_set_claim_outcome v)
+let decode_set_claim_outcome_bytes (b : bytes) : set_claim_outcome =
+  match Cbor.decode b with Ok c -> decode_set_claim_outcome c | Error e -> failwith e
+
+let encode_release_disposition_bytes (v : release_disposition) : bytes = Cbor.encode (encode_release_disposition v)
+let decode_release_disposition_bytes (b : bytes) : release_disposition =
+  match Cbor.decode b with Ok c -> decode_release_disposition c | Error e -> failwith e
+
+let encode_consent_row_policy_bytes (v : consent_row_policy) : bytes = Cbor.encode (encode_consent_row_policy v)
+let decode_consent_row_policy_bytes (b : bytes) : consent_row_policy =
+  match Cbor.decode b with Ok c -> decode_consent_row_policy c | Error e -> failwith e
+
+let encode_claim_approval_status_bytes (v : claim_approval_status) : bytes = Cbor.encode (encode_claim_approval_status v)
+let decode_claim_approval_status_bytes (b : bytes) : claim_approval_status =
+  match Cbor.decode b with Ok c -> decode_claim_approval_status c | Error e -> failwith e
+
+let encode_pin_recheck_outcome_bytes (v : pin_recheck_outcome) : bytes = Cbor.encode (encode_pin_recheck_outcome v)
+let decode_pin_recheck_outcome_bytes (b : bytes) : pin_recheck_outcome =
+  match Cbor.decode b with Ok c -> decode_pin_recheck_outcome c | Error e -> failwith e
+
+let encode_notification_purpose_bytes (v : notification_purpose) : bytes = Cbor.encode (encode_notification_purpose v)
+let decode_notification_purpose_bytes (b : bytes) : notification_purpose =
+  match Cbor.decode b with Ok c -> decode_notification_purpose c | Error e -> failwith e
+
+let encode_notification_channel_bytes (v : notification_channel) : bytes = Cbor.encode (encode_notification_channel v)
+let decode_notification_channel_bytes (b : bytes) : notification_channel =
+  match Cbor.decode b with Ok c -> decode_notification_channel c | Error e -> failwith e
+
+let encode_destination_kind_bytes (v : destination_kind) : bytes = Cbor.encode (encode_destination_kind v)
+let decode_destination_kind_bytes (b : bytes) : destination_kind =
+  match Cbor.decode b with Ok c -> decode_destination_kind c | Error e -> failwith e
+
+let encode_local_rp_policy_bytes (v : local_rp_policy) : bytes = Cbor.encode (encode_local_rp_policy v)
+let decode_local_rp_policy_bytes (b : bytes) : local_rp_policy =
+  match Cbor.decode b with Ok c -> decode_local_rp_policy c | Error e -> failwith e
+
+let encode_local_rp_status_bytes (v : local_rp_status) : bytes = Cbor.encode (encode_local_rp_status v)
+let decode_local_rp_status_bytes (b : bytes) : local_rp_status =
+  match Cbor.decode b with Ok c -> decode_local_rp_status c | Error e -> failwith e
+
+let encode_local_rp_admission_bytes (v : local_rp_admission) : bytes = Cbor.encode (encode_local_rp_admission v)
+let decode_local_rp_admission_bytes (b : bytes) : local_rp_admission =
+  match Cbor.decode b with Ok c -> decode_local_rp_admission c | Error e -> failwith e
+
+let encode_app_access_mode_bytes (v : app_access_mode) : bytes = Cbor.encode (encode_app_access_mode v)
+let decode_app_access_mode_bytes (b : bytes) : app_access_mode =
+  match Cbor.decode b with Ok c -> decode_app_access_mode c | Error e -> failwith e
+
+let encode_app_access_target_kind_bytes (v : app_access_target_kind) : bytes = Cbor.encode (encode_app_access_target_kind v)
+let decode_app_access_target_kind_bytes (b : bytes) : app_access_target_kind =
+  match Cbor.decode b with Ok c -> decode_app_access_target_kind c | Error e -> failwith e
+
+let encode_claim_operator_bytes (v : claim_operator) : bytes = Cbor.encode (encode_claim_operator v)
+let decode_claim_operator_bytes (b : bytes) : claim_operator =
+  match Cbor.decode b with Ok c -> decode_claim_operator c | Error e -> failwith e
+
+let encode_application_key_challenge_purpose_bytes (v : application_key_challenge_purpose) : bytes = Cbor.encode (encode_application_key_challenge_purpose v)
+let decode_application_key_challenge_purpose_bytes (b : bytes) : application_key_challenge_purpose =
+  match Cbor.decode b with Ok c -> decode_application_key_challenge_purpose c | Error e -> failwith e
+
+let encode_auth_flow_bytes (v : auth_flow) : bytes = Cbor.encode (encode_auth_flow v)
+let decode_auth_flow_bytes (b : bytes) : auth_flow =
+  match Cbor.decode b with Ok c -> decode_auth_flow c | Error e -> failwith e
+
+let encode_rp_cache_status_bytes (v : rp_cache_status) : bytes = Cbor.encode (encode_rp_cache_status v)
+let decode_rp_cache_status_bytes (b : bytes) : rp_cache_status =
+  match Cbor.decode b with Ok c -> decode_rp_cache_status c | Error e -> failwith e
+
+let encode_account_kind_bytes (v : account_kind) : bytes = Cbor.encode (encode_account_kind v)
+let decode_account_kind_bytes (b : bytes) : account_kind =
+  match Cbor.decode b with Ok c -> decode_account_kind c | Error e -> failwith e
+
+let encode_rp_error_code_bytes (v : rp_error_code) : bytes = Cbor.encode (encode_rp_error_code v)
+let decode_rp_error_code_bytes (b : bytes) : rp_error_code =
+  match Cbor.decode b with Ok c -> decode_rp_error_code c | Error e -> failwith e
+
+let encode_issued_claim_outcome_bytes (v : issued_claim_outcome) : bytes = Cbor.encode (encode_issued_claim_outcome v)
+let decode_issued_claim_outcome_bytes (b : bytes) : issued_claim_outcome =
+  match Cbor.decode b with Ok c -> decode_issued_claim_outcome c | Error e -> failwith e
 
 let encode_hello_request_bytes (v : hello_request) : bytes = Cbor.encode (encode_hello_request v)
 let decode_hello_request_bytes (b : bytes) : hello_request =
@@ -7936,6 +8644,82 @@ let decode_create_user_request_bytes (b : bytes) : create_user_request =
 let encode_create_user_response_bytes (v : create_user_response) : bytes = Cbor.encode (encode_create_user_response v)
 let decode_create_user_response_bytes (b : bytes) : create_user_response =
   match Cbor.decode b with Ok c -> decode_create_user_response c | Error e -> failwith e
+
+let encode_rename_user_request_bytes (v : rename_user_request) : bytes = Cbor.encode (encode_rename_user_request v)
+let decode_rename_user_request_bytes (b : bytes) : rename_user_request =
+  match Cbor.decode b with Ok c -> decode_rename_user_request c | Error e -> failwith e
+
+let encode_rename_user_response_bytes (v : rename_user_response) : bytes = Cbor.encode (encode_rename_user_response v)
+let decode_rename_user_response_bytes (b : bytes) : rename_user_response =
+  match Cbor.decode b with Ok c -> decode_rename_user_response c | Error e -> failwith e
+
+let encode_set_application_id_request_bytes (v : set_application_id_request) : bytes = Cbor.encode (encode_set_application_id_request v)
+let decode_set_application_id_request_bytes (b : bytes) : set_application_id_request =
+  match Cbor.decode b with Ok c -> decode_set_application_id_request c | Error e -> failwith e
+
+let encode_set_application_id_response_bytes (v : set_application_id_response) : bytes = Cbor.encode (encode_set_application_id_response v)
+let decode_set_application_id_response_bytes (b : bytes) : set_application_id_response =
+  match Cbor.decode b with Ok c -> decode_set_application_id_response c | Error e -> failwith e
+
+let encode_api_key_info_bytes (v : api_key_info) : bytes = Cbor.encode (encode_api_key_info v)
+let decode_api_key_info_bytes (b : bytes) : api_key_info =
+  match Cbor.decode b with Ok c -> decode_api_key_info c | Error e -> failwith e
+
+let encode_create_api_key_request_bytes (v : create_api_key_request) : bytes = Cbor.encode (encode_create_api_key_request v)
+let decode_create_api_key_request_bytes (b : bytes) : create_api_key_request =
+  match Cbor.decode b with Ok c -> decode_create_api_key_request c | Error e -> failwith e
+
+let encode_create_api_key_response_bytes (v : create_api_key_response) : bytes = Cbor.encode (encode_create_api_key_response v)
+let decode_create_api_key_response_bytes (b : bytes) : create_api_key_response =
+  match Cbor.decode b with Ok c -> decode_create_api_key_response c | Error e -> failwith e
+
+let encode_list_api_keys_request_bytes (v : list_api_keys_request) : bytes = Cbor.encode (encode_list_api_keys_request v)
+let decode_list_api_keys_request_bytes (b : bytes) : list_api_keys_request =
+  match Cbor.decode b with Ok c -> decode_list_api_keys_request c | Error e -> failwith e
+
+let encode_list_api_keys_response_bytes (v : list_api_keys_response) : bytes = Cbor.encode (encode_list_api_keys_response v)
+let decode_list_api_keys_response_bytes (b : bytes) : list_api_keys_response =
+  match Cbor.decode b with Ok c -> decode_list_api_keys_response c | Error e -> failwith e
+
+let encode_revoke_api_key_request_bytes (v : revoke_api_key_request) : bytes = Cbor.encode (encode_revoke_api_key_request v)
+let decode_revoke_api_key_request_bytes (b : bytes) : revoke_api_key_request =
+  match Cbor.decode b with Ok c -> decode_revoke_api_key_request c | Error e -> failwith e
+
+let encode_revoke_api_key_response_bytes (v : revoke_api_key_response) : bytes = Cbor.encode (encode_revoke_api_key_response v)
+let decode_revoke_api_key_response_bytes (b : bytes) : revoke_api_key_response =
+  match Cbor.decode b with Ok c -> decode_revoke_api_key_response c | Error e -> failwith e
+
+let encode_account_limits_bytes (v : account_limits) : bytes = Cbor.encode (encode_account_limits v)
+let decode_account_limits_bytes (b : bytes) : account_limits =
+  match Cbor.decode b with Ok c -> decode_account_limits c | Error e -> failwith e
+
+let encode_get_account_limits_request_bytes (v : get_account_limits_request) : bytes = Cbor.encode (encode_get_account_limits_request v)
+let decode_get_account_limits_request_bytes (b : bytes) : get_account_limits_request =
+  match Cbor.decode b with Ok c -> decode_get_account_limits_request c | Error e -> failwith e
+
+let encode_get_account_limits_response_bytes (v : get_account_limits_response) : bytes = Cbor.encode (encode_get_account_limits_response v)
+let decode_get_account_limits_response_bytes (b : bytes) : get_account_limits_response =
+  match Cbor.decode b with Ok c -> decode_get_account_limits_response c | Error e -> failwith e
+
+let encode_set_account_limits_request_bytes (v : set_account_limits_request) : bytes = Cbor.encode (encode_set_account_limits_request v)
+let decode_set_account_limits_request_bytes (b : bytes) : set_account_limits_request =
+  match Cbor.decode b with Ok c -> decode_set_account_limits_request c | Error e -> failwith e
+
+let encode_set_account_limits_response_bytes (v : set_account_limits_response) : bytes = Cbor.encode (encode_set_account_limits_response v)
+let decode_set_account_limits_response_bytes (b : bytes) : set_account_limits_response =
+  match Cbor.decode b with Ok c -> decode_set_account_limits_response c | Error e -> failwith e
+
+let encode_rp_usage_day_bytes (v : rp_usage_day) : bytes = Cbor.encode (encode_rp_usage_day v)
+let decode_rp_usage_day_bytes (b : bytes) : rp_usage_day =
+  match Cbor.decode b with Ok c -> decode_rp_usage_day c | Error e -> failwith e
+
+let encode_get_application_usage_request_bytes (v : get_application_usage_request) : bytes = Cbor.encode (encode_get_application_usage_request v)
+let decode_get_application_usage_request_bytes (b : bytes) : get_application_usage_request =
+  match Cbor.decode b with Ok c -> decode_get_application_usage_request c | Error e -> failwith e
+
+let encode_get_application_usage_response_bytes (v : get_application_usage_response) : bytes = Cbor.encode (encode_get_application_usage_response v)
+let decode_get_application_usage_response_bytes (b : bytes) : get_application_usage_response =
+  match Cbor.decode b with Ok c -> decode_get_application_usage_response c | Error e -> failwith e
 
 let encode_update_user_request_bytes (v : update_user_request) : bytes = Cbor.encode (encode_update_user_request v)
 let decode_update_user_request_bytes (b : bytes) : update_user_request =
@@ -8457,6 +9241,10 @@ let encode_rp_user_info_request_bytes (v : rp_user_info_request) : bytes = Cbor.
 let decode_rp_user_info_request_bytes (b : bytes) : rp_user_info_request =
   match Cbor.decode b with Ok c -> decode_rp_user_info_request c | Error e -> failwith e
 
+let encode_rp_error_bytes (v : rp_error) : bytes = Cbor.encode (encode_rp_error v)
+let decode_rp_error_bytes (b : bytes) : rp_error =
+  match Cbor.decode b with Ok c -> decode_rp_error c | Error e -> failwith e
+
 let encode_rp_issue_attestation_request_bytes (v : rp_issue_attestation_request) : bytes = Cbor.encode (encode_rp_issue_attestation_request v)
 let decode_rp_issue_attestation_request_bytes (b : bytes) : rp_issue_attestation_request =
   match Cbor.decode b with Ok c -> decode_rp_issue_attestation_request c | Error e -> failwith e
@@ -8941,6 +9729,68 @@ let encode_issue_for_signing_request_response_bytes (v : issue_for_signing_reque
 let decode_issue_for_signing_request_response_bytes (b : bytes) : issue_for_signing_request_response =
   match Cbor.decode b with Ok c -> decode_issue_for_signing_request_response c | Error e -> failwith e
 
+let encode_rp_sign_request_request value = Cbor.encode (encode_rp_sign_request value)
+let decode_rp_sign_request_request bytes =
+  match Cbor.decode bytes with Ok root -> (decode_rp_sign_request root) | Error e -> failwith e
+
+let decode_rp_sign_request_success bytes =
+  match Cbor.decode bytes with Ok root -> (decode_rp_sign_response root) | Error e -> failwith e
+
+exception Rp_error_refusal of rp_error
+
+let encode_rp_sign_request_reply = function
+  | Ok value -> ("RpSignResponse", Cbor.encode (encode_rp_sign_response value))
+  | Error (`Rp_error value) -> ("RpError", Cbor.encode (encode_rp_error value))
+
+let encode_rp_decrypt_token_request value = Cbor.encode (encode_rp_decrypt_request value)
+let decode_rp_decrypt_token_request bytes =
+  match Cbor.decode bytes with Ok root -> (decode_rp_decrypt_request root) | Error e -> failwith e
+
+let decode_rp_decrypt_token_success bytes =
+  match Cbor.decode bytes with Ok root -> (decode_rp_decrypt_response root) | Error e -> failwith e
+
+let encode_rp_decrypt_token_reply = function
+  | Ok value -> ("RpDecryptResponse", Cbor.encode (encode_rp_decrypt_response value))
+  | Error (`Rp_error value) -> ("RpError", Cbor.encode (encode_rp_error value))
+
+let encode_rp_verify_assertion_request value = Cbor.encode (encode_rp_verify_request value)
+let decode_rp_verify_assertion_request bytes =
+  match Cbor.decode bytes with Ok root -> (decode_rp_verify_request root) | Error e -> failwith e
+
+let decode_rp_verify_assertion_success bytes =
+  match Cbor.decode bytes with Ok root -> (decode_rp_verify_response root) | Error e -> failwith e
+
+let encode_rp_verify_assertion_reply = function
+  | Ok value -> ("RpVerifyResponse", Cbor.encode (encode_rp_verify_response value))
+  | Error (`Rp_error value) -> ("RpError", Cbor.encode (encode_rp_error value))
+
+let encode_rp_userinfo_fetch_request value = Cbor.encode (encode_rp_user_info_request value)
+let decode_rp_userinfo_fetch_request bytes =
+  match Cbor.decode bytes with Ok root -> (decode_rp_user_info_request root) | Error e -> failwith e
+
+let decode_rp_userinfo_fetch_success bytes =
+  match Cbor.decode bytes with Ok root -> (decode_user_info root) | Error e -> failwith e
+
+let encode_rp_userinfo_fetch_reply = function
+  | Ok value -> ("UserInfo", Cbor.encode (encode_user_info value))
+  | Error (`Rp_error value) -> ("RpError", Cbor.encode (encode_rp_error value))
+
 let resolve_rpc_reply ~service ~op ~variant payload =
   match service, op, variant with
+  | "Rp", "sign-request", Some "RpSignResponse" -> payload
+  | "Rp", "sign-request", Some "RpError" ->
+      (match Cbor.decode payload with Ok root -> raise (Rp_error_refusal ((decode_rp_error root))) | Error e -> failwith e)
+  | "Rp", "sign-request", _ -> failwith "invalid RPC reply variant"
+  | "Rp", "decrypt-token", Some "RpDecryptResponse" -> payload
+  | "Rp", "decrypt-token", Some "RpError" ->
+      (match Cbor.decode payload with Ok root -> raise (Rp_error_refusal ((decode_rp_error root))) | Error e -> failwith e)
+  | "Rp", "decrypt-token", _ -> failwith "invalid RPC reply variant"
+  | "Rp", "verify-assertion", Some "RpVerifyResponse" -> payload
+  | "Rp", "verify-assertion", Some "RpError" ->
+      (match Cbor.decode payload with Ok root -> raise (Rp_error_refusal ((decode_rp_error root))) | Error e -> failwith e)
+  | "Rp", "verify-assertion", _ -> failwith "invalid RPC reply variant"
+  | "Rp", "userinfo-fetch", Some "UserInfo" -> payload
+  | "Rp", "userinfo-fetch", Some "RpError" ->
+      (match Cbor.decode payload with Ok root -> raise (Rp_error_refusal ((decode_rp_error root))) | Error e -> failwith e)
+  | "Rp", "userinfo-fetch", _ -> failwith "invalid RPC reply variant"
   | _ -> payload

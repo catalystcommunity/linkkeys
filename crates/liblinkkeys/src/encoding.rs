@@ -9,6 +9,9 @@ use std::fmt;
 pub enum DecodeError {
     Base64Failed(String),
     CborFailed(String),
+    /// The value has no CBOR wire form (for example, a timestamp outside
+    /// UTC years 0001 to 9999).
+    EncodeFailed(String),
 }
 
 impl fmt::Display for DecodeError {
@@ -16,6 +19,7 @@ impl fmt::Display for DecodeError {
         match self {
             DecodeError::Base64Failed(msg) => write!(f, "base64url decode failed: {}", msg),
             DecodeError::CborFailed(msg) => write!(f, "CBOR decode failed: {}", msg),
+            DecodeError::EncodeFailed(msg) => write!(f, "CBOR encode failed: {}", msg),
         }
     }
 }
@@ -25,7 +29,8 @@ impl std::error::Error for DecodeError {}
 /// Encode a SignedIdentityAssertion to a URL-safe string.
 /// CBOR-encodes the struct, then base64url-encodes (no padding).
 pub fn assertion_to_url_param(signed: &SignedIdentityAssertion) -> Result<String, DecodeError> {
-    let cbor_bytes = crate::generated::encode_signed_identity_assertion(signed);
+    let cbor_bytes = crate::generated::encode_signed_identity_assertion(signed)
+        .map_err(|e| DecodeError::EncodeFailed(e.to_string()))?;
     Ok(Base64UrlUnpadded::encode_string(&cbor_bytes))
 }
 
@@ -40,7 +45,8 @@ pub fn assertion_from_url_param(param: &str) -> Result<SignedIdentityAssertion, 
 
 /// Encode a SignedAuthRequest to a URL-safe string.
 pub fn signed_auth_request_to_url_param(signed: &SignedAuthRequest) -> Result<String, DecodeError> {
-    let cbor_bytes = crate::generated::encode_signed_auth_request(signed);
+    let cbor_bytes = crate::generated::encode_signed_auth_request(signed)
+        .map_err(|e| DecodeError::EncodeFailed(e.to_string()))?;
     Ok(Base64UrlUnpadded::encode_string(&cbor_bytes))
 }
 
@@ -54,7 +60,8 @@ pub fn signed_auth_request_from_url_param(param: &str) -> Result<SignedAuthReque
 
 /// Encode an EncryptedToken to a URL-safe string.
 pub fn encrypted_token_to_url_param(token: &EncryptedToken) -> Result<String, DecodeError> {
-    let cbor_bytes = crate::generated::encode_encrypted_token(token);
+    let cbor_bytes = crate::generated::encode_encrypted_token(token)
+        .map_err(|e| DecodeError::EncodeFailed(e.to_string()))?;
     Ok(Base64UrlUnpadded::encode_string(&cbor_bytes))
 }
 
@@ -72,7 +79,8 @@ pub fn encrypted_token_from_url_param(param: &str) -> Result<EncryptedToken, Dec
 pub fn signed_local_rp_login_request_to_url_param(
     signed: &SignedLocalRpLoginRequest,
 ) -> Result<String, DecodeError> {
-    let cbor_bytes = crate::generated::encode_signed_local_rp_login_request(signed);
+    let cbor_bytes = crate::generated::encode_signed_local_rp_login_request(signed)
+        .map_err(|e| DecodeError::EncodeFailed(e.to_string()))?;
     Ok(Base64UrlUnpadded::encode_string(&cbor_bytes))
 }
 
@@ -93,7 +101,8 @@ pub fn signed_local_rp_login_request_from_url_param(
 pub fn local_rp_encrypted_callback_to_url_param(
     callback: &LocalRpEncryptedCallback,
 ) -> Result<String, DecodeError> {
-    let cbor_bytes = crate::generated::encode_local_rp_encrypted_callback(callback);
+    let cbor_bytes = crate::generated::encode_local_rp_encrypted_callback(callback)
+        .map_err(|e| DecodeError::EncodeFailed(e.to_string()))?;
     Ok(Base64UrlUnpadded::encode_string(&cbor_bytes))
 }
 
@@ -112,7 +121,6 @@ mod tests {
     use super::*;
     use crate::assertions::{build_assertion, sign_assertion};
     use crate::crypto::{generate_keypair, SigningAlgorithm};
-    use crate::timestamp::Rfc3339 as _;
 
     #[test]
     fn test_url_param_roundtrip() {
@@ -125,6 +133,7 @@ mod tests {
             Some("Alice"),
             300,
             vec![],
+            crate::test_support::app_ref(),
         );
         let signed = sign_assertion(&assertion, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
 
@@ -161,6 +170,7 @@ mod tests {
             "key-1",
             None,
             None,
+            crate::test_support::rp_app(),
         );
         let signed = sign_auth_request(&request, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
 
@@ -198,7 +208,7 @@ mod tests {
             ephemeral_public_key: vec![1; 32],
             ciphertext: vec![2; 64],
             nonce: vec![3; 12],
-            suite: Some("chacha20-poly1305".to_string()),
+            suite: Some(crate::generated::types::AeadSuite::Chacha20Poly1305),
         };
 
         let encoded = encrypted_token_to_url_param(&token).unwrap();
@@ -227,9 +237,9 @@ mod tests {
             None,
             &pk_arr,
             &enc_pk_arr,
-            vec!["aes-256-gcm".to_string()],
-            &now.to_rfc3339(),
-            &(now + time::Duration::days(3650)).to_rfc3339(),
+            vec![crate::generated::types::AeadSuite::Aes256Gcm],
+            now,
+            now + time::Duration::days(3650),
         );
         let signed_descriptor = sign_local_rp_descriptor(&descriptor, &sk.to_bytes()).unwrap();
         let request = build_local_rp_login_request(
@@ -239,8 +249,8 @@ mod tests {
             b"state".to_vec(),
             vec!["email".to_string()],
             vec!["handle".to_string()],
-            &now.to_rfc3339(),
-            &(now + time::Duration::minutes(5)).to_rfc3339(),
+            now,
+            now + time::Duration::minutes(5),
         );
         let signed = sign_local_rp_login_request(&request, &sk.to_bytes()).unwrap();
 

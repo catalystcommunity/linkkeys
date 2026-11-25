@@ -5,6 +5,6 @@ package csilgen.generated;
 public record ReleaseRule(
     String audience /* wire: "audience" */,
     String claimType /* wire: "claim_type" */,
-    String disposition /* wire: "disposition" */
+    ReleaseDisposition disposition /* wire: "disposition" */
 ) {
 }

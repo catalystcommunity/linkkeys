@@ -116,6 +116,20 @@ for the real wire; that csilgen defect has since been fixed, but no Ruby
 generator target exists yet, so hand-rolling remains the Ruby path
 regardless.)
 
+Wire forms in `types.rb`:
+
+- In memory, a CSIL `timestamp` field is an RFC 3339 String. On the wire it
+  is CBOR tag 0 that wraps RFC 3339 text in UTC with a `Z` suffix. The
+  decoder rejects a timestamp without tag 0.
+- In memory, a CSIL enum field (`KeyAlgorithm`, `KeyUsage`, `AeadSuite`) is
+  its text label, for example `'sign'` or `'aes-256-gcm'`. On the wire it is
+  a CBOR unsigned integer. The decoder rejects an unknown number.
+- In a signed tuple payload (claim, key revocation, key vouch), a timestamp
+  is whole Unix seconds as a CBOR integer. A timestamp with a fraction of a
+  second cannot be signed, so its verification fails.
+- The callback box KDF context binds the suite text id (`aes-256-gcm`), not
+  the suite number in the header.
+
 Every byte-level construction here (envelope signature inputs, the callback
 sealed box, revocation-certificate payloads, claim payloads, CBOR struct
 field order, base64url encoding) was verified directly against

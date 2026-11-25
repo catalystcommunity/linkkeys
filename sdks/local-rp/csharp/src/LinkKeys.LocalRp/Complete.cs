@@ -145,7 +145,7 @@ public static class Complete
 
         // 7. Redeem the claim ticket over TCP CSIL-RPC, signed with the local RP's own key.
         var redemptionRequest = LocalRp.BuildLocalRpTicketRedemptionRequest(
-            payload.ClaimTicket, config.KeyMaterial.Fingerprint, Rfc3339.Format(config.Now));
+            payload.ClaimTicket, config.KeyMaterial.Fingerprint, config.Now);
         var signedRedemption = LocalRp.SignLocalRpTicketRedemptionRequest(redemptionRequest, config.KeyMaterial.SigningPrivateKey);
         var redemption = RpcClient.RedeemClaimTicket(transport, dns, config.Pending.UserDomain, signedRedemption);
 
@@ -225,8 +225,8 @@ public static class Complete
             redemption.Claims,
             userDomainKeys,
             config.KeyMaterial.Fingerprint,
-            Rfc3339.Parse("issued_at", payload.IssuedAt),
-            Rfc3339.Parse("expires_at", payload.ExpiresAt),
-            Rfc3339.Parse("ticket_expires_at", redemption.TicketExpiresAt));
+            payload.IssuedAt,
+            payload.ExpiresAt,
+            redemption.TicketExpiresAt);
     }
 }

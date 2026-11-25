@@ -11,7 +11,6 @@
 mod common;
 
 use liblinkkeys::crypto::{self, SigningAlgorithm};
-use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::web::pick_active_signing_key;
 use time::{Duration, OffsetDateTime};
 
@@ -37,14 +36,10 @@ fn add_encryption_key(pool: &linkkeys::db::DbPool, signer_id: &str, signer_sk: &
     let (enc_pub, enc_priv) = crypto::generate_x25519_keypair();
     let enc_fp = crypto::fingerprint(&enc_pub);
     let enc_priv_encrypted = crypto::encrypt_private_key(&enc_priv, TEST_PASSPHRASE).unwrap();
-    let expires = OffsetDateTime::now_utc() + Duration::days(365);
-    let vouch = liblinkkeys::dns::sign_key_vouch(
-        &enc_fp,
-        &expires.to_rfc3339(),
-        SigningAlgorithm::Ed25519,
-        signer_sk,
-    )
-    .unwrap();
+    let expires = liblinkkeys::timestamp::now_whole_seconds() + Duration::days(365);
+    let vouch =
+        liblinkkeys::dns::sign_key_vouch(&enc_fp, &expires, SigningAlgorithm::Ed25519, signer_sk)
+            .unwrap();
     pool.create_domain_encryption_key(
         &enc_pub,
         &enc_priv_encrypted,

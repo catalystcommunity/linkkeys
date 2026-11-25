@@ -34,11 +34,11 @@ public static class Codec
         Cbor.PutText(e, "key_id", v.KeyId);
         Cbor.PutBytes(e, "public_key", v.PublicKey);
         Cbor.PutText(e, "fingerprint", v.Fingerprint);
-        Cbor.PutText(e, "algorithm", v.Algorithm);
-        Cbor.PutText(e, "key_usage", v.KeyUsage);
-        Cbor.PutText(e, "created_at", v.CreatedAt);
-        Cbor.PutText(e, "expires_at", v.ExpiresAt);
-        Cbor.PutOptText(e, "revoked_at", v.RevokedAt);
+        e.Add(Cbor.EntryOf("algorithm", Cbor.KeyAlgorithm.Encode(v.Algorithm)));
+        e.Add(Cbor.EntryOf("key_usage", Cbor.KeyUsage.Encode(v.KeyUsage)));
+        Cbor.PutTimestamp(e, "created_at", v.CreatedAt);
+        Cbor.PutTimestamp(e, "expires_at", v.ExpiresAt);
+        Cbor.PutOptTimestamp(e, "revoked_at", v.RevokedAt);
         Cbor.PutOptText(e, "signed_by_key_id", v.SignedByKeyId);
         Cbor.PutOptBytes(e, "key_signature", v.KeySignature);
         return Cbor.VMapOf(e);
@@ -48,11 +48,11 @@ public static class Codec
         Cbor.RequireText(m, "key_id"),
         Cbor.RequireBytes(m, "public_key"),
         Cbor.RequireText(m, "fingerprint"),
-        Cbor.RequireText(m, "algorithm"),
-        Cbor.RequireText(m, "key_usage"),
-        Cbor.RequireText(m, "created_at"),
-        Cbor.RequireText(m, "expires_at"),
-        Cbor.OptText(m, "revoked_at"),
+        Cbor.KeyAlgorithm.Decode(Cbor.Require(m, "algorithm")),
+        Cbor.KeyUsage.Decode(Cbor.Require(m, "key_usage")),
+        Cbor.RequireTimestamp(m, "created_at"),
+        Cbor.RequireTimestamp(m, "expires_at"),
+        Cbor.OptTimestamp(m, "revoked_at"),
         Cbor.OptText(m, "signed_by_key_id"),
         Cbor.OptBytes(m, "key_signature"));
 
@@ -89,14 +89,14 @@ public static class Codec
     public static byte[] EncodeGetRevocationsRequest(GetRevocationsRequest v)
     {
         var e = new List<Cbor.Entry>();
-        Cbor.PutOptText(e, "since", v.Since);
+        Cbor.PutOptTimestamp(e, "since", v.Since);
         return Cbor.Encode(Cbor.VMapOf(e));
     }
 
     public static GetRevocationsRequest DecodeGetRevocationsRequest(byte[] data)
     {
         var m = Cbor.Decode(data);
-        return new GetRevocationsRequest(Cbor.OptText(m, "since"));
+        return new GetRevocationsRequest(Cbor.OptTimestamp(m, "since"));
     }
 
     private static Cbor.Value EncClaimSignature(ClaimSignature v)
@@ -118,7 +118,7 @@ public static class Codec
         var e = new List<Cbor.Entry>();
         Cbor.PutText(e, "target_key_id", v.TargetKeyId);
         Cbor.PutText(e, "target_fingerprint", v.TargetFingerprint);
-        Cbor.PutText(e, "revoked_at", v.RevokedAt);
+        Cbor.PutTimestamp(e, "revoked_at", v.RevokedAt);
         e.Add(Cbor.EntryOf("signatures", EncArray(v.Signatures, EncClaimSignature)));
         return Cbor.VMapOf(e);
     }
@@ -126,7 +126,7 @@ public static class Codec
     private static RevocationCertificate DecRevocationCertificate(Cbor.Value m) => new(
         Cbor.RequireText(m, "target_key_id"),
         Cbor.RequireText(m, "target_fingerprint"),
-        Cbor.RequireText(m, "revoked_at"),
+        Cbor.RequireTimestamp(m, "revoked_at"),
         DecArray(Cbor.Require(m, "signatures"), DecClaimSignature));
 
     public static byte[] EncodeGetRevocationsResponse(GetRevocationsResponse v)
@@ -153,10 +153,10 @@ public static class Codec
         Cbor.PutText(e, "claim_type", v.ClaimType);
         Cbor.PutBytes(e, "claim_value", v.ClaimValue);
         e.Add(Cbor.EntryOf("signatures", EncArray(v.Signatures, EncClaimSignature)));
-        Cbor.PutText(e, "attested_at", v.AttestedAt);
-        Cbor.PutText(e, "created_at", v.CreatedAt);
-        Cbor.PutOptText(e, "expires_at", v.ExpiresAt);
-        Cbor.PutOptText(e, "revoked_at", v.RevokedAt);
+        Cbor.PutTimestamp(e, "attested_at", v.AttestedAt);
+        Cbor.PutTimestamp(e, "created_at", v.CreatedAt);
+        Cbor.PutOptTimestamp(e, "expires_at", v.ExpiresAt);
+        Cbor.PutOptTimestamp(e, "revoked_at", v.RevokedAt);
         return Cbor.VMapOf(e);
     }
 
@@ -166,10 +166,10 @@ public static class Codec
         Cbor.RequireText(m, "claim_type"),
         Cbor.RequireBytes(m, "claim_value"),
         DecArray(Cbor.Require(m, "signatures"), DecClaimSignature),
-        Cbor.RequireText(m, "attested_at"),
-        Cbor.RequireText(m, "created_at"),
-        Cbor.OptText(m, "expires_at"),
-        Cbor.OptText(m, "revoked_at"));
+        Cbor.RequireTimestamp(m, "attested_at"),
+        Cbor.RequireTimestamp(m, "created_at"),
+        Cbor.OptTimestamp(m, "expires_at"),
+        Cbor.OptTimestamp(m, "revoked_at"));
 
     public static byte[] EncodeClaim(Claim v) => Cbor.Encode(EncClaim(v));
 
@@ -187,9 +187,9 @@ public static class Codec
         Cbor.PutBytes(e, "signing_public_key", v.SigningPublicKey);
         Cbor.PutBytes(e, "encryption_public_key", v.EncryptionPublicKey);
         Cbor.PutText(e, "fingerprint", v.Fingerprint);
-        e.Add(Cbor.EntryOf("supported_suites", Cbor.VArrayOf(v.SupportedSuites.Select(Cbor.VTextOf).ToList())));
-        Cbor.PutText(e, "created_at", v.CreatedAt);
-        Cbor.PutText(e, "expires_at", v.ExpiresAt);
+        e.Add(Cbor.EntryOf("supported_suites", Cbor.VArrayOf(v.SupportedSuites.Select(Cbor.AeadSuite.Encode).ToList())));
+        Cbor.PutTimestamp(e, "created_at", v.CreatedAt);
+        Cbor.PutTimestamp(e, "expires_at", v.ExpiresAt);
         return Cbor.VMapOf(e);
     }
 
@@ -202,9 +202,9 @@ public static class Codec
             Cbor.RequireBytes(m, "signing_public_key"),
             Cbor.RequireBytes(m, "encryption_public_key"),
             Cbor.RequireText(m, "fingerprint"),
-            suites.Select(Cbor.AsText).ToList(),
-            Cbor.RequireText(m, "created_at"),
-            Cbor.RequireText(m, "expires_at"));
+            suites.Select(Cbor.AeadSuite.Decode).ToList(),
+            Cbor.RequireTimestamp(m, "created_at"),
+            Cbor.RequireTimestamp(m, "expires_at"));
     }
 
     public static byte[] EncodeLocalRpDescriptor(LocalRpDescriptor v) => Cbor.Encode(EncLocalRpDescriptor(v));
@@ -239,8 +239,8 @@ public static class Codec
         Cbor.PutBytes(e, "state", v.State);
         e.Add(Cbor.EntryOf("requested_claims", Cbor.VArrayOf(v.RequestedClaims.Select(Cbor.VTextOf).ToList())));
         e.Add(Cbor.EntryOf("required_claims", Cbor.VArrayOf(v.RequiredClaims.Select(Cbor.VTextOf).ToList())));
-        Cbor.PutText(e, "issued_at", v.IssuedAt);
-        Cbor.PutText(e, "expires_at", v.ExpiresAt);
+        Cbor.PutTimestamp(e, "issued_at", v.IssuedAt);
+        Cbor.PutTimestamp(e, "expires_at", v.ExpiresAt);
         return Cbor.VMapOf(e);
     }
 
@@ -251,8 +251,8 @@ public static class Codec
         Cbor.RequireBytes(m, "state"),
         Cbor.AsArray(Cbor.Require(m, "requested_claims")).Select(Cbor.AsText).ToList(),
         Cbor.AsArray(Cbor.Require(m, "required_claims")).Select(Cbor.AsText).ToList(),
-        Cbor.RequireText(m, "issued_at"),
-        Cbor.RequireText(m, "expires_at"));
+        Cbor.RequireTimestamp(m, "issued_at"),
+        Cbor.RequireTimestamp(m, "expires_at"));
 
     public static byte[] EncodeLocalRpLoginRequest(LocalRpLoginRequest v) => Cbor.Encode(EncLocalRpLoginRequest(v));
 
@@ -284,11 +284,11 @@ public static class Codec
         Cbor.PutText(e, "fingerprint", v.Fingerprint);
         Cbor.PutBytes(e, "nonce", v.Nonce);
         Cbor.PutBytes(e, "state", v.State);
-        Cbor.PutText(e, "suite", v.Suite);
+        e.Add(Cbor.EntryOf("suite", Cbor.AeadSuite.Encode(v.Suite)));
         Cbor.PutBytes(e, "ephemeral_public_key", v.EphemeralPublicKey);
         Cbor.PutBytes(e, "aead_nonce", v.AeadNonce);
-        Cbor.PutText(e, "issued_at", v.IssuedAt);
-        Cbor.PutText(e, "expires_at", v.ExpiresAt);
+        Cbor.PutTimestamp(e, "issued_at", v.IssuedAt);
+        Cbor.PutTimestamp(e, "expires_at", v.ExpiresAt);
         return Cbor.VMapOf(e);
     }
 
@@ -296,11 +296,11 @@ public static class Codec
         Cbor.RequireText(m, "fingerprint"),
         Cbor.RequireBytes(m, "nonce"),
         Cbor.RequireBytes(m, "state"),
-        Cbor.RequireText(m, "suite"),
+        Cbor.AeadSuite.Decode(Cbor.Require(m, "suite")),
         Cbor.RequireBytes(m, "ephemeral_public_key"),
         Cbor.RequireBytes(m, "aead_nonce"),
-        Cbor.RequireText(m, "issued_at"),
-        Cbor.RequireText(m, "expires_at"));
+        Cbor.RequireTimestamp(m, "issued_at"),
+        Cbor.RequireTimestamp(m, "expires_at"));
 
     public static byte[] EncodeLocalRpCallbackHeader(LocalRpCallbackHeader v) => Cbor.Encode(EncLocalRpCallbackHeader(v));
 
@@ -336,8 +336,8 @@ public static class Codec
         Cbor.PutText(e, "callback_url", v.CallbackUrl);
         Cbor.PutBytes(e, "nonce", v.Nonce);
         Cbor.PutBytes(e, "state", v.State);
-        Cbor.PutText(e, "issued_at", v.IssuedAt);
-        Cbor.PutText(e, "expires_at", v.ExpiresAt);
+        Cbor.PutTimestamp(e, "issued_at", v.IssuedAt);
+        Cbor.PutTimestamp(e, "expires_at", v.ExpiresAt);
         return Cbor.VMapOf(e);
     }
 
@@ -349,8 +349,8 @@ public static class Codec
         Cbor.RequireText(m, "callback_url"),
         Cbor.RequireBytes(m, "nonce"),
         Cbor.RequireBytes(m, "state"),
-        Cbor.RequireText(m, "issued_at"),
-        Cbor.RequireText(m, "expires_at"));
+        Cbor.RequireTimestamp(m, "issued_at"),
+        Cbor.RequireTimestamp(m, "expires_at"));
 
     public static byte[] EncodeLocalRpCallbackPayload(LocalRpCallbackPayload v) => Cbor.Encode(EncLocalRpCallbackPayload(v));
 
@@ -385,14 +385,14 @@ public static class Codec
         var e = new List<Cbor.Entry>();
         Cbor.PutBytes(e, "claim_ticket", v.ClaimTicket);
         Cbor.PutText(e, "fingerprint", v.Fingerprint);
-        Cbor.PutText(e, "issued_at", v.IssuedAt);
+        Cbor.PutTimestamp(e, "issued_at", v.IssuedAt);
         return Cbor.VMapOf(e);
     }
 
     private static LocalRpTicketRedemptionRequest DecLocalRpTicketRedemptionRequest(Cbor.Value m) => new(
         Cbor.RequireBytes(m, "claim_ticket"),
         Cbor.RequireText(m, "fingerprint"),
-        Cbor.RequireText(m, "issued_at"));
+        Cbor.RequireTimestamp(m, "issued_at"));
 
     public static byte[] EncodeLocalRpTicketRedemptionRequest(LocalRpTicketRedemptionRequest v) =>
         Cbor.Encode(EncLocalRpTicketRedemptionRequest(v));
@@ -427,7 +427,7 @@ public static class Codec
         Cbor.PutText(e, "user_id", v.UserId);
         Cbor.PutText(e, "user_domain", v.UserDomain);
         e.Add(Cbor.EntryOf("claims", EncArray(v.Claims, EncClaim)));
-        Cbor.PutText(e, "ticket_expires_at", v.TicketExpiresAt);
+        Cbor.PutTimestamp(e, "ticket_expires_at", v.TicketExpiresAt);
         return Cbor.VMapOf(e);
     }
 
@@ -435,7 +435,7 @@ public static class Codec
         Cbor.RequireText(m, "user_id"),
         Cbor.RequireText(m, "user_domain"),
         DecArray(Cbor.Require(m, "claims"), DecClaim),
-        Cbor.RequireText(m, "ticket_expires_at"));
+        Cbor.RequireTimestamp(m, "ticket_expires_at"));
 
     public static byte[] EncodeLocalRpTicketRedemptionResponse(LocalRpTicketRedemptionResponse v) =>
         Cbor.Encode(EncLocalRpTicketRedemptionResponse(v));
@@ -554,10 +554,10 @@ public static class Codec
             DecApplicationRef(Cbor.Require(m, "audience")),
             DecSignedActAsScopeSet(Cbor.Require(m, "scope_set")),
             Cbor.AsArray(Cbor.Require(m, "approved_scope")).Select(Cbor.AsText).ToList(),
-            Cbor.RequireText(m, "issued_at"),
-            Cbor.RequireText(m, "expires_at"),
-            Cbor.RequireText(m, "series_issued_at"),
-            Cbor.RequireText(m, "renewable_until"),
+            Cbor.RequireTimestamp(m, "issued_at"),
+            Cbor.RequireTimestamp(m, "expires_at"),
+            Cbor.RequireTimestamp(m, "series_issued_at"),
+            Cbor.RequireTimestamp(m, "renewable_until"),
             Cbor.OptText(m, "device_fingerprint"));
     }
 
@@ -578,8 +578,8 @@ public static class Codec
         if (v.RequestedRenewalWindowSeconds is long window) e.Add(Cbor.EntryOf("requested_renewal_window_seconds", Cbor.VInteger(window)));
         Cbor.PutText(e, "callback_url", v.CallbackUrl);
         Cbor.PutText(e, "nonce", v.Nonce);
-        Cbor.PutText(e, "requested_at", v.RequestedAt);
-        Cbor.PutText(e, "expires_at", v.ExpiresAt);
+        Cbor.PutTimestamp(e, "requested_at", v.RequestedAt);
+        Cbor.PutTimestamp(e, "expires_at", v.ExpiresAt);
         return Cbor.Encode(Cbor.VMapOf(e));
     }
 
@@ -593,8 +593,8 @@ public static class Codec
             OptInt(m, "requested_renewal_window_seconds"),
             Cbor.RequireText(m, "callback_url"),
             Cbor.RequireText(m, "nonce"),
-            Cbor.RequireText(m, "requested_at"),
-            Cbor.RequireText(m, "expires_at"));
+            Cbor.RequireTimestamp(m, "requested_at"),
+            Cbor.RequireTimestamp(m, "expires_at"));
     }
 
     public static byte[] EncodeSignedActAsGrantRequest(SignedActAsGrantRequest v)
@@ -616,8 +616,8 @@ public static class Codec
         var e = new List<Cbor.Entry>();
         Cbor.PutText(e, "grant_id", v.GrantId);
         e.Add(Cbor.EntryOf("grantee", EncGranteeRef(v.Grantee)));
-        Cbor.PutText(e, "requested_at", v.RequestedAt);
-        Cbor.PutText(e, "expires_at", v.ExpiresAt);
+        Cbor.PutTimestamp(e, "requested_at", v.RequestedAt);
+        Cbor.PutTimestamp(e, "expires_at", v.ExpiresAt);
         Cbor.PutText(e, "nonce", v.Nonce);
         return Cbor.Encode(Cbor.VMapOf(e));
     }
@@ -628,8 +628,8 @@ public static class Codec
         return new ActAsRefreshRequest(
             Cbor.RequireText(m, "grant_id"),
             DecGranteeRef(Cbor.Require(m, "grantee")),
-            Cbor.RequireText(m, "requested_at"),
-            Cbor.RequireText(m, "expires_at"),
+            Cbor.RequireTimestamp(m, "requested_at"),
+            Cbor.RequireTimestamp(m, "expires_at"),
             Cbor.RequireText(m, "nonce"));
     }
 
@@ -674,7 +674,7 @@ public static class Codec
         Cbor.PutBytes(e, "grant_hash", v.GrantHash);
         e.Add(Cbor.EntryOf("audience", EncApplicationRef(v.Audience)));
         Cbor.PutBytes(e, "request_digest", v.RequestDigest);
-        Cbor.PutText(e, "presented_at", v.PresentedAt);
+        Cbor.PutTimestamp(e, "presented_at", v.PresentedAt);
         Cbor.PutBytes(e, "nonce", v.Nonce);
         return Cbor.Encode(Cbor.VMapOf(e));
     }
@@ -686,7 +686,7 @@ public static class Codec
             Cbor.RequireBytes(m, "grant_hash"),
             DecApplicationRef(Cbor.Require(m, "audience")),
             Cbor.RequireBytes(m, "request_digest"),
-            Cbor.RequireText(m, "presented_at"),
+            Cbor.RequireTimestamp(m, "presented_at"),
             Cbor.RequireBytes(m, "nonce"));
     }
 

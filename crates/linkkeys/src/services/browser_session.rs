@@ -3,7 +3,6 @@
 use base64ct::{Base64UrlUnpadded, Encoding};
 use liblinkkeys::generated::services::ServiceError;
 use liblinkkeys::generated::types::{BrowserSessionInfo, IntrospectBrowserSessionResponse};
-use liblinkkeys::timestamp::Rfc3339 as _;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
@@ -56,10 +55,6 @@ pub fn token_digest(token: &str) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn parse_time(value: &str) -> Option<OffsetDateTime> {
-    liblinkkeys::timestamp::parse_rfc3339(value).ok()
-}
-
 fn methods(value: &str) -> Vec<String> {
     value
         .split(',')
@@ -69,12 +64,8 @@ fn methods(value: &str) -> Vec<String> {
 }
 
 fn active(session: &models::BrowserSession) -> bool {
-    let Some(last_seen) = parse_time(&session.last_seen_at) else {
-        return false;
-    };
-    let Some(expires) = parse_time(&session.expires_at) else {
-        return false;
-    };
+    let last_seen = session.last_seen_at;
+    let expires = session.expires_at;
     let now = OffsetDateTime::now_utc();
     session.revoked_at.is_none()
         && now <= expires
@@ -164,8 +155,7 @@ pub fn get(
         let _ = pool.revoke_browser_session(&digest);
         return Ok(None);
     }
-    let should_refresh = parse_time(&session.last_seen_at)
-        .is_some_and(|last_seen| (OffsetDateTime::now_utc() - last_seen).whole_seconds() >= 60);
+    let should_refresh = (OffsetDateTime::now_utc() - session.last_seen_at).whole_seconds() >= 60;
     if refresh && should_refresh {
         if let Err(error) = pool.touch_browser_session(&digest, OffsetDateTime::now_utc()) {
             log::warn!("Could not refresh browser session activity: {error}");
@@ -198,39 +188,34 @@ pub fn revoke(pool: &DbPool, token: &str) -> Result<(), ServiceError> {
     }
 }
 
+/// The sooner of the absolute expiry and the idle expiry.
+fn effective_expiry(session: &models::BrowserSession) -> OffsetDateTime {
+    session
+        .expires_at
+        .min(session.last_seen_at + time::Duration::seconds(idle_ttl_seconds()))
+}
+
 pub fn info(
     pool: &DbPool,
     session: &models::BrowserSession,
 ) -> Result<BrowserSessionInfo, ServiceError> {
     let user = pool.find_user_by_id(&session.user_id).map_err(db_error)?;
-    let effective_expires = parse_time(&session.expires_at)
-        .zip(parse_time(&session.last_seen_at))
-        .map(|(absolute, last_seen)| {
-            absolute.min(last_seen + time::Duration::seconds(idle_ttl_seconds()))
-        })
-        .map(|value| value.to_rfc3339())
-        .unwrap_or_else(|| session.expires_at.clone());
+    let effective_expires = effective_expiry(session);
     Ok(BrowserSessionInfo {
         user: crate::services::admin::user_to_admin_user(&user),
-        issued_at: session.issued_at.clone(),
-        authenticated_at: session.authenticated_at.clone(),
+        issued_at: session.issued_at,
+        authenticated_at: session.authenticated_at,
         expires_at: effective_expires,
         authentication_methods: methods(&session.authentication_methods),
     })
 }
 
 pub fn introspection(session: &models::BrowserSession) -> IntrospectBrowserSessionResponse {
-    let effective_expires = parse_time(&session.expires_at)
-        .zip(parse_time(&session.last_seen_at))
-        .map(|(absolute, last_seen)| {
-            absolute.min(last_seen + time::Duration::seconds(idle_ttl_seconds()))
-        })
-        .map(|value| value.to_rfc3339())
-        .unwrap_or_else(|| session.expires_at.clone());
+    let effective_expires = effective_expiry(session);
     IntrospectBrowserSessionResponse {
         user_id: session.user_id.clone(),
         user_domain: crate::conversions::get_domain_name(),
-        authenticated_at: session.authenticated_at.clone(),
+        authenticated_at: session.authenticated_at,
         expires_at: effective_expires,
         authentication_methods: methods(&session.authentication_methods),
     }

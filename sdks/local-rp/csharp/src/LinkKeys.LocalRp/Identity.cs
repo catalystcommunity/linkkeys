@@ -73,8 +73,8 @@ public static class Identity
         }
 
         var lifetime = config.Lifetime ?? DefaultLifetime;
-        var createdAt = Rfc3339.Format(config.Now);
-        var expiresAt = Rfc3339.Format(config.Now + lifetime);
+        var createdAt = config.Now;
+        var expiresAt = config.Now + lifetime;
 
         var descriptor = LocalRp.BuildLocalRpDescriptor(
             config.AppName, config.LocalDomainHint, signing.PublicKey, encryption.PublicKey, suites, createdAt, expiresAt);

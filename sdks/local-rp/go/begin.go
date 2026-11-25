@@ -143,13 +143,19 @@ func BeginLocalLogin(config BeginLocalLoginConfig) (*LocalLoginRedirect, *Pendin
 	if lifetime == 0 {
 		lifetime = DefaultLoginRequestLifetime
 	}
-	issuedAt := config.Now.UTC().Format(time.RFC3339Nano)
-	expiresAt := config.Now.Add(lifetime).UTC().Format(time.RFC3339Nano)
+	issuedAt := config.Now.UTC()
+	expiresAt := config.Now.Add(lifetime).UTC()
 
 	request := BuildLocalRpLoginRequest(config.KeyMaterial.Descriptor, config.CallbackURL, nonce, state, requestedClaims, requiredClaims, issuedAt, expiresAt)
-	signed := SignLocalRpLoginRequest(request, config.KeyMaterial.SigningPrivateKey)
+	signed, err := SignLocalRpLoginRequest(request, config.KeyMaterial.SigningPrivateKey)
+	if err != nil {
+		return nil, nil, err
+	}
 
-	encoded := SignedLocalRpLoginRequestToURLParam(signed)
+	encoded, err := SignedLocalRpLoginRequestToURLParam(signed)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// Wire Precision: "Begin route: GET /auth/local-rp?signed_request=<...>"
 	// — mirrors the existing GET /auth/authorize?signed_request=... shape.

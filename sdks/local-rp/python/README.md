@@ -43,7 +43,7 @@ sdks/local-rp/python/
     rpc.py                   # CSIL-RPC framing + fetch_domain_keys /
                         # redeem_claim_ticket / refresh_act_as_grant
     encoding.py               # base64url-unpadded URL-parameter helpers
-    timeutil.py                # RFC3339 parse/format shared by every module
+    timeutil.py                # UTC and signed-time (whole Unix seconds) helpers
     generated/                   # csilgen-generated CSIL types + CSIL-RPC
                         # client (checked in, never hand-edited -- see
                         # "Code generation" below)
@@ -197,6 +197,20 @@ verified = complete_local_login(
 # creation, local user records, and authorization are all your app's job.
 ```
 
+## Wire types
+
+- Every time field is a timezone-aware `datetime` in UTC. On the wire it is
+  a CSIL `timestamp`: CBOR tag 0 over RFC 3339 text. The generated codec
+  reads and writes it. Give `now` and other times with a timezone.
+- A signed tuple payload (claim, key revocation, key vouch) carries its
+  times as CBOR integers of whole Unix seconds. A signed time with a
+  fraction of a second fails verification. It is not rounded.
+- `AeadSuite`, `KeyAlgorithm`, `KeyUsage`, and the other closed vocabularies
+  are the generated enums. On the wire each one is a CBOR unsigned integer.
+  `supported_suites` takes `AeadSuite` values, for example
+  `[AeadSuite.AES_256_GCM]`. `aead_suite_kdf_label(suite)` gives the text
+  id (`aes-256-gcm`) that the callback box KDF binds.
+
 ## Browser endpoint discovery
 
 `begin_local_login` does one DNS TXT lookup of `_linkkeys_apis.<domain>`
@@ -256,6 +270,9 @@ carries the signed descriptor.
    request_digest, now, nonce, key_material)`. Send `credential_cbor` with
    the call. The audience defines `request_digest`. Use a new random `nonce`
    for each call.
+
+The SDK writes every request and presentation time in UTC and in whole
+seconds (`act_as_time`).
 
 The SDK does not verify the grant. The audience verifies it.
 
@@ -340,9 +357,9 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]' && .venv/bin/pytest`)
 Sibling-signed key revocation certificates
 (`crates/liblinkkeys/src/revocation.rs`; conformance authority:
 `sdks/local-rp/conformance/revocations.json` + its README section) are fully
-supported: when `get-domain-keys` signals `recent_revocations_available`,
-`rpc.fetch_domain_keys` also fetches `DomainKeys/get-revocations` and
-**applies** every quorum-verified certificate to the trusted key set — the
+supported: `rpc.fetch_domain_keys` always fetches
+`DomainKeys/get-revocations`. It does not use the server-asserted
+`recent_revocations_available` hint to skip the fetch. It **applies** every quorum-verified certificate to the trusted key set — the
 target key is dropped no matter what its own fetched entry says (its
 `revoked_at` may well be unset; that is the whole point of the sibling
 channel). Verification semantics (`revocation.py`): quorum of 2 distinct,
@@ -350,11 +367,12 @@ currently-valid sibling signing keys; the target's self-signature never
 counts; each signature covers the five-element
 `CBOR([tag, target_key_id, target_fingerprint, revoked_at, signing_domain])`
 tuple (the older house tuple pattern — NOT the local-RP two-element envelope
-framing) recomputed from that signature's own wire `domain` field; sibling
-validity is a wall-clock check. Delivery stays best-effort (a failed
-revocation *fetch* never fails a login — matching the server's and the
-Go/Rust reference SDKs' posture), but a certificate that arrives and
-verifies is always applied.
+framing; `revoked_at` is a CBOR integer of whole Unix seconds, and a
+certificate whose `revoked_at` has a fraction of a second counts no
+signatures) recomputed from that signature's own wire `domain` field; sibling
+validity is a wall-clock check. A failed revocation fetch fails the login
+(fail closed), the same as the Go and Rust SDKs. A certificate that arrives
+and verifies is always applied.
 
 ## Known scope limits / follow-ups
 

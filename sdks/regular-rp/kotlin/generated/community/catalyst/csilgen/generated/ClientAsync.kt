@@ -11,6 +11,13 @@ package community.catalyst.csilgen.generated
  */
 interface AsyncTransport {
     suspend fun call(service: String, op: String, request: ByteArray): ByteArray
+
+    /**
+     * Performs a call to an op with several reply arms and returns the reply variant
+     * with the payload bytes. The client selects the arm from the variant, so the
+     * carrier must not drop it.
+     */
+    suspend fun callReply(service: String, op: String, request: ByteArray): WireReply
 }
 
 /** Typed client for the Ops service. The client owns (de)serialization;
@@ -367,6 +374,30 @@ class AdminAsyncClient(private val transport: AsyncTransport) {
     suspend fun previewAppAccess(request: PreviewAppAccessRequest): PreviewAppAccessResponse {
         return decode<PreviewAppAccessResponse>(transport.call("Admin", "preview-app-access", encode(request)))
     }
+    suspend fun renameUser(request: RenameUserRequest): RenameUserResponse {
+        return decode<RenameUserResponse>(transport.call("Admin", "rename-user", encode(request)))
+    }
+    suspend fun setApplicationId(request: SetApplicationIdRequest): SetApplicationIdResponse {
+        return decode<SetApplicationIdResponse>(transport.call("Admin", "set-application-id", encode(request)))
+    }
+    suspend fun createApiKey(request: CreateApiKeyRequest): CreateApiKeyResponse {
+        return decode<CreateApiKeyResponse>(transport.call("Admin", "create-api-key", encode(request)))
+    }
+    suspend fun listApiKeys(request: ListApiKeysRequest): ListApiKeysResponse {
+        return decode<ListApiKeysResponse>(transport.call("Admin", "list-api-keys", encode(request)))
+    }
+    suspend fun revokeApiKey(request: RevokeApiKeyRequest): RevokeApiKeyResponse {
+        return decode<RevokeApiKeyResponse>(transport.call("Admin", "revoke-api-key", encode(request)))
+    }
+    suspend fun getAccountLimits(request: GetAccountLimitsRequest): GetAccountLimitsResponse {
+        return decode<GetAccountLimitsResponse>(transport.call("Admin", "get-account-limits", encode(request)))
+    }
+    suspend fun setAccountLimits(request: SetAccountLimitsRequest): SetAccountLimitsResponse {
+        return decode<SetAccountLimitsResponse>(transport.call("Admin", "set-account-limits", encode(request)))
+    }
+    suspend fun getApplicationUsage(request: GetApplicationUsageRequest): GetApplicationUsageResponse {
+        return decode<GetApplicationUsageResponse>(transport.call("Admin", "get-application-usage", encode(request)))
+    }
 }
 
 /** Typed client for the Account service. The client owns (de)serialization;
@@ -437,16 +468,20 @@ class AttestationAsyncClient(private val transport: AsyncTransport) {
  * the carrier only moves bytes. */
 class RpAsyncClient(private val transport: AsyncTransport) {
     suspend fun signRequest(request: RpSignRequest): RpSignResponse {
-        return decode<RpSignResponse>(transport.call("Rp", "sign-request", encode(request)))
+        val reply = transport.callReply("Rp", "sign-request", encode(request))
+        return decode<RpSignResponse>(resolveRpcReply("Rp", "sign-request", reply.variant, reply.payload))
     }
     suspend fun decryptToken(request: RpDecryptRequest): RpDecryptResponse {
-        return decode<RpDecryptResponse>(transport.call("Rp", "decrypt-token", encode(request)))
+        val reply = transport.callReply("Rp", "decrypt-token", encode(request))
+        return decode<RpDecryptResponse>(resolveRpcReply("Rp", "decrypt-token", reply.variant, reply.payload))
     }
     suspend fun verifyAssertion(request: RpVerifyRequest): RpVerifyResponse {
-        return decode<RpVerifyResponse>(transport.call("Rp", "verify-assertion", encode(request)))
+        val reply = transport.callReply("Rp", "verify-assertion", encode(request))
+        return decode<RpVerifyResponse>(resolveRpcReply("Rp", "verify-assertion", reply.variant, reply.payload))
     }
     suspend fun userinfoFetch(request: RpUserInfoRequest): UserInfo {
-        return decode<UserInfo>(transport.call("Rp", "userinfo-fetch", encode(request)))
+        val reply = transport.callReply("Rp", "userinfo-fetch", encode(request))
+        return decode<UserInfo>(resolveRpcReply("Rp", "userinfo-fetch", reply.variant, reply.payload))
     }
     suspend fun issueAttestation(request: RpIssueAttestationRequest): RpIssueAttestationResponse {
         return decode<RpIssueAttestationResponse>(transport.call("Rp", "issue-attestation", encode(request)))

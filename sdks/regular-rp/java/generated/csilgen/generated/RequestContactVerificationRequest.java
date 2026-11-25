@@ -3,7 +3,7 @@
 package csilgen.generated;
 
 public record RequestContactVerificationRequest(
-    String channel /* wire: "channel" */,
+    NotificationChannel channel /* wire: "channel" */,
     String destination /* wire: "destination" */,
     String currentPassword /* wire: "current_password" */
 ) {

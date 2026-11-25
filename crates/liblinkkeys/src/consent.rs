@@ -22,6 +22,7 @@ use crate::crypto::CryptoError;
 use crate::generated::types::{
     ApplicationRef, Claim, ClaimRequest, ClaimSignature, ConsentGrant, SignedConsentGrant,
 };
+use crate::timestamp::SignedTime;
 use std::collections::BTreeSet;
 use std::fmt;
 use time::OffsetDateTime;
@@ -51,8 +52,8 @@ pub enum ConsentError {
     Revoked,
     /// The grant has expired (past its signed `expires_at`).
     Expired,
-    /// The grant's `expires_at` could not be parsed.
-    BadExpiry,
+    /// A signed timestamp has a fraction of a second.
+    BadTimestamp,
     /// A signing domain failed the cryptographic quorum (key missing/revoked/
     /// expired, unsupported algorithm, or bad signature).
     Signature(ClaimError),
@@ -68,7 +69,9 @@ impl fmt::Display for ConsentError {
             }
             ConsentError::Revoked => write!(f, "consent grant has been revoked"),
             ConsentError::Expired => write!(f, "consent grant has expired"),
-            ConsentError::BadExpiry => write!(f, "consent grant has an invalid expires_at"),
+            ConsentError::BadTimestamp => {
+                write!(f, "consent grant has a timestamp that cannot be signed")
+            }
             ConsentError::Signature(e) => write!(f, "consent grant signature: {}", e),
         }
     }
@@ -86,6 +89,17 @@ pub(crate) fn canonical_types(types: &[String]) -> Vec<String> {
         .into_iter()
         .map(str::to_string)
         .collect()
+}
+
+/// The signed forms of a grant's `issued_at` and `expires_at`.
+pub(crate) fn signed_times(
+    issued_at: &OffsetDateTime,
+    expires_at: &OffsetDateTime,
+) -> Result<(SignedTime, SignedTime), ConsentError> {
+    match (SignedTime::new(issued_at), SignedTime::new(expires_at)) {
+        (Ok(issued), Ok(expires)) => Ok((issued, expires)),
+        _ => Err(ConsentError::BadTimestamp),
+    }
 }
 
 /// Build the canonical bytes a single signature covers for a consent grant.
@@ -108,8 +122,8 @@ pub(crate) fn consent_sign_payload(
     subject_domain: &str,
     audience: &str,
     claim_types: &[String],
-    issued_at: &str,
-    expires_at: &str,
+    issued_at: SignedTime,
+    expires_at: SignedTime,
     signing_domain: &str,
     application: Option<&ApplicationRef>,
 ) -> Vec<u8> {
@@ -162,8 +176,9 @@ pub struct ConsentSpec<'a> {
     /// The relying party authorized to receive these claims.
     pub audience: &'a str,
     pub claim_types: &'a [String],
-    pub issued_at: &'a str,
-    pub expires_at: &'a str,
+    /// Whole seconds, like `expires_at`.
+    pub issued_at: OffsetDateTime,
+    pub expires_at: OffsetDateTime,
     /// The application of `audience` the grant is for, when the login request
     /// named one.
     pub application: Option<&'a ApplicationRef>,
@@ -179,6 +194,8 @@ pub fn sign_consent(
     signers: &[ClaimSigner<'_>],
 ) -> Result<SignedConsentGrant, CryptoError> {
     let claim_types = canonical_types(spec.claim_types);
+    let (issued_at, expires_at) = signed_times(&spec.issued_at, &spec.expires_at)
+        .map_err(|e| CryptoError::SigningFailed(e.to_string()))?;
 
     let grant = ConsentGrant {
         grant_id: spec.grant_id.to_string(),
@@ -186,13 +203,13 @@ pub fn sign_consent(
         subject_domain: spec.subject_domain.to_string(),
         audience: spec.audience.to_string(),
         claim_types: claim_types.clone(),
-        issued_at: spec.issued_at.to_string(),
-        expires_at: spec.expires_at.to_string(),
+        issued_at: spec.issued_at,
+        expires_at: spec.expires_at,
         revoked_at: None,
         application: spec.application.cloned(),
     };
 
-    let grant_bytes = crate::generated::encode_consent_grant(&grant);
+    let grant_bytes = crate::generated::encode_consent_grant(&grant)?;
 
     let mut signatures = Vec::with_capacity(signers.len());
     for signer in signers {
@@ -202,8 +219,8 @@ pub fn sign_consent(
             spec.subject_domain,
             spec.audience,
             &claim_types,
-            spec.issued_at,
-            spec.expires_at,
+            issued_at,
+            expires_at,
             signer.domain,
             spec.application,
         );
@@ -258,6 +275,7 @@ pub fn verify_consent(
     }
 
     let claim_types = canonical_types(&grant.claim_types);
+    let (issued_at, expires_at) = signed_times(&grant.issued_at, &grant.expires_at)?;
     // `None`: a consent grant is a live, replayable credential, not a stored
     // attestation — a revoked key must hard-reject regardless of issue time.
     verify_signature_quorum(&signed.signatures, domain_keys, None, |signing_domain| {
@@ -267,8 +285,8 @@ pub fn verify_consent(
             subject_domain,
             audience,
             &claim_types,
-            &grant.issued_at,
-            &grant.expires_at,
+            issued_at,
+            expires_at,
             signing_domain,
             application,
         )
@@ -278,9 +296,7 @@ pub fn verify_consent(
     if grant.revoked_at.is_some() {
         return Err(ConsentError::Revoked);
     }
-    let expires =
-        crate::timestamp::parse_rfc3339(&grant.expires_at).map_err(|_| ConsentError::BadExpiry)?;
-    if OffsetDateTime::now_utc() > expires {
+    if OffsetDateTime::now_utc() > grant.expires_at {
         return Err(ConsentError::Expired);
     }
 
@@ -316,7 +332,7 @@ pub enum PolicyDisposition {
 pub struct ConsentScreenRow {
     pub claim_type: String,
     /// Datatype the RP expects (advisory; from the request).
-    pub datatype: String,
+    pub datatype: crate::generated::types::ClaimValueType,
     /// The RP marked this claim required for the app to function.
     pub required: bool,
     /// The user actually holds a claim of this type (releasable).
@@ -405,14 +421,15 @@ pub fn resolve_consent_screen(
 
     // Datatype per requested claim type. If a type appears in both required and
     // optional, required's datatype wins (looked up first).
-    let mut datatypes: std::collections::BTreeMap<&str, &str> = std::collections::BTreeMap::new();
+    let mut datatypes: std::collections::BTreeMap<&str, &crate::generated::types::ClaimValueType> =
+        std::collections::BTreeMap::new();
     for r in req.optional.iter().chain(req.required.iter()) {
-        datatypes.insert(r.claim_type.as_str(), r.datatype.as_str());
+        datatypes.insert(r.claim_type.as_str(), &r.datatype);
     }
 
     let rows = datatypes
         .iter()
-        .map(|(&claim_type, &datatype)| {
+        .map(|(&claim_type, datatype)| {
             let policy_disp = if forced_deny.contains(claim_type) {
                 PolicyDisposition::ForcedDeny
             } else if forced_allow.contains(claim_type) {
@@ -422,7 +439,7 @@ pub fn resolve_consent_screen(
             };
             ConsentScreenRow {
                 claim_type: claim_type.to_string(),
-                datatype: datatype.to_string(),
+                datatype: *(*datatype),
                 required: required.contains(claim_type),
                 available: available_types.contains(claim_type),
                 previously_granted: prior_types.contains(claim_type),
@@ -486,9 +503,8 @@ pub fn scope_claims(claims: &[Claim], authorized: &[String]) -> Vec<Claim> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::{fingerprint, generate_keypair, SigningAlgorithm, ALGORITHM_ED25519};
+    use crate::crypto::{fingerprint, generate_keypair, SigningAlgorithm};
     use crate::generated::types::{DomainPublicKey, RequestedClaim};
-    use crate::timestamp::Rfc3339 as _;
 
     const HOME: &str = "todandlorna.com";
     const RP: &str = "app.example";
@@ -499,12 +515,12 @@ mod tests {
             key_id: key_id.to_string(),
             public_key: pk_bytes.to_vec(),
             fingerprint: fingerprint(pk_bytes),
-            algorithm: ALGORITHM_ED25519.to_string(),
-            key_usage: "sign".to_string(),
+            algorithm: crate::generated::types::KeyAlgorithm::Ed25519,
+            key_usage: crate::generated::types::KeyUsage::Sign,
             signed_by_key_id: None,
             key_signature: None,
-            created_at: OffsetDateTime::now_utc().to_rfc3339(),
-            expires_at: (OffsetDateTime::now_utc() + time::Duration::days(400)).to_rfc3339(),
+            created_at: OffsetDateTime::now_utc(),
+            expires_at: OffsetDateTime::now_utc() + time::Duration::days(400),
             revoked_at: None,
         }
     }
@@ -529,11 +545,11 @@ mod tests {
         ts.iter().map(|s| s.to_string()).collect()
     }
 
-    fn issued_and_expiry() -> (String, String) {
-        let now = OffsetDateTime::now_utc();
+    fn issued_and_expiry() -> (OffsetDateTime, OffsetDateTime) {
+        let now = crate::timestamp::now_whole_seconds();
         (
-            now.to_rfc3339(),
-            (now + time::Duration::seconds(DEFAULT_CONSENT_TTL_SECONDS)).to_rfc3339(),
+            now,
+            now + time::Duration::seconds(DEFAULT_CONSENT_TTL_SECONDS),
         )
     }
 
@@ -551,8 +567,8 @@ mod tests {
                 subject_domain: HOME,
                 audience,
                 claim_types,
-                issued_at: &issued_at,
-                expires_at: &expires_at,
+                issued_at,
+                expires_at,
                 application: None,
             },
             &[signer(key_id, sk)],
@@ -614,8 +630,8 @@ mod tests {
                 subject_domain: HOME,
                 audience: RP,
                 claim_types: &types(&["email"]),
-                issued_at: &issued_at,
-                expires_at: &expires_at,
+                issued_at,
+                expires_at,
                 application: Some(&grafana),
             },
             &[signer("key-1", &sk)],
@@ -636,7 +652,7 @@ mod tests {
         let mut tampered = crate::generated::decode_consent_grant(&signed.grant[..]).unwrap();
         tampered.application = Some(app("wiki"));
         let tampered = SignedConsentGrant {
-            grant: crate::generated::encode_consent_grant(&tampered),
+            grant: crate::generated::encode_consent_grant(&tampered).unwrap(),
             signatures: signed.signatures.clone(),
         };
         assert!(matches!(
@@ -669,7 +685,7 @@ mod tests {
         // signature is over the original set, so verification must fail.
         let mut grant = crate::generated::decode_consent_grant(&signed.grant[..]).unwrap();
         grant.claim_types = types(&["email", "ssn"]);
-        let grant_bytes = crate::generated::encode_consent_grant(&grant);
+        let grant_bytes = crate::generated::encode_consent_grant(&grant).unwrap();
         let tampered = SignedConsentGrant {
             grant: grant_bytes,
             signatures: signed.signatures,
@@ -695,7 +711,7 @@ mod tests {
         let signed = signed_grant("key-1", &sk, &types(&["email"]), RP);
         let mut grant = crate::generated::decode_consent_grant(&signed.grant[..]).unwrap();
         grant.audience = "other.example".to_string();
-        let grant_bytes = crate::generated::encode_consent_grant(&grant);
+        let grant_bytes = crate::generated::encode_consent_grant(&grant).unwrap();
         let tampered = SignedConsentGrant {
             grant: grant_bytes,
             signatures: signed.signatures,
@@ -717,8 +733,9 @@ mod tests {
     #[test]
     fn test_consent_expired_rejected() {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
-        let past = (OffsetDateTime::now_utc() - time::Duration::hours(1)).to_rfc3339();
-        let issued = (OffsetDateTime::now_utc() - time::Duration::hours(2)).to_rfc3339();
+        let now = crate::timestamp::now_whole_seconds();
+        let past = now - time::Duration::hours(1);
+        let issued = now - time::Duration::hours(2);
         let signed = sign_consent(
             &ConsentSpec {
                 grant_id: "grant-1",
@@ -726,8 +743,8 @@ mod tests {
                 subject_domain: HOME,
                 audience: RP,
                 claim_types: &types(&["email"]),
-                issued_at: &issued,
-                expires_at: &past,
+                issued_at: issued,
+                expires_at: past,
                 application: None,
             },
             &[signer("key-1", &sk)],
@@ -750,8 +767,8 @@ mod tests {
         let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
         let signed = signed_grant("key-1", &sk, &types(&["email"]), RP);
         let mut grant = crate::generated::decode_consent_grant(&signed.grant[..]).unwrap();
-        grant.revoked_at = Some(OffsetDateTime::now_utc().to_rfc3339());
-        let grant_bytes = crate::generated::encode_consent_grant(&grant);
+        grant.revoked_at = Some(OffsetDateTime::now_utc());
+        let grant_bytes = crate::generated::encode_consent_grant(&grant).unwrap();
         let revoked = SignedConsentGrant {
             grant: grant_bytes,
             signatures: signed.signatures,
@@ -771,6 +788,26 @@ mod tests {
     }
 
     #[test]
+    fn test_consent_fractional_timestamp_refused() {
+        let (_pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
+        let (issued_at, expires_at) = issued_and_expiry();
+        let result = sign_consent(
+            &ConsentSpec {
+                grant_id: "grant-1",
+                user_id: USER,
+                subject_domain: HOME,
+                audience: RP,
+                claim_types: &types(&["email"]),
+                issued_at: issued_at + time::Duration::milliseconds(500),
+                expires_at,
+                application: None,
+            },
+            &[signer("key-1", &sk)],
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_consent_unsigned_rejected() {
         let (issued_at, expires_at) = issued_and_expiry();
         let signed = sign_consent(
@@ -780,8 +817,8 @@ mod tests {
                 subject_domain: HOME,
                 audience: RP,
                 claim_types: &types(&["email"]),
-                issued_at: &issued_at,
-                expires_at: &expires_at,
+                issued_at,
+                expires_at,
                 application: None,
             },
             &[],
@@ -824,7 +861,7 @@ mod tests {
             xs.iter()
                 .map(|(ct, dt)| RequestedClaim {
                     claim_type: ct.to_string(),
-                    datatype: dt.to_string(),
+                    datatype: crate::generated::types::ClaimValueType::from_label(dt).unwrap(),
                 })
                 .collect()
         };
@@ -885,8 +922,8 @@ mod tests {
             subject_domain: HOME.into(),
             audience: RP.into(),
             claim_types: types(&["email"]),
-            issued_at: OffsetDateTime::now_utc().to_rfc3339(),
-            expires_at: OffsetDateTime::now_utc().to_rfc3339(),
+            issued_at: OffsetDateTime::now_utc(),
+            expires_at: OffsetDateTime::now_utc(),
             revoked_at: None,
             application: None,
         };
@@ -897,8 +934,8 @@ mod tests {
                 claim_type: "email".into(),
                 claim_value: b"a@b.com".to_vec(),
                 signatures: vec![],
-                attested_at: OffsetDateTime::now_utc().to_rfc3339(),
-                created_at: OffsetDateTime::now_utc().to_rfc3339(),
+                attested_at: OffsetDateTime::now_utc(),
+                created_at: OffsetDateTime::now_utc(),
                 expires_at: None,
                 revoked_at: None,
             },
@@ -908,8 +945,8 @@ mod tests {
                 claim_type: "display_name".into(),
                 claim_value: b"Tod".to_vec(),
                 signatures: vec![],
-                attested_at: OffsetDateTime::now_utc().to_rfc3339(),
-                created_at: OffsetDateTime::now_utc().to_rfc3339(),
+                attested_at: OffsetDateTime::now_utc(),
+                created_at: OffsetDateTime::now_utc(),
                 expires_at: None,
                 revoked_at: None,
             },
@@ -1002,8 +1039,8 @@ mod tests {
             claim_type: ct.into(),
             claim_value: b"v".to_vec(),
             signatures: vec![],
-            attested_at: OffsetDateTime::now_utc().to_rfc3339(),
-            created_at: OffsetDateTime::now_utc().to_rfc3339(),
+            attested_at: OffsetDateTime::now_utc(),
+            created_at: OffsetDateTime::now_utc(),
             expires_at: None,
             revoked_at: None,
         };

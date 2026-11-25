@@ -272,6 +272,24 @@ things make this tractable and safe, exactly mirroring the Java SDK's approach:
    conformance vectors**, not merely internally self-consistent — see the
    `*ConformanceTests` classes.
 
+### Wire forms
+
+- **Timestamps.** Every CSIL `timestamp` field is a `DateTimeOffset` in the wire
+  types. On the wire it is CBOR tag 0 that holds RFC 3339 text in UTC with a `Z`
+  offset (for example `c0 74 "2026-01-01T00:00:00Z"`). The decoder refuses a
+  timestamp that has no tag 0 or that is not RFC 3339 text. It gives the instant
+  in UTC.
+- **Closed vocabularies.** `KeyAlgorithm`, `KeyUsage` and `AeadSuite` are
+  unsigned integers on the wire (`ed25519` = 1, `sign` = 1, `aes-256-gcm` = 1,
+  `chacha20-poly1305` = 2). The wire types keep the text label. `Cbor.WireEnum`
+  maps the label to the number. The decoder refuses an unknown number.
+- **Signed tuples.** The claim, key-revocation and key-vouch signatures sign
+  their times as whole Unix seconds (CBOR integers). A time with a fraction of a
+  second cannot be signed. Signing refuses it, and verification fails. The
+  verifier does not round the time.
+- **Callback box.** The header `suite` field is a number. The KDF context still
+  binds the suite text id (`aes-256-gcm` or `chacha20-poly1305`).
+
 If csilgen gains a C# target, this SDK's `Wire`/`Rpc.RpcEnvelope` namespaces should be
 replaced by the generated equivalent; `LocalRp`, `Claims`, `Revocation`, `Identity`,
 `Begin`, `Complete` (the actual protocol logic) stay as hand-written SDK runtime code,

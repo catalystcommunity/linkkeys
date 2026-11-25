@@ -3,6 +3,8 @@ package community.catalyst.linkkeys.localrp.testutil;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 
 import community.catalyst.linkkeys.localrp.crypto.Hex;
 
@@ -31,6 +33,16 @@ public final class Fixtures {
         } catch (IOException e) {
             throw new RuntimeException("read " + path + ": " + e.getMessage() + " (run the generator?)", e);
         }
+    }
+
+    /** An RFC 3339 vector time as an {@link Instant}. */
+    public static Instant time(String s) {
+        return OffsetDateTime.parse(s).toInstant();
+    }
+
+    /** {@link #time}, or {@code null} for a JSON null. */
+    public static Instant timeOrNull(String s) {
+        return s == null ? null : time(s);
     }
 
     public static byte[] hex(String s) {

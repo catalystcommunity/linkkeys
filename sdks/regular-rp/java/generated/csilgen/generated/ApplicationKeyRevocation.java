@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.List;
 
 public record ApplicationKeyRevocation(
@@ -11,7 +12,7 @@ public record ApplicationKeyRevocation(
     String instanceId /* wire: "instance_id" */,
     String targetKeyId /* wire: "target_key_id" */,
     String targetFingerprint /* wire: "target_fingerprint" */,
-    String revokedAt /* wire: "revoked_at" */,
+    Instant revokedAt /* wire: "revoked_at" */,
     List<ApplicationKeySignature> signatures /* wire: "signatures" */
 ) {
 }

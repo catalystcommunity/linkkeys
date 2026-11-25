@@ -63,19 +63,40 @@ a service account for your web app:
 kubectl exec -n linkkeys-rp deploy/linkkeys-rp -- \
   linkkeys domain init
 
-# Create a service account for the web app
+# Create an application account for the web app
 kubectl exec -n linkkeys-rp deploy/linkkeys-rp -- \
-  linkkeys user create my-webapp "My Web Application" --api-key --relation api_access
+  linkkeys user create my-webapp "My Web Application" \
+    --application-id my-webapp --relation api_access
 
 # Save the printed API key — it won't be shown again
 ```
 
 The web app can be on any https host. It does not have to be in the RP
-domain. The service account and an application ID are the application
-principal. `Rp/sign-request` uses the account username (`my-webapp` above) as
-the application ID, or the `application_id` field when the app sends it. The
-IDP consent screen shows the account display name ("My Web Application"), and
+domain. The application account is the application principal: the account,
+this domain, and its `application_id` (`my-webapp` above). Only an
+administrator sets the application id; the app cannot choose it. The IDP
+consent screen shows the account display name ("My Web Application"), and
 users give standing consent to each application separately.
+
+### A relying party shared by many applications
+
+Give each application its own application account. The RP then keeps the
+applications apart:
+
+- A token or assertion issued for one application is refused for any other
+  (`RpError` `application_mismatch`).
+- `Admin/set-account-limits` sets an API-key maximum, a distinct-user limit
+  (`max_distinct_users` in a rolling window), and a request rate for one
+  account. `Admin/get-application-usage` reports the distinct users and the
+  daily `Rp` call counts.
+- `Admin/create-api-key`, `list-api-keys`, and `revoke-api-key` manage named
+  keys. `Admin/rename-user` renames an account; its id stays.
+- Keep `RP_ISSUE_CLAIMS` empty: `Rp/issue-attestation` signs with the shared
+  domain key for every tenant.
+- Set `server.headless: true` when no person signs in at the RP. Then
+  publish only `tcp=` in `_linkkeys_apis`; Admin is served over TCP only.
+- To reach a peer LinkKeys server on a private network, list it in
+  `server.privatePeerAllowlist` as `host=address`.
 
 Then check your DNS TXT record:
 ```bash
@@ -148,7 +169,7 @@ demoapp:
 | Feature | Full IDP | RP Server |
 |---------|---------|-----------|
 | Domain keys | Yes | Yes |
-| User accounts | Human users + services | Services only (API key auth) |
+| User accounts | Human users + services | Application accounts (API key auth) |
 | Password login form | `/auth/authorize` | Disabled |
 | RP endpoints | Optional | Enabled |
 | Claims | Yes | Not typically used |

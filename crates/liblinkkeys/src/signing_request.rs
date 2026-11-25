@@ -14,6 +14,7 @@ use time::OffsetDateTime;
 use crate::claims::{verify_signature_quorum, ClaimError, ClaimSigner, DomainKeySet};
 use crate::crypto::CryptoError;
 use crate::generated::types::{ClaimSignature, SignedSigningRequest, SigningRequest};
+use crate::timestamp::SignedTime;
 
 /// Domain-separation tag + version for the signing-request signature payload.
 const SIGNING_REQUEST_TAG: &str = "linkkeys-signing-request-v1alpha";
@@ -30,8 +31,8 @@ pub enum SigningRequestError {
     ContextMismatch,
     /// The per-domain signature quorum failed.
     Signature(ClaimError),
-    /// `expires_at` is not a valid RFC3339 timestamp.
-    BadExpiry,
+    /// A signed timestamp has a fraction of a second.
+    BadTimestamp,
     /// The request has expired.
     Expired,
 }
@@ -45,13 +46,26 @@ impl std::fmt::Display for SigningRequestError {
                 write!(f, "signing request subject/issuer does not match context")
             }
             SigningRequestError::Signature(e) => write!(f, "signature verification failed: {}", e),
-            SigningRequestError::BadExpiry => write!(f, "signing request has a bad expiry"),
+            SigningRequestError::BadTimestamp => {
+                write!(f, "signing request has a timestamp that cannot be signed")
+            }
             SigningRequestError::Expired => write!(f, "signing request has expired"),
         }
     }
 }
 
 impl std::error::Error for SigningRequestError {}
+
+/// The signed forms of a request's `issued_at` and `expires_at`.
+fn signed_times(
+    issued_at: &OffsetDateTime,
+    expires_at: &OffsetDateTime,
+) -> Result<(SignedTime, SignedTime), SigningRequestError> {
+    match (SignedTime::new(issued_at), SignedTime::new(expires_at)) {
+        (Ok(issued), Ok(expires)) => Ok((issued, expires)),
+        _ => Err(SigningRequestError::BadTimestamp),
+    }
+}
 
 /// Sorted/deduped claim types for a stable signed payload.
 fn canonical_types(types: &[String]) -> Vec<String> {
@@ -69,8 +83,8 @@ fn signing_request_payload(
     issuer_domain: &str,
     requested_claim_types: &[String],
     nonce: &str,
-    issued_at: &str,
-    expires_at: &str,
+    issued_at: SignedTime,
+    expires_at: SignedTime,
     signing_domain: &str,
     callback: Option<&str>,
 ) -> Vec<u8> {
@@ -105,8 +119,9 @@ pub struct SigningRequestSpec<'a> {
     pub issuer_domain: &'a str,
     pub requested_claim_types: &'a [String],
     pub nonce: &'a str,
-    pub issued_at: &'a str,
-    pub expires_at: &'a str,
+    /// Whole seconds, like `expires_at`.
+    pub issued_at: OffsetDateTime,
+    pub expires_at: OffsetDateTime,
     pub callback: Option<&'a str>,
 }
 
@@ -118,6 +133,8 @@ pub fn sign_signing_request(
     signers: &[ClaimSigner<'_>],
 ) -> Result<SignedSigningRequest, CryptoError> {
     let requested_claim_types = canonical_types(spec.requested_claim_types);
+    let (issued_at, expires_at) = signed_times(&spec.issued_at, &spec.expires_at)
+        .map_err(|e| CryptoError::SigningFailed(e.to_string()))?;
 
     let request = SigningRequest {
         request_id: spec.request_id.to_string(),
@@ -126,12 +143,12 @@ pub fn sign_signing_request(
         issuer_domain: spec.issuer_domain.to_string(),
         requested_claim_types: requested_claim_types.clone(),
         nonce: spec.nonce.to_string(),
-        issued_at: spec.issued_at.to_string(),
-        expires_at: spec.expires_at.to_string(),
+        issued_at: spec.issued_at,
+        expires_at: spec.expires_at,
         callback: spec.callback.map(str::to_string),
     };
 
-    let request_bytes = crate::generated::encode_signing_request(&request);
+    let request_bytes = crate::generated::encode_signing_request(&request)?;
 
     let mut signatures = Vec::with_capacity(signers.len());
     for signer in signers {
@@ -142,8 +159,8 @@ pub fn sign_signing_request(
             spec.issuer_domain,
             &requested_claim_types,
             spec.nonce,
-            spec.issued_at,
-            spec.expires_at,
+            issued_at,
+            expires_at,
             signer.domain,
             spec.callback,
         );
@@ -190,6 +207,7 @@ pub fn verify_signing_request(
     }
 
     let requested_claim_types = canonical_types(&request.requested_claim_types);
+    let (issued_at, expires_at) = signed_times(&request.issued_at, &request.expires_at)?;
     // `None`: a signing request is a live, replayable credential presented to an
     // issuer, not a stored attestation — a revoked key must hard-reject.
     verify_signature_quorum(&signed.signatures, domain_keys, None, |signing_domain| {
@@ -200,17 +218,15 @@ pub fn verify_signing_request(
             issuer_domain,
             &requested_claim_types,
             &request.nonce,
-            &request.issued_at,
-            &request.expires_at,
+            issued_at,
+            expires_at,
             signing_domain,
             request.callback.as_deref(),
         )
     })
     .map_err(SigningRequestError::Signature)?;
 
-    let expires = crate::timestamp::parse_rfc3339(&request.expires_at)
-        .map_err(|_| SigningRequestError::BadExpiry)?;
-    if OffsetDateTime::now_utc() > expires {
+    if OffsetDateTime::now_utc() > request.expires_at {
         return Err(SigningRequestError::Expired);
     }
 
@@ -222,7 +238,6 @@ mod tests {
     use super::*;
     use crate::crypto::{fingerprint, generate_ed25519_keypair, SigningAlgorithm};
     use crate::generated::types::DomainPublicKey;
-    use crate::timestamp::Rfc3339 as _;
 
     fn keyset(domain: &str, key_id: &str, pk: &[u8]) -> DomainKeySet {
         DomainKeySet {
@@ -231,10 +246,10 @@ mod tests {
                 key_id: key_id.to_string(),
                 public_key: pk.to_vec(),
                 fingerprint: fingerprint(pk),
-                algorithm: "ed25519".to_string(),
-                key_usage: "sign".to_string(),
-                created_at: String::new(),
-                expires_at: (OffsetDateTime::now_utc() + time::Duration::days(365)).to_rfc3339(),
+                algorithm: crate::generated::types::KeyAlgorithm::Ed25519,
+                key_usage: crate::generated::types::KeyUsage::Sign,
+                created_at: OffsetDateTime::now_utc(),
+                expires_at: OffsetDateTime::now_utc() + time::Duration::days(365),
                 revoked_at: None,
                 signed_by_key_id: None,
                 key_signature: None,
@@ -242,7 +257,7 @@ mod tests {
         }
     }
 
-    fn spec_signed(expires_at: &str) -> (SignedSigningRequest, Vec<u8>, String) {
+    fn spec_signed(expires_at: OffsetDateTime) -> (SignedSigningRequest, Vec<u8>, String) {
         let (vk, sk) = generate_ed25519_keypair();
         let pk = vk.as_bytes().to_vec();
         let types = vec!["age_over_21".to_string()];
@@ -254,14 +269,14 @@ mod tests {
                 issuer_domain: "dmv.test",
                 requested_claim_types: &types,
                 nonce: "nonce-1",
-                issued_at: &OffsetDateTime::now_utc().to_rfc3339(),
+                issued_at: crate::timestamp::now_whole_seconds(),
                 expires_at,
                 callback: Some("https://home.test/deposit"),
             },
             &[ClaimSigner {
                 domain: "home.test",
                 key_id: "k1",
-                algorithm: SigningAlgorithm::parse_str("ed25519").unwrap(),
+                algorithm: SigningAlgorithm::Ed25519,
                 private_key_bytes: &sk.to_bytes(),
             }],
         )
@@ -271,8 +286,8 @@ mod tests {
 
     #[test]
     fn round_trips_and_verifies() {
-        let exp = (OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339();
-        let (signed, pk, kid) = spec_signed(&exp);
+        let exp = crate::timestamp::now_whole_seconds() + time::Duration::hours(1);
+        let (signed, pk, kid) = spec_signed(exp);
         let keys = vec![keyset("home.test", &kid, &pk)];
         let req = verify_signing_request(&signed, "home.test", "dmv.test", &keys).unwrap();
         assert_eq!(req.subject_user_id, "user-1");
@@ -282,8 +297,8 @@ mod tests {
 
     #[test]
     fn wrong_issuer_is_rejected() {
-        let exp = (OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339();
-        let (signed, pk, kid) = spec_signed(&exp);
+        let exp = crate::timestamp::now_whole_seconds() + time::Duration::hours(1);
+        let (signed, pk, kid) = spec_signed(exp);
         let keys = vec![keyset("home.test", &kid, &pk)];
         // A request addressed to dmv.test must not verify at another issuer.
         assert!(matches!(
@@ -294,8 +309,8 @@ mod tests {
 
     #[test]
     fn expired_is_rejected() {
-        let exp = (OffsetDateTime::now_utc() - time::Duration::hours(1)).to_rfc3339();
-        let (signed, pk, kid) = spec_signed(&exp);
+        let exp = crate::timestamp::now_whole_seconds() - time::Duration::hours(1);
+        let (signed, pk, kid) = spec_signed(exp);
         let keys = vec![keyset("home.test", &kid, &pk)];
         assert!(matches!(
             verify_signing_request(&signed, "home.test", "dmv.test", &keys),
@@ -305,13 +320,13 @@ mod tests {
 
     #[test]
     fn tampered_payload_fails_quorum() {
-        let exp = (OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339();
-        let (mut signed, pk, kid) = spec_signed(&exp);
+        let exp = crate::timestamp::now_whole_seconds() + time::Duration::hours(1);
+        let (mut signed, pk, kid) = spec_signed(exp);
         // Flip a byte in the encoded request → decoded fields no longer match the
         // signed payload.
         let mut req = crate::generated::decode_signing_request(&signed.request[..]).unwrap();
         req.subject_user_id = "user-2".to_string();
-        let bytes = crate::generated::encode_signing_request(&req);
+        let bytes = crate::generated::encode_signing_request(&req).unwrap();
         signed.request = bytes;
         let keys = vec![keyset("home.test", &kid, &pk)];
         assert!(matches!(

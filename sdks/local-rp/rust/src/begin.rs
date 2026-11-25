@@ -16,7 +16,6 @@ use crate::browser::{resolve_browser_endpoint, BROWSER_ROUTE_LOCAL_RP};
 use crate::dns::DnsResolver;
 use crate::identity::LocalRpKeyMaterial;
 use crate::Error;
-use liblinkkeys::timestamp::Rfc3339 as _;
 use liblinkkeys::{encoding, identity_input::parse_identity_input, local_rp};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -194,8 +193,8 @@ pub fn begin_local_login(
     let lifetime = config
         .request_lifetime
         .unwrap_or(DEFAULT_LOGIN_REQUEST_LIFETIME);
-    let issued_at = config.now.to_rfc3339();
-    let expires_at = (config.now + lifetime).to_rfc3339();
+    let issued_at = config.now;
+    let expires_at = config.now + lifetime;
 
     // Cloned before the move below: `PendingLogin` must retain the same
     // required-claim set so `complete_local_login` can enforce it later.
@@ -208,8 +207,8 @@ pub fn begin_local_login(
         state.to_vec(),
         requested_claims,
         required_claims,
-        &issued_at,
-        &expires_at,
+        issued_at,
+        expires_at,
     );
     request.authentication_requirements = config.minimum_factor_count.map(|minimum_factor_count| {
         liblinkkeys::generated::types::AuthenticationRequirements {

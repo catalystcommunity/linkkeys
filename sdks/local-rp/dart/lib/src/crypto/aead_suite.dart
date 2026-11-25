@@ -1,20 +1,26 @@
 // The negotiated AEAD suite registry (design doc, Wire Precision "AEAD suite
-// registry"). Exact, case-sensitive strings from a closed registry -- never
-// "close enough", never case-folded. Mirrors `liblinkkeys::crypto::AeadSuite`.
+// registry"). Mirrors `liblinkkeys::crypto::AeadSuite`.
+//
+// On the wire a suite is a CSIL named-number enum: a CBOR unsigned integer
+// ([number]). The callback-box KDF context still binds the text id
+// ([wireId]): exact, case-sensitive, never case-folded.
 library;
 
 enum AeadSuite {
   /// Mandatory-to-implement baseline.
-  aes256Gcm('aes-256-gcm'),
+  aes256Gcm('aes-256-gcm', 1),
 
   /// Optional second suite.
-  chacha20Poly1305('chacha20-poly1305');
+  chacha20Poly1305('chacha20-poly1305', 2);
 
+  /// The text id. The callback-box KDF context binds it.
   final String wireId;
-  const AeadSuite(this.wireId);
 
-  /// Parse a wire-format suite id string. Returns `null` for an id outside
-  /// the registry.
+  /// The CSIL enum number. CBOR fields carry it.
+  final int number;
+  const AeadSuite(this.wireId, this.number);
+
+  /// Parse a text suite id. Returns `null` for an id outside the registry.
   static AeadSuite? parse(String s) {
     for (final suite in AeadSuite.values) {
       if (suite.wireId == s) return suite;
@@ -22,18 +28,16 @@ enum AeadSuite {
     return null;
   }
 
-  /// Every registry suite id, in preference order (baseline first).
-  static List<String> allSupported() =>
-      const ['aes-256-gcm', 'chacha20-poly1305'];
-
-  /// Pick the first suite in [advertised] (preference order) that this
-  /// implementation supports. Never returns a suite outside [advertised],
-  /// even if this implementation also supports it.
-  static AeadSuite? selectSupported(List<String> advertised) {
-    for (final s in advertised) {
-      final suite = parse(s);
-      if (suite != null) return suite;
+  /// The suite with CSIL enum number [n]. Returns `null` for a number
+  /// outside the registry.
+  static AeadSuite? fromNumber(int n) {
+    for (final suite in AeadSuite.values) {
+      if (suite.number == n) return suite;
     }
     return null;
   }
+
+  /// Every registry suite, in preference order (baseline first).
+  static List<AeadSuite> allSupported() =>
+      const [AeadSuite.aes256Gcm, AeadSuite.chacha20Poly1305];
 }

@@ -6,7 +6,6 @@
 mod common;
 
 use common::data_factory::{create_domain_key, create_relation, create_user, DataMap};
-use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::db::models::PeerKey;
 use linkkeys::services::attestation;
 use std::sync::{Mutex, MutexGuard};
@@ -42,12 +41,13 @@ fn issuer_signed_claim(
             user_id: subject_id,
             subject_domain: OUR_DOMAIN,
             expires_at: None,
-            attested_at: "2026-07-01T00:00:00+00:00",
+            attested_at: liblinkkeys::timestamp::parse_rfc3339("2026-07-01T00:00:00+00:00")
+                .unwrap(),
         },
         &[liblinkkeys::claims::ClaimSigner {
             domain: ISSUER,
             key_id: &key_id,
-            algorithm: liblinkkeys::crypto::SigningAlgorithm::parse_str("ed25519").unwrap(),
+            algorithm: liblinkkeys::crypto::SigningAlgorithm::Ed25519,
             private_key_bytes: &sk.to_bytes(),
         }],
     )
@@ -60,7 +60,7 @@ fn issuer_signed_claim(
         algorithm: "ed25519".to_string(),
         fingerprint: liblinkkeys::crypto::fingerprint(&pk_bytes),
         key_usage: "sign".to_string(),
-        expires_at: (time::OffsetDateTime::now_utc() + time::Duration::days(365)).to_rfc3339(),
+        expires_at: time::OffsetDateTime::now_utc() + time::Duration::days(365),
         revoked_at: None,
     };
     (claim, peer)
@@ -111,7 +111,7 @@ fn deposit_via_rpc_dispatch_stores_claim() {
     // Deposit over the CBOR-RPC dispatch (the server-to-server API), not a REST
     // route — issuer's server -> subject's domain.
     let req = liblinkkeys::generated::types::DepositClaimRequest { claim };
-    let payload = liblinkkeys::generated::encode_deposit_claim_request(&req);
+    let payload = liblinkkeys::generated::encode_deposit_claim_request(&req).unwrap();
     let (status, resp) =
         linkkeys::tcp::dispatch_for_test("Attestation", "deposit-claim", payload, &pool, None);
     assert_eq!(status, 0, "deposit should succeed");

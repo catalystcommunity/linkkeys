@@ -126,8 +126,8 @@ class ActAsTest {
                 optLong(gi, "requested_renewal_window_seconds"),
                 gi.get("callback_url").asString(),
                 gi.get("nonce").asString(),
-                gi.get("requested_at").asString(),
-                gi.get("expires_at").asString());
+                Fixtures.time(gi.get("requested_at").asString()),
+                Fixtures.time(gi.get("expires_at").asString()));
         SignedActAsGrantRequest signed = ActAs.signGrantRequest(request, km);
         assertEquals(g.get("request_cbor_hex").asString(), Hex.encode(signed.request()));
         assertEquals(
@@ -141,8 +141,8 @@ class ActAsTest {
         ActAsRefreshRequest refresh = new ActAsRefreshRequest(
                 ri.get("grant_id").asString(),
                 grantee,
-                ri.get("requested_at").asString(),
-                ri.get("expires_at").asString(),
+                Fixtures.time(ri.get("requested_at").asString()),
+                Fixtures.time(ri.get("expires_at").asString()),
                 ri.get("nonce").asString());
         SignedActAsRefreshRequest signedRefresh = ActAs.signRefreshRequest(refresh, km);
         assertEquals(r.get("request_cbor_hex").asString(), Hex.encode(signedRefresh.request()));
@@ -169,8 +169,9 @@ class ActAsTest {
     }
 
     @Test
-    void formatTimeIsWholeSecondUtc() {
-        assertEquals("2026-10-06T12:05:00Z", ActAs.formatTime(Instant.parse("2026-10-06T12:05:00.987654321Z")));
+    void wholeSecondsDropsTheFraction() {
+        assertEquals(
+                Instant.parse("2026-10-06T12:05:00Z"), ActAs.wholeSeconds(Instant.parse("2026-10-06T12:05:00.987654321Z")));
     }
 
     // -----------------------------------------------------------------
@@ -230,8 +231,8 @@ class ActAsTest {
         assertNull(request.grantee().application());
         assertEquals(km.fingerprint(), request.grantee().localRpDescriptorFingerprint());
         assertEquals(result.pending().nonce(), request.nonce());
-        assertEquals("2026-10-06T11:59:00Z", request.requestedAt());
-        assertEquals("2026-10-06T12:04:00Z", request.expiresAt());
+        assertEquals(Instant.parse("2026-10-06T11:59:00Z"), request.requestedAt());
+        assertEquals(Instant.parse("2026-10-06T12:04:00Z"), request.expiresAt());
         assertEquals(1800L, request.requestedLifetimeSeconds());
         assertNull(request.requestedRenewalWindowSeconds());
         assertEquals(CALLBACK_URL, request.callbackUrl());
@@ -340,10 +341,10 @@ class ActAsTest {
         e.add(Cbor.entry("audience", Cbor.vmap(audience)));
         e.add(Cbor.entry("scope_set", Cbor.vmap(scopeSet)));
         e.add(Cbor.entry("approved_scope", Cbor.varray(List.of(Cbor.vtext("read")))));
-        Cbor.putText(e, "issued_at", "2026-10-06T12:00:00Z");
-        Cbor.putText(e, "expires_at", "2026-10-06T13:00:00Z");
-        Cbor.putText(e, "series_issued_at", "2026-10-06T12:00:00Z");
-        Cbor.putText(e, "renewable_until", "2026-10-06T13:00:00Z");
+        Cbor.putTimestamp(e, "issued_at", Instant.parse("2026-10-06T12:00:00Z"));
+        Cbor.putTimestamp(e, "expires_at", Instant.parse("2026-10-06T13:00:00Z"));
+        Cbor.putTimestamp(e, "series_issued_at", Instant.parse("2026-10-06T12:00:00Z"));
+        Cbor.putTimestamp(e, "renewable_until", Instant.parse("2026-10-06T13:00:00Z"));
         return new SignedActAsGrant(
                 Cbor.encode(Cbor.vmap(e)), List.of(new ClaimSignature(subjectDomain, "domain-key", new byte[64])));
     }
@@ -408,8 +409,8 @@ class ActAsTest {
         ActAsRefreshRequest request = Codec.decodeActAsRefreshRequest(signed.request());
         assertEquals("grant-1", request.grantId());
         assertEquals(km.fingerprint(), request.grantee().localRpDescriptorFingerprint());
-        assertEquals("2026-10-06T12:40:00Z", request.requestedAt());
-        assertEquals("2026-10-06T12:45:00Z", request.expiresAt());
+        assertEquals(Instant.parse("2026-10-06T12:40:00Z"), request.requestedAt());
+        assertEquals(Instant.parse("2026-10-06T12:45:00Z"), request.expiresAt());
         assertEquals(43, request.nonce().length());
     }
 

@@ -84,8 +84,8 @@ class ActAsGrantRequest {
   final int? requestedRenewalWindowSeconds;
   final String callbackUrl;
   final String nonce;
-  final String requestedAt;
-  final String expiresAt;
+  final DateTime requestedAt;
+  final DateTime expiresAt;
   const ActAsGrantRequest({
     required this.grantee,
     required this.scopeSet,
@@ -107,8 +107,8 @@ class SignedActAsGrantRequest {
 class ActAsRefreshRequest {
   final String grantId;
   final GranteeRef grantee;
-  final String requestedAt;
-  final String expiresAt;
+  final DateTime requestedAt;
+  final DateTime expiresAt;
   final String nonce;
   const ActAsRefreshRequest({
     required this.grantId,
@@ -150,7 +150,7 @@ class ActAsPresentation {
   final Uint8List grantHash;
   final ApplicationRef audience;
   final Uint8List requestDigest;
-  final String presentedAt;
+  final DateTime presentedAt;
   final Uint8List nonce;
   const ActAsPresentation({
     required this.grantHash,
@@ -314,8 +314,8 @@ class ActAsCodec {
     }
     Cbor.putText(e, 'callback_url', v.callbackUrl);
     Cbor.putText(e, 'nonce', v.nonce);
-    Cbor.putText(e, 'requested_at', v.requestedAt);
-    Cbor.putText(e, 'expires_at', v.expiresAt);
+    Cbor.putTime(e, 'requested_at', v.requestedAt);
+    Cbor.putTime(e, 'expires_at', v.expiresAt);
     return Cbor.encode(Cbor.vmap(e));
   }
 
@@ -330,8 +330,8 @@ class ActAsCodec {
       requestedRenewalWindowSeconds: window == null ? null : Cbor.asInt(window),
       callbackUrl: Cbor.requireText(m, 'callback_url'),
       nonce: Cbor.requireText(m, 'nonce'),
-      requestedAt: Cbor.requireText(m, 'requested_at'),
-      expiresAt: Cbor.requireText(m, 'expires_at'),
+      requestedAt: Cbor.requireTime(m, 'requested_at'),
+      expiresAt: Cbor.requireTime(m, 'expires_at'),
     );
   }
 
@@ -359,8 +359,8 @@ class ActAsCodec {
     final e = <CborMapEntry>[];
     Cbor.putText(e, 'grant_id', v.grantId);
     e.add(Cbor.entry('grantee', _encGranteeRef(v.grantee)));
-    Cbor.putText(e, 'requested_at', v.requestedAt);
-    Cbor.putText(e, 'expires_at', v.expiresAt);
+    Cbor.putTime(e, 'requested_at', v.requestedAt);
+    Cbor.putTime(e, 'expires_at', v.expiresAt);
     Cbor.putText(e, 'nonce', v.nonce);
     return Cbor.encode(Cbor.vmap(e));
   }
@@ -370,8 +370,8 @@ class ActAsCodec {
     return ActAsRefreshRequest(
       grantId: Cbor.requireText(m, 'grant_id'),
       grantee: _decGranteeRef(Cbor.require(m, 'grantee')),
-      requestedAt: Cbor.requireText(m, 'requested_at'),
-      expiresAt: Cbor.requireText(m, 'expires_at'),
+      requestedAt: Cbor.requireTime(m, 'requested_at'),
+      expiresAt: Cbor.requireTime(m, 'expires_at'),
       nonce: Cbor.requireText(m, 'nonce'),
     );
   }
@@ -463,7 +463,7 @@ class ActAsCodec {
     Cbor.putBytes(e, 'grant_hash', v.grantHash);
     e.add(Cbor.entry('audience', _encApplicationRef(v.audience)));
     Cbor.putBytes(e, 'request_digest', v.requestDigest);
-    Cbor.putText(e, 'presented_at', v.presentedAt);
+    Cbor.putTime(e, 'presented_at', v.presentedAt);
     Cbor.putBytes(e, 'nonce', v.nonce);
     return Cbor.encode(Cbor.vmap(e));
   }
@@ -474,7 +474,7 @@ class ActAsCodec {
       grantHash: Cbor.requireBytes(m, 'grant_hash'),
       audience: _decApplicationRef(Cbor.require(m, 'audience')),
       requestDigest: Cbor.requireBytes(m, 'request_digest'),
-      presentedAt: Cbor.requireText(m, 'presented_at'),
+      presentedAt: Cbor.requireTime(m, 'presented_at'),
       nonce: Cbor.requireBytes(m, 'nonce'),
     );
   }

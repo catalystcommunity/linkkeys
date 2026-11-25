@@ -45,5 +45,32 @@ module LinkkeysLocalRp
       utc = time.getutc
       utc.usec.zero? ? utc.strftime('%Y-%m-%dT%H:%M:%SZ') : utc.strftime('%Y-%m-%dT%H:%M:%S.%6NZ')
     end
+
+    # The wire text of a CSIL `timestamp`: the instant in UTC with a `Z`
+    # suffix. Zero, three, six, or nine fraction digits keep the full
+    # precision, as the Rust encoder does. Accepts an RFC 3339 String or a
+    # Time. Raises ArgumentError on an unparseable String.
+    def to_wire_rfc3339(value)
+      utc = (value.is_a?(Time) ? value : parse_rfc3339(value)).getutc
+      nsec = utc.nsec
+      base = utc.strftime('%Y-%m-%dT%H:%M:%S')
+      return "#{base}Z" if nsec.zero?
+
+      digits = if (nsec % 1_000_000).zero? then 3
+               elsif (nsec % 1_000).zero? then 6
+               else 9
+               end
+      "#{base}.#{format('%09d', nsec)[0, digits]}Z"
+    end
+
+    # The form of a timestamp inside a SIGNED tuple payload: whole Unix
+    # seconds as an Integer. A timestamp with a fraction of a second cannot
+    # be signed, so this raises ArgumentError for one (never rounds).
+    def signed_seconds(value)
+      t = value.is_a?(Time) ? value : parse_rfc3339(value)
+      raise ArgumentError, 'a signed timestamp must be a whole number of seconds' unless t.nsec.zero?
+
+      t.to_i
+    end
   end
 end

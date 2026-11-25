@@ -174,8 +174,8 @@ Future<BeginResult> beginLocalLogin(BeginLocalLoginConfig config) async {
   final requestedClaims = config.requestedClaims ?? defaultRequestedClaims;
   final requiredClaims = config.requiredClaims ?? defaultRequiredClaims;
   final lifetime = config.requestLifetime ?? defaultLoginRequestLifetime;
-  final issuedAt = Rfc3339.format(config.now);
-  final expiresAt = Rfc3339.format(config.now.add(lifetime));
+  final issuedAt = Rfc3339.wholeSeconds(config.now);
+  final expiresAt = Rfc3339.wholeSeconds(config.now.add(lifetime));
 
   final request = LocalRp.buildLocalRpLoginRequest(
     config.keyMaterial.descriptor,

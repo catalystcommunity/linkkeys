@@ -62,7 +62,8 @@ sdks/local-rp/ocaml/
   lib/
     cbor.ml            hand-rolled canonical/deterministic CBOR (no csilgen OCaml target)
     hex.ml              minimal hex codec
-    timeutil.ml          RFC3339 <-> Unix epoch seconds, TZ-independent (Howard Hinnant's
+    timeutil.ml          strict RFC 3339 parse, UTC Z normalization, whole-second check,
+                         Unix epoch seconds, TZ-independent (Howard Hinnant's
                          days_from_civil/civil_from_days algorithm)
     crypto.ml            Ed25519, X25519, AES-256-GCM, ChaCha20-Poly1305, HKDF-SHA256,
                          fingerprint, suite/algorithm registries, RNG bootstrap
@@ -351,7 +352,34 @@ eval "$(opam env --root "$CATALYST_TOOLS/opam" --switch catalyst)"
 cd sdks/local-rp/ocaml && dune runtest
 ```
 
-47 test cases, all green (8 of them are act-as grantee tests; 10 of them are the browser endpoint discovery tests, which
+The conformance vectors are outside this dune workspace, so `test/dune` cannot
+name them as file dependencies. It declares `(universe)` instead, so
+`dune runtest` runs the tests every time and a vector change is never hidden by
+a cached result.
+
+## Wire format
+
+The hand-written codec follows the CSIL wire rules (`docs/UPGRADING.md`,
+"Wire format: timestamps and enums"):
+
+- A CSIL `timestamp` is CBOR tag 0 that holds RFC 3339 text in UTC, for
+  example `c0 74 "2026-01-01T00:10:00Z"`. The OCaml types keep RFC 3339
+  strings, as the generated OCaml bindings do. `Cbor.timestamp` writes the
+  UTC `Z` form. `Cbor.field_timestamp` refuses a value with no tag 0 or with
+  text that is not RFC 3339, and gives back the UTC `Z` form.
+- A closed vocabulary is an unsigned integer on the wire: `KeyAlgorithm`
+  (`ed25519` = 1, `x25519` = 2), `KeyUsage` (`sign` = 1, `encrypt` = 2,
+  `agree` = 3), and `AeadSuite` (`aes-256-gcm` = 1, `chacha20-poly1305` = 2).
+  The types keep the text label. `Cbor.enum_value` and `Cbor.as_enum` map the
+  two, and `Cbor.as_enum` refuses an unknown number. The callback-box KDF context still uses the suite text id.
+- A signed tuple payload (claim, key revocation, key vouch) holds each time
+  as a CBOR integer of whole Unix seconds (`Cbor.signed_time`). A time with a
+  fraction of a second fails verification. The SDK does not round it.
+
+55 test cases, all green (5 of them are the wire format tests: tag-0 bytes, refused
+untagged and non-RFC 3339 times, enum numbers, refused fractional signed times, and a
+refused unknown suite label;
+11 of them are act-as grantee tests; 10 of them are the browser endpoint discovery tests, which
 use a fake resolver and never touch live DNS): `keys.json`, `envelopes.json` (cases + all 20 negative
 cases), `callback_box.json` (both suites' positive cases + all 13 negative cases),
 `url_params.json` (both cases + both negative cases), `dns.json` (all valid/invalid

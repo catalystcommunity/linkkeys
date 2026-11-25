@@ -39,9 +39,9 @@ class ClaimsConformanceTest {
                 k.get("fingerprint_hex").asString(),
                 k.get("algorithm").asString(),
                 k.get("key_usage").asString(),
-                k.get("created_at").asString(),
-                k.get("expires_at").asString(),
-                k.getStringOrNull("revoked_at"),
+                Fixtures.time(k.get("created_at").asString()),
+                Fixtures.time(k.get("expires_at").asString()),
+                Fixtures.timeOrNull(k.getStringOrNull("revoked_at")),
                 null,
                 null);
     }
@@ -95,10 +95,10 @@ class ClaimsConformanceTest {
                     Fixtures.hex(claimJson.get("claim_value_hex").asString()),
                     claim.claimValue(),
                     name + ": claim_value must be wire bytes (bstr), not CBOR text");
-            assertEquals(claimJson.get("attested_at").asString(), claim.attestedAt(), name);
-            assertEquals(claimJson.get("created_at").asString(), claim.createdAt(), name);
-            assertEquals(claimJson.getStringOrNull("expires_at"), claim.expiresAt(), name);
-            assertEquals(claimJson.getStringOrNull("revoked_at"), claim.revokedAt(), name);
+            assertEquals(Fixtures.time(claimJson.get("attested_at").asString()), claim.attestedAt(), name);
+            assertEquals(Fixtures.time(claimJson.get("created_at").asString()), claim.createdAt(), name);
+            assertEquals(Fixtures.timeOrNull(claimJson.getStringOrNull("expires_at")), claim.expiresAt(), name);
+            assertEquals(Fixtures.timeOrNull(claimJson.getStringOrNull("revoked_at")), claim.revokedAt(), name);
 
             List<JsonValue> sigJsons = claimJson.get("signatures").asArray();
             assertEquals(sigJsons.size(), claim.signatures().size(), name);
@@ -182,7 +182,7 @@ class ClaimsConformanceTest {
 
         assertEquals(t.get("user_id").asString(), resp.userId());
         assertEquals(t.get("user_domain").asString(), resp.userDomain());
-        assertEquals(t.get("ticket_expires_at").asString(), resp.ticketExpiresAt());
+        assertEquals(Fixtures.time(t.get("ticket_expires_at").asString()), resp.ticketExpiresAt());
         assertEquals(3, resp.claims().size());
 
         assertArrayEquals(

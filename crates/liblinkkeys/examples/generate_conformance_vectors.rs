@@ -120,6 +120,11 @@ fn rfc3339(dt: OffsetDateTime) -> String {
     dt.to_rfc3339()
 }
 
+/// Parse a fixed RFC 3339 fixture constant.
+fn at(s: &str) -> OffsetDateTime {
+    liblinkkeys::timestamp::parse_rfc3339(s).unwrap()
+}
+
 struct Ed25519Fixture {
     public_key: [u8; 32],
     private_key: [u8; 32],
@@ -293,14 +298,11 @@ fn envelopes_json(
         None,
         &local_rp_signing.public_key,
         &local_rp_encryption.public_key,
-        vec![
-            crypto::AEAD_SUITE_AES_256_GCM.to_string(),
-            crypto::AEAD_SUITE_CHACHA20_POLY1305.to_string(),
-        ],
-        &rfc3339(descriptor_created),
-        &rfc3339(descriptor_expires),
+        vec![AeadSuite::Aes256Gcm, AeadSuite::Chacha20Poly1305],
+        descriptor_created,
+        descriptor_expires,
     );
-    let descriptor_bytes = generated::encode_local_rp_descriptor(&descriptor);
+    let descriptor_bytes = generated::encode_local_rp_descriptor(&descriptor).unwrap();
     let signed_descriptor =
         local_rp::sign_local_rp_descriptor(&descriptor, &local_rp_signing.private_key).unwrap();
 
@@ -316,10 +318,10 @@ fn envelopes_json(
             "handle".to_string(),
         ],
         vec!["handle".to_string()],
-        &rfc3339(login_issued),
-        &rfc3339(login_expires),
+        login_issued,
+        login_expires,
     );
-    let login_request_bytes = generated::encode_local_rp_login_request(&login_request);
+    let login_request_bytes = generated::encode_local_rp_login_request(&login_request).unwrap();
     let signed_login_request =
         local_rp::sign_local_rp_login_request(&login_request, &local_rp_signing.private_key)
             .unwrap();
@@ -333,10 +335,11 @@ fn envelopes_json(
         CALLBACK_URL,
         NONCE.to_vec(),
         STATE.to_vec(),
-        &rfc3339(callback_issued),
-        &rfc3339(callback_expires),
+        callback_issued,
+        callback_expires,
     );
-    let callback_payload_bytes = generated::encode_local_rp_callback_payload(&callback_payload);
+    let callback_payload_bytes =
+        generated::encode_local_rp_callback_payload(&callback_payload).unwrap();
     let signed_callback_payload = local_rp::sign_local_rp_callback_payload(
         &callback_payload,
         DOMAIN_SIGNING_KEY_ID,
@@ -349,10 +352,10 @@ fn envelopes_json(
     let ticket_request = local_rp::build_local_rp_ticket_redemption_request(
         CLAIM_TICKET.to_vec(),
         &local_rp_signing.fingerprint,
-        &rfc3339(ticket_issued),
+        ticket_issued,
     );
     let ticket_request_bytes =
-        generated::encode_local_rp_ticket_redemption_request(&ticket_request);
+        generated::encode_local_rp_ticket_redemption_request(&ticket_request).unwrap();
     let signed_ticket_request = local_rp::sign_local_rp_ticket_redemption_request(
         &ticket_request,
         &local_rp_signing.private_key,
@@ -537,12 +540,13 @@ fn callback_box_json(
     let callback_expires = callback_issued + Duration::minutes(5);
 
     let plaintext_cbor =
-        generated::encode_signed_local_rp_callback_payload(&envelopes.signed_callback_payload);
+        generated::encode_signed_local_rp_callback_payload(&envelopes.signed_callback_payload)
+            .unwrap();
 
     let suites: [(AeadSuite, [u8; 32], [u8; 12]); 2] = [
         (AeadSuite::Aes256Gcm, EPHEMERAL_SEED_AES, AEAD_NONCE_AES),
         (
-            AeadSuite::ChaCha20Poly1305,
+            AeadSuite::Chacha20Poly1305,
             EPHEMERAL_SEED_CHACHA,
             AEAD_NONCE_CHACHA,
         ),
@@ -556,13 +560,13 @@ fn callback_box_json(
     // their own HKDF derivation independent of full decrypt.
     const CALLBACK_BOX_TAG: &[u8] = b"linkkeys-local-rp-callback-box-v1alpha";
     fn kdf_context(
-        suite: AeadSuite,
+        suite: &AeadSuite,
         ephemeral_public: &[u8; 32],
         recipient_public: &[u8; 32],
     ) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend_from_slice(CALLBACK_BOX_TAG);
-        out.extend_from_slice(suite.as_str().as_bytes());
+        out.extend_from_slice(suite.kdf_label().as_bytes());
         out.extend_from_slice(ephemeral_public);
         out.extend_from_slice(recipient_public);
         out
@@ -577,13 +581,13 @@ fn callback_box_json(
 
         let encrypted = local_rp::seal_local_rp_callback_with_randomness(
             &envelopes.signed_callback_payload,
-            suite,
+            &suite,
             &local_rp_encryption.public_key,
             &local_rp_signing.fingerprint,
             NONCE.to_vec(),
             STATE.to_vec(),
-            &rfc3339(callback_issued),
-            &rfc3339(callback_expires),
+            callback_issued,
+            callback_expires,
             &ephemeral_seed,
             &aead_nonce,
         )
@@ -592,7 +596,7 @@ fn callback_box_json(
         let header: LocalRpCallbackHeader =
             generated::decode_local_rp_callback_header(&encrypted.header).unwrap();
         let ctx = kdf_context(
-            suite,
+            &suite,
             ephemeral_public.as_bytes(),
             &local_rp_encryption.public_key,
         );
@@ -600,7 +604,8 @@ fn callback_box_json(
         aad.extend_from_slice(&encrypted.header);
 
         positive_cases.push(json!({
-            "suite": suite.as_str(),
+            "suite": suite.kdf_label(),
+            "suite_number": suite.to_number(),
             "ephemeral_private_key_hex": hex(&ephemeral_seed),
             "ephemeral_public_key_hex": hex(ephemeral_public.as_bytes()),
             "aead_nonce_hex": hex(&aead_nonce),
@@ -637,7 +642,7 @@ fn callback_box_json(
     let reencode_with = |mutate: &dyn Fn(&mut LocalRpCallbackHeader)| -> Vec<u8> {
         let mut h = aes_header.clone();
         mutate(&mut h);
-        generated::encode_local_rp_callback_header(&h)
+        generated::encode_local_rp_callback_header(&h).unwrap()
     };
 
     type HeaderMutator = Box<dyn Fn(&mut LocalRpCallbackHeader)>;
@@ -658,20 +663,16 @@ fn callback_box_json(
         ),
         (
             "suite",
-            Box::new(|h: &mut LocalRpCallbackHeader| {
-                h.suite = crypto::AEAD_SUITE_CHACHA20_POLY1305.to_string()
-            }),
+            Box::new(|h: &mut LocalRpCallbackHeader| h.suite = AeadSuite::Chacha20Poly1305),
         ),
         (
             "issued_at",
-            Box::new(|h: &mut LocalRpCallbackHeader| {
-                h.issued_at = "2020-01-01T00:00:00+00:00".to_string()
-            }),
+            Box::new(|h: &mut LocalRpCallbackHeader| h.issued_at = at("2020-01-01T00:00:00+00:00")),
         ),
         (
             "expires_at",
             Box::new(|h: &mut LocalRpCallbackHeader| {
-                h.expires_at = "2020-01-01T00:05:00+00:00".to_string()
+                h.expires_at = at("2020-01-01T00:05:00+00:00")
             }),
         ),
         (
@@ -722,12 +723,23 @@ fn callback_box_json(
         "expected_valid": false,
     }));
 
-    // Unknown suite id: not in the registry at all.
-    let unknown_suite_header =
-        reencode_with(&|h: &mut LocalRpCallbackHeader| h.suite = "made-up-suite".to_string());
+    // Unknown suite number: not in the registry at all. A typed header cannot
+    // hold it, so write the header CBOR map directly with suite = 99.
+    let unknown_suite_header = {
+        let mut header: ciborium::Value = ciborium::de::from_reader(&aes_header_bytes[..]).unwrap();
+        let entries = header.as_map_mut().expect("header is a CBOR map");
+        let suite = entries
+            .iter_mut()
+            .find(|(k, _)| k.as_text() == Some("suite"))
+            .expect("header has a suite field");
+        suite.1 = ciborium::Value::Integer(99.into());
+        let mut out = Vec::new();
+        ciborium::ser::into_writer(&header, &mut out).unwrap();
+        out
+    };
     negative_cases.push(json!({
         "name": "unknown_suite_id_rejected",
-        "description": "Header advertises a suite id outside the registry entirely (not aes-256-gcm or chacha20-poly1305).",
+        "description": "Header advertises suite number 99, which is outside the registry entirely (not 1 = aes-256-gcm or 2 = chacha20-poly1305). The header must fail to decode.",
         "header_cbor_hex": hex(&unknown_suite_header),
         "ciphertext_hex": hex(&aes_encrypted.ciphertext),
         "decrypt_private_key_hex": hex(&local_rp_encryption.private_key),
@@ -779,6 +791,7 @@ fn callback_box_json(
         "kdf": {
             "tag": "linkkeys-local-rp-callback-box-v1alpha",
             "info_and_aad_prefix_layout": "tag || suite_id_utf8 || ephemeral_public_key(32) || recipient_public_key(32)",
+            "suite_ids": "The header carries the suite as a CSIL number (1 = aes-256-gcm, 2 = chacha20-poly1305). suite_id_utf8 is the suite's text id, never the number.",
             "kdf_algorithm": "HKDF-SHA256, no salt, expand to 32 bytes",
             "aad_layout": "kdf_context || header_cbor_bytes",
         },
@@ -798,7 +811,7 @@ fn callback_box_json(
 
 fn url_params_json(envelopes: &EnvelopesOutput, callback_box: &CallbackBoxOutput) -> Value {
     let signed_request_cbor =
-        generated::encode_signed_local_rp_login_request(&envelopes.signed_login_request);
+        generated::encode_signed_local_rp_login_request(&envelopes.signed_login_request).unwrap();
     let signed_request_b64 =
         encoding::signed_local_rp_login_request_to_url_param(&envelopes.signed_login_request)
             .unwrap();
@@ -808,7 +821,7 @@ fn url_params_json(envelopes: &EnvelopesOutput, callback_box: &CallbackBoxOutput
     );
 
     let encrypted_callback_cbor =
-        generated::encode_local_rp_encrypted_callback(&callback_box.aes_encrypted);
+        generated::encode_local_rp_encrypted_callback(&callback_box.aes_encrypted).unwrap();
     let encrypted_callback_b64 =
         encoding::local_rp_encrypted_callback_to_url_param(&callback_box.aes_encrypted).unwrap();
     assert_eq!(
@@ -1021,7 +1034,7 @@ fn expirations_json() -> Value {
     .into_iter()
     .map(|(remaining, expected_level)| {
         let now = identity_expires - remaining;
-        let status = local_rp::check_expirations(&rfc3339(identity_expires), now).unwrap();
+        let status = local_rp::check_expirations(identity_expires, now);
         assert_eq!(
             status.level.as_str(),
             expected_level,
@@ -1062,8 +1075,7 @@ fn expirations_json() -> Value {
     ]
     .into_iter()
     .map(|(now, expected_valid, description)| {
-        let result =
-            local_rp::check_timestamps(&rfc3339(ts_issued), &rfc3339(ts_expires), now, skew);
+        let result = local_rp::check_timestamps(ts_issued, ts_expires, now, skew);
         assert_eq!(result.is_ok(), expected_valid, "{description}");
         json!({
             "now": rfc3339(now),
@@ -1115,8 +1127,8 @@ fn revocations_json() -> Value {
     let sib_expired = ed25519_fixture(SIBLING_EXPIRED_SEED);
     let sib_revoked = ed25519_fixture(SIBLING_REVOKED_SEED);
 
-    let created_at = rfc3339(base_instant());
-    let cert_revoked_at = rfc3339(base_instant() + Duration::minutes(10));
+    let created_at = base_instant();
+    let cert_revoked_at = base_instant() + Duration::minutes(10);
     let target_fingerprint = sib3.fingerprint.clone();
 
     let mk_domain_key = |key_id: &str,
@@ -1128,11 +1140,11 @@ fn revocations_json() -> Value {
             key_id: key_id.to_string(),
             public_key: fixture.public_key.to_vec(),
             fingerprint: fixture.fingerprint.clone(),
-            algorithm: "ed25519".to_string(),
-            key_usage: "sign".to_string(),
-            created_at: created_at.clone(),
-            expires_at: expires_at.to_string(),
-            revoked_at: revoked_at.map(|s| s.to_string()),
+            algorithm: liblinkkeys::generated::types::KeyAlgorithm::Ed25519,
+            key_usage: liblinkkeys::generated::types::KeyUsage::Sign,
+            created_at,
+            expires_at: at(expires_at),
+            revoked_at: revoked_at.map(at),
             signed_by_key_id: None,
             key_signature: None,
         }
@@ -1202,7 +1214,7 @@ fn revocations_json() -> Value {
                 "private_key_hex": hex(&fixture.private_key),
                 "public_key_hex": hex(&fixture.public_key),
                 "fingerprint_hex": fixture.fingerprint,
-                "created_at": created_at,
+                "created_at": rfc3339(created_at),
                 "expires_at": expires,
                 "revoked_at": revoked.map(|s| s.to_string()),
             })
@@ -1222,7 +1234,7 @@ fn revocations_json() -> Value {
         let payload = revocation::revocation_payload(
             SIBLING_3_KEY_ID,
             &target_fingerprint,
-            &cert_revoked_at,
+            liblinkkeys::timestamp::SignedTime::new(&cert_revoked_at).unwrap(),
             payload_domain,
         );
         let mut signature =
@@ -1245,7 +1257,7 @@ fn revocations_json() -> Value {
         RevocationCertificate {
             target_key_id: SIBLING_3_KEY_ID.to_string(),
             target_fingerprint: target_fingerprint.clone(),
-            revoked_at: cert_revoked_at.clone(),
+            revoked_at: cert_revoked_at,
             signatures,
         }
     };
@@ -1278,10 +1290,10 @@ fn revocations_json() -> Value {
             "certificate": {
                 "target_key_id": cert.target_key_id,
                 "target_fingerprint": cert.target_fingerprint,
-                "revoked_at": cert.revoked_at,
+                "revoked_at": rfc3339(cert.revoked_at),
                 "signatures": signatures_json,
             },
-            "certificate_cbor_hex": hex(&generated::encode_revocation_certificate(cert)),
+            "certificate_cbor_hex": hex(&generated::encode_revocation_certificate(cert).unwrap()),
             "expected_valid": expected_valid,
             "expected_counted_signers": expected_counted_signers,
         })
@@ -1339,7 +1351,7 @@ fn revocations_json() -> Value {
     // Negative: revoked_at changed after signing — both signatures now cover
     // stale payload bytes, so neither verifies.
     let mut tampered_cert = mk_cert(vec![s1.clone(), s2.clone()]);
-    tampered_cert.revoked_at = rfc3339(base_instant() + Duration::days(1));
+    tampered_cert.revoked_at = base_instant() + Duration::days(1);
     cases.push(case_json(
         "tampered_revoked_at",
         "A valid two-signer certificate whose revoked_at field was changed AFTER signing. The recomputed payload no longer matches either signature, so zero signers count.",
@@ -1458,8 +1470,8 @@ fn revocations_json() -> Value {
         CALLBACK_URL,
         NONCE.to_vec(),
         STATE.to_vec(),
-        &rfc3339(app_issued),
-        &rfc3339(app_expires),
+        app_issued,
+        app_expires,
     );
     let app_signed = local_rp::sign_local_rp_callback_payload(
         &app_payload,
@@ -1485,7 +1497,7 @@ fn revocations_json() -> Value {
         let mut revoked_keys = domain_keys.clone();
         for k in &mut revoked_keys {
             if k.key_id == valid_cert.target_key_id {
-                k.revoked_at = Some(valid_cert.revoked_at.clone());
+                k.revoked_at = Some(valid_cert.revoked_at);
             }
         }
         assert!(
@@ -1517,7 +1529,7 @@ fn revocations_json() -> Value {
     });
 
     json!({
-        "note": "Sibling-signed key revocation certificates. Signed payload per signature: CBOR([tag, target_key_id, target_fingerprint, revoked_at, signing_domain]) — a FIVE-element CBOR array with the domain-separation tag first (the older house tuple pattern; NOT the local-RP envelopes' two-element CBOR([context, payload]) framing). Verification counts DISTINCT signers whose signature verifies, whose wire `domain` equals the domain being verified, whose key exists in the fetched key list as a currently-valid signing key, and who are NOT the target key; the certificate is valid iff that count >= quorum. Sibling-key validity (expiry/revocation) is evaluated against wall-clock time in the Rust implementation, which is why these fixtures use a far-future expires_at.",
+        "note": "Sibling-signed key revocation certificates. Signed payload per signature: CBOR([tag, target_key_id, target_fingerprint, revoked_at, signing_domain]) — a FIVE-element CBOR array, where revoked_at is whole Unix seconds as a CBOR integer (never text; a revoked_at with a fraction of a second cannot be signed), with the domain-separation tag first (the older house tuple pattern; NOT the local-RP envelopes' two-element CBOR([context, payload]) framing). Verification counts DISTINCT signers whose signature verifies, whose wire `domain` equals the domain being verified, whose key exists in the fetched key list as a currently-valid signing key, and who are NOT the target key; the certificate is valid iff that count >= quorum. Sibling-key validity (expiry/revocation) is evaluated against wall-clock time in the Rust implementation, which is why these fixtures use a far-future expires_at.",
         "tag": revocation::REVOCATION_TAG,
         "quorum": revocation::REVOCATION_QUORUM,
         "domain": domain,
@@ -1543,8 +1555,8 @@ fn claims_json() -> Value {
     let key2 = ed25519_fixture(CLAIM_KEY_2_SEED);
     let wrong_key = ed25519_fixture(CLAIM_WRONG_KEY_SEED);
 
-    let attested_at = rfc3339(base_instant());
-    let created_at = rfc3339(base_instant());
+    let attested_at = base_instant();
+    let created_at = base_instant();
 
     // sign_claim stamps created_at from the wall clock (it is deliberately NOT
     // part of the signed payload); pin it to the fixture instant afterward so
@@ -1552,7 +1564,7 @@ fn claims_json() -> Value {
     let mk_claim = |claim_id: &str,
                     claim_type: &str,
                     claim_value: &[u8],
-                    expires_at: Option<&str>,
+                    expires_at: Option<OffsetDateTime>,
                     signers: &[ClaimSigner<'_>]|
      -> Claim {
         let mut claim = claims::sign_claim(
@@ -1563,12 +1575,12 @@ fn claims_json() -> Value {
                 user_id: USER_ID,
                 subject_domain,
                 expires_at,
-                attested_at: &attested_at,
+                attested_at,
             },
             signers,
         )
         .unwrap();
-        claim.created_at = created_at.clone();
+        claim.created_at = created_at;
         claim
     };
 
@@ -1576,7 +1588,7 @@ fn claims_json() -> Value {
         "conformance-claim-1",
         "display_name",
         b"Alice Example",
-        Some(SIBLING_FAR_EXPIRES),
+        Some(at(SIBLING_FAR_EXPIRES)),
         &[ClaimSigner {
             domain: subject_domain,
             key_id: CLAIM_KEY_1_ID,
@@ -1629,7 +1641,7 @@ fn claims_json() -> Value {
             "key_usage": "sign",
             "public_key_hex": hex(&fixture.public_key),
             "fingerprint_hex": fixture.fingerprint,
-            "created_at": created_at,
+            "created_at": rfc3339(created_at),
             "expires_at": SIBLING_FAR_EXPIRES,
             "revoked_at": null,
         })
@@ -1646,10 +1658,10 @@ fn claims_json() -> Value {
             key_id: key_id.to_string(),
             public_key: fixture.public_key.to_vec(),
             fingerprint: fixture.fingerprint.clone(),
-            algorithm: "ed25519".to_string(),
-            key_usage: "sign".to_string(),
-            created_at: created_at.clone(),
-            expires_at: SIBLING_FAR_EXPIRES.to_string(),
+            algorithm: liblinkkeys::generated::types::KeyAlgorithm::Ed25519,
+            key_usage: liblinkkeys::generated::types::KeyUsage::Sign,
+            created_at,
+            expires_at: at(SIBLING_FAR_EXPIRES),
             revoked_at: None,
             signed_by_key_id: None,
             key_signature: None,
@@ -1665,6 +1677,10 @@ fn claims_json() -> Value {
             .signatures
             .iter()
             .map(|sig| {
+                let signed = |t: &OffsetDateTime| {
+                    liblinkkeys::timestamp::SignedTime::new(t)
+                        .expect("fixture times are whole seconds")
+                };
                 let payload = claims::claim_sign_payload(
                     &claim.claim_id,
                     &claim.claim_type,
@@ -1672,8 +1688,8 @@ fn claims_json() -> Value {
                     &claim.user_id,
                     subject_domain,
                     &sig.domain,
-                    claim.expires_at.as_deref(),
-                    &claim.attested_at,
+                    claim.expires_at.as_ref().map(signed),
+                    signed(&claim.attested_at),
                 );
                 json!({
                     "domain": sig.domain,
@@ -1688,10 +1704,10 @@ fn claims_json() -> Value {
             "user_id": claim.user_id,
             "claim_type": claim.claim_type,
             "claim_value_hex": hex(&claim.claim_value),
-            "attested_at": claim.attested_at,
-            "created_at": claim.created_at,
-            "expires_at": claim.expires_at,
-            "revoked_at": claim.revoked_at,
+            "attested_at": rfc3339(claim.attested_at),
+            "created_at": rfc3339(claim.created_at),
+            "expires_at": claim.expires_at.map(rfc3339),
+            "revoked_at": claim.revoked_at.map(rfc3339),
             "signatures": signatures,
         })
     };
@@ -1722,7 +1738,7 @@ fn claims_json() -> Value {
             "description": description,
             "subject_domain": subject_domain,
             "claim": claim_json(claim),
-            "claim_cbor_hex": hex(&generated::encode_claim(claim)),
+            "claim_cbor_hex": hex(&generated::encode_claim(claim).unwrap()),
             "expected_valid": true,
         }));
     }
@@ -1738,7 +1754,7 @@ fn claims_json() -> Value {
         "name": "tampered_claim_value_byte",
         "description": "claim_utf8_text_value with the last byte of claim_value flipped after signing; signature unchanged. claim_value is bound into the signed payload, so verification must fail.",
         "subject_domain": subject_domain,
-        "claim_cbor_hex": hex(&generated::encode_claim(&tampered)),
+        "claim_cbor_hex": hex(&generated::encode_claim(&tampered).unwrap()),
         "expected_error": "signature_invalid",
     }));
 
@@ -1761,7 +1777,7 @@ fn claims_json() -> Value {
         "name": "wrong_signer_key",
         "description": "claim_utf8_text_value verified against a key list where claim-key-1's key id resolves to a REAL but different Ed25519 public key. The signature cannot verify.",
         "subject_domain": subject_domain,
-        "claim_cbor_hex": hex(&generated::encode_claim(&claim_text)),
+        "claim_cbor_hex": hex(&generated::encode_claim(&claim_text).unwrap()),
         "domain_keys": wrong_key_set_json,
         "expected_error": "signature_invalid",
     }));
@@ -1778,7 +1794,7 @@ fn claims_json() -> Value {
         "name": "signer_key_not_found",
         "description": "claim_utf8_text_value verified against a key list that does not contain claim-key-1 at all (only claim-key-2 is supplied).",
         "subject_domain": subject_domain,
-        "claim_cbor_hex": hex(&generated::encode_claim(&claim_text)),
+        "claim_cbor_hex": hex(&generated::encode_claim(&claim_text).unwrap()),
         "domain_keys": vec![mk_verify_key(CLAIM_KEY_2_ID, &key2)],
         "expected_error": "key_not_found",
     }));
@@ -1791,7 +1807,7 @@ fn claims_json() -> Value {
         "name": "subject_domain_replay",
         "description": "claim_utf8_text_value, unmodified, verified with subject_domain 'evil.example' instead of the domain it was issued for. The signed payload binds the subject as user_id@subject_domain, so the recomputed payload differs and the signature fails.",
         "subject_domain": "evil.example",
-        "claim_cbor_hex": hex(&generated::encode_claim(&claim_text)),
+        "claim_cbor_hex": hex(&generated::encode_claim(&claim_text).unwrap()),
         "expected_error": "signature_invalid",
     }));
 
@@ -1800,7 +1816,7 @@ fn claims_json() -> Value {
     // a CBOR text string (its value is valid UTF-8, so the text form exists),
     // and re-serialize. A strict bstr codec must reject this.
     let text_encoded_claim = {
-        let canonical = generated::encode_claim(&claim_text);
+        let canonical = generated::encode_claim(&claim_text).unwrap();
         let mut value: ciborium::value::Value =
             ciborium::de::from_reader(canonical.as_slice()).unwrap();
         let ciborium::value::Value::Map(entries) = &mut value else {
@@ -1839,9 +1855,9 @@ fn claims_json() -> Value {
             claim_binary.clone(),
             claim_multi_sig.clone(),
         ],
-        ticket_expires_at: rfc3339(base_instant() + Duration::hours(1)),
+        ticket_expires_at: base_instant() + Duration::hours(1),
     };
-    let response_bytes = generated::encode_local_rp_ticket_redemption_response(&response);
+    let response_bytes = generated::encode_local_rp_ticket_redemption_response(&response).unwrap();
     {
         let decoded = generated::decode_local_rp_ticket_redemption_response(&response_bytes)
             .expect("response round-trips");
@@ -1857,9 +1873,9 @@ fn claims_json() -> Value {
     });
 
     json!({
-        "note": "Claim wire encoding and claim-signature verification. THE TRAP THIS FILE EXISTS TO CATCH: Claim.claim_value is CBOR bytes (bstr, major type 2), NEVER a text string — both on the wire and inside the signed payload. An SDK that wires it as text will pass its own self-tests (sign-wrong/verify-wrong is self-consistent) and only these cross-implementation vectors expose it; claim_non_utf8_binary_value cannot even be represented by a tstr codec. Signed payload per signature: CBOR([tag, claim_id, claim_type, claim_value(bstr), subject, signing_domain, expires_at_or_null, attested_at]) — an EIGHT-element CBOR array, tag first, where subject is the single string 'user_id@subject_domain' and expires_at is CBOR null when absent. created_at is deliberately NOT signed. Verification: every DISTINCT domain in the claim's signatures must contribute at least one signature that verifies against a currently-valid signing key of that domain (key validity is wall-clock-evaluated, like revocations.json).",
+        "note": "Claim wire encoding and claim-signature verification. THE TRAP THIS FILE EXISTS TO CATCH: Claim.claim_value is CBOR bytes (bstr, major type 2), NEVER a text string — both on the wire and inside the signed payload. An SDK that wires it as text will pass its own self-tests (sign-wrong/verify-wrong is self-consistent) and only these cross-implementation vectors expose it; claim_non_utf8_binary_value cannot even be represented by a tstr codec. Signed payload per signature: CBOR([tag, claim_id, claim_type, claim_value(bstr), subject, signing_domain, expires_at_or_null, attested_at]) — an EIGHT-element CBOR array, tag first, where subject is the single string 'user_id@subject_domain', expires_at and attested_at are whole Unix seconds as CBOR integers (never text; a fraction of a second cannot be signed), and expires_at is CBOR null when absent. created_at is deliberately NOT signed. Verification: every DISTINCT domain in the claim's signatures must contribute at least one signature that verifies against a currently-valid signing key of that domain (key validity is wall-clock-evaluated, like revocations.json).",
         "tag": claims::CLAIM_PAYLOAD_TAG,
-        "payload_layout": "CBOR([tag, claim_id, claim_type, claim_value(bstr), 'user_id@subject_domain', signing_domain, expires_at_or_null, attested_at])",
+        "payload_layout": "CBOR([tag, claim_id, claim_type, claim_value(bstr), 'user_id@subject_domain', signing_domain, expires_at_unix_seconds_or_null, attested_at_unix_seconds])",
         "subject_domain": subject_domain,
         "signer_keys": [
             {

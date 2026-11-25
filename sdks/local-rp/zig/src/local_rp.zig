@@ -113,6 +113,25 @@ pub fn parseTimestamp(s: []const u8) !i64 {
     return local_seconds - offset_seconds;
 }
 
+/// Parses the RFC 3339 text of a timestamp that a signed tuple payload
+/// carries, and returns whole Unix seconds. A signed payload holds the time
+/// as a CBOR integer of whole seconds, so a nonzero fraction of a second
+/// cannot be signed and is an error (do not round).
+pub fn parseSignedTimestamp(s: []const u8) !i64 {
+    if (s.len > 19 and s[19] == '.') {
+        var idx: usize = 20;
+        while (idx < s.len and s[idx] >= '0' and s[idx] <= '9') : (idx += 1) {
+            if (s[idx] != '0') return error.FractionalSignedTimestamp;
+        }
+    }
+    return parseTimestamp(s);
+}
+
+/// The CBOR integer form of a signed timestamp (see `parseSignedTimestamp`).
+pub fn signedTimeValue(s: []const u8) !cbor.Value {
+    return cbor.int(try parseSignedTimestamp(s));
+}
+
 /// Formats Unix seconds (UTC) as `YYYY-MM-DDTHH:MM:SSZ` into `buf` (must be
 /// at least 20 bytes), returning the written slice.
 pub fn formatTimestamp(buf: []u8, unix_seconds: i64) ![]const u8 {

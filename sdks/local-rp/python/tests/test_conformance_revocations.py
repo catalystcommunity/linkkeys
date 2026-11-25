@@ -13,10 +13,20 @@ from linkkeys_local_rp.generated import codec as _codec  # noqa: F401
 from linkkeys_local_rp.generated.types import (
     ClaimSignature,
     DomainPublicKey,
+    KeyAlgorithm,
+    KeyUsage,
     RevocationCertificate,
     SignedLocalRpCallbackPayload,
 )
 from linkkeys_local_rp.local_rp import LocalRpError, verify_local_rp_callback_payload
+from linkkeys_local_rp.timeutil import signed_time
+
+
+def _ts(s):
+    """A vector's RFC 3339 text (or null) as the typed `datetime` field."""
+    if s is None:
+        return None
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
 @pytest.fixture(scope="module")
@@ -32,11 +42,11 @@ def _domain_keys(revocations) -> list:
                 key_id=k["key_id"],
                 public_key=hex_decode(k["public_key_hex"]),
                 fingerprint=k["fingerprint_hex"],
-                algorithm=k["algorithm"],
-                key_usage=k["key_usage"],
-                created_at=k["created_at"],
-                expires_at=k["expires_at"],
-                revoked_at=k["revoked_at"],
+                algorithm=KeyAlgorithm(k["algorithm"]),
+                key_usage=KeyUsage(k["key_usage"]),
+                created_at=_ts(k["created_at"]),
+                expires_at=_ts(k["expires_at"]),
+                revoked_at=_ts(k["revoked_at"]),
                 signed_by_key_id=None,
                 key_signature=None,
             )
@@ -49,7 +59,7 @@ def _certificate(case: dict) -> RevocationCertificate:
     return RevocationCertificate(
         target_key_id=c["target_key_id"],
         target_fingerprint=c["target_fingerprint"],
-        revoked_at=c["revoked_at"],
+        revoked_at=_ts(c["revoked_at"]),
         signatures=[
             ClaimSignature(
                 domain=s["domain"],
@@ -86,7 +96,7 @@ def test_revocation_payload_matches_vectors(revocations):
     cert = case["certificate"]
     for sig in cert["signatures"]:
         computed = revocation_mod.revocation_payload(
-            cert["target_key_id"], cert["target_fingerprint"], cert["revoked_at"], sig["domain"]
+            cert["target_key_id"], cert["target_fingerprint"], signed_time(_ts(cert["revoked_at"])), sig["domain"]
         )
         assert computed == hex_decode(sig["signed_payload_cbor_hex"])
 
@@ -146,3 +156,17 @@ def test_application_case_certificates_are_applied_not_just_verified(revocations
     assert app["expected_valid_after_revocation"] is False
     with pytest.raises(LocalRpError):
         verify_local_rp_callback_payload(signed, applied, verify_now, skew)
+
+
+def test_fractional_revoked_at_never_counts(revocations):
+    """A signed timestamp is whole Unix seconds. A certificate whose
+    `revoked_at` has a fraction of a second was never signed, so no
+    signature counts, even when every signature is otherwise valid."""
+    keys = _domain_keys(revocations)
+    case = next(c for c in revocations["certificate_cases"] if c["name"] == "valid_quorum_two_siblings")
+    cert = _certificate(case)
+    assert revocation_mod.count_valid_signers(cert, keys, case["verify_domain"]) == 2
+    cert.revoked_at = cert.revoked_at.replace(microsecond=500000)
+    assert revocation_mod.count_valid_signers(cert, keys, case["verify_domain"]) == 0
+    with pytest.raises(revocation_mod.RevocationError):
+        revocation_mod.verify_revocation_certificate(cert, keys, case["verify_domain"])

@@ -176,7 +176,7 @@ public final class Complete {
 
         // 7. Redeem the claim ticket over TCP CSIL-RPC, signed with the local RP's own key.
         LocalRpTicketRedemptionRequest redemptionRequest = LocalRp.buildLocalRpTicketRedemptionRequest(
-                payload.claimTicket(), config.keyMaterial.fingerprint(), Rfc3339.format(config.now));
+                payload.claimTicket(), config.keyMaterial.fingerprint(), config.now);
         SignedLocalRpTicketRedemptionRequest signedRedemption =
                 LocalRp.signLocalRpTicketRedemptionRequest(redemptionRequest, config.keyMaterial.signingPrivateKey());
         LocalRpTicketRedemptionResponse redemption = RpcClient.redeemClaimTicket(
@@ -237,8 +237,8 @@ public final class Complete {
                 redemption.claims(),
                 userDomainKeys,
                 config.keyMaterial.fingerprint(),
-                Rfc3339.parse("issued_at", payload.issuedAt()),
-                Rfc3339.parse("expires_at", payload.expiresAt()),
-                Rfc3339.parse("ticket_expires_at", redemption.ticketExpiresAt()));
+                payload.issuedAt(),
+                payload.expiresAt(),
+                redemption.ticketExpiresAt());
     }
 }

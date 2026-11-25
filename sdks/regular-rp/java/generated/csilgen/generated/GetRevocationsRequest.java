@@ -2,7 +2,9 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
+
 public record GetRevocationsRequest(
-    String since /* wire: "since" */
+    Instant since /* wire: "since" */
 ) {
 }

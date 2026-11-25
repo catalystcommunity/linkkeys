@@ -14,7 +14,7 @@ public class ClaimError : Exception
         DomainKeysUnavailable,
         DomainUnverified,
         Revoked,
-        BadExpiry,
+        BadTimestamp,
         Expired,
     }
 

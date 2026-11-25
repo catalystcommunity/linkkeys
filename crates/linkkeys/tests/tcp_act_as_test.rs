@@ -73,7 +73,8 @@ fn revocations_are_served_over_dispatch() {
             &GetActAsGrantRevocationsRequest {
                 grant_ids: vec![grant.grant_id.clone()],
             },
-        ),
+        )
+        .unwrap(),
     );
     assert_eq!(response.status, Status::Ok, "{:?}", response.error);
     let body =
@@ -102,7 +103,7 @@ fn refresh_needs_the_tcp_carrier() {
         &pool,
         "ActAs",
         "refresh-grant",
-        liblinkkeys::generated::encode_refresh_act_as_grant_request(&request),
+        liblinkkeys::generated::encode_refresh_act_as_grant_request(&request).unwrap(),
     );
     assert_ne!(response.status, Status::Ok);
     assert!(
@@ -130,7 +131,7 @@ fn account_act_as_operations_require_authentication() {
         &pool,
         "Account",
         "list-act-as-grants",
-        liblinkkeys::generated::encode_empty_request(&EmptyRequest {}),
+        liblinkkeys::generated::encode_empty_request(&EmptyRequest {}).unwrap(),
     );
     assert_ne!(response.status, Status::Ok);
 }
@@ -151,7 +152,7 @@ fn account_lists_only_the_callers_grants() {
         &envelope(
             "Account",
             "list-act-as-grants",
-            liblinkkeys::generated::encode_empty_request(&EmptyRequest {}),
+            liblinkkeys::generated::encode_empty_request(&EmptyRequest {}).unwrap(),
         ),
         &ready,
         &pool,

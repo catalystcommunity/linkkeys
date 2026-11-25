@@ -21,6 +21,15 @@ function field(map: Map<CborValue, CborValue>, name: string): CborValue | undefi
 
 export class BrowserCsilTransport implements AsyncServiceTransport {
   async call(service: string, op: string, payload: Uint8Array): Promise<Uint8Array> {
+    return (await this.callReply(service, op, payload)).payload;
+  }
+
+  /** Like `call`, but also returns the reply `variant` for operations with declared error arms. */
+  async callReply(
+    service: string,
+    op: string,
+    payload: Uint8Array
+  ): Promise<{ readonly variant?: string | null; readonly payload: Uint8Array }> {
     // This insertion order is the canonical encoded-key order for these fields.
     const envelope = new Map<CborValue, CborValue>([
       ["v", 1],
@@ -47,7 +56,11 @@ export class BrowserCsilTransport implements AsyncServiceTransport {
     if (!tagged || tagged.tag !== 24 || !(tagged.value instanceof Uint8Array)) {
       throw new CsilTransportError(6, "The LinkKeys response payload is invalid.");
     }
-    return tagged.value;
+    const variant = field(decoded, "variant");
+    if (variant !== undefined && typeof variant !== "string") {
+      throw new CsilTransportError(6, "The LinkKeys response variant is invalid.");
+    }
+    return { variant: variant ?? null, payload: tagged.value };
   }
 }
 

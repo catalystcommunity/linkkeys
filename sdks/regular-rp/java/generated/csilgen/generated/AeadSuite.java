@@ -2,4 +2,36 @@
 
 package csilgen.generated;
 
-public record AeadSuite(String value) {}
+import java.util.Map;
+
+public enum AeadSuite {
+    AES_256_GCM("aes_256_gcm", 1L),
+    CHACHA20_POLY1305("chacha20_poly1305", 2L);
+
+    private final String value;
+
+    AeadSuite(String value, long number) { this.value = value; this.number = number; }
+
+    private final long number;
+    private static final Map<Long, AeadSuite> byNumber = new java.util.HashMap<>();
+    static {
+        for (AeadSuite member : values()) byNumber.put(member.number, member);
+    }
+
+    public long toNumber() { return number; }
+
+    public static AeadSuite fromNumber(long number) {
+        AeadSuite member = byNumber.get(number);
+        if (member != null) return member;
+        throw new IllegalArgumentException("unknown AeadSuite number: " + number);
+    }
+
+    public String value() { return value; }
+
+    public static AeadSuite fromWire(String value) {
+        for (AeadSuite member : values()) {
+            if (member.value.equals(value)) return member;
+        }
+        throw new IllegalArgumentException("unknown AeadSuite value: " + value);
+    }
+}

@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -13,8 +14,8 @@ public record ApplicationKeyRenewal(
     String keyId /* wire: "key_id" */,
     String challengeId /* wire: "challenge_id" */,
     byte[] challenge /* wire: "challenge" */,
-    String requestedAt /* wire: "requested_at" */,
-    String expiresAt /* wire: "expires_at" */
+    Instant requestedAt /* wire: "requested_at" */,
+    Instant expiresAt /* wire: "expires_at" */
 ) {
     @Override
     public boolean equals(Object obj) {

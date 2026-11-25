@@ -206,8 +206,8 @@ Future<BeginActAsResult> beginActAs(BeginActAsConfig config) async {
     requestedRenewalWindowSeconds: renewal,
     callbackUrl: config.callbackUrl,
     nonce: nonce,
-    requestedAt: Rfc3339.format(config.now),
-    expiresAt: Rfc3339.format(config.now.add(window)),
+    requestedAt: Rfc3339.wholeSeconds(config.now),
+    expiresAt: Rfc3339.wholeSeconds(config.now.add(window)),
   );
   final signed = await ActAs.signGrantRequest(request, config.keyMaterial);
   final encoded =
@@ -321,8 +321,8 @@ Future<RefreshActAsGrantResponse> _refreshActAsGrantImpl(
   final request = ActAsRefreshRequest(
     grantId: config.grantId,
     grantee: ActAs.granteeFor(config.keyMaterial),
-    requestedAt: Rfc3339.format(config.now),
-    expiresAt: Rfc3339.format(config.now.add(actAsRefreshRequestWindow)),
+    requestedAt: Rfc3339.wholeSeconds(config.now),
+    expiresAt: Rfc3339.wholeSeconds(config.now.add(actAsRefreshRequestWindow)),
     nonce: _freshNonce(),
   );
   final signed = await ActAs.signRefreshRequest(request, config.keyMaterial);
@@ -397,7 +397,7 @@ Future<PresentedActAsCredential> presentActAsGrant({
     grantHash: await ActAs.grantHash(grant.grant),
     audience: audience,
     requestDigest: requestDigest,
-    presentedAt: Rfc3339.format(now),
+    presentedAt: Rfc3339.wholeSeconds(now),
     nonce: nonce,
   );
   final bytes = ActAsCodec.encodeActAsPresentation(presentation);

@@ -50,6 +50,18 @@ final class TestKit
         }
     }
 
+    /** Both values are `null`, or RFC 3339 texts that name the same instant. */
+    public static function assertSameInstant(?string $expected, ?string $actual, string $message = ''): void
+    {
+        if ($expected === null || $actual === null) {
+            self::assertEquals($expected, $actual, $message);
+            return;
+        }
+        if (!\LinkKeys\LocalRp\Time::sameInstant($expected, $actual)) {
+            throw new \RuntimeException(($message !== '' ? "{$message}: " : '') . "expected instant {$expected}, got {$actual}");
+        }
+    }
+
     public static function assertThrows(callable $fn, string $message = 'expected an exception'): void
     {
         try {

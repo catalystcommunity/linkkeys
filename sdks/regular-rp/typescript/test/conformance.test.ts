@@ -34,9 +34,9 @@ function fixtureKey(key: any): DomainPublicKey {
     fingerprint: key.fingerprint_hex,
     algorithm: key.algorithm,
     keyUsage: key.key_usage,
-    createdAt: key.created_at,
-    expiresAt: key.expires_at,
-    revokedAt: key.revoked_at ?? undefined,
+    createdAt: new Date(key.created_at),
+    expiresAt: new Date(key.expires_at),
+    revokedAt: key.revoked_at ? new Date(key.revoked_at) : undefined,
   };
 }
 
@@ -76,12 +76,17 @@ test("official revocation vectors", () => {
 
   const valid = vectors.certificate_cases.find((c: any) => c.name === "valid_quorum_two_siblings");
   assert.ok(valid);
+  // A revocation time with a fraction of a second was never signed.
+  const validCert = generated.fromRevocationCertificateCbor(hex(valid.certificate_cbor_hex));
+  assert.equal(verifyRevocationCertificate(validCert, keys, valid.verify_domain), true);
+  const fractional = { ...validCert, revokedAt: new Date(validCert.revokedAt.getTime() + 1) };
+  assert.equal(countRevocationCertificateSigners(fractional, keys, valid.verify_domain), 0);
   for (const signature of valid.certificate.signatures) {
     assert.deepEqual(
       Buffer.from(revocationPayload(
         valid.certificate.target_key_id,
         valid.certificate.target_fingerprint,
-        valid.certificate.revoked_at,
+        new Date(valid.certificate.revoked_at),
         signature.domain,
       )),
       Buffer.from(hex(signature.signed_payload_cbor_hex)),

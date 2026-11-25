@@ -66,7 +66,8 @@ fn activate_user_requires_admin() {
     pool.deactivate_user(&subject.id).unwrap();
     let payload = liblinkkeys::generated::encode_activate_user_request(&ActivateUserRequest {
         user_id: subject.id.clone(),
-    });
+    })
+    .unwrap();
 
     let (_, nonadmin_key) = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -110,7 +111,8 @@ fn deactivate_then_activate_round_trips_is_active() {
         "deactivate-user",
         liblinkkeys::generated::encode_deactivate_user_request(&DeactivateUserRequest {
             user_id: subject.id.clone(),
-        }),
+        })
+        .unwrap(),
         Some(&admin_key),
         &pool,
         None,
@@ -126,7 +128,8 @@ fn deactivate_then_activate_round_trips_is_active() {
         "activate-user",
         liblinkkeys::generated::encode_activate_user_request(&ActivateUserRequest {
             user_id: subject.id.clone(),
-        }),
+        })
+        .unwrap(),
         Some(&admin_key),
         &pool,
         None,
@@ -150,7 +153,8 @@ fn purge_user_requires_admin() {
     let payload = liblinkkeys::generated::encode_purge_user_request(&PurgeUserRequest {
         user_id: subject.id.clone(),
         reason: Some("test purge".to_string()),
-    });
+    })
+    .unwrap();
 
     let (_, nonadmin_key) = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -207,7 +211,8 @@ fn purge_user_tombstones_a_deactivated_user() {
         liblinkkeys::generated::encode_purge_user_request(&PurgeUserRequest {
             user_id: subject.id.clone(),
             reason: Some("gdpr request".to_string()),
-        }),
+        })
+        .unwrap(),
         Some(&admin_key),
         &pool,
         None,
@@ -236,7 +241,8 @@ fn purge_user_rejects_a_protected_admin_account() {
         liblinkkeys::generated::encode_purge_user_request(&PurgeUserRequest {
             user_id: subject.id.clone(),
             reason: Some("should be refused".to_string()),
-        }),
+        })
+        .unwrap(),
         Some(&admin_key),
         &pool,
         None,
@@ -268,7 +274,8 @@ fn purge_user_rejects_an_already_purged_user() {
         liblinkkeys::generated::encode_purge_user_request(&PurgeUserRequest {
             user_id: subject.id.clone(),
             reason: None,
-        }),
+        })
+        .unwrap(),
         Some(&admin_key),
         &pool,
         None,
@@ -289,7 +296,8 @@ fn revoke_domain_key_requires_admin() {
     let payload =
         liblinkkeys::generated::encode_revoke_domain_key_request(&RevokeDomainKeyRequest {
             key_id: target.id.clone(),
-        });
+        })
+        .unwrap();
 
     let (_, nonadmin_key) = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -343,7 +351,8 @@ fn revoke_domain_key_marks_the_key_revoked_and_leaves_siblings_valid_and_co_sign
         "revoke-domain-key",
         liblinkkeys::generated::encode_revoke_domain_key_request(&RevokeDomainKeyRequest {
             key_id: target.id.clone(),
-        }),
+        })
+        .unwrap(),
         Some(&admin_key),
         &pool,
         None,
@@ -377,7 +386,8 @@ fn revoke_domain_key_marks_the_key_revoked_and_leaves_siblings_valid_and_co_sign
         "get-revocations",
         liblinkkeys::generated::encode_get_revocations_request(&GetRevocationsRequest {
             since: None,
-        }),
+        })
+        .unwrap(),
         None,
         &pool,
         None,
@@ -402,7 +412,8 @@ fn revoke_domain_key_rejects_unknown_id() {
     let payload =
         liblinkkeys::generated::encode_revoke_domain_key_request(&RevokeDomainKeyRequest {
             key_id: uuid::Uuid::now_v7().to_string(),
-        });
+        })
+        .unwrap();
 
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",

@@ -6,6 +6,8 @@
 //! verbatim. A renewal replaces it. The other columns exist for lookups and
 //! the user's grant list.
 
+use time::OffsetDateTime;
+
 /// One stored grant series.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActAsGrantRecord {
@@ -17,12 +19,12 @@ pub struct ActAsGrantRecord {
     pub audience_application_id: String,
     pub approved_scope: Vec<String>,
     pub lifetime_seconds: i64,
-    pub series_issued_at: String,
-    pub renewable_until: String,
+    pub series_issued_at: OffsetDateTime,
+    pub renewable_until: OffsetDateTime,
     pub signed_grant: Vec<u8>,
-    pub issued_at: String,
-    pub expires_at: String,
-    pub revoked_at: Option<String>,
+    pub issued_at: OffsetDateTime,
+    pub expires_at: OffsetDateTime,
+    pub revoked_at: Option<OffsetDateTime>,
     pub signed_revocation: Option<Vec<u8>>,
 }
 
@@ -139,10 +141,6 @@ pub mod pg {
         signed_revocation: Option<Vec<u8>>,
     }
 
-    fn ts(t: OffsetDateTime) -> String {
-        liblinkkeys::act_as::format_time(t)
-    }
-
     impl From<Row> for ActAsGrantRecord {
         fn from(r: Row) -> Self {
             Self {
@@ -160,12 +158,12 @@ pub mod pg {
                 audience_application_id: r.audience_application_id,
                 approved_scope: scope_from_json(&r.approved_scope),
                 lifetime_seconds: r.lifetime_seconds,
-                series_issued_at: ts(r.series_issued_at),
-                renewable_until: ts(r.renewable_until),
+                series_issued_at: r.series_issued_at,
+                renewable_until: r.renewable_until,
                 signed_grant: r.signed_grant,
-                issued_at: ts(r.issued_at),
-                expires_at: ts(r.expires_at),
-                revoked_at: r.revoked_at.map(ts),
+                issued_at: r.issued_at,
+                expires_at: r.expires_at,
+                revoked_at: r.revoked_at,
                 signed_revocation: r.signed_revocation,
             }
         }
@@ -173,15 +171,6 @@ pub mod pg {
 
     fn uuid(s: &str) -> QueryResult<uuid::Uuid> {
         s.parse().map_err(|_| diesel::result::Error::NotFound)
-    }
-
-    fn time(s: &str) -> QueryResult<OffsetDateTime> {
-        liblinkkeys::timestamp::parse_rfc3339(s).map_err(|e| {
-            diesel::result::Error::SerializationError(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                e.to_string(),
-            )))
-        })
     }
 
     pub fn insert(conn: &mut PgConnection, r: &ActAsGrantRecord) -> QueryResult<usize> {
@@ -200,11 +189,11 @@ pub mod pg {
                 act_as_grants::audience_application_id.eq(&r.audience_application_id),
                 act_as_grants::approved_scope.eq(scope_to_json(&r.approved_scope)),
                 act_as_grants::lifetime_seconds.eq(r.lifetime_seconds),
-                act_as_grants::series_issued_at.eq(time(&r.series_issued_at)?),
-                act_as_grants::renewable_until.eq(time(&r.renewable_until)?),
+                act_as_grants::series_issued_at.eq(r.series_issued_at),
+                act_as_grants::renewable_until.eq(r.renewable_until),
                 act_as_grants::signed_grant.eq(&r.signed_grant),
-                act_as_grants::issued_at.eq(time(&r.issued_at)?),
-                act_as_grants::expires_at.eq(time(&r.expires_at)?),
+                act_as_grants::issued_at.eq(r.issued_at),
+                act_as_grants::expires_at.eq(r.expires_at),
             ))
             .execute(conn)
     }
@@ -233,6 +222,18 @@ pub mod pg {
             .map(|rows| rows.into_iter().map(Into::into).collect())
     }
 
+    /// Every stored grant, for the start-up signature upgrade.
+    pub fn list_all(conn: &mut PgConnection) -> QueryResult<Vec<ActAsGrantRecord>> {
+        act_as_grants::table
+            .select(Row::as_select())
+            .load(conn)
+            .map(|rows| rows.into_iter().map(Into::into).collect())
+    }
+
+    pub fn delete(conn: &mut PgConnection, grant_id: &str) -> QueryResult<usize> {
+        diesel::delete(act_as_grants::table.find(uuid(grant_id)?)).execute(conn)
+    }
+
     /// Replace the current grant bytes, only if the grant is not revoked and
     /// still has the expiry the caller read. Returns rows updated: 0 means a
     /// concurrent refresh or a revocation won.
@@ -240,20 +241,20 @@ pub mod pg {
         conn: &mut PgConnection,
         grant_id: &str,
         signed_grant: &[u8],
-        issued_at: &str,
-        expires_at: &str,
-        expected_expires_at: &str,
+        issued_at: &OffsetDateTime,
+        expires_at: &OffsetDateTime,
+        expected_expires_at: &OffsetDateTime,
     ) -> QueryResult<usize> {
         diesel::update(
             act_as_grants::table
                 .find(uuid(grant_id)?)
                 .filter(act_as_grants::revoked_at.is_null())
-                .filter(act_as_grants::expires_at.eq(time(expected_expires_at)?)),
+                .filter(act_as_grants::expires_at.eq(*expected_expires_at)),
         )
         .set((
             act_as_grants::signed_grant.eq(signed_grant),
-            act_as_grants::issued_at.eq(time(issued_at)?),
-            act_as_grants::expires_at.eq(time(expires_at)?),
+            act_as_grants::issued_at.eq(*issued_at),
+            act_as_grants::expires_at.eq(*expires_at),
         ))
         .execute(conn)
     }
@@ -264,7 +265,7 @@ pub mod pg {
         conn: &mut PgConnection,
         grant_id: &str,
         user_id: &str,
-        revoked_at: &str,
+        revoked_at: &OffsetDateTime,
         signed_revocation: &[u8],
     ) -> QueryResult<usize> {
         let Ok(id) = grant_id.parse::<uuid::Uuid>() else {
@@ -277,7 +278,7 @@ pub mod pg {
                 .filter(act_as_grants::revoked_at.is_null()),
         )
         .set((
-            act_as_grants::revoked_at.eq(Some(time(revoked_at)?)),
+            act_as_grants::revoked_at.eq(Some(*revoked_at)),
             act_as_grants::signed_revocation.eq(Some(signed_revocation)),
         ))
         .execute(conn)
@@ -346,12 +347,12 @@ pub mod sqlite {
                 audience_application_id: r.audience_application_id,
                 approved_scope: scope_from_json(&r.approved_scope),
                 lifetime_seconds: r.lifetime_seconds,
-                series_issued_at: r.series_issued_at,
-                renewable_until: r.renewable_until,
+                series_issued_at: crate::db::db_time::load(&r.series_issued_at),
+                renewable_until: crate::db::db_time::load(&r.renewable_until),
                 signed_grant: r.signed_grant,
-                issued_at: r.issued_at,
-                expires_at: r.expires_at,
-                revoked_at: r.revoked_at,
+                issued_at: crate::db::db_time::load(&r.issued_at),
+                expires_at: crate::db::db_time::load(&r.expires_at),
+                revoked_at: crate::db::db_time::load_opt(r.revoked_at.as_deref()),
                 signed_revocation: r.signed_revocation,
             }
         }
@@ -373,11 +374,11 @@ pub mod sqlite {
                 act_as_grants::audience_application_id.eq(&r.audience_application_id),
                 act_as_grants::approved_scope.eq(scope_to_json(&r.approved_scope)),
                 act_as_grants::lifetime_seconds.eq(r.lifetime_seconds),
-                act_as_grants::series_issued_at.eq(&r.series_issued_at),
-                act_as_grants::renewable_until.eq(&r.renewable_until),
+                act_as_grants::series_issued_at.eq(crate::db::db_time::store(&r.series_issued_at)),
+                act_as_grants::renewable_until.eq(crate::db::db_time::store(&r.renewable_until)),
                 act_as_grants::signed_grant.eq(&r.signed_grant),
-                act_as_grants::issued_at.eq(&r.issued_at),
-                act_as_grants::expires_at.eq(&r.expires_at),
+                act_as_grants::issued_at.eq(crate::db::db_time::store(&r.issued_at)),
+                act_as_grants::expires_at.eq(crate::db::db_time::store(&r.expires_at)),
             ))
             .execute(conn)
     }
@@ -406,24 +407,38 @@ pub mod sqlite {
             .map(|rows| rows.into_iter().map(Into::into).collect())
     }
 
+    /// Every stored grant, for the start-up signature upgrade.
+    pub fn list_all(conn: &mut SqliteConnection) -> QueryResult<Vec<ActAsGrantRecord>> {
+        act_as_grants::table
+            .select(Row::as_select())
+            .load(conn)
+            .map(|rows| rows.into_iter().map(Into::into).collect())
+    }
+
+    pub fn delete(conn: &mut SqliteConnection, grant_id: &str) -> QueryResult<usize> {
+        diesel::delete(act_as_grants::table.find(grant_id)).execute(conn)
+    }
+
     pub fn replace_current(
         conn: &mut SqliteConnection,
         grant_id: &str,
         signed_grant: &[u8],
-        issued_at: &str,
-        expires_at: &str,
-        expected_expires_at: &str,
+        issued_at: &time::OffsetDateTime,
+        expires_at: &time::OffsetDateTime,
+        expected_expires_at: &time::OffsetDateTime,
     ) -> QueryResult<usize> {
         diesel::update(
             act_as_grants::table
                 .find(grant_id)
                 .filter(act_as_grants::revoked_at.is_null())
-                .filter(act_as_grants::expires_at.eq(expected_expires_at)),
+                .filter(
+                    act_as_grants::expires_at.eq(crate::db::db_time::store(expected_expires_at)),
+                ),
         )
         .set((
             act_as_grants::signed_grant.eq(signed_grant),
-            act_as_grants::issued_at.eq(issued_at),
-            act_as_grants::expires_at.eq(expires_at),
+            act_as_grants::issued_at.eq(crate::db::db_time::store(issued_at)),
+            act_as_grants::expires_at.eq(crate::db::db_time::store(expires_at)),
         ))
         .execute(conn)
     }
@@ -432,7 +447,7 @@ pub mod sqlite {
         conn: &mut SqliteConnection,
         grant_id: &str,
         user_id: &str,
-        revoked_at: &str,
+        revoked_at: &time::OffsetDateTime,
         signed_revocation: &[u8],
     ) -> QueryResult<usize> {
         diesel::update(
@@ -442,7 +457,7 @@ pub mod sqlite {
                 .filter(act_as_grants::revoked_at.is_null()),
         )
         .set((
-            act_as_grants::revoked_at.eq(Some(revoked_at)),
+            act_as_grants::revoked_at.eq(Some(crate::db::db_time::store(revoked_at))),
             act_as_grants::signed_revocation.eq(Some(signed_revocation)),
         ))
         .execute(conn)
@@ -494,13 +509,32 @@ impl DbPool {
         }
     }
 
+    /// Every stored grant series.
+    pub fn list_all_act_as_grants(&self) -> QueryResult<Vec<ActAsGrantRecord>> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => pg::list_all(&mut *super::pg_conn(p)?),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => sqlite::list_all(&mut *super::sqlite_conn(p)?),
+        }
+    }
+
+    pub fn delete_act_as_grant(&self, grant_id: &str) -> QueryResult<usize> {
+        match self {
+            #[cfg(feature = "postgres")]
+            DbPool::Postgres(p) => pg::delete(&mut *super::pg_conn(p)?, grant_id),
+            #[cfg(feature = "sqlite")]
+            DbPool::Sqlite(p) => sqlite::delete(&mut *super::sqlite_conn(p)?, grant_id),
+        }
+    }
+
     pub fn replace_current_act_as_grant(
         &self,
         grant_id: &str,
         signed_grant: &[u8],
-        issued_at: &str,
-        expires_at: &str,
-        expected_expires_at: &str,
+        issued_at: &time::OffsetDateTime,
+        expires_at: &time::OffsetDateTime,
+        expected_expires_at: &time::OffsetDateTime,
     ) -> QueryResult<usize> {
         match self {
             #[cfg(feature = "postgres")]
@@ -528,7 +562,7 @@ impl DbPool {
         &self,
         grant_id: &str,
         user_id: &str,
-        revoked_at: &str,
+        revoked_at: &time::OffsetDateTime,
         signed_revocation: &[u8],
     ) -> QueryResult<usize> {
         match self {

@@ -2,11 +2,13 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
+
 public record ActAsRefreshRequest(
     String grantId /* wire: "grant_id" */,
     GranteeRef grantee /* wire: "grantee" */,
-    String requestedAt /* wire: "requested_at" */,
-    String expiresAt /* wire: "expires_at" */,
+    Instant requestedAt /* wire: "requested_at" */,
+    Instant expiresAt /* wire: "expires_at" */,
     String nonce /* wire: "nonce" */
 ) {
 }

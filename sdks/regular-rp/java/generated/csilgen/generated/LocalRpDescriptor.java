@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -13,8 +14,8 @@ public record LocalRpDescriptor(
     byte[] encryptionPublicKey /* wire: "encryption_public_key" */,
     String fingerprint /* wire: "fingerprint" */,
     List<AeadSuite> supportedSuites /* wire: "supported_suites" */,
-    String createdAt /* wire: "created_at" */,
-    String expiresAt /* wire: "expires_at" */
+    Instant createdAt /* wire: "created_at" */,
+    Instant expiresAt /* wire: "expires_at" */
 ) {
     public LocalRpDescriptor {
         if (signingPublicKey.length != 32) {

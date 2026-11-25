@@ -65,8 +65,8 @@ public class FlowTests
         Crypto.Crypto.Fingerprint(publicKey),
         "ed25519",
         "sign",
-        Rfc3339.Format(now - TimeSpan.FromDays(30)),
-        Rfc3339.Format(now + TimeSpan.FromDays(365)),
+        now - TimeSpan.FromDays(30),
+        now + TimeSpan.FromDays(365),
         null,
         null,
         null);
@@ -114,7 +114,9 @@ public class FlowTests
 
     private static Complete.VerifiedLocalLogin RunScenario(Scenario scenario)
     {
-        var now = DateTimeOffset.UtcNow;
+        // Whole seconds: claim and revocation signatures sign Unix seconds, and a
+        // fraction of a second cannot be signed.
+        var now = ActAs.WholeSeconds(DateTimeOffset.UtcNow);
         var keyMaterial = FixedKeyMaterial(now);
 
         // Browser endpoint discovery is out of scope here (BrowserTests covers it); fail
@@ -140,8 +142,8 @@ public class FlowTests
             CallbackUrl,
             pending.Nonce,
             pending.State,
-            Rfc3339.Format(now),
-            Rfc3339.Format(now + TimeSpan.FromMinutes(5)));
+            now,
+            now + TimeSpan.FromMinutes(5));
         payload = scenario.MutatePayload(payload);
 
         var signedPayload = LocalRp.SignLocalRpCallbackPayload(payload, DomainKeyId, domainSigning.PrivateKeySeed);
@@ -159,12 +161,12 @@ public class FlowTests
         var arrivedUrl = $"{CallbackUrl}?encrypted_token={encryptedToken}";
 
         var claimSpec = new Claims.ClaimSpec(
-            "claim-1", "handle", Encoding.UTF8.GetBytes("flowtestuser"), "user-1", UserDomain, null, Rfc3339.Format(now));
+            "claim-1", "handle", Encoding.UTF8.GetBytes("flowtestuser"), "user-1", UserDomain, null, now);
         var claim = Claims.SignClaim(claimSpec, [new Claims.ClaimSigner(UserDomain, DomainKeyId, domainSigning.PrivateKeySeed)]);
         claim = scenario.MutateClaim(claim);
 
         var redemptionResponse = new LocalRpTicketRedemptionResponse(
-            "user-1", UserDomain, [claim], Rfc3339.Format(now + TimeSpan.FromHours(1)));
+            "user-1", UserDomain, [claim], now + TimeSpan.FromHours(1));
         redemptionResponse = scenario.MutateRedemption(redemptionResponse);
 
         var getDomainKeysResponse = FrameBytes(RpcEnvelope.Response
@@ -260,8 +262,8 @@ public class FlowTests
                 var n = DateTimeOffset.UtcNow;
                 return p with
                 {
-                    IssuedAt = Rfc3339.Format(n - TimeSpan.FromHours(2)),
-                    ExpiresAt = Rfc3339.Format(n - TimeSpan.FromHours(1)),
+                    IssuedAt = n - TimeSpan.FromHours(2),
+                    ExpiresAt = n - TimeSpan.FromHours(1),
                 };
             },
             ExpectedRequests = 2,
@@ -284,7 +286,7 @@ public class FlowTests
     {
         var s = new Scenario
         {
-            MutateDomainKey = k => k with { RevokedAt = Rfc3339.Format(DateTimeOffset.UtcNow) },
+            MutateDomainKey = k => k with { RevokedAt = DateTimeOffset.UtcNow },
             ExpectedRequests = 2,
         };
         Assert.Throws<LocalRpError>(() => RunScenario(s));
@@ -421,7 +423,9 @@ public class FlowTests
     [Fact]
     public void RevocationCertificateDropsSigningKeyAndLoginFailsClosed()
     {
-        var now = DateTimeOffset.UtcNow;
+        // Whole seconds: claim and revocation signatures sign Unix seconds, and a
+        // fraction of a second cannot be signed.
+        var now = ActAs.WholeSeconds(DateTimeOffset.UtcNow);
         var siblingA = Crypto.Crypto.GenerateEd25519KeyPair();
         var siblingB = Crypto.Crypto.GenerateEd25519KeyPair();
         var siblingAKey = KeyedDomainPublicKey(now, siblingA.PublicKey, SiblingAKeyId);
@@ -436,8 +440,9 @@ public class FlowTests
             // (two DISTINCT sibling signers, per Revocation.Quorum) revocation.
             BuildRevocations = domainKey =>
             {
-                var revokedAt = Rfc3339.Format(now);
-                var payload = Revocation.RevocationPayload(DomainKeyId, domainKey.Fingerprint, revokedAt, UserDomain);
+                var revokedAt = ActAs.WholeSeconds(now);
+                var payload = Revocation.RevocationPayload(
+                    DomainKeyId, domainKey.Fingerprint, revokedAt.ToUnixTimeSeconds(), UserDomain);
                 var sigA = Crypto.Crypto.SignEd25519(payload, siblingA.PrivateKeySeed);
                 var sigB = Crypto.Crypto.SignEd25519(payload, siblingB.PrivateKeySeed);
                 return

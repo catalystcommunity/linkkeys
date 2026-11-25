@@ -6,25 +6,26 @@
 //! live in `crate::services::local_rp`, matching the split already used by
 //! `domain_pins`/`crate::services::pins`.
 
-/// Local RP admission policy vocabulary (CSIL `LocalRpPolicy`, a registry of
-/// exact strings, not free text).
-pub const POLICY_DISABLED: &str = "disabled";
-pub const POLICY_ADMIN_APPROVAL_REQUIRED: &str = "admin-approval-required";
-pub const POLICY_ALLOW_BY_DEFAULT: &str = "allow-by-default";
+use liblinkkeys::generated::types::LocalRpPolicy;
+
+/// Local RP admission policy values (CSIL `LocalRpPolicy`).
+pub const POLICY_DISABLED: LocalRpPolicy = LocalRpPolicy::Disabled;
+pub const POLICY_ADMIN_APPROVAL_REQUIRED: LocalRpPolicy = LocalRpPolicy::AdminApprovalRequired;
+pub const POLICY_ALLOW_BY_DEFAULT: LocalRpPolicy = LocalRpPolicy::AllowByDefault;
 
 /// The default policy applied when a domain has never set one explicitly
 /// (design doc: "the default should be admin approval").
-pub const DEFAULT_POLICY: &str = POLICY_ADMIN_APPROVAL_REQUIRED;
+pub const DEFAULT_POLICY: LocalRpPolicy = POLICY_ADMIN_APPROVAL_REQUIRED;
 
-const VALID_POLICIES: &[&str] = &[
-    POLICY_DISABLED,
-    POLICY_ADMIN_APPROVAL_REQUIRED,
-    POLICY_ALLOW_BY_DEFAULT,
-];
-
-/// Whether `policy` is one of the recognised vocabulary values.
-pub fn is_valid_policy(policy: &str) -> bool {
-    VALID_POLICIES.contains(&policy)
+/// The policy a stored row holds. Rows written before CSIL typed this value
+/// hold the hyphenated text (`admin-approval-required`); newer rows hold the
+/// CSIL label (`admin_approval_required`). A value that is neither reads as
+/// `disabled`, so a corrupt row refuses local RP logins.
+pub fn stored_policy(stored: &str) -> LocalRpPolicy {
+    LocalRpPolicy::from_label(&stored.replace('-', "_")).unwrap_or_else(|| {
+        log::error!("stored local RP policy {stored:?} is not known; treating it as disabled");
+        POLICY_DISABLED
+    })
 }
 
 /// Local RP approval status vocabulary.

@@ -2,9 +2,9 @@
 use crate::assertions::VerifyError;
 use crate::crypto::{self, CryptoError, SigningAlgorithm};
 use crate::generated::types::{
-    AuthFlowContext, AuthRequest, ClaimRequest, DomainPublicKey, SignedAuthRequest,
+    AuthFlowContext, AuthRequest, ClaimRequest, DomainPublicKey, RelyingPartyApplication,
+    SignedAuthRequest,
 };
-use crate::timestamp::Rfc3339 as _;
 use time::OffsetDateTime;
 
 /// Build an unsigned auth request with the current timestamp. `requested_claims`
@@ -17,12 +17,13 @@ pub fn build_auth_request(
     signing_key_id: &str,
     requested_claims: Option<ClaimRequest>,
     flow_context: Option<AuthFlowContext>,
+    application: RelyingPartyApplication,
 ) -> AuthRequest {
     AuthRequest {
         relying_party: relying_party.to_string(),
         callback_url: callback_url.to_string(),
         nonce: nonce.to_string(),
-        timestamp: OffsetDateTime::now_utc().to_rfc3339(),
+        timestamp: OffsetDateTime::now_utc(),
         signing_key_id: signing_key_id.to_string(),
         requested_claims,
         authentication_requirements: None,
@@ -30,8 +31,7 @@ pub fn build_auth_request(
         // The caller sets `relying_party_claims` on the returned request if it
         // wants to assert claims about itself (signed self/third-party).
         relying_party_claims: None,
-        // The RP server sets this from the calling application's registration.
-        application: None,
+        application,
     }
 }
 
@@ -44,7 +44,7 @@ pub fn sign_auth_request(
     algorithm: SigningAlgorithm,
     private_key_bytes: &[u8],
 ) -> Result<SignedAuthRequest, CryptoError> {
-    let request_bytes = crate::generated::encode_auth_request(request);
+    let request_bytes = crate::generated::encode_auth_request(request)?;
 
     let signature = crypto::sign_with_algorithm(algorithm, &request_bytes, private_key_bytes)?;
 
@@ -85,10 +85,7 @@ pub fn verify_auth_request(
     let request = crate::generated::decode_auth_request(signed.request.as_slice())
         .map_err(|e| VerifyError::DeserializationFailed(format!("CBOR decode failed: {}", e)))?;
 
-    let timestamp = crate::timestamp::parse_rfc3339(&request.timestamp)
-        .map_err(|e| VerifyError::DeserializationFailed(format!("invalid timestamp: {}", e)))?;
-
-    let age = OffsetDateTime::now_utc() - timestamp;
+    let age = OffsetDateTime::now_utc() - request.timestamp;
     if age.whole_seconds() > max_age_seconds || age.whole_seconds() < 0 {
         return Err(VerifyError::Expired);
     }
@@ -99,19 +96,19 @@ pub fn verify_auth_request(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::{fingerprint, generate_keypair, ALGORITHM_ED25519};
+    use crate::crypto::{fingerprint, generate_keypair};
 
     fn make_domain_key(key_id: &str, pk_bytes: &[u8]) -> DomainPublicKey {
         DomainPublicKey {
             key_id: key_id.to_string(),
             public_key: pk_bytes.to_vec(),
             fingerprint: fingerprint(pk_bytes),
-            algorithm: ALGORITHM_ED25519.to_string(),
-            key_usage: "sign".to_string(),
+            algorithm: crate::generated::types::KeyAlgorithm::Ed25519,
+            key_usage: crate::generated::types::KeyUsage::Sign,
             signed_by_key_id: None,
             key_signature: None,
-            created_at: OffsetDateTime::now_utc().to_rfc3339(),
-            expires_at: (OffsetDateTime::now_utc() + time::Duration::hours(1)).to_rfc3339(),
+            created_at: OffsetDateTime::now_utc(),
+            expires_at: OffsetDateTime::now_utc() + time::Duration::hours(1),
             revoked_at: None,
         }
     }
@@ -128,6 +125,7 @@ mod tests {
             "key-1",
             None,
             None,
+            crate::test_support::rp_app(),
         );
         request.authentication_requirements =
             Some(crate::generated::types::AuthenticationRequirements {
@@ -159,13 +157,13 @@ mod tests {
             relying_party: "linkidspec.com".to_string(),
             callback_url: "https://linkidspec.com/callback".to_string(),
             nonce: "nonce".to_string(),
-            timestamp: (OffsetDateTime::now_utc() - time::Duration::seconds(120)).to_rfc3339(),
+            timestamp: OffsetDateTime::now_utc() - time::Duration::seconds(120),
             signing_key_id: "key-1".to_string(),
             requested_claims: None,
             authentication_requirements: None,
             flow_context: None,
             relying_party_claims: None,
-            application: None,
+            application: crate::test_support::rp_app(),
         };
 
         let signed = sign_auth_request(&request, "key-1", SigningAlgorithm::Ed25519, &sk).unwrap();
@@ -188,6 +186,7 @@ mod tests {
             "key-1",
             None,
             None,
+            crate::test_support::rp_app(),
         );
 
         let signed = sign_auth_request(&request, "key-1", SigningAlgorithm::Ed25519, &sk1).unwrap();
@@ -208,6 +207,7 @@ mod tests {
             "key-1",
             None,
             None,
+            crate::test_support::rp_app(),
         );
 
         let mut signed =

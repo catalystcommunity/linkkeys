@@ -11,7 +11,7 @@ use liblinkkeys::generated::types::DomainPublicKey;
 use liblinkkeys::revocation::{
     build_revocation_certificate, RevocationCertificate, RevocationSpec,
 };
-use liblinkkeys::timestamp::Rfc3339 as _;
+use liblinkkeys::timestamp::{now_whole_seconds, whole_seconds};
 use linkkeys::db::models::{DomainKey, PeerKey};
 use linkkeys::services::revocations;
 
@@ -39,15 +39,13 @@ fn cert_for(
         })
         .collect();
     // If the target is still active in the DB it has no revoked_at, so stamp now.
-    let revoked_at = target
-        .revoked_at
-        .clone()
-        .unwrap_or_else(|| time::OffsetDateTime::now_utc().to_rfc3339());
+    // Signed payloads carry whole seconds.
+    let revoked_at = whole_seconds(target.revoked_at.unwrap_or_else(now_whole_seconds));
     build_revocation_certificate(
         &RevocationSpec {
             target_key_id: &target.id,
             target_fingerprint: &target.fingerprint,
-            revoked_at: &revoked_at,
+            revoked_at,
         },
         &signers,
     )
@@ -63,12 +61,11 @@ fn issue_signal_serve_and_apply_roundtrip() {
     create_domain_key(&pool);
     let target = create_domain_key(&pool);
     let revoked = pool.revoke_domain_key(&target.id).unwrap();
-    let revoked_at = revoked.revoked_at.clone().unwrap();
+    let revoked_at = whole_seconds(revoked.revoked_at.unwrap());
 
     let cert = cert_for(&pool, domain, &revoked);
-    let cbor = liblinkkeys::generated::encode_revocation_certificate(&cert);
-    let when = liblinkkeys::timestamp::parse_rfc3339(&revoked_at).unwrap();
-    pool.insert_issued_revocation(&revoked.id, &revoked.fingerprint, when, &cbor)
+    let cbor = liblinkkeys::generated::encode_revocation_certificate(&cert).unwrap();
+    pool.insert_issued_revocation(&revoked.id, &revoked.fingerprint, revoked_at, &cbor)
         .unwrap();
 
     // Signal on, and serve returns the cert.
@@ -85,7 +82,7 @@ fn issue_signal_serve_and_apply_roundtrip() {
         algorithm: "ed25519".to_string(),
         fingerprint: revoked.fingerprint.clone(),
         key_usage: "sign".to_string(),
-        expires_at: (time::OffsetDateTime::now_utc() + time::Duration::days(365)).to_rfc3339(),
+        expires_at: time::OffsetDateTime::now_utc() + time::Duration::days(365),
         revoked_at: None,
     })
     .unwrap();
@@ -103,7 +100,7 @@ fn issue_signal_serve_and_apply_roundtrip() {
     // The cached peer key now carries the DOMAIN'S asserted revoked_at, not now.
     let cached = pool.list_peer_keys_for_domain(domain).unwrap();
     let row = cached.iter().find(|k| k.key_id == revoked.id).unwrap();
-    assert_eq!(row.revoked_at.as_deref(), Some(revoked_at.as_str()));
+    assert_eq!(row.revoked_at, Some(revoked_at));
 }
 
 #[test]

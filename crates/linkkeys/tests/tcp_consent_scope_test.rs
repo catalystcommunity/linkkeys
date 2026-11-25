@@ -58,6 +58,7 @@ fn token(
         Some("Test User"),
         300,
         authorized,
+        common::test_app_ref(),
     );
     let signed =
         assertions::sign_assertion(&assertion, key_id, crypto::SigningAlgorithm::Ed25519, sk)
@@ -74,7 +75,8 @@ fn call_get_user_info(
 ) -> (i32, Option<UserInfo>) {
     let payload = liblinkkeys::generated::encode_get_user_info_request(&GetUserInfoRequest {
         token: token_bytes,
-    });
+    })
+    .unwrap();
     let (status, body) = linkkeys::tcp::dispatch_for_test(
         "Identity",
         "get-user-info",

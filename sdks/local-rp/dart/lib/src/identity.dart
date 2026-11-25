@@ -41,7 +41,7 @@ class GenerateLocalRpIdentityConfig {
 
   /// AEAD suites this app can decrypt callbacks with, preference order.
   /// Defaults to both registry suites.
-  final List<String>? supportedSuites;
+  final List<AeadSuite>? supportedSuites;
 
   /// Key/descriptor lifetime from [now]. Defaults to [defaultLifetime].
   final Duration? lifetime;
@@ -103,8 +103,8 @@ Future<LocalRpKeyMaterial> generateLocalRpIdentity(
   }
 
   final lifetime = config.lifetime ?? defaultLifetime;
-  final createdAt = Rfc3339.format(config.now);
-  final expiresAt = Rfc3339.format(config.now.add(lifetime));
+  final createdAt = Rfc3339.wholeSeconds(config.now);
+  final expiresAt = Rfc3339.wholeSeconds(config.now.add(lifetime));
 
   final descriptor = await LocalRp.buildLocalRpDescriptor(
     config.appName,

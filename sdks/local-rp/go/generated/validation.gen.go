@@ -9,6 +9,9 @@ import (
 
 // ValidateLocalRpDescriptor validates the LocalRpDescriptor struct
 func (v *LocalRpDescriptor) Validate() error {
+	if v == nil {
+		return fmt.Errorf("LocalRpDescriptor is nil")
+	}
 	if len(v.SigningPublicKey) != 32 {
 		return fmt.Errorf("field 'SigningPublicKey' must have exactly 32 elements")
 	}
@@ -20,6 +23,9 @@ func (v *LocalRpDescriptor) Validate() error {
 
 // ValidateLocalRpCallbackHeader validates the LocalRpCallbackHeader struct
 func (v *LocalRpCallbackHeader) Validate() error {
+	if v == nil {
+		return fmt.Errorf("LocalRpCallbackHeader is nil")
+	}
 	if len(v.EphemeralPublicKey) != 32 {
 		return fmt.Errorf("field 'EphemeralPublicKey' must have exactly 32 elements")
 	}
@@ -31,6 +37,9 @@ func (v *LocalRpCallbackHeader) Validate() error {
 
 // ValidateAdminLocalRp validates the AdminLocalRp struct
 func (v *AdminLocalRp) Validate() error {
+	if v == nil {
+		return fmt.Errorf("AdminLocalRp is nil")
+	}
 	if len(v.SigningPublicKey) != 32 {
 		return fmt.Errorf("field 'SigningPublicKey' must have exactly 32 elements")
 	}

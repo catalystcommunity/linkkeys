@@ -139,6 +139,25 @@ class Cbor {
     if (value != null) entries.add(entry(key, vbytes(value)));
   }
 
+  /// A CSIL `timestamp`: CBOR tag 0 wrapping RFC 3339 text in UTC with a
+  /// `Z` offset. The fraction has 0, 3, or 6 digits, the fewest that hold
+  /// the value (the same spelling as the generated Rust codec).
+  static CborValue vtime(DateTime t) => vtag(0, vtext(formatTimestamp(t)));
+
+  static void putTime(List<CborMapEntry> entries, String key, DateTime value) {
+    entries.add(entry(key, vtime(value)));
+  }
+
+  static void putOptTime(
+      List<CborMapEntry> entries, String key, DateTime? value) {
+    if (value != null) entries.add(entry(key, vtime(value)));
+  }
+
+  /// A CSIL named-number enum: a CBOR unsigned integer.
+  static void putEnum(List<CborMapEntry> entries, String key, int number) {
+    entries.add(entry(key, vint(number)));
+  }
+
   static void putBool(List<CborMapEntry> entries, String key, bool value) {
     entries.add(entry(key, vbool(value)));
   }
@@ -307,6 +326,112 @@ class Cbor {
   static List<CborValue> asArray(CborValue v) {
     if (v is CborArray) return v.items;
     throw CborDecodeException('expected a CBOR array, got $v');
+  }
+
+  /// Decode a CSIL `timestamp`: tag 0 around strict RFC 3339 text. The
+  /// result is in UTC. Anything else (no tag, other tag, bad text) fails.
+  static DateTime asTime(CborValue v) {
+    if (v is! CborTag || v.tag != 0) {
+      throw CborDecodeException('expected a CBOR tag 0 timestamp, got $v');
+    }
+    final inner = v.value;
+    if (inner is! CborText) {
+      throw CborDecodeException('timestamp content must be text');
+    }
+    return parseTimestamp(inner.value);
+  }
+
+  static DateTime requireTime(CborValue map, String key) =>
+      asTime(require(map, key));
+
+  static DateTime? optTime(CborValue map, String key) {
+    final v = mapGet(map, key);
+    return v == null ? null : asTime(v);
+  }
+
+  /// Decode a CSIL named-number enum value with [fromNumber]. A number
+  /// outside the registry fails to decode.
+  static T asEnum<T>(CborValue v, String type, T? Function(int) fromNumber) {
+    final n = asInt(v);
+    final out = n < 0 ? null : fromNumber(n);
+    if (out == null) {
+      throw CborDecodeException('unknown $type value $n');
+    }
+    return out;
+  }
+
+  static T requireEnum<T>(CborValue map, String key, String type,
+          T? Function(int) fromNumber) =>
+      asEnum(require(map, key), type, fromNumber);
+
+  // -----------------------------------------------------------------
+  // RFC 3339 text for the CSIL `timestamp` type
+  // -----------------------------------------------------------------
+
+  static final RegExp _rfc3339 =
+      RegExp(r'^(\d{4})-(\d{2})-(\d{2})[Tt ](\d{2}):(\d{2}):(\d{2})(\.(\d+))?'
+          r'([Zz]|([+-])(\d{2}):(\d{2}))$');
+
+  /// Parse strict RFC 3339 text (with an explicit offset) into a UTC
+  /// [DateTime]. Digits after the sixth fraction digit are dropped (Dart
+  /// keeps microseconds). Rejects impossible dates and times, a leap second,
+  /// an offset past 23:59, and a UTC year outside 0000..9999.
+  static DateTime parseTimestamp(String s) {
+    final m = _rfc3339.firstMatch(s);
+    if (m == null) {
+      throw CborDecodeException('timestamp is not RFC 3339');
+    }
+    int g(int i) => int.parse(m.group(i)!);
+    final year = g(1), month = g(2), day = g(3);
+    final hour = g(4), minute = g(5), second = g(6);
+    final frac = m.group(8);
+    final micros =
+        frac == null ? 0 : int.parse(frac.padRight(6, '0').substring(0, 6));
+    final local = DateTime.utc(year, month, day, hour, minute, second);
+    if (local.year != year ||
+        local.month != month ||
+        local.day != day ||
+        local.hour != hour ||
+        local.minute != minute ||
+        local.second != second) {
+      throw CborDecodeException('timestamp field is out of range');
+    }
+    var offset = Duration.zero;
+    if (m.group(10) != null) {
+      final oh = g(11), om = g(12);
+      if (oh > 23 || om > 59) {
+        throw CborDecodeException('timestamp offset is out of range');
+      }
+      offset = Duration(hours: oh, minutes: om);
+      if (m.group(10) == '-') offset = -offset;
+    }
+    final utc = local.add(Duration(microseconds: micros)).subtract(offset);
+    if (utc.year < 0 || utc.year > 9999) {
+      throw CborDecodeException('timestamp outside four-digit UTC year range');
+    }
+    return utc;
+  }
+
+  /// RFC 3339 text in UTC with `Z`. The fraction has 0, 3, or 6 digits.
+  static String formatTimestamp(DateTime t) {
+    final u = t.toUtc();
+    if (u.year < 0 || u.year > 9999) {
+      throw ArgumentError('timestamp year outside 0000..9999: ${u.year}');
+    }
+    String pad(int n, int width) => n.toString().padLeft(width, '0');
+    final b = StringBuffer()
+      ..write('${pad(u.year, 4)}-${pad(u.month, 2)}-${pad(u.day, 2)}')
+      ..write('T${pad(u.hour, 2)}:${pad(u.minute, 2)}:${pad(u.second, 2)}');
+    final micros = u.millisecond * 1000 + u.microsecond;
+    if (micros != 0) {
+      if (micros % 1000 == 0) {
+        b.write('.${pad(micros ~/ 1000, 3)}');
+      } else {
+        b.write('.${pad(micros, 6)}');
+      }
+    }
+    b.write('Z');
+    return b.toString();
   }
 
   static String requireText(CborValue map, String key) =>

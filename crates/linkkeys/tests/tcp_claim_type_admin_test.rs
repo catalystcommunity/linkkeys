@@ -19,8 +19,8 @@ use common::data_factory::{
     create_auth_credential, create_claim_policy, create_relation, create_user, DataMap,
 };
 use liblinkkeys::generated::types::{
-    EmptyRequest, RemoveClaimTypeLabelRequest, RemoveClaimTypeRequest, SetClaimTypeLabelRequest,
-    SetClaimTypeRequest,
+    ClaimValueType, EmptyRequest, RemoveClaimTypeLabelRequest, RemoveClaimTypeRequest,
+    SetClaimTypeLabelRequest, SetClaimTypeRequest, SetRule, SigningRule,
 };
 use linkkeys::services::auth;
 use serde_json::Value;
@@ -49,15 +49,16 @@ fn set_claim_type_payload(claim_type: &str, label: &str) -> Vec<u8> {
         claim_type: claim_type.to_string(),
         label: label.to_string(),
         description: Some("a test claim type".to_string()),
-        value_type: "text".to_string(),
+        value_type: ClaimValueType::Text,
         max_bytes: 4096,
-        set_rule: "user_self".to_string(),
-        signing_rule: "self_signed".to_string(),
+        set_rule: SetRule::UserSelf,
+        signing_rule: SigningRule::SelfSigned,
         user_settable: true,
         default_auto_sign: false,
         requires_approval: false,
         suggested: true,
     })
+    .unwrap()
 }
 
 // ---------------------------------------------------------------------
@@ -71,7 +72,7 @@ fn list_claim_types_requires_admin() {
         &pool,
         &DataMap::from([("claim_type".into(), Value::String("pronouns".into()))]),
     );
-    let payload = liblinkkeys::generated::encode_empty_request(&EmptyRequest {});
+    let payload = liblinkkeys::generated::encode_empty_request(&EmptyRequest {}).unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -123,7 +124,7 @@ fn list_claim_types_returns_full_registry_fields() {
         ]),
     );
     let admin_key = make_caller(&pool, true);
-    let payload = liblinkkeys::generated::encode_empty_request(&EmptyRequest {});
+    let payload = liblinkkeys::generated::encode_empty_request(&EmptyRequest {}).unwrap();
     let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "list-claim-types",
@@ -142,10 +143,10 @@ fn list_claim_types_returns_full_registry_fields() {
         .expect("age_over_21 present");
     assert_eq!(entry.label, "Age over 21");
     assert_eq!(entry.description, "attested age");
-    assert_eq!(entry.value_type, "bool");
+    assert_eq!(entry.value_type.as_str(), "bool");
     assert_eq!(entry.max_bytes, 128);
-    assert_eq!(entry.set_rule, "trusted_issuer_only");
-    assert_eq!(entry.signing_rule, "attested");
+    assert_eq!(entry.set_rule.as_str(), "trusted_issuer_only");
+    assert_eq!(entry.signing_rule.as_str(), "attested");
     assert!(entry.requires_approval);
     assert!(!entry.user_settable);
     assert!(!entry.default_auto_sign);
@@ -206,7 +207,7 @@ fn set_then_list_claim_type_round_trips() {
     let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "list-claim-types",
-        liblinkkeys::generated::encode_empty_request(&EmptyRequest {}),
+        liblinkkeys::generated::encode_empty_request(&EmptyRequest {}).unwrap(),
         Some(&admin_key),
         &pool,
         None,
@@ -221,10 +222,10 @@ fn set_then_list_claim_type_round_trips() {
         .expect("display_name present after set");
     assert_eq!(entry.label, "Display name");
     assert_eq!(entry.description, "a test claim type");
-    assert_eq!(entry.value_type, "text");
+    assert_eq!(entry.value_type.as_str(), "text");
     assert_eq!(entry.max_bytes, 4096);
-    assert_eq!(entry.set_rule, "user_self");
-    assert_eq!(entry.signing_rule, "self_signed");
+    assert_eq!(entry.set_rule.as_str(), "user_self");
+    assert_eq!(entry.signing_rule.as_str(), "self_signed");
     assert!(entry.user_settable);
     assert!(entry.suggested);
 }
@@ -252,7 +253,7 @@ fn set_claim_type_upserts_existing() {
     let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "list-claim-types",
-        liblinkkeys::generated::encode_empty_request(&EmptyRequest {}),
+        liblinkkeys::generated::encode_empty_request(&EmptyRequest {}).unwrap(),
         Some(&admin_key),
         &pool,
         None,
@@ -270,17 +271,17 @@ fn set_claim_type_upserts_existing() {
 }
 
 #[test]
-fn set_claim_type_rejects_invalid_value_type() {
+fn set_claim_type_rejects_non_positive_max_bytes() {
     let pool = setup();
     let admin_key = make_caller(&pool, true);
-    let mut req = SetClaimTypeRequest {
+    let req = SetClaimTypeRequest {
         claim_type: "bad".to_string(),
         label: "Bad".to_string(),
         description: None,
-        value_type: "not-a-real-type".to_string(),
-        max_bytes: 100,
-        set_rule: "user_self".to_string(),
-        signing_rule: "self_signed".to_string(),
+        value_type: ClaimValueType::Text,
+        max_bytes: 0,
+        set_rule: SetRule::UserSelf,
+        signing_rule: SigningRule::SelfSigned,
         user_settable: true,
         default_auto_sign: false,
         requires_approval: false,
@@ -289,54 +290,18 @@ fn set_claim_type_rejects_invalid_value_type() {
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "set-claim-type",
-        liblinkkeys::generated::encode_set_claim_type_request(&req),
-        Some(&admin_key),
-        &pool,
-        None,
-    );
-    assert_ne!(status, 0, "an invalid value_type must be rejected");
-
-    req.value_type = "text".to_string();
-    req.set_rule = "not-a-real-rule".to_string();
-    let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
-        "Admin",
-        "set-claim-type",
-        liblinkkeys::generated::encode_set_claim_type_request(&req),
-        Some(&admin_key),
-        &pool,
-        None,
-    );
-    assert_ne!(status, 0, "an invalid set_rule must be rejected");
-
-    req.set_rule = "user_self".to_string();
-    req.signing_rule = "not-a-real-signing-rule".to_string();
-    let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
-        "Admin",
-        "set-claim-type",
-        liblinkkeys::generated::encode_set_claim_type_request(&req),
-        Some(&admin_key),
-        &pool,
-        None,
-    );
-    assert_ne!(status, 0, "an invalid signing_rule must be rejected");
-
-    req.signing_rule = "self_signed".to_string();
-    req.max_bytes = 0;
-    let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
-        "Admin",
-        "set-claim-type",
-        liblinkkeys::generated::encode_set_claim_type_request(&req),
+        liblinkkeys::generated::encode_set_claim_type_request(&req).unwrap(),
         Some(&admin_key),
         &pool,
         None,
     );
     assert_ne!(status, 0, "a non-positive max_bytes must be rejected");
 
-    // None of the rejected writes may have created the row.
+    // The rejected write must not have created the row.
     let (status, body) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "list-claim-types",
-        liblinkkeys::generated::encode_empty_request(&EmptyRequest {}),
+        liblinkkeys::generated::encode_empty_request(&EmptyRequest {}).unwrap(),
         Some(&admin_key),
         &pool,
         None,
@@ -364,7 +329,8 @@ fn remove_claim_type_requires_admin_and_deletes() {
     let payload =
         liblinkkeys::generated::encode_remove_claim_type_request(&RemoveClaimTypeRequest {
             claim_type: "temp_claim".to_string(),
-        });
+        })
+        .unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -417,7 +383,8 @@ fn set_claim_type_label_requires_admin_and_is_visible_via_db() {
             locale: "es-ES".to_string(),
             label: "Pronombres".to_string(),
             description: Some("pronombres preferidos".to_string()),
-        });
+        })
+        .unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
@@ -457,7 +424,7 @@ fn set_claim_type_label_requires_admin_and_is_visible_via_db() {
     );
 
     // The translation set over CSIL-RPC shows up in the admin listing.
-    let empty = liblinkkeys::generated::encode_empty_request(&EmptyRequest {});
+    let empty = liblinkkeys::generated::encode_empty_request(&EmptyRequest {}).unwrap();
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "list-claim-type-labels",
@@ -505,7 +472,8 @@ fn set_claim_type_label_unknown_claim_type_errors() {
             locale: "es-ES".to_string(),
             label: "No existe".to_string(),
             description: None,
-        });
+        })
+        .unwrap();
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "set-claim-type-label",
@@ -540,7 +508,8 @@ fn remove_claim_type_label_requires_admin_and_deletes() {
             locale: "pt-BR".to_string(),
             label: "Identificador".to_string(),
             description: None,
-        }),
+        })
+        .unwrap(),
         Some(&admin_key),
         &pool,
         None,
@@ -558,7 +527,8 @@ fn remove_claim_type_label_requires_admin_and_deletes() {
             claim_type: "handle".to_string(),
             locale: "pt-BR".to_string(),
         },
-    );
+    )
+    .unwrap();
 
     let nonadmin_key = make_caller(&pool, false);
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(

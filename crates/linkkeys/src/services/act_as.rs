@@ -349,14 +349,14 @@ pub fn attested_key_refs(set: &ak::VerifiedApplicationKeySet) -> Vec<Application
         .iter()
         .map(|k| ApplicationKeyRef {
             key_id: k.attestation.key_id.clone(),
-            key_usage: k.attestation.key_usage.clone(),
-            algorithm: k.attestation.algorithm.clone(),
+            key_usage: k.attestation.key_usage,
+            algorithm: k.attestation.algorithm,
             public_key: k.attestation.public_key.clone(),
             fingerprint: k.attestation.fingerprint.clone(),
-            created_at: k.attestation.key_created_at.clone(),
-            expires_at: k.attestation.key_expires_at.clone(),
+            created_at: k.attestation.key_created_at,
+            expires_at: k.attestation.key_expires_at,
             revoked_at: match &k.status {
-                ak::KeyStatus::Revoked { revoked_at } => Some(revoked_at.clone()),
+                ak::KeyStatus::Revoked { revoked_at } => Some(*revoked_at),
                 _ => None,
             },
         })
@@ -370,12 +370,12 @@ pub fn usable_key_refs(set: &ak::VerifiedApplicationKeySet) -> Vec<ApplicationKe
         .filter(|k| k.is_usable())
         .map(|k| ApplicationKeyRef {
             key_id: k.attestation.key_id.clone(),
-            key_usage: k.attestation.key_usage.clone(),
-            algorithm: k.attestation.algorithm.clone(),
+            key_usage: k.attestation.key_usage,
+            algorithm: k.attestation.algorithm,
             public_key: k.attestation.public_key.clone(),
             fingerprint: k.attestation.fingerprint.clone(),
-            created_at: k.attestation.key_created_at.clone(),
-            expires_at: k.attestation.key_expires_at.clone(),
+            created_at: k.attestation.key_created_at,
+            expires_at: k.attestation.key_expires_at,
             revoked_at: None,
         })
         .collect()
@@ -448,12 +448,11 @@ pub fn nonce_ttl() -> std::time::Duration {
 /// Refuse a signed request whose window is longer than
 /// [`MAX_REQUEST_WINDOW_SECONDS`]. A longer window would let a captured
 /// request be replayed for as long as its signer chose.
-fn check_request_window(requested_at: &str, expires_at: &str) -> Result<(), ServiceError> {
-    let window = liblinkkeys::timestamp::parse_rfc3339(expires_at)
-        .ok()
-        .zip(liblinkkeys::timestamp::parse_rfc3339(requested_at).ok())
-        .map(|(end, start)| (end - start).whole_seconds());
-    if window.is_none_or(|w| w > MAX_REQUEST_WINDOW_SECONDS) {
+fn check_request_window(
+    requested_at: &time::OffsetDateTime,
+    expires_at: &time::OffsetDateTime,
+) -> Result<(), ServiceError> {
+    if (*expires_at - *requested_at).whole_seconds() > MAX_REQUEST_WINDOW_SECONDS {
         return Err(error(
             400,
             format!("the request window must be at most {MAX_REQUEST_WINDOW_SECONDS} seconds"),
@@ -841,11 +840,12 @@ pub fn complete(
         audience_application_id: grant.audience.application_id.clone(),
         approved_scope: grant.approved_scope.clone(),
         lifetime_seconds: lifetime,
-        series_issued_at: grant.series_issued_at.clone(),
-        renewable_until: grant.renewable_until.clone(),
-        signed_grant: liblinkkeys::generated::encode_signed_act_as_grant(&signed),
-        issued_at: grant.issued_at.clone(),
-        expires_at: grant.expires_at.clone(),
+        series_issued_at: grant.series_issued_at,
+        renewable_until: grant.renewable_until,
+        signed_grant: liblinkkeys::generated::encode_signed_act_as_grant(&signed)
+            .map_err(|e| internal("encoding grant", e))?,
+        issued_at: grant.issued_at,
+        expires_at: grant.expires_at,
         revoked_at: None,
         signed_revocation: None,
     };
@@ -992,9 +992,10 @@ pub fn refresh(
             issued_at,
             expires_at,
         } => {
-            let renewed = aa::renewed_grant(&grant, issued_at.clone(), expires_at.clone());
+            let renewed = aa::renewed_grant(&grant, issued_at, expires_at);
             let signed = sign_grant(pool, &renewed)?;
-            let bytes = liblinkkeys::generated::encode_signed_act_as_grant(&signed);
+            let bytes = liblinkkeys::generated::encode_signed_act_as_grant(&signed)
+                .map_err(|e| internal("encoding grant", e))?;
             let updated = pool
                 .replace_current_act_as_grant(
                     &record.grant_id,
@@ -1116,17 +1117,18 @@ pub fn revoke_for_user(
     if let Some(revoked_at) = record.revoked_at {
         return Ok(RevokeActAsGrantResponse { revoked_at });
     }
-    let revoked_at = aa::format_time(now);
+    let revoked_at = liblinkkeys::timestamp::whole_seconds(now);
     let revocation = ActAsGrantRevocation {
         grant_id: record.grant_id.clone(),
         user_id: user.id.clone(),
         subject_domain: get_domain_name(),
-        revoked_at: revoked_at.clone(),
+        revoked_at,
     };
     let signed = with_domain_signers(pool, "signing act-as revocation", |s| {
         aa::sign_grant_revocation(&revocation, s)
     })?;
-    let bytes = liblinkkeys::generated::encode_signed_act_as_grant_revocation(&signed);
+    let bytes = liblinkkeys::generated::encode_signed_act_as_grant_revocation(&signed)
+        .map_err(|e| internal("encoding grant revocation", e))?;
     let updated = pool
         .revoke_act_as_grant(&record.grant_id, &user.id, &revoked_at, &bytes)
         .map_err(|e| internal("storing act-as revocation", e))?;
@@ -1172,7 +1174,8 @@ pub fn rp_forward_refresh(
         let keys = CachedKeySource { pool, net, rt };
         return refresh(pool, &keys, &request, OffsetDateTime::now_utc());
     }
-    let payload = liblinkkeys::generated::encode_refresh_act_as_grant_request(&request);
+    let payload = liblinkkeys::generated::encode_refresh_act_as_grant_request(&request)
+        .map_err(|e| internal("encoding refresh request", e))?;
     let bytes = remote_call(net, rt, &domain, "refresh-grant", payload)?;
     liblinkkeys::generated::decode_refresh_act_as_grant_response(&bytes)
         .map_err(|e| error(502, format!("{domain} answered with an invalid grant: {e}")))
@@ -1205,7 +1208,8 @@ pub fn rp_resolve_revocations(
     if domain == get_domain_name() {
         return get_revocations(pool, &request);
     }
-    let payload = liblinkkeys::generated::encode_get_act_as_grant_revocations_request(&request);
+    let payload = liblinkkeys::generated::encode_get_act_as_grant_revocations_request(&request)
+        .map_err(|e| internal("encoding revocations request", e))?;
     let bytes = remote_call(net, rt, &domain, "get-grant-revocations", payload)?;
     liblinkkeys::generated::decode_get_act_as_grant_revocations_response(&bytes).map_err(|e| {
         error(
@@ -1292,9 +1296,13 @@ mod tests {
 
     #[test]
     fn request_windows_longer_than_the_cap_are_refused() {
-        assert!(check_request_window("2026-10-06T12:00:00Z", "2026-10-06T12:15:00Z").is_ok());
-        assert!(check_request_window("2026-10-06T12:00:00Z", "2026-10-06T12:15:01Z").is_err());
-        assert!(check_request_window("not a time", "2026-10-06T12:15:00Z").is_err());
+        let at = |s: &str| liblinkkeys::timestamp::parse_rfc3339(s).unwrap();
+        assert!(
+            check_request_window(&at("2026-10-06T12:00:00Z"), &at("2026-10-06T12:15:00Z")).is_ok()
+        );
+        assert!(
+            check_request_window(&at("2026-10-06T12:00:00Z"), &at("2026-10-06T12:15:01Z")).is_err()
+        );
     }
 
     #[test]

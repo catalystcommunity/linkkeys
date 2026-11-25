@@ -55,7 +55,7 @@ export class AdminApprovalsPage extends AdminPage {
       h("td", null, link(`/app/admin/users/${encodeURIComponent(approval.userId)}`, h("code", null, approval.userId))),
       h("td", null, claimTypeLabel(approval.claimType)),
       h("td", null, approvalValue(approval)),
-      h("td", null, new Date(approval.createdAt).toLocaleString()),
+      h("td", null, approval.createdAt.toLocaleString()),
       h("td", null, h("div", { class: "button-row" }, approve, reject)));
   }
 

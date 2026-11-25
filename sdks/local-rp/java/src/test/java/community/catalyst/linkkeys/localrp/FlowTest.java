@@ -80,6 +80,11 @@ import community.catalyst.linkkeys.localrp.wire.Types.SignedLocalRpCallbackPaylo
  * effective at exercising the verification chain.
  */
 class FlowTest {
+    /** Whole seconds: a signed time (claim, revocation) must not carry a fraction. */
+    private static Instant secs(Instant t) {
+        return t.truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+    }
+
     static final String USER_DOMAIN = "example.test";
     private static final String CALLBACK_URL = "http://localhost/callback";
     private static final String DOMAIN_KEY_ID = "test-domain-key-1";
@@ -307,8 +312,8 @@ class FlowTest {
                 Crypto.fingerprint(domainSigning.publicKey()),
                 "ed25519",
                 "sign",
-                Rfc3339.format(now.minus(Duration.ofDays(30))),
-                Rfc3339.format(now.plus(Duration.ofDays(365))),
+                secs(now.minus(Duration.ofDays(30))),
+                secs(now.plus(Duration.ofDays(365))),
                 null,
                 null,
                 null);
@@ -324,8 +329,8 @@ class FlowTest {
                 CALLBACK_URL,
                 pending.nonce(),
                 pending.state(),
-                Rfc3339.format(now),
-                Rfc3339.format(now.plus(Duration.ofMinutes(5))));
+                secs(now),
+                secs(now.plus(Duration.ofMinutes(5))));
         payload = scenario.mutatePayload.apply(payload);
 
         SignedLocalRpCallbackPayload signedPayload =
@@ -345,14 +350,14 @@ class FlowTest {
 
         Claims.ClaimSpec claimSpec = new Claims.ClaimSpec(
                 "claim-1", "handle", "flowtestuser".getBytes(StandardCharsets.UTF_8), "user-1", USER_DOMAIN, null,
-                Rfc3339.format(now));
+                secs(now));
         Claim claim = Claims.signClaim(
                 claimSpec, List.of(new Claims.ClaimSigner(USER_DOMAIN, DOMAIN_KEY_ID, domainSigning.privateKeySeed())));
         claim = scenario.mutateClaim.apply(claim);
         List<Claim> claims = scenario.claimsOverride != null ? scenario.claimsOverride : List.of(claim);
 
         LocalRpTicketRedemptionResponse redemptionResponse = new LocalRpTicketRedemptionResponse(
-                "user-1", USER_DOMAIN, claims, Rfc3339.format(now.plus(Duration.ofHours(1))));
+                "user-1", USER_DOMAIN, claims, secs(now.plus(Duration.ofHours(1))));
         redemptionResponse = scenario.mutateRedemption.apply(redemptionResponse);
 
         DomainPublicKey domainKeyForWire = domainKey;
@@ -457,7 +462,7 @@ class FlowTest {
             Instant n = Instant.now();
             return new LocalRpCallbackPayload(
                     p.userId(), p.userDomain(), p.claimTicket(), p.audienceFingerprint(), p.callbackUrl(), p.nonce(),
-                    p.state(), Rfc3339.format(n.minus(Duration.ofHours(2))), Rfc3339.format(n.minus(Duration.ofHours(1))));
+                    p.state(), secs(n.minus(Duration.ofHours(2))), secs(n.minus(Duration.ofHours(1))));
         };
         s.expectedRequests = 2;
         assertThrows(LocalRpError.class, () -> runScenario(s));
@@ -479,7 +484,7 @@ class FlowTest {
         Scenario s = new Scenario();
         s.mutateDomainKey = k -> new DomainPublicKey(
                 k.keyId(), k.publicKey(), k.fingerprint(), k.algorithm(), k.keyUsage(), k.createdAt(), k.expiresAt(),
-                Rfc3339.format(Instant.now()), k.signedByKeyId(), k.keySignature());
+                secs(Instant.now()), k.signedByKeyId(), k.keySignature());
         s.expectedRequests = 2;
         assertThrows(LocalRpError.class, () -> runScenario(s));
     }
@@ -581,11 +586,11 @@ class FlowTest {
         String sibling2KeyId = "sibling-key-2";
         DomainPublicKey sibling1Key = new DomainPublicKey(
                 sibling1KeyId, sibling1.publicKey(), Crypto.fingerprint(sibling1.publicKey()), "ed25519", "sign",
-                Rfc3339.format(now.minus(Duration.ofDays(30))), Rfc3339.format(now.plus(Duration.ofDays(365))), null,
+                secs(now.minus(Duration.ofDays(30))), secs(now.plus(Duration.ofDays(365))), null,
                 null, null);
         DomainPublicKey sibling2Key = new DomainPublicKey(
                 sibling2KeyId, sibling2.publicKey(), Crypto.fingerprint(sibling2.publicKey()), "ed25519", "sign",
-                Rfc3339.format(now.minus(Duration.ofDays(30))), Rfc3339.format(now.plus(Duration.ofDays(365))), null,
+                secs(now.minus(Duration.ofDays(30))), secs(now.plus(Duration.ofDays(365))), null,
                 null, null);
 
         Scenario s = new Scenario();
@@ -599,7 +604,7 @@ class FlowTest {
         // onto `s.revocations`, which the fake IDP's get-revocations route
         // reads lazily (after this mutator has already run).
         s.mutateDomainKey = k -> {
-            String revokedAt = Rfc3339.format(now);
+            Instant revokedAt = secs(now);
             byte[] payload = Revocation.revocationPayload(k.keyId(), k.fingerprint(), revokedAt, USER_DOMAIN);
             byte[] sig1 = Crypto.signEd25519(payload, sibling1.privateKeySeed());
             byte[] sig2 = Crypto.signEd25519(payload, sibling2.privateKeySeed());

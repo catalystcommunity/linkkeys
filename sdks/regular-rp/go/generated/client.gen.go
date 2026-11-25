@@ -5,22 +5,13 @@ package api
 
 import (
 	"context"
-	"fmt"
 )
 
-// ClientError is returned by a generated client call: a structured error the
-// service returned (Code/Message), or a transport-level failure (Err).
-type ClientError struct {
-	Code    int64
-	Message string
-	Err     error
-}
-
-func (e *ClientError) Error() string {
-	if e.Err != nil {
-		return "transport error: " + e.Err.Error()
-	}
-	return fmt.Sprintf("service error %d: %s", e.Code, e.Message)
+// WireReply is a status-zero CSIL-RPC reply: Variant names the declared output arm
+// that Payload encodes. A transport returns it from CallReply.
+type WireReply struct {
+	Variant *string
+	Payload []byte
 }
 
 // Transport is the caller-supplied byte carrier: it performs the call named by
@@ -28,9 +19,12 @@ func (e *ClientError) Error() string {
 // bytes, or an error. Both names are the verbatim CSIL names (service as written,
 // op in kebab-case as written), ready to go on the wire unmodified. The generated
 // client owns (de)serialization via the codec; the carrier only moves bytes, so
-// it can be HTTP, a queue, or an in-process loop.
+// it can be HTTP, a queue, or an in-process loop. CallReply serves operations
+// that declare several reply arms: it also returns the reply variant, so the
+// client can return the success arm or the declared error arm.
 type Transport interface {
 	Call(ctx context.Context, service string, op string, req []byte) ([]byte, error)
+	CallReply(ctx context.Context, service string, op string, req []byte) (WireReply, error)
 }
 
 // OpsClient is a typed client for the Ops service. The client owns
@@ -45,20 +39,36 @@ func NewOpsClient(transport Transport) *OpsClient {
 
 func (c *OpsClient) Healthcheck(ctx context.Context, req EmptyRequest) (CheckResult, error) {
 	var csilZero CheckResult
-	csilResp, csilErr := c.transport.Call(ctx, "Ops", "healthcheck", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Ops", "healthcheck", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeCheckResult(csilResp)
+	value, err := DecodeCheckResult(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *OpsClient) Readiness(ctx context.Context, req EmptyRequest) (CheckResult, error) {
 	var csilZero CheckResult
-	csilResp, csilErr := c.transport.Call(ctx, "Ops", "readiness", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Ops", "readiness", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeCheckResult(csilResp)
+	value, err := DecodeCheckResult(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // HelloClient is a typed client for the Hello service. The client owns
@@ -73,11 +83,19 @@ func NewHelloClient(transport Transport) *HelloClient {
 
 func (c *HelloClient) Hello(ctx context.Context, req HelloRequest) (HelloResponse, error) {
 	var csilZero HelloResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Hello", "hello", EncodeHelloRequest(req))
+	csilReq, csilErr := EncodeHelloRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Hello", "hello", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeHelloResponse(csilResp)
+	value, err := DecodeHelloResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // GuestbookClient is a typed client for the Guestbook service. The client owns
@@ -92,38 +110,70 @@ func NewGuestbookClient(transport Transport) *GuestbookClient {
 
 func (c *GuestbookClient) CreateEntry(ctx context.Context, req CreateGuestbookRequest) (GuestbookEntry, error) {
 	var csilZero GuestbookEntry
-	csilResp, csilErr := c.transport.Call(ctx, "Guestbook", "create-entry", EncodeCreateGuestbookRequest(req))
+	csilReq, csilErr := EncodeCreateGuestbookRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Guestbook", "create-entry", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeGuestbookEntry(csilResp)
+	value, err := DecodeGuestbookEntry(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *GuestbookClient) ListEntries(ctx context.Context, req GuestbookListRequest) (GuestbookListResponse, error) {
 	var csilZero GuestbookListResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Guestbook", "list-entries", EncodeGuestbookListRequest(req))
+	csilReq, csilErr := EncodeGuestbookListRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Guestbook", "list-entries", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeGuestbookListResponse(csilResp)
+	value, err := DecodeGuestbookListResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *GuestbookClient) UpdateEntry(ctx context.Context, req UpdateGuestbookRequest) (GuestbookEntry, error) {
 	var csilZero GuestbookEntry
-	csilResp, csilErr := c.transport.Call(ctx, "Guestbook", "update-entry", EncodeUpdateGuestbookRequest(req))
+	csilReq, csilErr := EncodeUpdateGuestbookRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Guestbook", "update-entry", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeGuestbookEntry(csilResp)
+	value, err := DecodeGuestbookEntry(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *GuestbookClient) DeleteEntry(ctx context.Context, req DeleteGuestbookRequest) (DeleteGuestbookResponse, error) {
 	var csilZero DeleteGuestbookResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Guestbook", "delete-entry", EncodeDeleteGuestbookRequest(req))
+	csilReq, csilErr := EncodeDeleteGuestbookRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Guestbook", "delete-entry", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeDeleteGuestbookResponse(csilResp)
+	value, err := DecodeDeleteGuestbookResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // DomainKeysClient is a typed client for the DomainKeys service. The client owns
@@ -138,20 +188,36 @@ func NewDomainKeysClient(transport Transport) *DomainKeysClient {
 
 func (c *DomainKeysClient) GetDomainKeys(ctx context.Context, req EmptyRequest) (GetDomainKeysResponse, error) {
 	var csilZero GetDomainKeysResponse
-	csilResp, csilErr := c.transport.Call(ctx, "DomainKeys", "get-domain-keys", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "DomainKeys", "get-domain-keys", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeGetDomainKeysResponse(csilResp)
+	value, err := DecodeGetDomainKeysResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *DomainKeysClient) GetRevocations(ctx context.Context, req GetRevocationsRequest) (GetRevocationsResponse, error) {
 	var csilZero GetRevocationsResponse
-	csilResp, csilErr := c.transport.Call(ctx, "DomainKeys", "get-revocations", EncodeGetRevocationsRequest(req))
+	csilReq, csilErr := EncodeGetRevocationsRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "DomainKeys", "get-revocations", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeGetRevocationsResponse(csilResp)
+	value, err := DecodeGetRevocationsResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // UserKeysClient is a typed client for the UserKeys service. The client owns
@@ -166,11 +232,19 @@ func NewUserKeysClient(transport Transport) *UserKeysClient {
 
 func (c *UserKeysClient) GetUserKeys(ctx context.Context, req GetUserKeysRequest) (GetUserKeysResponse, error) {
 	var csilZero GetUserKeysResponse
-	csilResp, csilErr := c.transport.Call(ctx, "UserKeys", "get-user-keys", EncodeGetUserKeysRequest(req))
+	csilReq, csilErr := EncodeGetUserKeysRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "UserKeys", "get-user-keys", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeGetUserKeysResponse(csilResp)
+	value, err := DecodeGetUserKeysResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // ApplicationKeysClient is a typed client for the ApplicationKeys service. The client owns
@@ -185,47 +259,87 @@ func NewApplicationKeysClient(transport Transport) *ApplicationKeysClient {
 
 func (c *ApplicationKeysClient) GetApplicationKeys(ctx context.Context, req GetApplicationKeysRequest) (GetApplicationKeysResponse, error) {
 	var csilZero GetApplicationKeysResponse
-	csilResp, csilErr := c.transport.Call(ctx, "ApplicationKeys", "get-application-keys", EncodeGetApplicationKeysRequest(req))
+	csilReq, csilErr := EncodeGetApplicationKeysRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "ApplicationKeys", "get-application-keys", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeGetApplicationKeysResponse(csilResp)
+	value, err := DecodeGetApplicationKeysResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *ApplicationKeysClient) StartKeyChallenge(ctx context.Context, req StartApplicationKeyChallengeRequest) (StartApplicationKeyChallengeResponse, error) {
 	var csilZero StartApplicationKeyChallengeResponse
-	csilResp, csilErr := c.transport.Call(ctx, "ApplicationKeys", "start-key-challenge", EncodeStartApplicationKeyChallengeRequest(req))
+	csilReq, csilErr := EncodeStartApplicationKeyChallengeRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "ApplicationKeys", "start-key-challenge", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeStartApplicationKeyChallengeResponse(csilResp)
+	value, err := DecodeStartApplicationKeyChallengeResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *ApplicationKeysClient) AddKey(ctx context.Context, req AddApplicationKeyRequest) (AddApplicationKeyResponse, error) {
 	var csilZero AddApplicationKeyResponse
-	csilResp, csilErr := c.transport.Call(ctx, "ApplicationKeys", "add-key", EncodeAddApplicationKeyRequest(req))
+	csilReq, csilErr := EncodeAddApplicationKeyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "ApplicationKeys", "add-key", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeAddApplicationKeyResponse(csilResp)
+	value, err := DecodeAddApplicationKeyResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *ApplicationKeysClient) RenewAttestation(ctx context.Context, req RenewApplicationKeyAttestationRequest) (RenewApplicationKeyAttestationResponse, error) {
 	var csilZero RenewApplicationKeyAttestationResponse
-	csilResp, csilErr := c.transport.Call(ctx, "ApplicationKeys", "renew-attestation", EncodeRenewApplicationKeyAttestationRequest(req))
+	csilReq, csilErr := EncodeRenewApplicationKeyAttestationRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "ApplicationKeys", "renew-attestation", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRenewApplicationKeyAttestationResponse(csilResp)
+	value, err := DecodeRenewApplicationKeyAttestationResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *ApplicationKeysClient) RevokeKey(ctx context.Context, req RevokeApplicationKeyRequest) (RevokeApplicationKeyResponse, error) {
 	var csilZero RevokeApplicationKeyResponse
-	csilResp, csilErr := c.transport.Call(ctx, "ApplicationKeys", "revoke-key", EncodeRevokeApplicationKeyRequest(req))
+	csilReq, csilErr := EncodeRevokeApplicationKeyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "ApplicationKeys", "revoke-key", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRevokeApplicationKeyResponse(csilResp)
+	value, err := DecodeRevokeApplicationKeyResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // IdentityClient is a typed client for the Identity service. The client owns
@@ -240,11 +354,19 @@ func NewIdentityClient(transport Transport) *IdentityClient {
 
 func (c *IdentityClient) GetUserInfo(ctx context.Context, req SignedUserInfoRequest) (UserInfo, error) {
 	var csilZero UserInfo
-	csilResp, csilErr := c.transport.Call(ctx, "Identity", "get-user-info", EncodeSignedUserInfoRequest(req))
+	csilReq, csilErr := EncodeSignedUserInfoRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Identity", "get-user-info", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeUserInfo(csilResp)
+	value, err := DecodeUserInfo(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // HandshakeClient is a typed client for the Handshake service. The client owns
@@ -259,11 +381,19 @@ func NewHandshakeClient(transport Transport) *HandshakeClient {
 
 func (c *HandshakeClient) Handshake(ctx context.Context, req HandshakeRequest) (HandshakeResponse, error) {
 	var csilZero HandshakeResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Handshake", "handshake", EncodeHandshakeRequest(req))
+	csilReq, csilErr := EncodeHandshakeRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Handshake", "handshake", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeHandshakeResponse(csilResp)
+	value, err := DecodeHandshakeResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // I18nClient is a typed client for the I18n service. The client owns
@@ -278,20 +408,36 @@ func NewI18nClient(transport Transport) *I18nClient {
 
 func (c *I18nClient) GetTranslations(ctx context.Context, req TranslationsRequest) (TranslationsResponse, error) {
 	var csilZero TranslationsResponse
-	csilResp, csilErr := c.transport.Call(ctx, "I18n", "get-translations", EncodeTranslationsRequest(req))
+	csilReq, csilErr := EncodeTranslationsRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "I18n", "get-translations", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeTranslationsResponse(csilResp)
+	value, err := DecodeTranslationsResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *I18nClient) ListLocales(ctx context.Context, req EmptyRequest) (ListLocalesResponse, error) {
 	var csilZero ListLocalesResponse
-	csilResp, csilErr := c.transport.Call(ctx, "I18n", "list-locales", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "I18n", "list-locales", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeListLocalesResponse(csilResp)
+	value, err := DecodeListLocalesResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // UiClient is a typed client for the Ui service. The client owns
@@ -306,11 +452,19 @@ func NewUiClient(transport Transport) *UiClient {
 
 func (c *UiClient) GetConfiguration(ctx context.Context, req EmptyRequest) (GetUiConfigurationResponse, error) {
 	var csilZero GetUiConfigurationResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Ui", "get-configuration", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Ui", "get-configuration", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeGetUiConfigurationResponse(csilResp)
+	value, err := DecodeGetUiConfigurationResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // NotificationClient is a typed client for the Notification service. The client owns
@@ -325,11 +479,19 @@ func NewNotificationClient(transport Transport) *NotificationClient {
 
 func (c *NotificationClient) GetCapabilities(ctx context.Context, req EmptyRequest) (GetNotificationCapabilitiesResponse, error) {
 	var csilZero GetNotificationCapabilitiesResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Notification", "get-capabilities", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Notification", "get-capabilities", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeGetNotificationCapabilitiesResponse(csilResp)
+	value, err := DecodeGetNotificationCapabilitiesResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // SessionClient is a typed client for the Session service. The client owns
@@ -344,38 +506,70 @@ func NewSessionClient(transport Transport) *SessionClient {
 
 func (c *SessionClient) LoginPassword(ctx context.Context, req SessionPasswordLoginRequest) (SessionPasswordLoginResponse, error) {
 	var csilZero SessionPasswordLoginResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Session", "login-password", EncodeSessionPasswordLoginRequest(req))
+	csilReq, csilErr := EncodeSessionPasswordLoginRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Session", "login-password", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeSessionPasswordLoginResponse(csilResp)
+	value, err := DecodeSessionPasswordLoginResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *SessionClient) GetCurrent(ctx context.Context, req EmptyRequest) (SessionCurrentResponse, error) {
 	var csilZero SessionCurrentResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Session", "get-current", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Session", "get-current", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeSessionCurrentResponse(csilResp)
+	value, err := DecodeSessionCurrentResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *SessionClient) Logout(ctx context.Context, req EmptyRequest) (SessionLogoutResponse, error) {
 	var csilZero SessionLogoutResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Session", "logout", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Session", "logout", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeSessionLogoutResponse(csilResp)
+	value, err := DecodeSessionLogoutResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *SessionClient) Introspect(ctx context.Context, req IntrospectBrowserSessionRequest) (IntrospectBrowserSessionResponse, error) {
 	var csilZero IntrospectBrowserSessionResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Session", "introspect", EncodeIntrospectBrowserSessionRequest(req))
+	csilReq, csilErr := EncodeIntrospectBrowserSessionRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Session", "introspect", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeIntrospectBrowserSessionResponse(csilResp)
+	value, err := DecodeIntrospectBrowserSessionResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // RecoveryClient is a typed client for the Recovery service. The client owns
@@ -390,29 +584,53 @@ func NewRecoveryClient(transport Transport) *RecoveryClient {
 
 func (c *RecoveryClient) RequestPasswordRecovery(ctx context.Context, req RequestPasswordRecoveryRequest) (RequestPasswordRecoveryResponse, error) {
 	var csilZero RequestPasswordRecoveryResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Recovery", "request-password-recovery", EncodeRequestPasswordRecoveryRequest(req))
+	csilReq, csilErr := EncodeRequestPasswordRecoveryRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Recovery", "request-password-recovery", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRequestPasswordRecoveryResponse(csilResp)
+	value, err := DecodeRequestPasswordRecoveryResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *RecoveryClient) ValidatePasswordRecovery(ctx context.Context, req ValidatePasswordRecoveryRequest) (ValidatePasswordRecoveryResponse, error) {
 	var csilZero ValidatePasswordRecoveryResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Recovery", "validate-password-recovery", EncodeValidatePasswordRecoveryRequest(req))
+	csilReq, csilErr := EncodeValidatePasswordRecoveryRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Recovery", "validate-password-recovery", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeValidatePasswordRecoveryResponse(csilResp)
+	value, err := DecodeValidatePasswordRecoveryResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *RecoveryClient) CompletePasswordRecovery(ctx context.Context, req CompletePasswordRecoveryRequest) (CompletePasswordRecoveryResponse, error) {
 	var csilZero CompletePasswordRecoveryResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Recovery", "complete-password-recovery", EncodeCompletePasswordRecoveryRequest(req))
+	csilReq, csilErr := EncodeCompletePasswordRecoveryRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Recovery", "complete-password-recovery", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeCompletePasswordRecoveryResponse(csilResp)
+	value, err := DecodeCompletePasswordRecoveryResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // BrowserAuthorizationClient is a typed client for the BrowserAuthorization service. The client owns
@@ -427,56 +645,104 @@ func NewBrowserAuthorizationClient(transport Transport) *BrowserAuthorizationCli
 
 func (c *BrowserAuthorizationClient) Inspect(ctx context.Context, req BrowserAuthorizationInspectRequest) (BrowserAuthorizationInspectResponse, error) {
 	var csilZero BrowserAuthorizationInspectResponse
-	csilResp, csilErr := c.transport.Call(ctx, "BrowserAuthorization", "inspect", EncodeBrowserAuthorizationInspectRequest(req))
+	csilReq, csilErr := EncodeBrowserAuthorizationInspectRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "BrowserAuthorization", "inspect", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeBrowserAuthorizationInspectResponse(csilResp)
+	value, err := DecodeBrowserAuthorizationInspectResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *BrowserAuthorizationClient) Complete(ctx context.Context, req BrowserAuthorizationCompleteRequest) (BrowserAuthorizationCompleteResponse, error) {
 	var csilZero BrowserAuthorizationCompleteResponse
-	csilResp, csilErr := c.transport.Call(ctx, "BrowserAuthorization", "complete", EncodeBrowserAuthorizationCompleteRequest(req))
+	csilReq, csilErr := EncodeBrowserAuthorizationCompleteRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "BrowserAuthorization", "complete", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeBrowserAuthorizationCompleteResponse(csilResp)
+	value, err := DecodeBrowserAuthorizationCompleteResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *BrowserAuthorizationClient) InspectActAs(ctx context.Context, req BrowserActAsInspectRequest) (BrowserActAsInspectResponse, error) {
 	var csilZero BrowserActAsInspectResponse
-	csilResp, csilErr := c.transport.Call(ctx, "BrowserAuthorization", "inspect-act-as", EncodeBrowserActAsInspectRequest(req))
+	csilReq, csilErr := EncodeBrowserActAsInspectRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "BrowserAuthorization", "inspect-act-as", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeBrowserActAsInspectResponse(csilResp)
+	value, err := DecodeBrowserActAsInspectResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *BrowserAuthorizationClient) CompleteActAs(ctx context.Context, req BrowserActAsCompleteRequest) (BrowserActAsCompleteResponse, error) {
 	var csilZero BrowserActAsCompleteResponse
-	csilResp, csilErr := c.transport.Call(ctx, "BrowserAuthorization", "complete-act-as", EncodeBrowserActAsCompleteRequest(req))
+	csilReq, csilErr := EncodeBrowserActAsCompleteRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "BrowserAuthorization", "complete-act-as", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeBrowserActAsCompleteResponse(csilResp)
+	value, err := DecodeBrowserActAsCompleteResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *BrowserAuthorizationClient) InspectLocalRp(ctx context.Context, req BrowserLocalRpInspectRequest) (BrowserLocalRpInspectResponse, error) {
 	var csilZero BrowserLocalRpInspectResponse
-	csilResp, csilErr := c.transport.Call(ctx, "BrowserAuthorization", "inspect-local-rp", EncodeBrowserLocalRpInspectRequest(req))
+	csilReq, csilErr := EncodeBrowserLocalRpInspectRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "BrowserAuthorization", "inspect-local-rp", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeBrowserLocalRpInspectResponse(csilResp)
+	value, err := DecodeBrowserLocalRpInspectResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *BrowserAuthorizationClient) CompleteLocalRp(ctx context.Context, req BrowserLocalRpCompleteRequest) (BrowserLocalRpCompleteResponse, error) {
 	var csilZero BrowserLocalRpCompleteResponse
-	csilResp, csilErr := c.transport.Call(ctx, "BrowserAuthorization", "complete-local-rp", EncodeBrowserLocalRpCompleteRequest(req))
+	csilReq, csilErr := EncodeBrowserLocalRpCompleteRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "BrowserAuthorization", "complete-local-rp", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeBrowserLocalRpCompleteResponse(csilResp)
+	value, err := DecodeBrowserLocalRpCompleteResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // BrowserIssuerClient is a typed client for the BrowserIssuer service. The client owns
@@ -491,20 +757,36 @@ func NewBrowserIssuerClient(transport Transport) *BrowserIssuerClient {
 
 func (c *BrowserIssuerClient) InspectSigningRequest(ctx context.Context, req InspectSigningRequestRequest) (InspectSigningRequestResponse, error) {
 	var csilZero InspectSigningRequestResponse
-	csilResp, csilErr := c.transport.Call(ctx, "BrowserIssuer", "inspect-signing-request", EncodeInspectSigningRequestRequest(req))
+	csilReq, csilErr := EncodeInspectSigningRequestRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "BrowserIssuer", "inspect-signing-request", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeInspectSigningRequestResponse(csilResp)
+	value, err := DecodeInspectSigningRequestResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *BrowserIssuerClient) IssueForSigningRequest(ctx context.Context, req IssueForSigningRequestRequest) (IssueForSigningRequestResponse, error) {
 	var csilZero IssueForSigningRequestResponse
-	csilResp, csilErr := c.transport.Call(ctx, "BrowserIssuer", "issue-for-signing-request", EncodeIssueForSigningRequestRequest(req))
+	csilReq, csilErr := EncodeIssueForSigningRequestRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "BrowserIssuer", "issue-for-signing-request", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeIssueForSigningRequestResponse(csilResp)
+	value, err := DecodeIssueForSigningRequestResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // AdminClient is a typed client for the Admin service. The client owns
@@ -519,506 +801,1090 @@ func NewAdminClient(transport Transport) *AdminClient {
 
 func (c *AdminClient) ListUsers(ctx context.Context, req ListUsersRequest) (ListUsersResponse, error) {
 	var csilZero ListUsersResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-users", EncodeListUsersRequest(req))
+	csilReq, csilErr := EncodeListUsersRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-users", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeListUsersResponse(csilResp)
+	value, err := DecodeListUsersResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) GetUser(ctx context.Context, req GetUserRequest) (GetUserResponse, error) {
 	var csilZero GetUserResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "get-user", EncodeGetUserRequest(req))
+	csilReq, csilErr := EncodeGetUserRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "get-user", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeGetUserResponse(csilResp)
+	value, err := DecodeGetUserResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) GetUserAuthenticationActivity(ctx context.Context, req GetUserAuthenticationActivityRequest) (GetUserAuthenticationActivityResponse, error) {
 	var csilZero GetUserAuthenticationActivityResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "get-user-authentication-activity", EncodeGetUserAuthenticationActivityRequest(req))
+	csilReq, csilErr := EncodeGetUserAuthenticationActivityRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "get-user-authentication-activity", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeGetUserAuthenticationActivityResponse(csilResp)
+	value, err := DecodeGetUserAuthenticationActivityResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) CreateUser(ctx context.Context, req CreateUserRequest) (CreateUserResponse, error) {
 	var csilZero CreateUserResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "create-user", EncodeCreateUserRequest(req))
+	csilReq, csilErr := EncodeCreateUserRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "create-user", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeCreateUserResponse(csilResp)
+	value, err := DecodeCreateUserResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) UpdateUser(ctx context.Context, req UpdateUserRequest) (UpdateUserResponse, error) {
 	var csilZero UpdateUserResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "update-user", EncodeUpdateUserRequest(req))
+	csilReq, csilErr := EncodeUpdateUserRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "update-user", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeUpdateUserResponse(csilResp)
+	value, err := DecodeUpdateUserResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) DeactivateUser(ctx context.Context, req DeactivateUserRequest) (DeactivateUserResponse, error) {
 	var csilZero DeactivateUserResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "deactivate-user", EncodeDeactivateUserRequest(req))
+	csilReq, csilErr := EncodeDeactivateUserRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "deactivate-user", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeDeactivateUserResponse(csilResp)
+	value, err := DecodeDeactivateUserResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) ActivateUser(ctx context.Context, req ActivateUserRequest) (ActivateUserResponse, error) {
 	var csilZero ActivateUserResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "activate-user", EncodeActivateUserRequest(req))
+	csilReq, csilErr := EncodeActivateUserRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "activate-user", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeActivateUserResponse(csilResp)
+	value, err := DecodeActivateUserResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) PurgeUser(ctx context.Context, req PurgeUserRequest) (PurgeUserResponse, error) {
 	var csilZero PurgeUserResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "purge-user", EncodePurgeUserRequest(req))
+	csilReq, csilErr := EncodePurgeUserRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "purge-user", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodePurgeUserResponse(csilResp)
+	value, err := DecodePurgeUserResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) RevokeDomainKey(ctx context.Context, req RevokeDomainKeyRequest) (RevokeDomainKeyResponse, error) {
 	var csilZero RevokeDomainKeyResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "revoke-domain-key", EncodeRevokeDomainKeyRequest(req))
+	csilReq, csilErr := EncodeRevokeDomainKeyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "revoke-domain-key", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRevokeDomainKeyResponse(csilResp)
+	value, err := DecodeRevokeDomainKeyResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) ResetPassword(ctx context.Context, req ResetPasswordRequest) (ResetPasswordResponse, error) {
 	var csilZero ResetPasswordResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "reset-password", EncodeResetPasswordRequest(req))
+	csilReq, csilErr := EncodeResetPasswordRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "reset-password", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeResetPasswordResponse(csilResp)
+	value, err := DecodeResetPasswordResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) Authenticate(ctx context.Context, req AuthenticateRequest) (AuthenticateResponse, error) {
 	var csilZero AuthenticateResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "authenticate", EncodeAuthenticateRequest(req))
+	csilReq, csilErr := EncodeAuthenticateRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "authenticate", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeAuthenticateResponse(csilResp)
+	value, err := DecodeAuthenticateResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) RemoveCredential(ctx context.Context, req RemoveCredentialRequest) (RemoveCredentialResponse, error) {
 	var csilZero RemoveCredentialResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "remove-credential", EncodeRemoveCredentialRequest(req))
+	csilReq, csilErr := EncodeRemoveCredentialRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "remove-credential", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRemoveCredentialResponse(csilResp)
+	value, err := DecodeRemoveCredentialResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) SetClaim(ctx context.Context, req SetClaimRequest) (SetClaimResponse, error) {
 	var csilZero SetClaimResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-claim", EncodeSetClaimRequest(req))
+	csilReq, csilErr := EncodeSetClaimRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-claim", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeSetClaimResponse(csilResp)
+	value, err := DecodeSetClaimResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) RemoveClaim(ctx context.Context, req RemoveClaimRequest) (RemoveClaimResponse, error) {
 	var csilZero RemoveClaimResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "remove-claim", EncodeRemoveClaimRequest(req))
+	csilReq, csilErr := EncodeRemoveClaimRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "remove-claim", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRemoveClaimResponse(csilResp)
+	value, err := DecodeRemoveClaimResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) ListUserClaims(ctx context.Context, req ListUserClaimsRequest) (ListUserClaimsResponse, error) {
 	var csilZero ListUserClaimsResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-user-claims", EncodeListUserClaimsRequest(req))
+	csilReq, csilErr := EncodeListUserClaimsRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-user-claims", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeListUserClaimsResponse(csilResp)
+	value, err := DecodeListUserClaimsResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) GetUserClaims(ctx context.Context, req AdminUserClaimsRequest) (AdminUserClaimsResponse, error) {
 	var csilZero AdminUserClaimsResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "get-user-claims", EncodeAdminUserClaimsRequest(req))
+	csilReq, csilErr := EncodeAdminUserClaimsRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "get-user-claims", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeAdminUserClaimsResponse(csilResp)
+	value, err := DecodeAdminUserClaimsResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) SetUserClaim(ctx context.Context, req SetUserClaimRequest) (SetUserClaimResponse, error) {
 	var csilZero SetUserClaimResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-user-claim", EncodeSetUserClaimRequest(req))
+	csilReq, csilErr := EncodeSetUserClaimRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-user-claim", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeSetUserClaimResponse(csilResp)
+	value, err := DecodeSetUserClaimResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) ListSettablePolicies(ctx context.Context, req EmptyRequest) (ListSettablePoliciesResponse, error) {
 	var csilZero ListSettablePoliciesResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-settable-policies", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-settable-policies", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeListSettablePoliciesResponse(csilResp)
+	value, err := DecodeListSettablePoliciesResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) ListClaimTypes(ctx context.Context, req EmptyRequest) (ListClaimTypesResponse, error) {
 	var csilZero ListClaimTypesResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-claim-types", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-claim-types", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeListClaimTypesResponse(csilResp)
+	value, err := DecodeListClaimTypesResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) SetClaimType(ctx context.Context, req SetClaimTypeRequest) (SetClaimTypeResponse, error) {
 	var csilZero SetClaimTypeResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-claim-type", EncodeSetClaimTypeRequest(req))
+	csilReq, csilErr := EncodeSetClaimTypeRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-claim-type", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeSetClaimTypeResponse(csilResp)
+	value, err := DecodeSetClaimTypeResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) RemoveClaimType(ctx context.Context, req RemoveClaimTypeRequest) (RemoveClaimTypeResponse, error) {
 	var csilZero RemoveClaimTypeResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "remove-claim-type", EncodeRemoveClaimTypeRequest(req))
+	csilReq, csilErr := EncodeRemoveClaimTypeRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "remove-claim-type", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRemoveClaimTypeResponse(csilResp)
+	value, err := DecodeRemoveClaimTypeResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) ListClaimTypeLabels(ctx context.Context, req EmptyRequest) (ListClaimTypeLabelsResponse, error) {
 	var csilZero ListClaimTypeLabelsResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-claim-type-labels", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-claim-type-labels", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeListClaimTypeLabelsResponse(csilResp)
+	value, err := DecodeListClaimTypeLabelsResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) SetClaimTypeLabel(ctx context.Context, req SetClaimTypeLabelRequest) (SetClaimTypeLabelResponse, error) {
 	var csilZero SetClaimTypeLabelResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-claim-type-label", EncodeSetClaimTypeLabelRequest(req))
+	csilReq, csilErr := EncodeSetClaimTypeLabelRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-claim-type-label", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeSetClaimTypeLabelResponse(csilResp)
+	value, err := DecodeSetClaimTypeLabelResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) RemoveClaimTypeLabel(ctx context.Context, req RemoveClaimTypeLabelRequest) (RemoveClaimTypeLabelResponse, error) {
 	var csilZero RemoveClaimTypeLabelResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "remove-claim-type-label", EncodeRemoveClaimTypeLabelRequest(req))
+	csilReq, csilErr := EncodeRemoveClaimTypeLabelRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "remove-claim-type-label", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRemoveClaimTypeLabelResponse(csilResp)
+	value, err := DecodeRemoveClaimTypeLabelResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) ListTrustedIssuers(ctx context.Context, req EmptyRequest) (ListTrustedIssuersResponse, error) {
 	var csilZero ListTrustedIssuersResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-trusted-issuers", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-trusted-issuers", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeListTrustedIssuersResponse(csilResp)
+	value, err := DecodeListTrustedIssuersResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) AddTrustedIssuer(ctx context.Context, req AddTrustedIssuerRequest) (AddTrustedIssuerResponse, error) {
 	var csilZero AddTrustedIssuerResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "add-trusted-issuer", EncodeAddTrustedIssuerRequest(req))
+	csilReq, csilErr := EncodeAddTrustedIssuerRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "add-trusted-issuer", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeAddTrustedIssuerResponse(csilResp)
+	value, err := DecodeAddTrustedIssuerResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) RemoveTrustedIssuer(ctx context.Context, req RemoveTrustedIssuerRequest) (RemoveTrustedIssuerResponse, error) {
 	var csilZero RemoveTrustedIssuerResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "remove-trusted-issuer", EncodeRemoveTrustedIssuerRequest(req))
+	csilReq, csilErr := EncodeRemoveTrustedIssuerRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "remove-trusted-issuer", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRemoveTrustedIssuerResponse(csilResp)
+	value, err := DecodeRemoveTrustedIssuerResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) ListReleaseRules(ctx context.Context, req EmptyRequest) (ListReleaseRulesResponse, error) {
 	var csilZero ListReleaseRulesResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-release-rules", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-release-rules", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeListReleaseRulesResponse(csilResp)
+	value, err := DecodeListReleaseRulesResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) SetReleaseRule(ctx context.Context, req SetReleaseRuleRequest) (SetReleaseRuleResponse, error) {
 	var csilZero SetReleaseRuleResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-release-rule", EncodeSetReleaseRuleRequest(req))
+	csilReq, csilErr := EncodeSetReleaseRuleRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-release-rule", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeSetReleaseRuleResponse(csilResp)
+	value, err := DecodeSetReleaseRuleResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) RemoveReleaseRule(ctx context.Context, req RemoveReleaseRuleRequest) (RemoveReleaseRuleResponse, error) {
 	var csilZero RemoveReleaseRuleResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "remove-release-rule", EncodeRemoveReleaseRuleRequest(req))
+	csilReq, csilErr := EncodeRemoveReleaseRuleRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "remove-release-rule", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRemoveReleaseRuleResponse(csilResp)
+	value, err := DecodeRemoveReleaseRuleResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) ListPendingClaimApprovals(ctx context.Context, req EmptyRequest) (ListPendingClaimApprovalsResponse, error) {
 	var csilZero ListPendingClaimApprovalsResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-pending-claim-approvals", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-pending-claim-approvals", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeListPendingClaimApprovalsResponse(csilResp)
+	value, err := DecodeListPendingClaimApprovalsResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) ApproveClaim(ctx context.Context, req ApproveClaimRequest) (ApproveClaimResponse, error) {
 	var csilZero ApproveClaimResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "approve-claim", EncodeApproveClaimRequest(req))
+	csilReq, csilErr := EncodeApproveClaimRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "approve-claim", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeApproveClaimResponse(csilResp)
+	value, err := DecodeApproveClaimResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) RejectClaim(ctx context.Context, req RejectClaimRequest) (RejectClaimResponse, error) {
 	var csilZero RejectClaimResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "reject-claim", EncodeRejectClaimRequest(req))
+	csilReq, csilErr := EncodeRejectClaimRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "reject-claim", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRejectClaimResponse(csilResp)
+	value, err := DecodeRejectClaimResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) AdminIssueAttestation(ctx context.Context, req AdminIssueAttestationRequest) (AdminIssueAttestationResponse, error) {
 	var csilZero AdminIssueAttestationResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "admin-issue-attestation", EncodeAdminIssueAttestationRequest(req))
+	csilReq, csilErr := EncodeAdminIssueAttestationRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "admin-issue-attestation", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeAdminIssueAttestationResponse(csilResp)
+	value, err := DecodeAdminIssueAttestationResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) PreviewReleasePolicy(ctx context.Context, req PreviewReleasePolicyRequest) (PreviewReleasePolicyResponse, error) {
 	var csilZero PreviewReleasePolicyResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "preview-release-policy", EncodePreviewReleasePolicyRequest(req))
+	csilReq, csilErr := EncodePreviewReleasePolicyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "preview-release-policy", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodePreviewReleasePolicyResponse(csilResp)
+	value, err := DecodePreviewReleasePolicyResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) PreviewIssuerPolicy(ctx context.Context, req PreviewIssuerPolicyRequest) (PreviewIssuerPolicyResponse, error) {
 	var csilZero PreviewIssuerPolicyResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "preview-issuer-policy", EncodePreviewIssuerPolicyRequest(req))
+	csilReq, csilErr := EncodePreviewIssuerPolicyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "preview-issuer-policy", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodePreviewIssuerPolicyResponse(csilResp)
+	value, err := DecodePreviewIssuerPolicyResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) GrantRelation(ctx context.Context, req GrantRelationRequest) (GrantRelationResponse, error) {
 	var csilZero GrantRelationResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "grant-relation", EncodeGrantRelationRequest(req))
+	csilReq, csilErr := EncodeGrantRelationRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "grant-relation", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeGrantRelationResponse(csilResp)
+	value, err := DecodeGrantRelationResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) RemoveRelation(ctx context.Context, req RemoveRelationRequest) (RemoveRelationResponse, error) {
 	var csilZero RemoveRelationResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "remove-relation", EncodeRemoveRelationRequest(req))
+	csilReq, csilErr := EncodeRemoveRelationRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "remove-relation", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRemoveRelationResponse(csilResp)
+	value, err := DecodeRemoveRelationResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) ListRelations(ctx context.Context, req ListRelationsRequest) (ListRelationsResponse, error) {
 	var csilZero ListRelationsResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-relations", EncodeListRelationsRequest(req))
+	csilReq, csilErr := EncodeListRelationsRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-relations", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeListRelationsResponse(csilResp)
+	value, err := DecodeListRelationsResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) CheckPermission(ctx context.Context, req CheckPermissionRequest) (CheckPermissionResponse, error) {
 	var csilZero CheckPermissionResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "check-permission", EncodeCheckPermissionRequest(req))
+	csilReq, csilErr := EncodeCheckPermissionRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "check-permission", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeCheckPermissionResponse(csilResp)
+	value, err := DecodeCheckPermissionResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) RecheckPins(ctx context.Context, req RecheckPinsRequest) (RecheckPinsResponse, error) {
 	var csilZero RecheckPinsResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "recheck-pins", EncodeRecheckPinsRequest(req))
+	csilReq, csilErr := EncodeRecheckPinsRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "recheck-pins", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRecheckPinsResponse(csilResp)
+	value, err := DecodeRecheckPinsResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) ListLocalRps(ctx context.Context, req ListLocalRpsRequest) (ListLocalRpsResponse, error) {
 	var csilZero ListLocalRpsResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-local-rps", EncodeListLocalRpsRequest(req))
+	csilReq, csilErr := EncodeListLocalRpsRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-local-rps", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeListLocalRpsResponse(csilResp)
+	value, err := DecodeListLocalRpsResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) GetLocalRp(ctx context.Context, req GetLocalRpRequest) (GetLocalRpResponse, error) {
 	var csilZero GetLocalRpResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "get-local-rp", EncodeGetLocalRpRequest(req))
+	csilReq, csilErr := EncodeGetLocalRpRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "get-local-rp", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeGetLocalRpResponse(csilResp)
+	value, err := DecodeGetLocalRpResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) ApproveLocalRp(ctx context.Context, req ApproveLocalRpRequest) (ApproveLocalRpResponse, error) {
 	var csilZero ApproveLocalRpResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "approve-local-rp", EncodeApproveLocalRpRequest(req))
+	csilReq, csilErr := EncodeApproveLocalRpRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "approve-local-rp", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeApproveLocalRpResponse(csilResp)
+	value, err := DecodeApproveLocalRpResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) DenyLocalRp(ctx context.Context, req DenyLocalRpRequest) (DenyLocalRpResponse, error) {
 	var csilZero DenyLocalRpResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "deny-local-rp", EncodeDenyLocalRpRequest(req))
+	csilReq, csilErr := EncodeDenyLocalRpRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "deny-local-rp", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeDenyLocalRpResponse(csilResp)
+	value, err := DecodeDenyLocalRpResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) RevokeLocalRp(ctx context.Context, req RevokeLocalRpRequest) (RevokeLocalRpResponse, error) {
 	var csilZero RevokeLocalRpResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "revoke-local-rp", EncodeRevokeLocalRpRequest(req))
+	csilReq, csilErr := EncodeRevokeLocalRpRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "revoke-local-rp", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRevokeLocalRpResponse(csilResp)
+	value, err := DecodeRevokeLocalRpResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) GetLocalRpPolicy(ctx context.Context, req GetLocalRpPolicyRequest) (GetLocalRpPolicyResponse, error) {
 	var csilZero GetLocalRpPolicyResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "get-local-rp-policy", EncodeGetLocalRpPolicyRequest(req))
+	csilReq, csilErr := EncodeGetLocalRpPolicyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "get-local-rp-policy", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeGetLocalRpPolicyResponse(csilResp)
+	value, err := DecodeGetLocalRpPolicyResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) SetLocalRpPolicy(ctx context.Context, req SetLocalRpPolicyRequest) (SetLocalRpPolicyResponse, error) {
 	var csilZero SetLocalRpPolicyResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-local-rp-policy", EncodeSetLocalRpPolicyRequest(req))
+	csilReq, csilErr := EncodeSetLocalRpPolicyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-local-rp-policy", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeSetLocalRpPolicyResponse(csilResp)
+	value, err := DecodeSetLocalRpPolicyResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) PurgeLocalRpTickets(ctx context.Context, req PurgeLocalRpTicketsRequest) (PurgeLocalRpTicketsResponse, error) {
 	var csilZero PurgeLocalRpTicketsResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "purge-local-rp-tickets", EncodePurgeLocalRpTicketsRequest(req))
+	csilReq, csilErr := EncodePurgeLocalRpTicketsRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "purge-local-rp-tickets", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodePurgeLocalRpTicketsResponse(csilResp)
+	value, err := DecodePurgeLocalRpTicketsResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) GetSignInPolicy(ctx context.Context, req EmptyRequest) (SignInPolicy, error) {
 	var csilZero SignInPolicy
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "get-sign-in-policy", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "get-sign-in-policy", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeSignInPolicy(csilResp)
+	value, err := DecodeSignInPolicy(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) SetSignInPolicy(ctx context.Context, req SetSignInPolicyRequest) (SignInPolicy, error) {
 	var csilZero SignInPolicy
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-sign-in-policy", EncodeSetSignInPolicyRequest(req))
+	csilReq, csilErr := EncodeSetSignInPolicyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-sign-in-policy", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeSignInPolicy(csilResp)
+	value, err := DecodeSignInPolicy(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) SetUserPasswordLock(ctx context.Context, req SetUserPasswordLockRequest) (SetUserPasswordLockResponse, error) {
 	var csilZero SetUserPasswordLockResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-user-password-lock", EncodeSetUserPasswordLockRequest(req))
+	csilReq, csilErr := EncodeSetUserPasswordLockRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-user-password-lock", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeSetUserPasswordLockResponse(csilResp)
+	value, err := DecodeSetUserPasswordLockResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) ListAppAccessPolicies(ctx context.Context, req EmptyRequest) (ListAppAccessPoliciesResponse, error) {
 	var csilZero ListAppAccessPoliciesResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-app-access-policies", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-app-access-policies", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeListAppAccessPoliciesResponse(csilResp)
+	value, err := DecodeListAppAccessPoliciesResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) SetAppAccessPolicy(ctx context.Context, req SetAppAccessPolicyRequest) (SetAppAccessPolicyResponse, error) {
 	var csilZero SetAppAccessPolicyResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-app-access-policy", EncodeSetAppAccessPolicyRequest(req))
+	csilReq, csilErr := EncodeSetAppAccessPolicyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-app-access-policy", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeSetAppAccessPolicyResponse(csilResp)
+	value, err := DecodeSetAppAccessPolicyResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) RemoveAppAccessPolicy(ctx context.Context, req RemoveAppAccessPolicyRequest) (RemoveAppAccessPolicyResponse, error) {
 	var csilZero RemoveAppAccessPolicyResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "remove-app-access-policy", EncodeRemoveAppAccessPolicyRequest(req))
+	csilReq, csilErr := EncodeRemoveAppAccessPolicyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "remove-app-access-policy", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRemoveAppAccessPolicyResponse(csilResp)
+	value, err := DecodeRemoveAppAccessPolicyResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AdminClient) PreviewAppAccess(ctx context.Context, req PreviewAppAccessRequest) (PreviewAppAccessResponse, error) {
 	var csilZero PreviewAppAccessResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Admin", "preview-app-access", EncodePreviewAppAccessRequest(req))
+	csilReq, csilErr := EncodePreviewAppAccessRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "preview-app-access", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodePreviewAppAccessResponse(csilResp)
+	value, err := DecodePreviewAppAccessResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
+}
+
+func (c *AdminClient) RenameUser(ctx context.Context, req RenameUserRequest) (RenameUserResponse, error) {
+	var csilZero RenameUserResponse
+	csilReq, csilErr := EncodeRenameUserRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "rename-user", csilReq)
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	value, err := DecodeRenameUserResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
+}
+
+func (c *AdminClient) SetApplicationId(ctx context.Context, req SetApplicationIdRequest) (SetApplicationIdResponse, error) {
+	var csilZero SetApplicationIdResponse
+	csilReq, csilErr := EncodeSetApplicationIdRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-application-id", csilReq)
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	value, err := DecodeSetApplicationIdResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
+}
+
+func (c *AdminClient) CreateApiKey(ctx context.Context, req CreateApiKeyRequest) (CreateApiKeyResponse, error) {
+	var csilZero CreateApiKeyResponse
+	csilReq, csilErr := EncodeCreateApiKeyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "create-api-key", csilReq)
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	value, err := DecodeCreateApiKeyResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
+}
+
+func (c *AdminClient) ListApiKeys(ctx context.Context, req ListApiKeysRequest) (ListApiKeysResponse, error) {
+	var csilZero ListApiKeysResponse
+	csilReq, csilErr := EncodeListApiKeysRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "list-api-keys", csilReq)
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	value, err := DecodeListApiKeysResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
+}
+
+func (c *AdminClient) RevokeApiKey(ctx context.Context, req RevokeApiKeyRequest) (RevokeApiKeyResponse, error) {
+	var csilZero RevokeApiKeyResponse
+	csilReq, csilErr := EncodeRevokeApiKeyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "revoke-api-key", csilReq)
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	value, err := DecodeRevokeApiKeyResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
+}
+
+func (c *AdminClient) GetAccountLimits(ctx context.Context, req GetAccountLimitsRequest) (GetAccountLimitsResponse, error) {
+	var csilZero GetAccountLimitsResponse
+	csilReq, csilErr := EncodeGetAccountLimitsRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "get-account-limits", csilReq)
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	value, err := DecodeGetAccountLimitsResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
+}
+
+func (c *AdminClient) SetAccountLimits(ctx context.Context, req SetAccountLimitsRequest) (SetAccountLimitsResponse, error) {
+	var csilZero SetAccountLimitsResponse
+	csilReq, csilErr := EncodeSetAccountLimitsRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "set-account-limits", csilReq)
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	value, err := DecodeSetAccountLimitsResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
+}
+
+func (c *AdminClient) GetApplicationUsage(ctx context.Context, req GetApplicationUsageRequest) (GetApplicationUsageResponse, error) {
+	var csilZero GetApplicationUsageResponse
+	csilReq, csilErr := EncodeGetApplicationUsageRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Admin", "get-application-usage", csilReq)
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	value, err := DecodeGetApplicationUsageResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // AccountClient is a typed client for the Account service. The client owns
@@ -1033,155 +1899,291 @@ func NewAccountClient(transport Transport) *AccountClient {
 
 func (c *AccountClient) ChangePassword(ctx context.Context, req ChangePasswordRequest) (ChangePasswordResponse, error) {
 	var csilZero ChangePasswordResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Account", "change-password", EncodeChangePasswordRequest(req))
+	csilReq, csilErr := EncodeChangePasswordRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "change-password", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeChangePasswordResponse(csilResp)
+	value, err := DecodeChangePasswordResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AccountClient) GetMyInfo(ctx context.Context, req EmptyRequest) (GetMyInfoResponse, error) {
 	var csilZero GetMyInfoResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Account", "get-my-info", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "get-my-info", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeGetMyInfoResponse(csilResp)
+	value, err := DecodeGetMyInfoResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AccountClient) ListSettablePolicies(ctx context.Context, req EmptyRequest) (ListSettablePoliciesResponse, error) {
 	var csilZero ListSettablePoliciesResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Account", "list-settable-policies", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "list-settable-policies", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeListSettablePoliciesResponse(csilResp)
+	value, err := DecodeListSettablePoliciesResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AccountClient) SetMyClaim(ctx context.Context, req SetMyClaimRequest) (SetMyClaimResponse, error) {
 	var csilZero SetMyClaimResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Account", "set-my-claim", EncodeSetMyClaimRequest(req))
+	csilReq, csilErr := EncodeSetMyClaimRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "set-my-claim", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeSetMyClaimResponse(csilResp)
+	value, err := DecodeSetMyClaimResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AccountClient) RemoveMyClaim(ctx context.Context, req RemoveMyClaimRequest) (RemoveMyClaimResponse, error) {
 	var csilZero RemoveMyClaimResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Account", "remove-my-claim", EncodeRemoveMyClaimRequest(req))
+	csilReq, csilErr := EncodeRemoveMyClaimRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "remove-my-claim", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRemoveMyClaimResponse(csilResp)
+	value, err := DecodeRemoveMyClaimResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AccountClient) SetMyClaimSharing(ctx context.Context, req SetMyClaimSharingRequest) (SetMyClaimSharingResponse, error) {
 	var csilZero SetMyClaimSharingResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Account", "set-my-claim-sharing", EncodeSetMyClaimSharingRequest(req))
+	csilReq, csilErr := EncodeSetMyClaimSharingRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "set-my-claim-sharing", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeSetMyClaimSharingResponse(csilResp)
+	value, err := DecodeSetMyClaimSharingResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AccountClient) CreateProfile(ctx context.Context, req CreateProfileRequest) (CreateProfileResponse, error) {
 	var csilZero CreateProfileResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Account", "create-profile", EncodeCreateProfileRequest(req))
+	csilReq, csilErr := EncodeCreateProfileRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "create-profile", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeCreateProfileResponse(csilResp)
+	value, err := DecodeCreateProfileResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AccountClient) GetMyClaimSettings(ctx context.Context, req EmptyRequest) (MyClaimSettingsResponse, error) {
 	var csilZero MyClaimSettingsResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Account", "get-my-claim-settings", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "get-my-claim-settings", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeMyClaimSettingsResponse(csilResp)
+	value, err := DecodeMyClaimSettingsResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AccountClient) SetMyClaimKeepVerified(ctx context.Context, req SetMyClaimKeepVerifiedRequest) (SetMyClaimKeepVerifiedResponse, error) {
 	var csilZero SetMyClaimKeepVerifiedResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Account", "set-my-claim-keep-verified", EncodeSetMyClaimKeepVerifiedRequest(req))
+	csilReq, csilErr := EncodeSetMyClaimKeepVerifiedRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "set-my-claim-keep-verified", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeSetMyClaimKeepVerifiedResponse(csilResp)
+	value, err := DecodeSetMyClaimKeepVerifiedResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AccountClient) RequestVerification(ctx context.Context, req RequestVerificationRequest) (RequestVerificationResponse, error) {
 	var csilZero RequestVerificationResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Account", "request-verification", EncodeRequestVerificationRequest(req))
+	csilReq, csilErr := EncodeRequestVerificationRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "request-verification", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRequestVerificationResponse(csilResp)
+	value, err := DecodeRequestVerificationResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AccountClient) ListVerifiedContactMethods(ctx context.Context, req EmptyRequest) (ListVerifiedContactMethodsResponse, error) {
 	var csilZero ListVerifiedContactMethodsResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Account", "list-verified-contact-methods", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "list-verified-contact-methods", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeListVerifiedContactMethodsResponse(csilResp)
+	value, err := DecodeListVerifiedContactMethodsResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AccountClient) RevokeVerifiedContactMethod(ctx context.Context, req RevokeVerifiedContactMethodRequest) (RevokeVerifiedContactMethodResponse, error) {
 	var csilZero RevokeVerifiedContactMethodResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Account", "revoke-verified-contact-method", EncodeRevokeVerifiedContactMethodRequest(req))
+	csilReq, csilErr := EncodeRevokeVerifiedContactMethodRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "revoke-verified-contact-method", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRevokeVerifiedContactMethodResponse(csilResp)
+	value, err := DecodeRevokeVerifiedContactMethodResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AccountClient) RequestContactVerification(ctx context.Context, req RequestContactVerificationRequest) (RequestContactVerificationResponse, error) {
 	var csilZero RequestContactVerificationResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Account", "request-contact-verification", EncodeRequestContactVerificationRequest(req))
+	csilReq, csilErr := EncodeRequestContactVerificationRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "request-contact-verification", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRequestContactVerificationResponse(csilResp)
+	value, err := DecodeRequestContactVerificationResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AccountClient) ConfirmContactVerification(ctx context.Context, req ConfirmContactVerificationRequest) (ConfirmContactVerificationResponse, error) {
 	var csilZero ConfirmContactVerificationResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Account", "confirm-contact-verification", EncodeConfirmContactVerificationRequest(req))
+	csilReq, csilErr := EncodeConfirmContactVerificationRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "confirm-contact-verification", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeConfirmContactVerificationResponse(csilResp)
+	value, err := DecodeConfirmContactVerificationResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AccountClient) EnrollApplicationInstance(ctx context.Context, req EnrollApplicationInstanceRequest) (EnrollApplicationInstanceResponse, error) {
 	var csilZero EnrollApplicationInstanceResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Account", "enroll-application-instance", EncodeEnrollApplicationInstanceRequest(req))
+	csilReq, csilErr := EncodeEnrollApplicationInstanceRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "enroll-application-instance", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeEnrollApplicationInstanceResponse(csilResp)
+	value, err := DecodeEnrollApplicationInstanceResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AccountClient) ListActAsGrants(ctx context.Context, req EmptyRequest) (ListActAsGrantsResponse, error) {
 	var csilZero ListActAsGrantsResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Account", "list-act-as-grants", EncodeEmptyRequest(req))
+	csilReq, csilErr := EncodeEmptyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "list-act-as-grants", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeListActAsGrantsResponse(csilResp)
+	value, err := DecodeListActAsGrantsResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *AccountClient) RevokeActAsGrant(ctx context.Context, req RevokeActAsGrantRequest) (RevokeActAsGrantResponse, error) {
 	var csilZero RevokeActAsGrantResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Account", "revoke-act-as-grant", EncodeRevokeActAsGrantRequest(req))
+	csilReq, csilErr := EncodeRevokeActAsGrantRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Account", "revoke-act-as-grant", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRevokeActAsGrantResponse(csilResp)
+	value, err := DecodeRevokeActAsGrantResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // AttestationClient is a typed client for the Attestation service. The client owns
@@ -1196,11 +2198,19 @@ func NewAttestationClient(transport Transport) *AttestationClient {
 
 func (c *AttestationClient) DepositClaim(ctx context.Context, req DepositClaimRequest) (DepositClaimResponse, error) {
 	var csilZero DepositClaimResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Attestation", "deposit-claim", EncodeDepositClaimRequest(req))
+	csilReq, csilErr := EncodeDepositClaimRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Attestation", "deposit-claim", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeDepositClaimResponse(csilResp)
+	value, err := DecodeDepositClaimResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // RpClient is a typed client for the Rp service. The client owns
@@ -1215,83 +2225,171 @@ func NewRpClient(transport Transport) *RpClient {
 
 func (c *RpClient) SignRequest(ctx context.Context, req RpSignRequest) (RpSignResponse, error) {
 	var csilZero RpSignResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Rp", "sign-request", EncodeRpSignRequest(req))
+	csilReq, csilErr := EncodeRpSignRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilReply, csilErr := c.transport.CallReply(ctx, "Rp", "sign-request", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRpSignResponse(csilResp)
+	csilResp, csilErr := ResolveRPCReply("Rp", "sign-request", csilReply.Variant, csilReply.Payload)
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	value, err := DecodeRpSignResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *RpClient) DecryptToken(ctx context.Context, req RpDecryptRequest) (RpDecryptResponse, error) {
 	var csilZero RpDecryptResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Rp", "decrypt-token", EncodeRpDecryptRequest(req))
+	csilReq, csilErr := EncodeRpDecryptRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilReply, csilErr := c.transport.CallReply(ctx, "Rp", "decrypt-token", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRpDecryptResponse(csilResp)
+	csilResp, csilErr := ResolveRPCReply("Rp", "decrypt-token", csilReply.Variant, csilReply.Payload)
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	value, err := DecodeRpDecryptResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *RpClient) VerifyAssertion(ctx context.Context, req RpVerifyRequest) (RpVerifyResponse, error) {
 	var csilZero RpVerifyResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Rp", "verify-assertion", EncodeRpVerifyRequest(req))
+	csilReq, csilErr := EncodeRpVerifyRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilReply, csilErr := c.transport.CallReply(ctx, "Rp", "verify-assertion", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRpVerifyResponse(csilResp)
+	csilResp, csilErr := ResolveRPCReply("Rp", "verify-assertion", csilReply.Variant, csilReply.Payload)
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	value, err := DecodeRpVerifyResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *RpClient) UserinfoFetch(ctx context.Context, req RpUserInfoRequest) (UserInfo, error) {
 	var csilZero UserInfo
-	csilResp, csilErr := c.transport.Call(ctx, "Rp", "userinfo-fetch", EncodeRpUserInfoRequest(req))
+	csilReq, csilErr := EncodeRpUserInfoRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilReply, csilErr := c.transport.CallReply(ctx, "Rp", "userinfo-fetch", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeUserInfo(csilResp)
+	csilResp, csilErr := ResolveRPCReply("Rp", "userinfo-fetch", csilReply.Variant, csilReply.Payload)
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	value, err := DecodeUserInfo(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *RpClient) IssueAttestation(ctx context.Context, req RpIssueAttestationRequest) (RpIssueAttestationResponse, error) {
 	var csilZero RpIssueAttestationResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Rp", "issue-attestation", EncodeRpIssueAttestationRequest(req))
+	csilReq, csilErr := EncodeRpIssueAttestationRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Rp", "issue-attestation", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRpIssueAttestationResponse(csilResp)
+	value, err := DecodeRpIssueAttestationResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *RpClient) ResolveDomainKeys(ctx context.Context, req RpResolveDomainKeysRequest) (RpResolveDomainKeysResponse, error) {
 	var csilZero RpResolveDomainKeysResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Rp", "resolve-domain-keys", EncodeRpResolveDomainKeysRequest(req))
+	csilReq, csilErr := EncodeRpResolveDomainKeysRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Rp", "resolve-domain-keys", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRpResolveDomainKeysResponse(csilResp)
+	value, err := DecodeRpResolveDomainKeysResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *RpClient) ResolveApplicationKeys(ctx context.Context, req RpResolveApplicationKeysRequest) (RpResolveApplicationKeysResponse, error) {
 	var csilZero RpResolveApplicationKeysResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Rp", "resolve-application-keys", EncodeRpResolveApplicationKeysRequest(req))
+	csilReq, csilErr := EncodeRpResolveApplicationKeysRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Rp", "resolve-application-keys", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRpResolveApplicationKeysResponse(csilResp)
+	value, err := DecodeRpResolveApplicationKeysResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *RpClient) ActAsRefreshGrant(ctx context.Context, req RpActAsRefreshRequest) (RefreshActAsGrantResponse, error) {
 	var csilZero RefreshActAsGrantResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Rp", "act-as-refresh-grant", EncodeRpActAsRefreshRequest(req))
+	csilReq, csilErr := EncodeRpActAsRefreshRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Rp", "act-as-refresh-grant", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRefreshActAsGrantResponse(csilResp)
+	value, err := DecodeRefreshActAsGrantResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *RpClient) ResolveActAsRevocations(ctx context.Context, req RpResolveActAsRevocationsRequest) (GetActAsGrantRevocationsResponse, error) {
 	var csilZero GetActAsGrantRevocationsResponse
-	csilResp, csilErr := c.transport.Call(ctx, "Rp", "resolve-act-as-revocations", EncodeRpResolveActAsRevocationsRequest(req))
+	csilReq, csilErr := EncodeRpResolveActAsRevocationsRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Rp", "resolve-act-as-revocations", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeGetActAsGrantRevocationsResponse(csilResp)
+	value, err := DecodeGetActAsGrantRevocationsResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // ActAsClient is a typed client for the ActAs service. The client owns
@@ -1306,20 +2404,36 @@ func NewActAsClient(transport Transport) *ActAsClient {
 
 func (c *ActAsClient) RefreshGrant(ctx context.Context, req RefreshActAsGrantRequest) (RefreshActAsGrantResponse, error) {
 	var csilZero RefreshActAsGrantResponse
-	csilResp, csilErr := c.transport.Call(ctx, "ActAs", "refresh-grant", EncodeRefreshActAsGrantRequest(req))
+	csilReq, csilErr := EncodeRefreshActAsGrantRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "ActAs", "refresh-grant", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeRefreshActAsGrantResponse(csilResp)
+	value, err := DecodeRefreshActAsGrantResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 func (c *ActAsClient) GetGrantRevocations(ctx context.Context, req GetActAsGrantRevocationsRequest) (GetActAsGrantRevocationsResponse, error) {
 	var csilZero GetActAsGrantRevocationsResponse
-	csilResp, csilErr := c.transport.Call(ctx, "ActAs", "get-grant-revocations", EncodeGetActAsGrantRevocationsRequest(req))
+	csilReq, csilErr := EncodeGetActAsGrantRevocationsRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "ActAs", "get-grant-revocations", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeGetActAsGrantRevocationsResponse(csilResp)
+	value, err := DecodeGetActAsGrantRevocationsResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }
 
 // LocalRpClient is a typed client for the LocalRp service. The client owns
@@ -1334,9 +2448,17 @@ func NewLocalRpClient(transport Transport) *LocalRpClient {
 
 func (c *LocalRpClient) RedeemClaimTicket(ctx context.Context, req SignedLocalRpTicketRedemptionRequest) (LocalRpTicketRedemptionResponse, error) {
 	var csilZero LocalRpTicketRedemptionResponse
-	csilResp, csilErr := c.transport.Call(ctx, "LocalRp", "redeem-claim-ticket", EncodeSignedLocalRpTicketRedemptionRequest(req))
+	csilReq, csilErr := EncodeSignedLocalRpTicketRedemptionRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "LocalRp", "redeem-claim-ticket", csilReq)
 	if csilErr != nil {
 		return csilZero, csilErr
 	}
-	return DecodeLocalRpTicketRedemptionResponse(csilResp)
+	value, err := DecodeLocalRpTicketRedemptionResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
 }

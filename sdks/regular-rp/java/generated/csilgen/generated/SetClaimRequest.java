@@ -2,10 +2,12 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
+
 public record SetClaimRequest(
     String userId /* wire: "user_id" */,
     String claimType /* wire: "claim_type" */,
     String claimValue /* wire: "claim_value" */,
-    String expiresAt /* wire: "expires_at" */
+    Instant expiresAt /* wire: "expires_at" */
 ) {
 }

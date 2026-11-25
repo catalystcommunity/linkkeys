@@ -5,7 +5,6 @@ pub mod nonce_store;
 pub mod rp;
 mod session;
 
-use liblinkkeys::timestamp::Rfc3339 as _;
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::form::FromForm;
 use rocket::http::{ContentType, CookieJar, Status};
@@ -83,8 +82,27 @@ fn api_error(
     let body = liblinkkeys::generated::encode_api_error(&liblinkkeys::generated::types::ApiError {
         code,
         message: message.to_string(),
-    });
+    })
+    // An ApiError holds only an enum and text, which always have a wire form.
+    .expect("ApiError always encodes");
     Custom(status, cbor_response(body))
+}
+
+/// The body of a CBOR API reply, or the internal API error when the reply
+/// value has no wire form.
+// The Err side is the routes' own error type, which they return as is.
+#[allow(clippy::result_large_err)]
+fn encoded_api_body(
+    encoded: Result<Vec<u8>, liblinkkeys::generated::CsilCborError>,
+) -> Result<Vec<u8>, ApiErrorResponse> {
+    encoded.map_err(|e| {
+        log::error!("encoding API reply failed: {e}");
+        api_error(
+            Status::InternalServerError,
+            liblinkkeys::generated::types::ApiErrorCode::Internal,
+            "The reply could not be encoded.",
+        )
+    })
 }
 
 /// True for paths that are API surfaces: machine callers that must receive
@@ -286,15 +304,17 @@ impl FinalizeError {
 /// record type, not for `Vec<T>`, so the list container is a plain CBOR array
 /// whose elements are each claim's canonical codec bytes. Symmetric with
 /// [`decode_domain_claim_list`].
-fn encode_domain_claim_list(claims: &[liblinkkeys::generated::types::DomainClaim]) -> Vec<u8> {
+fn encode_domain_claim_list(
+    claims: &[liblinkkeys::generated::types::DomainClaim],
+) -> Result<Vec<u8>, liblinkkeys::generated::CsilCborError> {
     let encoded: Vec<Vec<u8>> = claims
         .iter()
         .map(liblinkkeys::generated::encode_domain_claim)
-        .collect();
+        .collect::<Result<_, _>>()?;
     let mut out = Vec::new();
     ciborium::ser::into_writer(&encoded, &mut out)
         .expect("CBOR serialization of byte-string array cannot fail");
-    out
+    Ok(out)
 }
 
 fn db_err_to_status(e: diesel::result::Error) -> Status {
@@ -357,6 +377,7 @@ fn sign_assertion_for_user(
     audience: &str,
     nonce: &str,
     authorized_claims: Vec<String>,
+    application: liblinkkeys::generated::types::ApplicationRef,
 ) -> Result<String, Status> {
     let domain_keys = pool
         .list_active_domain_keys()
@@ -371,7 +392,7 @@ fn sign_assertion_for_user(
             .map_err(|e| internal_error("assertion signing: decrypting domain key", e))?;
 
     let algorithm =
-        liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm).ok_or_else(|| {
+        crate::conversions::stored_signing_algorithm(&dk.algorithm).ok_or_else(|| {
             internal_error(
                 "assertion signing",
                 format!("unsupported algorithm {}", dk.algorithm),
@@ -387,6 +408,7 @@ fn sign_assertion_for_user(
         Some(&user.display_name),
         300, // 5 minute TTL
         authorized_claims,
+        application,
     );
 
     let signed = liblinkkeys::assertions::sign_assertion(&assertion, &dk.id, algorithm, &sk_bytes)
@@ -568,11 +590,11 @@ fn newly_requested_for_user(
 }
 
 /// The application of a request's relying party, the key of its standing
-/// consent. `None` for a request that names no application.
+/// consent.
 pub(crate) fn request_app(
     request: &AuthRequest,
 ) -> Option<&liblinkkeys::generated::types::ApplicationRef> {
-    request.application.as_ref().map(|a| &a.application)
+    Some(&request.application.application)
 }
 
 /// Reconstruct the protocol `ConsentGrant` from a stored row for the consent
@@ -595,9 +617,9 @@ fn prior_grant_object(row: &crate::db::models::ConsentGrantRow) -> ConsentGrant 
         subject_domain: row.subject_domain.clone(),
         audience: row.audience.clone(),
         claim_types: row.claim_types.clone(),
-        issued_at: row.issued_at.clone(),
-        expires_at: row.expires_at.clone(),
-        revoked_at: row.revoked_at.clone(),
+        issued_at: row.issued_at,
+        expires_at: row.expires_at,
+        revoked_at: row.revoked_at,
     }
 }
 
@@ -657,8 +679,8 @@ pub(super) fn sign_consent_grant_for_user(
     audience: &str,
     application: Option<&liblinkkeys::generated::types::ApplicationRef>,
     claim_types: &[String],
-    issued_at: &str,
-    expires_at: &str,
+    issued_at: time::OffsetDateTime,
+    expires_at: time::OffsetDateTime,
 ) -> Result<liblinkkeys::generated::types::SignedConsentGrant, Status> {
     let domain = get_domain_name();
     let domain_keys = pool
@@ -674,8 +696,7 @@ pub(super) fn sign_consent_grant_for_user(
         zeroize::Zeroizing<Vec<u8>>,
     )> = Vec::new();
     for dk in domain_keys.iter().filter(|k| k.key_usage == "sign") {
-        let Some(algorithm) = liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm)
-        else {
+        let Some(algorithm) = crate::conversions::stored_signing_algorithm(&dk.algorithm) else {
             continue;
         };
         let sk = liblinkkeys::crypto::decrypt_private_key(
@@ -924,11 +945,7 @@ pub(super) fn session_evidence(
             .filter(|value| !value.is_empty())
             .map(str::to_string)
             .collect(),
-        authenticated_at: liblinkkeys::timestamp::parse_rfc3339(&session.authenticated_at)
-            .map_err(|_| liblinkkeys::generated::services::ServiceError {
-                code: 403,
-                message: "Authentication required".to_string(),
-            })?,
+        authenticated_at: session.authenticated_at,
     })
 }
 
@@ -944,6 +961,7 @@ pub(super) fn consent_claims(
 ) -> Vec<liblinkkeys::generated::types::BrowserConsentClaim> {
     use liblinkkeys::consent::PolicyDisposition;
     use liblinkkeys::generated::types::BrowserConsentClaim;
+    use liblinkkeys::generated::types::ConsentRowPolicy;
     build_consent_screen(pool, user_id, audience, application, claim_request, policy)
         .rows
         .into_iter()
@@ -980,11 +998,10 @@ pub(super) fn consent_claims(
                 available: row.available,
                 default_granted,
                 policy: match row.policy {
-                    PolicyDisposition::User => "user",
-                    PolicyDisposition::ForcedAllow => "forced_allow",
-                    PolicyDisposition::ForcedDeny => "forced_deny",
-                }
-                .to_string(),
+                    PolicyDisposition::User => ConsentRowPolicy::User,
+                    PolicyDisposition::ForcedAllow => ConsentRowPolicy::ForcedAllow,
+                    PolicyDisposition::ForcedDeny => ConsentRowPolicy::ForcedDeny,
+                },
             }
         })
         .collect()
@@ -1072,11 +1089,10 @@ async fn inspect_browser_authorization(
     let callback_host = callback_host_outside_rp_domain(&request);
     let return_host = crate::services::callback_url::callback_host(&request.callback_url).ok();
     let max_display_chars = crate::config::display_name_max_chars();
-    let application = request.application.map(|mut application| {
-        application.display_name =
-            liblinkkeys::display_text::for_display(&application.display_name, max_display_chars);
-        application
-    });
+    let mut application = request.application;
+    application.display_name =
+        liblinkkeys::display_text::for_display(&application.display_name, max_display_chars);
+    let application = Some(application);
     Ok(
         liblinkkeys::generated::types::BrowserAuthorizationInspectResponse {
             relying_party: request.relying_party,
@@ -1326,7 +1342,10 @@ async fn do_finalize_login_url(input: LoginFinalization<'_>) -> Result<String, F
     // CBOR-record the claims the RP asserted about itself: the non-repudiable
     // evidence of what it offered, recorded even when no user data is released.
     let offered_cbor: Option<Vec<u8>> = match request.relying_party_claims.as_deref() {
-        Some(claims) if !claims.is_empty() => Some(encode_domain_claim_list(claims)),
+        Some(claims) if !claims.is_empty() => Some(
+            encode_domain_claim_list(claims)
+                .map_err(|e| FinalizeError::Signing(format!("encoding offered claims: {e}")))?,
+        ),
         _ => None,
     };
 
@@ -1334,9 +1353,9 @@ async fn do_finalize_login_url(input: LoginFinalization<'_>) -> Result<String, F
     // authorized set records "asked, granted nothing") OR asserted claims about
     // itself (so the offered terms are recorded even on an auth-only login).
     if !requested.is_empty() || offered_cbor.is_some() {
-        let now = time::OffsetDateTime::now_utc();
-        let issued_at = now.to_rfc3339();
-        let expires_at = (now + time::Duration::seconds(consent_ttl_seconds())).to_rfc3339();
+        // Both times are signed, so whole seconds.
+        let issued_at = liblinkkeys::timestamp::now_whole_seconds();
+        let expires_at = issued_at + time::Duration::seconds(consent_ttl_seconds());
         let grant_id = uuid::Uuid::now_v7().to_string();
         let signed = sign_consent_grant_for_user(
             pool,
@@ -1345,11 +1364,12 @@ async fn do_finalize_login_url(input: LoginFinalization<'_>) -> Result<String, F
             &request.relying_party,
             request_app(request),
             &authorized_claims,
-            &issued_at,
-            &expires_at,
+            issued_at,
+            expires_at,
         )
         .map_err(|status| FinalizeError::Signing(format!("consent grant signing ({status})")))?;
-        let grant_bytes = liblinkkeys::generated::encode_signed_consent_grant(&signed);
+        let grant_bytes = liblinkkeys::generated::encode_signed_consent_grant(&signed)
+            .map_err(|e| FinalizeError::Signing(format!("encoding consent grant: {e}")))?;
         pool.upsert_consent_grant(
             &grant_id,
             &fresh_user.id,
@@ -1360,8 +1380,8 @@ async fn do_finalize_login_url(input: LoginFinalization<'_>) -> Result<String, F
             &requested,
             &grant_bytes,
             offered_cbor.as_deref(),
-            &issued_at,
-            &expires_at,
+            issued_at,
+            expires_at,
         )
         .map_err(|e| FinalizeError::Storage(format!("consent grant upsert: {e}")))?;
     }
@@ -1372,6 +1392,7 @@ async fn do_finalize_login_url(input: LoginFinalization<'_>) -> Result<String, F
         &request.relying_party,
         &request.nonce,
         authorized_claims,
+        request.application.application.clone(),
     )
     .map_err(|status| FinalizeError::Signing(format!("assertion signing ({status})")))?;
 
@@ -1503,7 +1524,7 @@ async fn rp_authorize_validate(
         }
     }
 
-    Ok(cbor_response(
+    Ok(cbor_response(encoded_api_body(
         liblinkkeys::generated::encode_authorize_validate_response(
             &liblinkkeys::generated::types::AuthorizeValidateResponse {
                 relying_party: validated.relying_party.clone(),
@@ -1517,10 +1538,10 @@ async fn rp_authorize_validate(
                 authorized_claims,
                 newly_requested_claims,
                 access_denied,
-                application: validated.application.clone(),
+                application: Some(validated.application.clone()),
             },
         ),
-    ))
+    )?))
 }
 
 #[rocket::post("/rp/authorize/finalize", data = "<body>")]
@@ -1597,11 +1618,11 @@ async fn rp_authorize_finalize(
     })
     .await
     {
-        Ok(url) => Ok(cbor_response(
+        Ok(url) => Ok(cbor_response(encoded_api_body(
             liblinkkeys::generated::encode_authorize_finalize_response(
                 &liblinkkeys::generated::types::AuthorizeFinalizeResponse { redirect_url: url },
             ),
-        )),
+        )?)),
         // The cause was already logged inside finalize_login_url; the client
         // gets the code to switch on plus the actionable message.
         Err(e) => Err(api_error(
@@ -1685,10 +1706,9 @@ fn auth_act_as_get(signed_request: Option<String>) -> Redirect {
 }
 
 fn is_claims_update(request: &AuthRequest) -> bool {
-    request
-        .flow_context
-        .as_ref()
-        .is_some_and(|context| context.flow == "claims_update")
+    request.flow_context.as_ref().is_some_and(|context| {
+        context.flow == liblinkkeys::generated::types::AuthFlow::ClaimsUpdate
+    })
 }
 
 /// Reasons a `signed_request` may be rejected. Each maps to a
@@ -1789,14 +1809,13 @@ pub async fn validate_signed_request(
         }
     }
     // An application principal belongs to the domain that signed the request.
-    if let Some(app) = &request.application {
-        if !app
-            .application
-            .subject_domain
-            .eq_ignore_ascii_case(&request.relying_party)
-        {
-            return Err(ValidateAuthRequestError::Malformed);
-        }
+    if !request
+        .application
+        .application
+        .subject_domain
+        .eq_ignore_ascii_case(&request.relying_party)
+    {
+        return Err(ValidateAuthRequestError::Malformed);
     }
 
     Ok(request)
@@ -1834,7 +1853,7 @@ pub(crate) async fn fetch_rp_encrypt_key(
     // whose 32-byte public_key is used directly — no Ed25519→X25519 conversion.
     let rp_enc_key = rp_keys
         .iter()
-        .find(|k| k.key_usage == "encrypt")
+        .find(|k| k.key_usage == liblinkkeys::generated::types::KeyUsage::Encrypt)
         .ok_or(FinalizeError::RpEncryptKeyUntrusted)?;
     rp_enc_key.public_key.as_slice().try_into().map_err(|_| {
         FinalizeError::RpKeyFetch(format!(
@@ -1854,7 +1873,8 @@ pub(crate) fn seal_token_for_rp(
     // Decode it back to raw CBOR bytes for encryption.
     let signed_assertion = liblinkkeys::encoding::assertion_from_url_param(token_url_param)
         .map_err(|e| FinalizeError::Signing(format!("re-decoding token for sealing: {e:?}")))?;
-    let cbor_bytes = liblinkkeys::generated::encode_signed_identity_assertion(&signed_assertion);
+    let cbor_bytes = liblinkkeys::generated::encode_signed_identity_assertion(&signed_assertion)
+        .map_err(|e| FinalizeError::Signing(format!("re-encoding token for sealing: {e}")))?;
 
     // AEAD suite: no live negotiation channel reaches this call site yet (the
     // `Handshake` service exists but nothing here calls it as a client), so
@@ -1864,7 +1884,7 @@ pub(crate) fn seal_token_for_rp(
     // actually gets selected here. A future negotiation caller can set this
     // to any suite the RP has advertised support for.
     let suite = liblinkkeys::crypto::AeadSuite::Aes256Gcm;
-    let sealed = liblinkkeys::crypto::sealed_box_encrypt(&cbor_bytes, x25519_pub, suite)
+    let sealed = liblinkkeys::crypto::sealed_box_encrypt(&cbor_bytes, x25519_pub, &suite)
         .map_err(|e| FinalizeError::Signing(format!("sealing token: {e:?}")))?;
 
     let encrypted_token = liblinkkeys::generated::types::EncryptedToken {
@@ -2571,7 +2591,17 @@ fn rpc_session_current(pool: &DbPool, token: Option<&str>) -> Vec<u8> {
     }
 }
 
-fn rpc_ok(payload: Vec<u8>) -> Vec<u8> {
+/// A reply value with no wire form gets the internal status, not a panic.
+fn rpc_ok(payload: Result<Vec<u8>, liblinkkeys::generated::CsilCborError>) -> Vec<u8> {
+    let payload = match payload {
+        Ok(payload) => payload,
+        Err(e) => {
+            return rpc_error(
+                csilgen_transport::Status::Internal,
+                &format!("reply did not encode: {e}"),
+            )
+        }
+    };
     RpcResponse {
         id: None,
         status: csilgen_transport::Status::Ok,
@@ -2862,20 +2892,27 @@ fn build_rocket_with_ui(
     config: Config,
     ui_configuration: crate::services::ui::LoadedUiConfiguration,
 ) -> rocket::Rocket<rocket::Build> {
-    let mut routes = rocket::routes![
-        index,
-        healthcheck,
-        readiness,
-        hello_get,
-        hello_post,
-        rpc_cbor,
-        ui_app_path,
-        ui_asset,
-        ui_theme_asset,
-        ui_extension_asset,
-        rp_authorize_validate,
-        rp_authorize_finalize,
-    ];
+    let mut routes = if crate::config::headless() {
+        // A headless relying party serves no person: health checks only. The
+        // browser carrier is off, so Admin is reachable over TCP only.
+        log::info!("Headless: browser UI, browser carrier, and password auth are off");
+        rocket::routes![healthcheck, readiness, hello_get, hello_post]
+    } else {
+        rocket::routes![
+            index,
+            healthcheck,
+            readiness,
+            hello_get,
+            hello_post,
+            rpc_cbor,
+            ui_app_path,
+            ui_asset,
+            ui_theme_asset,
+            ui_extension_asset,
+            rp_authorize_validate,
+            rp_authorize_finalize,
+        ]
+    };
 
     // Mount password auth routes (login form) when enabled (default: true)
     if crate::services::password::authentication_enabled() {
@@ -2914,6 +2951,14 @@ mod tests {
             "k",
             None,
             None,
+            liblinkkeys::generated::types::RelyingPartyApplication {
+                application: liblinkkeys::generated::types::ApplicationRef {
+                    subject_user_id: "app-account".to_string(),
+                    subject_domain: "todandlorna.com".to_string(),
+                    application_id: "app".to_string(),
+                },
+                display_name: "App".to_string(),
+            },
         )
     }
 

@@ -10,6 +10,8 @@ import (
 	"fmt"
 
 	"golang.org/x/crypto/chacha20poly1305"
+
+	api "github.com/catalystcommunity/linkkeys/sdks/regular-rp/go/generated"
 )
 
 // Crypto primitives this SDK needs, mirroring
@@ -20,8 +22,7 @@ import (
 // the ChaCha20-Poly1305 sealed box (CHALLENGE_SEAL_SUITE is fixed, not
 // negotiated — see doc.go and go.mod's dependency note).
 
-const algorithmEd25519 = "ed25519"
-const algorithmX25519 = "x25519"
+const algorithmEd25519 = api.KeyAlgorithmEd25519
 
 // Fingerprint is `sha256(public_key_bytes)`, lowercase hex — the canonical
 // LinkKeys fingerprint format. Matches `liblinkkeys::crypto::fingerprint`
@@ -70,11 +71,11 @@ func verifyEd25519(pub []byte, message, sig []byte) bool {
 }
 
 // signWithAlgorithm signs message with privateKeyBytes under algorithm.
-// Mirrors `liblinkkeys::crypto::sign_with_algorithm` — only "ed25519" is a
+// Mirrors `liblinkkeys::crypto::sign_with_algorithm` — only ed25519 is a
 // signing algorithm (x25519 keys cannot sign).
-func signWithAlgorithm(algorithm string, message []byte, privateKeyBytes []byte) ([]byte, error) {
+func signWithAlgorithm(algorithm api.KeyAlgorithm, message []byte, privateKeyBytes []byte) ([]byte, error) {
 	if algorithm != algorithmEd25519 {
-		return nil, &ApplicationKeyError{Kind: ErrCrypto, Detail: fmt.Sprintf("unsupported signing algorithm: %s", algorithm)}
+		return nil, &ApplicationKeyError{Kind: ErrCrypto, Detail: "unsupported signing algorithm: " + enumLabel(algorithm)}
 	}
 	if len(privateKeyBytes) != ed25519.SeedSize {
 		return nil, &ApplicationKeyError{Kind: ErrCrypto, Detail: "invalid ed25519 private key length"}
@@ -84,12 +85,12 @@ func signWithAlgorithm(algorithm string, message []byte, privateKeyBytes []byte)
 	return signEd25519(seed, message), nil
 }
 
-// resolveAndVerify resolves a wire algorithm string and verifies a
-// signature. Mirrors `liblinkkeys::crypto::resolve_and_verify` — only
-// "ed25519" is a supported/verifiable signing algorithm.
-func resolveAndVerify(algorithm string, message, sig, pubKey []byte) error {
+// resolveAndVerify checks the wire algorithm and verifies a signature.
+// Mirrors `liblinkkeys::crypto::resolve_and_verify` — only ed25519 is a
+// supported/verifiable signing algorithm.
+func resolveAndVerify(algorithm api.KeyAlgorithm, message, sig, pubKey []byte) error {
 	if algorithm != algorithmEd25519 {
-		return &ApplicationKeyError{Kind: ErrCrypto, Detail: fmt.Sprintf("unsupported signing algorithm: %s", algorithm)}
+		return &ApplicationKeyError{Kind: ErrCrypto, Detail: "unsupported signing algorithm: " + enumLabel(algorithm)}
 	}
 	if !verifyEd25519(pubKey, message, sig) {
 		return &ApplicationKeyError{Kind: ErrCrypto, Detail: "signature verification failed"}
@@ -106,6 +107,18 @@ func resolveAndVerify(algorithm string, message, sig, pubKey []byte) error {
 // is no handshake in which to agree a suite for a one-shot box from the home
 // domain to the application.
 const challengeSealSuite = "chacha20-poly1305"
+
+// aeadSuiteTextID maps an AeadSuite wire number to the suite's text id. The
+// sealed-box KDF context binds the text id, not the number.
+func aeadSuiteTextID(number uint64) (string, bool) {
+	switch number {
+	case uint64(api.AeadSuiteAes256Gcm):
+		return "aes-256-gcm", true
+	case uint64(api.AeadSuiteChacha20Poly1305):
+		return "chacha20-poly1305", true
+	}
+	return "", false
+}
 
 // sealedBoxTag is SEALED_BOX_TAG from crates/liblinkkeys/src/crypto.rs.
 const sealedBoxTag = "linkkeys-sealed-box-v1alpha"

@@ -22,7 +22,6 @@ use liblinkkeys::generated::types::{
     EmptyRequest, PreviewAppAccessRequest, RemoveAppAccessPolicyRequest, RequestedClaim,
     SessionPasswordLoginRequest, SetAppAccessPolicyRequest,
 };
-use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::db::DbPool;
 use linkkeys::services::app_access::{
     denial_for, preview_app_access, remove_app_access_policy, set_app_access_policy,
@@ -33,6 +32,21 @@ use rocket::local::asynchronous::Client;
 use serde_json::json;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+
+use liblinkkeys::generated::types::{AppAccessMode, AppAccessTargetKind, ClaimOperator};
+
+/// The application principal a relying party names in its auth request. It
+/// belongs to the domain that signs the request.
+fn rp_application(domain: &str) -> liblinkkeys::generated::types::RelyingPartyApplication {
+    liblinkkeys::generated::types::RelyingPartyApplication {
+        application: liblinkkeys::generated::types::ApplicationRef {
+            subject_user_id: "rp-app-account".to_string(),
+            subject_domain: domain.to_string(),
+            application_id: "test-app".to_string(),
+        },
+        display_name: "Test App".to_string(),
+    }
+}
 
 const TEST_DOMAIN: &str = "appaccess.test";
 const PASSPHRASE: &[u8] = b"test-passphrase";
@@ -94,7 +108,7 @@ fn set_request(
     SetAppAccessPolicyRequest {
         id: None,
         name: name.to_string(),
-        mode: mode.to_string(),
+        mode: AppAccessMode::from_label(mode).expect("known mode"),
         patterns: patterns.iter().map(|p| p.to_string()).collect(),
         message: None,
         targets,
@@ -103,7 +117,7 @@ fn set_request(
 
 fn target(kind: &str) -> AppAccessTarget {
     AppAccessTarget {
-        kind: kind.to_string(),
+        kind: AppAccessTargetKind::from_label(kind).expect("known kind"),
         user_id: None,
         group_name: None,
         claim_type: None,
@@ -296,7 +310,7 @@ fn set_policy_canonicalizes_patterns_and_targets() {
             },
             AppAccessTarget {
                 claim_type: Some(" birthdate ".to_string()),
-                claim_operator: Some("age_under".to_string()),
+                claim_operator: Some(ClaimOperator::AgeUnder),
                 claim_value: Some(" 16 ".to_string()),
                 ..target("claim")
             },
@@ -325,7 +339,6 @@ fn set_policy_rejects_invalid_input() {
             "empty name",
             set_request(" ", "deny", &["*.ru"], everyone()),
         ),
-        ("bad mode", set_request("p", "block", &["*.ru"], everyone())),
         ("no patterns", set_request("p", "deny", &[], everyone())),
         (
             "bad pattern",
@@ -334,10 +347,6 @@ fn set_policy_rejects_invalid_input() {
         (
             "empty label",
             set_request("p", "deny", &["a..ru"], everyone()),
-        ),
-        (
-            "bad kind",
-            set_request("p", "deny", &["*.ru"], vec![target("team")]),
         ),
         (
             "user without id",
@@ -360,19 +369,6 @@ fn set_policy_rejects_invalid_input() {
             set_request("p", "deny", &["*.ru"], vec![target("group")]),
         ),
         (
-            "bad operator",
-            set_request(
-                "p",
-                "deny",
-                &["*.ru"],
-                vec![AppAccessTarget {
-                    claim_type: Some("birthdate".to_string()),
-                    claim_operator: Some("older_than".to_string()),
-                    ..target("claim")
-                }],
-            ),
-        ),
-        (
             "bad age",
             set_request(
                 "p",
@@ -380,7 +376,7 @@ fn set_policy_rejects_invalid_input() {
                 &["*.ru"],
                 vec![AppAccessTarget {
                     claim_type: Some("birthdate".to_string()),
-                    claim_operator: Some("age_under".to_string()),
+                    claim_operator: Some(ClaimOperator::AgeUnder),
                     claim_value: Some("sixteen".to_string()),
                     ..target("claim")
                 }],
@@ -552,11 +548,12 @@ fn app_access_admin_ops_require_admin() {
         "deny",
         &["*.ru"],
         vec![target("everyone")],
-    ));
+    ))
+    .unwrap();
     let ops: Vec<(&str, Vec<u8>)> = vec![
         (
             "list-app-access-policies",
-            liblinkkeys::generated::encode_empty_request(&EmptyRequest {}),
+            liblinkkeys::generated::encode_empty_request(&EmptyRequest {}).unwrap(),
         ),
         ("set-app-access-policy", set_payload.clone()),
         (
@@ -565,14 +562,16 @@ fn app_access_admin_ops_require_admin() {
                 &RemoveAppAccessPolicyRequest {
                     id: uuid::Uuid::now_v7().to_string(),
                 },
-            ),
+            )
+            .unwrap(),
         ),
         (
             "preview-app-access",
             liblinkkeys::generated::encode_preview_app_access_request(&PreviewAppAccessRequest {
                 user_id: nonadmin.id.clone(),
                 domain: None,
-            }),
+            })
+            .unwrap(),
         ),
     ];
     for (op, payload) in ops {
@@ -647,20 +646,16 @@ async fn seeded_idp() -> (
     let sk_bytes = sk.to_bytes().to_vec();
     let enc_sk = crypto::encrypt_private_key(&sk_bytes, PASSPHRASE).unwrap();
     let fp = crypto::fingerprint(&pk);
-    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
+    let expires = liblinkkeys::timestamp::now_whole_seconds() + time::Duration::days(365);
     let signing = pool
         .create_domain_key(&pk, &enc_sk, &fp, "ed25519", expires)
         .expect("signing key");
     let (epub, epriv) = crypto::generate_x25519_keypair();
     let efp = crypto::fingerprint(&epub);
     let epriv_enc = crypto::encrypt_private_key(&epriv, PASSPHRASE).unwrap();
-    let vouch = liblinkkeys::dns::sign_key_vouch(
-        &efp,
-        &expires.to_rfc3339(),
-        SigningAlgorithm::Ed25519,
-        &sk_bytes,
-    )
-    .unwrap();
+    let vouch =
+        liblinkkeys::dns::sign_key_vouch(&efp, &expires, SigningAlgorithm::Ed25519, &sk_bytes)
+            .unwrap();
     pool.create_domain_encryption_key(&epub, &epriv_enc, &efp, &signing.id, &vouch, expires)
         .expect("encryption key");
 
@@ -704,11 +699,12 @@ fn signed_email_request(signing_id: &str, sk_bytes: &[u8], nonce: &str) -> Strin
         Some(ClaimRequest {
             required: vec![RequestedClaim {
                 claim_type: "email".to_string(),
-                datatype: "email".to_string(),
+                datatype: liblinkkeys::claim_policy::ValueType::Email,
             }],
             optional: Vec::new(),
         }),
         None,
+        rp_application(TEST_DOMAIN),
     );
     req.relying_party_claims = None;
     let signed = sign_auth_request(&req, signing_id, SigningAlgorithm::Ed25519, sk_bytes).unwrap();
@@ -725,7 +721,8 @@ async fn sign_in(client: &Client) {
                 username: format!("{USERNAME}@{TEST_DOMAIN}"),
                 password: PASSWORD.to_string(),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_eq!(login.status, RpcStatus::Ok, "sign-in succeeds");
@@ -743,7 +740,8 @@ async fn inspect(
             &BrowserAuthorizationInspectRequest {
                 signed_request: signed_request.to_string(),
             },
-        ),
+        )
+        .unwrap(),
     )
     .await;
     assert_eq!(resp.status, RpcStatus::Ok, "inspect succeeds");
@@ -763,7 +761,8 @@ async fn complete(client: &Client, signed_request: &str) -> RpcResponse {
                 claim_values_to_set: Vec::new(),
                 use_standing_grant: None,
             },
-        ),
+        )
+        .unwrap(),
     )
     .await
 }
@@ -841,7 +840,8 @@ async fn app_owned_consent_api_reports_and_enforces_the_denial() {
             liblinkkeys::generated::encode_authorize_validate_request(&AuthorizeValidateRequest {
                 signed_request: request.clone(),
                 user_id,
-            });
+            })
+            .unwrap();
         client
             .post("/rp/authorize/validate")
             .header(bearer_header())
@@ -873,13 +873,14 @@ async fn app_owned_consent_api_reports_and_enforces_the_denial() {
     let resp = client
         .post("/rp/authorize/finalize")
         .header(bearer_header())
-        .body(liblinkkeys::generated::encode_authorize_finalize_request(
-            &AuthorizeFinalizeRequest {
+        .body(
+            liblinkkeys::generated::encode_authorize_finalize_request(&AuthorizeFinalizeRequest {
                 user_id: user.id.clone(),
                 signed_request: request.clone(),
                 authorized_claims: vec!["email".to_string()],
-            },
-        ))
+            })
+            .unwrap(),
+        )
         .dispatch()
         .await;
     assert_eq!(resp.status(), Status::Forbidden);

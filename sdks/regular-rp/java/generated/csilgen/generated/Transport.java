@@ -11,4 +11,11 @@ package csilgen.generated;
  */
 public interface Transport {
     byte[] call(String service, String op, byte[] req) throws ClientException;
+
+    /**
+     * Performs a call to an op with several reply arms and returns the reply
+     * variant with the payload bytes, as the response carried them. The client
+     * selects the arm from the variant, so the carrier must not drop it.
+     */
+    WireReply callReply(String service, String op, byte[] req) throws ClientException;
 }

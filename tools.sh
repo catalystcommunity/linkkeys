@@ -571,7 +571,7 @@ test_local_rp_python() {
 # output differs between releases, so every generate command checks this pin
 # before it writes anything. Install it with csilgen's
 # `./tools.sh install-all csilgen/v<pin>`.
-CSILGEN_VERSION="0.2.15"
+CSILGEN_VERSION="0.3.3"
 
 # Print the path of a csilgen binary that matches CSILGEN_VERSION. CSILGEN_BIN
 # wins when set; otherwise the first match among the usual install locations.

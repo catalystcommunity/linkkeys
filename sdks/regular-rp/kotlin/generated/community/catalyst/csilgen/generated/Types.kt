@@ -18,6 +18,301 @@ data class CheckResult(
     val entries: CheckEntries
 )
 
+enum class KeyAlgorithm(val label: String, val wireNumber: Long) {
+    Ed25519("ed25519", 1L),
+    X25519("x25519", 2L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): KeyAlgorithm? = byNumber[number]
+    }
+}
+
+enum class KeyUsage(val label: String, val wireNumber: Long) {
+    Sign("sign", 1L),
+    Encrypt("encrypt", 2L),
+    Agree("agree", 3L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): KeyUsage? = byNumber[number]
+    }
+}
+
+enum class AeadSuite(val label: String, val wireNumber: Long) {
+    Aes256Gcm("aes_256_gcm", 1L),
+    Chacha20Poly1305("chacha20_poly1305", 2L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): AeadSuite? = byNumber[number]
+    }
+}
+
+enum class ClaimValueType(val label: String, val wireNumber: Long) {
+    Text("text", 1L),
+    Url("url", 2L),
+    Email("email", 3L),
+    Bool("bool", 4L),
+    Int("int", 5L),
+    Float("float", 6L),
+    Decimal("decimal", 7L),
+    Date("date", 8L),
+    Timestamp("timestamp", 9L),
+    Opaque("opaque", 10L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): ClaimValueType? = byNumber[number]
+    }
+}
+
+enum class SetRule(val label: String, val wireNumber: Long) {
+    UserSelf("user_self", 1L),
+    IdpOnRequest("idp_on_request", 2L),
+    TrustedIssuerOnly("trusted_issuer_only", 3L),
+    AdminOnly("admin_only", 4L),
+    Deny("deny", 5L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): SetRule? = byNumber[number]
+    }
+}
+
+enum class SigningRule(val label: String, val wireNumber: Long) {
+    SelfSigned("self_signed", 1L),
+    Verified("verified", 2L),
+    Attested("attested", 3L),
+    Unsigned("unsigned", 4L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): SigningRule? = byNumber[number]
+    }
+}
+
+enum class SetClaimOutcome(val label: String, val wireNumber: Long) {
+    Signed("signed", 1L),
+    StoredUnsigned("stored_unsigned", 2L),
+    VerificationRequired("verification_required", 3L),
+    Queued("queued", 4L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): SetClaimOutcome? = byNumber[number]
+    }
+}
+
+enum class ReleaseDisposition(val label: String, val wireNumber: Long) {
+    ForcedAllow("forced_allow", 1L),
+    ForcedDeny("forced_deny", 2L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): ReleaseDisposition? = byNumber[number]
+    }
+}
+
+enum class ConsentRowPolicy(val label: String, val wireNumber: Long) {
+    User("user", 1L),
+    ForcedAllow("forced_allow", 2L),
+    ForcedDeny("forced_deny", 3L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): ConsentRowPolicy? = byNumber[number]
+    }
+}
+
+enum class ClaimApprovalStatus(val label: String, val wireNumber: Long) {
+    Pending("pending", 1L),
+    Approved("approved", 2L),
+    Rejected("rejected", 3L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): ClaimApprovalStatus? = byNumber[number]
+    }
+}
+
+enum class PinRecheckOutcome(val label: String, val wireNumber: Long) {
+    FirstSeen("first_seen", 1L),
+    Unchanged("unchanged", 2L),
+    Rotated("rotated", 3L),
+    Mismatch("mismatch", 4L),
+    Error("error", 5L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): PinRecheckOutcome? = byNumber[number]
+    }
+}
+
+enum class NotificationPurpose(val label: String, val wireNumber: Long) {
+    VerifyContact("verify_contact", 1L),
+    ResetPassword("reset_password", 2L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): NotificationPurpose? = byNumber[number]
+    }
+}
+
+enum class NotificationChannel(val label: String, val wireNumber: Long) {
+    Email("email", 1L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): NotificationChannel? = byNumber[number]
+    }
+}
+
+enum class DestinationKind(val label: String, val wireNumber: Long) {
+    Email("email", 1L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): DestinationKind? = byNumber[number]
+    }
+}
+
+enum class LocalRpPolicy(val label: String, val wireNumber: Long) {
+    Disabled("disabled", 1L),
+    AdminApprovalRequired("admin_approval_required", 2L),
+    AllowByDefault("allow_by_default", 3L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): LocalRpPolicy? = byNumber[number]
+    }
+}
+
+enum class LocalRpStatus(val label: String, val wireNumber: Long) {
+    Pending("pending", 1L),
+    Approved("approved", 2L),
+    Denied("denied", 3L),
+    Revoked("revoked", 4L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): LocalRpStatus? = byNumber[number]
+    }
+}
+
+enum class LocalRpAdmission(val label: String, val wireNumber: Long) {
+    Consent("consent", 1L),
+    Pending("pending", 2L),
+    Blocked("blocked", 3L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): LocalRpAdmission? = byNumber[number]
+    }
+}
+
+enum class AppAccessMode(val label: String, val wireNumber: Long) {
+    Allow("allow", 1L),
+    Deny("deny", 2L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): AppAccessMode? = byNumber[number]
+    }
+}
+
+enum class AppAccessTargetKind(val label: String, val wireNumber: Long) {
+    Everyone("everyone", 1L),
+    User("user", 2L),
+    Group("group", 3L),
+    Claim("claim", 4L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): AppAccessTargetKind? = byNumber[number]
+    }
+}
+
+enum class ClaimOperator(val label: String, val wireNumber: Long) {
+    Present("present", 1L),
+    Absent("absent", 2L),
+    Equals("equals", 3L),
+    AgeUnder("age_under", 4L),
+    AgeAtLeast("age_at_least", 5L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): ClaimOperator? = byNumber[number]
+    }
+}
+
+enum class ApplicationKeyChallengePurpose(val label: String, val wireNumber: Long) {
+    Add("add", 1L),
+    Renew("renew", 2L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): ApplicationKeyChallengePurpose? = byNumber[number]
+    }
+}
+
+enum class AuthFlow(val label: String, val wireNumber: Long) {
+    Login("login", 1L),
+    ClaimsUpdate("claims_update", 2L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): AuthFlow? = byNumber[number]
+    }
+}
+
+enum class RpCacheStatus(val label: String, val wireNumber: Long) {
+    Fresh("fresh", 1L),
+    Refreshed("refreshed", 2L),
+    Stale("stale", 3L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): RpCacheStatus? = byNumber[number]
+    }
+}
+
+enum class AccountKind(val label: String, val wireNumber: Long) {
+    Human("human", 1L),
+    Application("application", 2L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): AccountKind? = byNumber[number]
+    }
+}
+
+enum class RpErrorCode(val label: String, val wireNumber: Long) {
+    NotApplicationAccount("not_application_account", 1L),
+    ApplicationMismatch("application_mismatch", 2L),
+    ApplicationUserLimit("application_user_limit", 3L),
+    BadRequest("bad_request", 4L),
+    UpstreamFailed("upstream_failed", 5L),
+    Internal("internal", 6L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): RpErrorCode? = byNumber[number]
+    }
+}
+
+enum class IssuedClaimOutcome(val label: String, val wireNumber: Long) {
+    Deposited("deposited", 1L),
+    Handoff("handoff", 2L),
+    Skipped("skipped", 3L),
+    Failed("failed", 4L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): IssuedClaimOutcome? = byNumber[number]
+    }
+}
+
 /** HelloRequest record. */
 data class HelloRequest(
     val name: String? = null
@@ -33,9 +328,9 @@ data class GuestbookEntry(
     val id: String,
     val name: String,
     // wire key: created_at
-    val createdAt: String,
+    val createdAt: java.time.Instant,
     // wire key: updated_at
-    val updatedAt: String
+    val updatedAt: java.time.Instant
 )
 
 /** CreateGuestbookRequest record. */
@@ -80,15 +375,15 @@ data class DomainPublicKey(
     // wire key: public_key
     val publicKey: ByteArray,
     val fingerprint: String,
-    val algorithm: String,
+    val algorithm: KeyAlgorithm,
     // wire key: key_usage
-    val keyUsage: String,
+    val keyUsage: KeyUsage,
     // wire key: created_at
-    val createdAt: String,
+    val createdAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String,
+    val expiresAt: java.time.Instant,
     // wire key: revoked_at
-    val revokedAt: String? = null,
+    val revokedAt: java.time.Instant? = null,
     // wire key: signed_by_key_id
     val signedByKeyId: String? = null,
     // wire key: key_signature
@@ -135,7 +430,7 @@ data class GetDomainKeysResponse(
 
 /** GetRevocationsRequest record. */
 data class GetRevocationsRequest(
-    val since: String? = null
+    val since: java.time.Instant? = null
 )
 
 /** GetRevocationsResponse record. */
@@ -151,7 +446,8 @@ data class RecheckPinsRequest(
 /** PinRecheckResult record. */
 data class PinRecheckResult(
     val domain: String,
-    val outcome: String
+    val outcome: PinRecheckOutcome,
+    val message: String? = null
 )
 
 /** RecheckPinsResponse record. */
@@ -168,15 +464,15 @@ data class UserPublicKey(
     // wire key: public_key
     val publicKey: ByteArray,
     val fingerprint: String,
-    val algorithm: String,
+    val algorithm: KeyAlgorithm,
     // wire key: key_usage
-    val keyUsage: String,
+    val keyUsage: KeyUsage,
     // wire key: created_at
-    val createdAt: String,
+    val createdAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String,
+    val expiresAt: java.time.Instant,
     // wire key: revoked_at
-    val revokedAt: String? = null,
+    val revokedAt: java.time.Instant? = null,
     // wire key: signed_by_key_id
     val signedByKeyId: String? = null,
     // wire key: key_signature
@@ -260,7 +556,7 @@ data class RevocationCertificate(
     // wire key: target_fingerprint
     val targetFingerprint: String,
     // wire key: revoked_at
-    val revokedAt: String,
+    val revokedAt: java.time.Instant,
     val signatures: List<ClaimSignature>
 )
 
@@ -276,13 +572,13 @@ data class Claim(
     val claimValue: ByteArray,
     val signatures: List<ClaimSignature>,
     // wire key: attested_at
-    val attestedAt: String,
+    val attestedAt: java.time.Instant,
     // wire key: created_at
-    val createdAt: String,
+    val createdAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String? = null,
+    val expiresAt: java.time.Instant? = null,
     // wire key: revoked_at
-    val revokedAt: String? = null
+    val revokedAt: java.time.Instant? = null
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -346,7 +642,7 @@ data class GetUserClaimsResponse(
 data class RequestedClaim(
     // wire key: claim_type
     val claimType: String,
-    val datatype: String
+    val datatype: ClaimValueType
 )
 
 /** ClaimRequest record. */
@@ -363,7 +659,7 @@ data class AuthenticationRequirements(
 
 /** AuthFlowContext record. */
 data class AuthFlowContext(
-    val flow: String,
+    val flow: AuthFlow,
     // wire key: prior_session
     val priorSession: String? = null,
     // wire key: request_reason
@@ -382,11 +678,11 @@ data class ConsentGrant(
     // wire key: claim_types
     val claimTypes: List<String>,
     // wire key: issued_at
-    val issuedAt: String,
+    val issuedAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String,
+    val expiresAt: java.time.Instant,
     // wire key: revoked_at
-    val revokedAt: String? = null,
+    val revokedAt: java.time.Instant? = null,
     val application: ApplicationRef? = null
 )
 
@@ -418,9 +714,9 @@ data class DomainClaim(
     val claimValue: ByteArray,
     val signatures: List<ClaimSignature>,
     // wire key: attested_at
-    val attestedAt: String,
+    val attestedAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String? = null
+    val expiresAt: java.time.Instant? = null
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -457,9 +753,9 @@ data class SigningRequest(
     val requestedClaimTypes: List<String>,
     val nonce: String,
     // wire key: issued_at
-    val issuedAt: String,
+    val issuedAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String,
+    val expiresAt: java.time.Instant,
     val callback: String? = null
 )
 
@@ -501,13 +797,14 @@ data class IdentityAssertion(
     val audience: String,
     val nonce: String,
     // wire key: issued_at
-    val issuedAt: String,
+    val issuedAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String,
+    val expiresAt: java.time.Instant,
     // wire key: authorized_claims
     val authorizedClaims: List<String>,
     // wire key: display_name
-    val displayName: String? = null
+    val displayName: String? = null,
+    val application: ApplicationRef
 )
 
 /** SignedIdentityAssertion record. */
@@ -556,7 +853,7 @@ data class UserInfoRequest(
     val token: ByteArray,
     // wire key: relying_party
     val relyingParty: String,
-    val timestamp: String,
+    val timestamp: java.time.Instant,
     val nonce: String
 ) {
     override fun equals(other: Any?): Boolean {
@@ -630,7 +927,7 @@ data class AuthRequest(
     // wire key: callback_url
     val callbackUrl: String,
     val nonce: String,
-    val timestamp: String,
+    val timestamp: java.time.Instant,
     // wire key: signing_key_id
     val signingKeyId: String,
     // wire key: requested_claims
@@ -641,7 +938,7 @@ data class AuthRequest(
     val flowContext: AuthFlowContext? = null,
     // wire key: relying_party_claims
     val relyingPartyClaims: List<DomainClaim>? = null,
-    val application: RelyingPartyApplication? = null
+    val application: RelyingPartyApplication
 )
 
 /** SignedAuthRequest record. */
@@ -697,8 +994,8 @@ data class EncryptedToken(
 
 /** AlgorithmSupport record. */
 data class AlgorithmSupport(
-    val signing: List<String>,
-    val encryption: List<String>? = null
+    val signing: List<KeyAlgorithm>,
+    val encryption: List<AeadSuite>? = null
 )
 
 /** HandshakeRequest record. */
@@ -726,9 +1023,9 @@ data class Relation(
     // wire key: object_id
     val objectId: String,
     // wire key: created_at
-    val createdAt: String,
+    val createdAt: java.time.Instant,
     // wire key: removed_at
-    val removedAt: String? = null
+    val removedAt: java.time.Instant? = null
 )
 
 /** AdminUser record. */
@@ -737,14 +1034,17 @@ data class AdminUser(
     val username: String,
     // wire key: display_name
     val displayName: String,
+    val kind: AccountKind,
+    // wire key: application_id
+    val applicationId: String? = null,
     // wire key: is_active
     val isActive: Boolean,
     // wire key: created_at
-    val createdAt: String,
+    val createdAt: java.time.Instant,
     // wire key: updated_at
-    val updatedAt: String,
+    val updatedAt: java.time.Instant,
     // wire key: purged_at
-    val purgedAt: String? = null,
+    val purgedAt: java.time.Instant? = null,
     // wire key: purge_reason
     val purgeReason: String? = null,
     // wire key: password_locked
@@ -780,9 +1080,9 @@ data class UserAuthenticationActivity(
     // wire key: user_id
     val userId: String,
     // wire key: last_authenticated_at
-    val lastAuthenticatedAt: String? = null,
+    val lastAuthenticatedAt: java.time.Instant? = null,
     // wire key: last_seen_at
-    val lastSeenAt: String? = null,
+    val lastSeenAt: java.time.Instant? = null,
     // wire key: successful_authentication_count
     val successfulAuthenticationCount: Long,
     // wire key: active_browser_session_count
@@ -805,7 +1105,9 @@ data class CreateUserRequest(
     val username: String,
     // wire key: display_name
     val displayName: String,
-    val password: String? = null
+    val password: String? = null,
+    // wire key: application_id
+    val applicationId: String? = null
 )
 
 /** CreateUserResponse record. */
@@ -813,6 +1115,147 @@ data class CreateUserResponse(
     val user: AdminUser,
     // wire key: api_key
     val apiKey: String? = null
+)
+
+/** RenameUserRequest record. */
+data class RenameUserRequest(
+    // wire key: user_id
+    val userId: String,
+    val username: String
+)
+
+/** RenameUserResponse record. */
+data class RenameUserResponse(
+    val user: AdminUser
+)
+
+/** SetApplicationIdRequest record. */
+data class SetApplicationIdRequest(
+    // wire key: user_id
+    val userId: String,
+    // wire key: application_id
+    val applicationId: String
+)
+
+/** SetApplicationIdResponse record. */
+data class SetApplicationIdResponse(
+    val user: AdminUser
+)
+
+/** ApiKeyInfo record. */
+data class ApiKeyInfo(
+    // wire key: key_id
+    val keyId: String,
+    val name: String,
+    val hint: String,
+    // wire key: created_at
+    val createdAt: java.time.Instant,
+    // wire key: last_used_at
+    val lastUsedAt: java.time.Instant? = null
+)
+
+/** CreateApiKeyRequest record. */
+data class CreateApiKeyRequest(
+    // wire key: user_id
+    val userId: String,
+    val name: String
+)
+
+/** CreateApiKeyResponse record. */
+data class CreateApiKeyResponse(
+    val key: ApiKeyInfo,
+    // wire key: api_key
+    val apiKey: String
+)
+
+/** ListApiKeysRequest record. */
+data class ListApiKeysRequest(
+    // wire key: user_id
+    val userId: String
+)
+
+/** ListApiKeysResponse record. */
+data class ListApiKeysResponse(
+    val keys: List<ApiKeyInfo>
+)
+
+/** RevokeApiKeyRequest record. */
+data class RevokeApiKeyRequest(
+    // wire key: user_id
+    val userId: String,
+    // wire key: key_id
+    val keyId: String
+)
+
+/** RevokeApiKeyResponse record. */
+data class RevokeApiKeyResponse(
+    val revoked: Boolean
+)
+
+/** AccountLimits record. */
+data class AccountLimits(
+    // wire key: max_api_keys
+    val maxApiKeys: Long? = null,
+    // wire key: max_distinct_users
+    val maxDistinctUsers: Long? = null,
+    // wire key: distinct_user_window_days
+    val distinctUserWindowDays: Long,
+    // wire key: requests_per_minute
+    val requestsPerMinute: Long? = null,
+    // wire key: request_burst
+    val requestBurst: Long? = null
+)
+
+/** GetAccountLimitsRequest record. */
+data class GetAccountLimitsRequest(
+    // wire key: user_id
+    val userId: String
+)
+
+/** GetAccountLimitsResponse record. */
+data class GetAccountLimitsResponse(
+    val limits: AccountLimits
+)
+
+/** SetAccountLimitsRequest record. */
+data class SetAccountLimitsRequest(
+    // wire key: user_id
+    val userId: String,
+    val limits: AccountLimits
+)
+
+/** SetAccountLimitsResponse record. */
+data class SetAccountLimitsResponse(
+    val limits: AccountLimits
+)
+
+/** RpUsageDay record. */
+data class RpUsageDay(
+    val day: java.time.LocalDate,
+    val operation: String,
+    val succeeded: Long,
+    val failed: Long
+)
+
+/** GetApplicationUsageRequest record. */
+data class GetApplicationUsageRequest(
+    // wire key: user_id
+    val userId: String,
+    // wire key: first_day
+    val firstDay: java.time.LocalDate,
+    // wire key: last_day
+    val lastDay: java.time.LocalDate
+)
+
+/** GetApplicationUsageResponse record. */
+data class GetApplicationUsageResponse(
+    // wire key: distinct_users
+    val distinctUsers: Long,
+    // wire key: distinct_user_window_days
+    val distinctUserWindowDays: Long,
+    // wire key: max_distinct_users
+    val maxDistinctUsers: Long? = null,
+    val days: List<RpUsageDay>
 )
 
 /** UpdateUserRequest record. */
@@ -942,7 +1385,7 @@ data class SetClaimRequest(
     // wire key: claim_value
     val claimValue: String,
     // wire key: expires_at
-    val expiresAt: String? = null
+    val expiresAt: java.time.Instant? = null
 )
 
 /** SetClaimResponse record. */
@@ -996,7 +1439,7 @@ data class SetUserClaimRequest(
 
 /** SetUserClaimResponse record. */
 data class SetUserClaimResponse(
-    val outcome: String,
+    val outcome: SetClaimOutcome,
     val claim: Claim? = null
 )
 
@@ -1006,15 +1449,15 @@ data class SettableClaimPolicy(
     val claimType: String,
     val label: String,
     val description: String,
-    val datatype: String,
+    val datatype: ClaimValueType,
     // wire key: max_bytes
     val maxBytes: Long,
     // wire key: set_rule
-    val setRule: String,
+    val setRule: SetRule,
     // wire key: requires_approval
     val requiresApproval: Boolean,
     // wire key: signing_rule
-    val signingRule: String
+    val signingRule: SigningRule
 )
 
 /** ListSettablePoliciesResponse record. */
@@ -1029,13 +1472,13 @@ data class ClaimTypePolicy(
     val label: String,
     val description: String,
     // wire key: value_type
-    val valueType: String,
+    val valueType: ClaimValueType,
     // wire key: max_bytes
     val maxBytes: Long,
     // wire key: set_rule
-    val setRule: String,
+    val setRule: SetRule,
     // wire key: signing_rule
-    val signingRule: String,
+    val signingRule: SigningRule,
     // wire key: requires_approval
     val requiresApproval: Boolean,
     // wire key: user_settable
@@ -1058,13 +1501,13 @@ data class SetClaimTypeRequest(
     val label: String,
     val description: String? = null,
     // wire key: value_type
-    val valueType: String,
+    val valueType: ClaimValueType,
     // wire key: max_bytes
     val maxBytes: Long,
     // wire key: set_rule
-    val setRule: String,
+    val setRule: SetRule,
     // wire key: signing_rule
-    val signingRule: String,
+    val signingRule: SigningRule,
     // wire key: user_settable
     val userSettable: Boolean,
     // wire key: default_auto_sign
@@ -1177,7 +1620,7 @@ data class ReleaseRule(
     val audience: String,
     // wire key: claim_type
     val claimType: String,
-    val disposition: String
+    val disposition: ReleaseDisposition
 )
 
 /** ListReleaseRulesResponse record. */
@@ -1191,7 +1634,7 @@ data class SetReleaseRuleRequest(
     val audience: String,
     // wire key: claim_type
     val claimType: String,
-    val disposition: String
+    val disposition: ReleaseDisposition
 )
 
 /** SetReleaseRuleResponse record. */
@@ -1221,13 +1664,13 @@ data class ClaimApproval(
     val claimType: String,
     // wire key: claim_value
     val claimValue: ByteArray,
-    val status: String,
+    val status: ClaimApprovalStatus,
     // wire key: resolved_by
     val resolvedBy: String? = null,
     // wire key: resolved_at
-    val resolvedAt: String? = null,
+    val resolvedAt: java.time.Instant? = null,
     // wire key: created_at
-    val createdAt: String
+    val createdAt: java.time.Instant
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -1406,7 +1849,7 @@ data class SetMyClaimRequest(
 
 /** SetMyClaimResponse record. */
 data class SetMyClaimResponse(
-    val outcome: String,
+    val outcome: SetClaimOutcome,
     val claim: Claim? = null
 )
 
@@ -1507,11 +1950,11 @@ data class PasswordPolicy(
 data class BrowserSessionInfo(
     val user: AdminUser,
     // wire key: issued_at
-    val issuedAt: String,
+    val issuedAt: java.time.Instant,
     // wire key: authenticated_at
-    val authenticatedAt: String,
+    val authenticatedAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String,
+    val expiresAt: java.time.Instant,
     // wire key: authentication_methods
     val authenticationMethods: List<String>
 )
@@ -1550,19 +1993,19 @@ data class IntrospectBrowserSessionResponse(
     // wire key: user_domain
     val userDomain: String,
     // wire key: authenticated_at
-    val authenticatedAt: String,
+    val authenticatedAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String,
+    val expiresAt: java.time.Instant,
     // wire key: authentication_methods
     val authenticationMethods: List<String>
 )
 
 /** NotificationCapability record. */
 data class NotificationCapability(
-    val purpose: String,
-    val channel: String,
+    val purpose: NotificationPurpose,
+    val channel: NotificationChannel,
     // wire key: destination_kind
-    val destinationKind: String
+    val destinationKind: DestinationKind
 )
 
 /** GetNotificationCapabilitiesResponse record. */
@@ -1573,13 +2016,13 @@ data class GetNotificationCapabilitiesResponse(
 /** VerifiedContactMethod record. */
 data class VerifiedContactMethod(
     val id: String,
-    val channel: String,
+    val channel: NotificationChannel,
     val destination: String,
     // wire key: verified_at
-    val verifiedAt: String,
-    val purposes: List<String>,
+    val verifiedAt: java.time.Instant,
+    val purposes: List<NotificationPurpose>,
     // wire key: revoked_at
-    val revokedAt: String? = null
+    val revokedAt: java.time.Instant? = null
 )
 
 /** ListVerifiedContactMethodsResponse record. */
@@ -1603,7 +2046,7 @@ data class RevokeVerifiedContactMethodResponse(
 
 /** RequestContactVerificationRequest record. */
 data class RequestContactVerificationRequest(
-    val channel: String,
+    val channel: NotificationChannel,
     val destination: String,
     // wire key: current_password
     val currentPassword: String
@@ -1612,7 +2055,7 @@ data class RequestContactVerificationRequest(
 /** RequestContactVerificationResponse record. */
 data class RequestContactVerificationResponse(
     // wire key: expires_at
-    val expiresAt: String
+    val expiresAt: java.time.Instant
 )
 
 /** ConfirmContactVerificationRequest record. */
@@ -1643,7 +2086,7 @@ data class ValidatePasswordRecoveryRequest(
 /** ValidatePasswordRecoveryResponse record. */
 data class ValidatePasswordRecoveryResponse(
     // wire key: expires_at
-    val expiresAt: String,
+    val expiresAt: java.time.Instant,
     // wire key: password_policy
     val passwordPolicy: PasswordPolicy
 )
@@ -1671,12 +2114,12 @@ data class BrowserConsentClaim(
     // wire key: claim_type
     val claimType: String,
     val label: String,
-    val datatype: String,
+    val datatype: ClaimValueType,
     val required: Boolean,
     val available: Boolean,
     // wire key: default_granted
     val defaultGranted: Boolean,
-    val policy: String,
+    val policy: ConsentRowPolicy,
     // wire key: user_settable
     val userSettable: Boolean,
     // wire key: max_bytes
@@ -1735,14 +2178,14 @@ data class BrowserLocalRpInspectRequest(
 
 /** BrowserLocalRpInspectResponse record. */
 data class BrowserLocalRpInspectResponse(
-    val admission: String,
+    val admission: LocalRpAdmission,
     // wire key: app_name
     val appName: String,
     val fingerprint: String,
     // wire key: callback_host
     val callbackHost: String,
     // wire key: first_seen_at
-    val firstSeenAt: String? = null,
+    val firstSeenAt: java.time.Instant? = null,
     val claims: List<BrowserConsentClaim>,
     // wire key: request_reason
     val requestReason: String? = null,
@@ -1823,8 +2266,6 @@ data class RpSignRequest(
     // wire key: callback_url
     val callbackUrl: String,
     val nonce: String,
-    // wire key: application_id
-    val applicationId: String? = null,
     // wire key: requested_claims
     val requestedClaims: ClaimRequest? = null,
     // wire key: authentication_requirements
@@ -1871,6 +2312,12 @@ data class RpUserInfoRequest(
     // wire key: api_base
     val apiBase: String,
     val domain: String
+)
+
+/** RpError record. */
+data class RpError(
+    val code: RpErrorCode,
+    val message: String
 )
 
 /** RpIssueAttestationRequest record. */
@@ -1972,12 +2419,6 @@ data class ApiError(
     val message: String
 )
 
-/** Type alias for AeadSuite. */
-typealias AeadSuite = String
-
-/** Type alias for LocalRpPolicy. */
-typealias LocalRpPolicy = String
-
 /** LocalRpDescriptor record. */
 data class LocalRpDescriptor(
     // wire key: app_name
@@ -1992,9 +2433,9 @@ data class LocalRpDescriptor(
     // wire key: supported_suites
     val supportedSuites: List<AeadSuite>,
     // wire key: created_at
-    val createdAt: String,
+    val createdAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String
+    val expiresAt: java.time.Instant
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -2059,9 +2500,9 @@ data class LocalRpLoginRequest(
     // wire key: flow_context
     val flowContext: AuthFlowContext? = null,
     // wire key: issued_at
-    val issuedAt: String,
+    val issuedAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String
+    val expiresAt: java.time.Instant
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -2125,9 +2566,9 @@ data class LocalRpCallbackHeader(
     // wire key: aead_nonce
     val aeadNonce: ByteArray,
     // wire key: issued_at
-    val issuedAt: String,
+    val issuedAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String
+    val expiresAt: java.time.Instant
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -2191,9 +2632,9 @@ data class LocalRpCallbackPayload(
     val nonce: ByteArray,
     val state: ByteArray,
     // wire key: issued_at
-    val issuedAt: String,
+    val issuedAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String
+    val expiresAt: java.time.Instant
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -2254,7 +2695,7 @@ data class LocalRpTicketRedemptionRequest(
     val claimTicket: ByteArray,
     val fingerprint: String,
     // wire key: issued_at
-    val issuedAt: String
+    val issuedAt: java.time.Instant
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -2301,7 +2742,7 @@ data class LocalRpTicketRedemptionResponse(
     val userDomain: String,
     val claims: List<Claim>,
     // wire key: ticket_expires_at
-    val ticketExpiresAt: String
+    val ticketExpiresAt: java.time.Instant
 )
 
 /** AdminLocalRp record. */
@@ -2315,15 +2756,15 @@ data class AdminLocalRp(
     val appName: String,
     // wire key: local_domain_hint
     val localDomainHint: String? = null,
-    val status: String,
+    val status: LocalRpStatus,
     // wire key: created_at
-    val createdAt: String,
+    val createdAt: java.time.Instant,
     // wire key: updated_at
-    val updatedAt: String,
+    val updatedAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String? = null,
+    val expiresAt: java.time.Instant? = null,
     // wire key: last_seen_at
-    val lastSeenAt: String? = null,
+    val lastSeenAt: java.time.Instant? = null,
     // wire key: admin_notes
     val adminNotes: String? = null
 ) {
@@ -2364,7 +2805,7 @@ data class AdminLocalRp(
 data class ListLocalRpsRequest(
     val offset: Long? = null,
     val limit: Long? = null,
-    val status: String? = null
+    val status: LocalRpStatus? = null
 )
 
 /** ListLocalRpsResponse record. */
@@ -2473,7 +2914,7 @@ data class SetUserPasswordLockResponse(
 
 /** AppAccessTarget record. */
 data class AppAccessTarget(
-    val kind: String,
+    val kind: AppAccessTargetKind,
     // wire key: user_id
     val userId: String? = null,
     // wire key: group_name
@@ -2481,7 +2922,7 @@ data class AppAccessTarget(
     // wire key: claim_type
     val claimType: String? = null,
     // wire key: claim_operator
-    val claimOperator: String? = null,
+    val claimOperator: ClaimOperator? = null,
     // wire key: claim_value
     val claimValue: String? = null
 )
@@ -2490,7 +2931,7 @@ data class AppAccessTarget(
 data class AppAccessPolicy(
     val id: String,
     val name: String,
-    val mode: String,
+    val mode: AppAccessMode,
     val patterns: List<String>,
     val message: String? = null,
     val targets: List<AppAccessTarget>
@@ -2505,7 +2946,7 @@ data class ListAppAccessPoliciesResponse(
 data class SetAppAccessPolicyRequest(
     val id: String? = null,
     val name: String,
-    val mode: String,
+    val mode: AppAccessMode,
     val patterns: List<String>,
     val message: String? = null,
     val targets: List<AppAccessTarget>
@@ -2616,19 +3057,19 @@ data class ApplicationKeyAttestation(
     // wire key: key_id
     val keyId: String,
     // wire key: key_usage
-    val keyUsage: String,
-    val algorithm: String,
+    val keyUsage: KeyUsage,
+    val algorithm: KeyAlgorithm,
     // wire key: public_key
     val publicKey: ByteArray,
     val fingerprint: String,
     // wire key: key_created_at
-    val keyCreatedAt: String,
+    val keyCreatedAt: java.time.Instant,
     // wire key: key_expires_at
-    val keyExpiresAt: String,
+    val keyExpiresAt: java.time.Instant,
     // wire key: attested_at
-    val attestedAt: String,
+    val attestedAt: java.time.Instant,
     // wire key: attestation_expires_at
-    val attestationExpiresAt: String
+    val attestationExpiresAt: java.time.Instant
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -2700,8 +3141,8 @@ data class ApplicationKeyAddition(
     // wire key: key_id
     val keyId: String,
     // wire key: key_usage
-    val keyUsage: String,
-    val algorithm: String,
+    val keyUsage: KeyUsage,
+    val algorithm: KeyAlgorithm,
     // wire key: public_key
     val publicKey: ByteArray,
     val fingerprint: String,
@@ -2711,9 +3152,9 @@ data class ApplicationKeyAddition(
     val challengeId: String,
     val challenge: ByteArray,
     // wire key: requested_at
-    val requestedAt: String,
+    val requestedAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String
+    val expiresAt: java.time.Instant
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -2794,9 +3235,9 @@ data class ApplicationKeyRenewal(
     val challengeId: String,
     val challenge: ByteArray,
     // wire key: requested_at
-    val requestedAt: String,
+    val requestedAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String
+    val expiresAt: java.time.Instant
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -2866,7 +3307,7 @@ data class ApplicationKeyRevocation(
     // wire key: target_fingerprint
     val targetFingerprint: String,
     // wire key: revoked_at
-    val revokedAt: String,
+    val revokedAt: java.time.Instant,
     val signatures: List<ApplicationKeySignature>
 )
 
@@ -2878,10 +3319,10 @@ data class StartApplicationKeyChallengeRequest(
     val applicationId: String,
     // wire key: instance_id
     val instanceId: String,
-    val purpose: String,
+    val purpose: ApplicationKeyChallengePurpose,
     // wire key: key_usage
-    val keyUsage: String,
-    val algorithm: String,
+    val keyUsage: KeyUsage,
+    val algorithm: KeyAlgorithm,
     // wire key: public_key
     val publicKey: ByteArray
 ) {
@@ -2918,7 +3359,7 @@ data class StartApplicationKeyChallengeResponse(
     // wire key: sealed_challenge
     val sealedChallenge: ByteArray? = null,
     // wire key: expires_at
-    val expiresAt: String
+    val expiresAt: java.time.Instant
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -2968,7 +3409,7 @@ data class RevokeApplicationKeyRequest(
 /** RevokeApplicationKeyResponse record. */
 data class RevokeApplicationKeyResponse(
     // wire key: revoked_at
-    val revokedAt: String
+    val revokedAt: java.time.Instant
 )
 
 /** EnrollApplicationInstanceRequest record. */
@@ -3030,11 +3471,11 @@ data class RpResolveDomainKeysResponse(
     val keys: List<DomainPublicKey>,
     val revocations: List<RevocationCertificate>,
     // wire key: fetched_at
-    val fetchedAt: String,
+    val fetchedAt: java.time.Instant,
     // wire key: revocations_checked_at
-    val revocationsCheckedAt: String,
+    val revocationsCheckedAt: java.time.Instant,
     // wire key: cache_status
-    val cacheStatus: String
+    val cacheStatus: RpCacheStatus
 )
 
 /** RpResolveApplicationKeysRequest record. */
@@ -3070,11 +3511,11 @@ data class RpResolveApplicationKeysResponse(
     // wire key: home_domain_key_revocations
     val homeDomainKeyRevocations: List<RevocationCertificate>,
     // wire key: fetched_at
-    val fetchedAt: String,
+    val fetchedAt: java.time.Instant,
     // wire key: revocations_checked_at
-    val revocationsCheckedAt: String,
+    val revocationsCheckedAt: java.time.Instant,
     // wire key: cache_status
-    val cacheStatus: String
+    val cacheStatus: RpCacheStatus
 )
 
 /** ApplicationRef record. */
@@ -3118,9 +3559,9 @@ data class ActAsScopeSet(
     // wire key: audience_handle_claim
     val audienceHandleClaim: Claim? = null,
     // wire key: issued_at
-    val issuedAt: String,
+    val issuedAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String
+    val expiresAt: java.time.Instant
 )
 
 /** SignedActAsScopeSet record. */
@@ -3171,13 +3612,13 @@ data class ActAsGrant(
     // wire key: approved_scope
     val approvedScope: List<String>,
     // wire key: issued_at
-    val issuedAt: String,
+    val issuedAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String,
+    val expiresAt: java.time.Instant,
     // wire key: series_issued_at
-    val seriesIssuedAt: String,
+    val seriesIssuedAt: java.time.Instant,
     // wire key: renewable_until
-    val renewableUntil: String,
+    val renewableUntil: java.time.Instant,
     // wire key: device_fingerprint
     val deviceFingerprint: String? = null
 )
@@ -3217,9 +3658,9 @@ data class ActAsGrantRequest(
     val callbackUrl: String,
     val nonce: String,
     // wire key: requested_at
-    val requestedAt: String,
+    val requestedAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String
+    val expiresAt: java.time.Instant
 )
 
 /** SignedActAsGrantRequest record. */
@@ -3248,9 +3689,9 @@ data class ActAsRefreshRequest(
     val grantId: String,
     val grantee: GranteeRef,
     // wire key: requested_at
-    val requestedAt: String,
+    val requestedAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String,
+    val expiresAt: java.time.Instant,
     val nonce: String
 )
 
@@ -3293,7 +3734,7 @@ data class ActAsPresentation(
     // wire key: request_digest
     val requestDigest: ByteArray,
     // wire key: presented_at
-    val presentedAt: String,
+    val presentedAt: java.time.Instant,
     val nonce: ByteArray
 ) {
     override fun equals(other: Any?): Boolean {
@@ -3352,7 +3793,7 @@ data class ActAsGrantRevocation(
     // wire key: subject_domain
     val subjectDomain: String,
     // wire key: revoked_at
-    val revokedAt: String
+    val revokedAt: java.time.Instant
 )
 
 /** SignedActAsGrantRevocation record. */
@@ -3486,13 +3927,13 @@ data class ActAsGrantSummary(
     // wire key: approved_scope
     val approvedScope: List<String>,
     // wire key: issued_at
-    val issuedAt: String,
+    val issuedAt: java.time.Instant,
     // wire key: expires_at
-    val expiresAt: String,
+    val expiresAt: java.time.Instant,
     // wire key: renewable_until
-    val renewableUntil: String,
+    val renewableUntil: java.time.Instant,
     // wire key: revoked_at
-    val revokedAt: String? = null
+    val revokedAt: java.time.Instant? = null
 )
 
 /** ListActAsGrantsResponse record. */
@@ -3509,7 +3950,7 @@ data class RevokeActAsGrantRequest(
 /** RevokeActAsGrantResponse record. */
 data class RevokeActAsGrantResponse(
     // wire key: revoked_at
-    val revokedAt: String
+    val revokedAt: java.time.Instant
 )
 
 /** PreviewReleasePolicyRequest record. */
@@ -3528,7 +3969,7 @@ data class PreviewReleasePolicyRequest(
     // wire key: temp_claim_type
     val tempClaimType: String? = null,
     // wire key: temp_disposition
-    val tempDisposition: String? = null
+    val tempDisposition: ReleaseDisposition? = null
 )
 
 /** PreviewReleaseRow record. */
@@ -3538,7 +3979,7 @@ data class PreviewReleaseRow(
     val required: Boolean,
     val available: Boolean,
     val locked: Boolean,
-    val policy: String,
+    val policy: ConsentRowPolicy,
     // wire key: default_granted
     val defaultGranted: Boolean
 )
@@ -3597,7 +4038,7 @@ data class InspectSigningRequestResponse(
     // wire key: requested_claim_types
     val requestedClaimTypes: List<String>,
     // wire key: expires_at
-    val expiresAt: String,
+    val expiresAt: java.time.Instant,
     // wire key: issuable_claim_types
     val issuableClaimTypes: List<String>
 )
@@ -3616,7 +4057,7 @@ data class IssueForSigningRequestRequest(
 data class IssuedClaimResult(
     // wire key: claim_type
     val claimType: String,
-    val outcome: String,
+    val outcome: IssuedClaimOutcome,
     val message: String? = null,
     // wire key: claim_code
     val claimCode: String? = null

@@ -169,8 +169,8 @@ test "callback_box.json: 2 positive cases open" {
         try std.testing.expectEqualStrings(str(c, "fingerprint"), opened.header.fingerprint);
         try std.testing.expectEqualStrings(str(c, "nonce_hex"), try lrp.crypto.hexEncode(a, opened.header.nonce));
         try std.testing.expectEqualStrings(str(c, "state_hex"), try lrp.crypto.hexEncode(a, opened.header.state));
-        try std.testing.expectEqualStrings(str(c, "issued_at"), opened.header.issued_at);
-        try std.testing.expectEqualStrings(str(c, "expires_at"), opened.header.expires_at);
+        try expectSameInstant(str(c, "issued_at"), opened.header.issued_at);
+        try expectSameInstant(str(c, "expires_at"), opened.header.expires_at);
 
         const plaintext = try lrp.types.encodeSignedLocalRpCallbackPayload(a, opened.signed_payload);
         try std.testing.expectEqualStrings(str(c, "plaintext_cbor_hex"), try lrp.crypto.hexEncode(a, plaintext));
@@ -432,7 +432,7 @@ test "revocations.json: 9 certificate cases" {
         const expanded = c.object.get("certificate").?;
         try std.testing.expectEqualStrings(str(expanded, "target_key_id"), cert.target_key_id);
         try std.testing.expectEqualStrings(str(expanded, "target_fingerprint"), cert.target_fingerprint);
-        try std.testing.expectEqualStrings(str(expanded, "revoked_at"), cert.revoked_at);
+        try expectSameInstant(str(expanded, "revoked_at"), cert.revoked_at);
         const expanded_sigs = arr(expanded, "signatures");
         try std.testing.expectEqual(expanded_sigs.len, cert.signatures.len);
         for (expanded_sigs, 0..) |es, i| {
@@ -575,11 +575,11 @@ test "claims.json: 3 positive cases — decode, sign-payload recompute, independ
         try std.testing.expectEqualStrings(str(expanded, "user_id"), decoded.user_id);
         try std.testing.expectEqualStrings(str(expanded, "claim_type"), decoded.claim_type);
         try std.testing.expectEqualSlices(u8, try mustHex(a, str(expanded, "claim_value_hex")), decoded.claim_value);
-        try std.testing.expectEqualStrings(str(expanded, "attested_at"), decoded.attested_at);
-        try std.testing.expectEqualStrings(str(expanded, "created_at"), decoded.created_at);
+        try expectSameInstant(str(expanded, "attested_at"), decoded.attested_at);
+        try expectSameInstant(str(expanded, "created_at"), decoded.created_at);
 
         if (strOpt(expanded, "expires_at")) |e| {
-            try std.testing.expectEqualStrings(e, decoded.expires_at.?);
+            try expectSameInstant(e, decoded.expires_at.?);
         } else {
             try std.testing.expect(decoded.expires_at == null);
         }
@@ -689,7 +689,7 @@ test "claims.json: LocalRpTicketRedemptionResponse round trip + embedded claim v
     const decoded = try lrp.types.decodeLocalRpTicketRedemptionResponse(a, response_bytes);
     try std.testing.expectEqualStrings(str(trr, "user_id"), decoded.user_id);
     try std.testing.expectEqualStrings(str(trr, "user_domain"), decoded.user_domain);
-    try std.testing.expectEqualStrings(str(trr, "ticket_expires_at"), decoded.ticket_expires_at);
+    try expectSameInstant(str(trr, "ticket_expires_at"), decoded.ticket_expires_at);
     try std.testing.expectEqual(@as(usize, 3), decoded.claims.len);
 
     const key_sets = try claimDomainKeySets(a, str(root, "subject_domain"), arr(root, "domain_keys"));
@@ -700,4 +700,10 @@ test "claims.json: LocalRpTicketRedemptionResponse round trip + embedded claim v
     // Re-encoding must reproduce response_cbor_hex byte-exactly.
     const reencoded = try lrp.types.encodeLocalRpTicketRedemptionResponse(a, decoded);
     try std.testing.expectEqualSlices(u8, response_bytes, reencoded);
+}
+
+/// The vectors write times as RFC 3339 text with a `+00:00` offset; the wire
+/// form is UTC text with `Z`. Compare the instants, not the text.
+fn expectSameInstant(expected: []const u8, actual: []const u8) !void {
+    try std.testing.expectEqual(try lrp.local_rp.parseTimestamp(expected), try lrp.local_rp.parseTimestamp(actual));
 }

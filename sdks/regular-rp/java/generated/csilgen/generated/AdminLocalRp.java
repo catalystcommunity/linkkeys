@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -11,11 +12,11 @@ public record AdminLocalRp(
     byte[] encryptionPublicKey /* wire: "encryption_public_key" */,
     String appName /* wire: "app_name" */,
     String localDomainHint /* wire: "local_domain_hint" */,
-    String status /* wire: "status" */,
-    String createdAt /* wire: "created_at" */,
-    String updatedAt /* wire: "updated_at" */,
-    String expiresAt /* wire: "expires_at" */,
-    String lastSeenAt /* wire: "last_seen_at" */,
+    LocalRpStatus status /* wire: "status" */,
+    Instant createdAt /* wire: "created_at" */,
+    Instant updatedAt /* wire: "updated_at" */,
+    Instant expiresAt /* wire: "expires_at" */,
+    Instant lastSeenAt /* wire: "last_seen_at" */,
     String adminNotes /* wire: "admin_notes" */
 ) {
     public AdminLocalRp {

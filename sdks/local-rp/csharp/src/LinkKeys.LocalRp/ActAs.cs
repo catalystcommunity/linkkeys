@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using LinkKeys.LocalRp.Dns;
@@ -49,9 +48,15 @@ public static class ActAs
     // Pure building blocks
     // -----------------------------------------------------------------
 
-    /// <summary>Whole-second RFC3339 in UTC ending in <c>Z</c>, as the reference implementation formats act-as times.</summary>
-    public static string FormatTime(DateTimeOffset t) =>
-        t.ToUniversalTime().ToString("yyyy-MM-dd\\THH:mm:ss\\Z", CultureInfo.InvariantCulture);
+    /// <summary>
+    /// <paramref name="t"/> in UTC without its fraction of a second (rounded down), as the
+    /// reference implementation sets act-as times. On the wire it is a tag-0 timestamp.
+    /// </summary>
+    public static DateTimeOffset WholeSeconds(DateTimeOffset t)
+    {
+        var utc = t.ToUniversalTime();
+        return new DateTimeOffset(utc.Ticks - (utc.Ticks % TimeSpan.TicksPerSecond), TimeSpan.Zero);
+    }
 
     /// <summary>SHA-256 of a grant's signed bytes (<c>SignedActAsGrant.Grant</c>). A presentation binds this value.</summary>
     public static byte[] GrantHash(byte[] grantBytes) => SHA256.HashData(grantBytes);
@@ -96,7 +101,7 @@ public static class ActAs
         byte[] nonce,
         Identity.LocalRpKeyMaterial keyMaterial)
     {
-        var presentation = new ActAsPresentation(GrantHash(grant.Grant), audience, requestDigest, FormatTime(now), nonce);
+        var presentation = new ActAsPresentation(GrantHash(grant.Grant), audience, requestDigest, WholeSeconds(now), nonce);
         var bytes = Codec.EncodeActAsPresentation(presentation);
         return new ActAsCredential(grant, new SignedActAsPresentation(bytes, Prove(PresentationTag, bytes, keyMaterial)));
     }
@@ -221,8 +226,8 @@ public static class ActAs
             config.RequestedRenewalWindowSeconds,
             config.CallbackUrl,
             nonce,
-            FormatTime(config.Now),
-            FormatTime(config.Now + window));
+            WholeSeconds(config.Now),
+            WholeSeconds(config.Now + window));
         var signed = SignGrantRequest(request, config.KeyMaterial);
 
         var dns = config.Dns ?? LinkKeysLocalRp.DefaultDnsResolver();
@@ -336,8 +341,8 @@ public static class ActAs
         var request = new ActAsRefreshRequest(
             config.GrantId,
             LocalRpGrantee(config.KeyMaterial),
-            FormatTime(config.Now),
-            FormatTime(config.Now + RefreshRequestWindow),
+            WholeSeconds(config.Now),
+            WholeSeconds(config.Now + RefreshRequestWindow),
             UrlEncoding.EncodeUrlParam(Crypto.Crypto.RandomBytes(32)));
         var signed = SignRefreshRequest(request, config.KeyMaterial);
         RefreshActAsGrantResponse response;

@@ -46,7 +46,11 @@ fn s(v: &Value) -> String {
 }
 
 fn time(v: &Value) -> OffsetDateTime {
-    liblinkkeys::timestamp::parse_rfc3339(v.as_str().unwrap()).unwrap()
+    ts(v.as_str().unwrap())
+}
+
+fn ts(s: &str) -> OffsetDateTime {
+    liblinkkeys::timestamp::parse_rfc3339(s).unwrap()
 }
 
 fn local_case(v: &Value) -> &Value {
@@ -119,8 +123,8 @@ fn local_rp_grantee_vector_bytes_match() {
         grantee_handle_claim: None,
         callback_url: s(&i["callback_url"]),
         nonce: s(&i["nonce"]),
-        requested_at: s(&i["requested_at"]),
-        expires_at: s(&i["expires_at"]),
+        requested_at: time(&i["requested_at"]),
+        expires_at: time(&i["expires_at"]),
     };
     let signed = sign_act_as_grant_request(&m, &request).unwrap();
     assert_eq!(
@@ -128,18 +132,21 @@ fn local_rp_grantee_vector_bytes_match() {
         unhex(g["request_cbor_hex"].as_str().unwrap())
     );
     assert_eq!(
-        generated::encode_signed_act_as_grant_request(&signed),
+        generated::encode_signed_act_as_grant_request(&signed).unwrap(),
         unhex(g["signed_cbor_hex"].as_str().unwrap())
     );
-    assert_eq!(act_as_grant_request_url_param(&signed), s(&g["url_param"]));
+    assert_eq!(
+        act_as_grant_request_url_param(&signed).unwrap(),
+        s(&g["url_param"])
+    );
 
     let r = &case["refresh_request"];
     let i = &r["inputs"];
     let refresh = ActAsRefreshRequest {
         grant_id: s(&i["grant_id"]),
         grantee: local_rp_grantee(&m),
-        requested_at: s(&i["requested_at"]),
-        expires_at: s(&i["expires_at"]),
+        requested_at: time(&i["requested_at"]),
+        expires_at: time(&i["expires_at"]),
         nonce: s(&i["nonce"]),
     };
     let signed = sign_act_as_refresh_request(&m, &refresh).unwrap();
@@ -148,7 +155,7 @@ fn local_rp_grantee_vector_bytes_match() {
         unhex(r["request_cbor_hex"].as_str().unwrap())
     );
     assert_eq!(
-        generated::encode_signed_act_as_refresh_request(&signed),
+        generated::encode_signed_act_as_refresh_request(&signed).unwrap(),
         unhex(r["signed_cbor_hex"].as_str().unwrap())
     );
 
@@ -270,11 +277,11 @@ fn begin_act_as_uses_discovered_host_and_signs_a_verifiable_request() {
     assert_eq!(request.grantee, local_rp_grantee(&m));
     assert_eq!(request.requested_lifetime_seconds, Some(1800));
     assert_eq!(request.requested_renewal_window_seconds, Some(600));
-    assert_eq!(request.requested_at, "2026-10-06T11:59:00Z");
-    assert_eq!(request.expires_at, "2026-10-06T12:04:00Z");
+    assert_eq!(request.requested_at, ts("2026-10-06T11:59:00Z"));
+    assert_eq!(request.expires_at, ts("2026-10-06T12:04:00Z"));
     // The scope set rides unchanged.
     assert_eq!(
-        generated::encode_signed_act_as_scope_set(&request.scope_set),
+        generated::encode_signed_act_as_scope_set(&request.scope_set).unwrap(),
         scope_set
     );
 }
@@ -475,7 +482,8 @@ fn ok_reply(grant: &liblinkkeys::generated::types::SignedActAsGrant, signed: boo
                 grant: grant.clone(),
                 signed,
             },
-        ),
+        )
+        .unwrap(),
     )
 }
 
@@ -504,8 +512,8 @@ fn refresh_calls_act_as_refresh_grant_with_a_verifiable_request() {
         act_as::verify_refresh_request(&wire.request, &local_rp_grantee(&m), &[], now, 0).unwrap();
     assert_eq!(request.grant_id, "grant-1");
     assert_eq!(request.grantee, local_rp_grantee(&m));
-    assert_eq!(request.requested_at, "2026-10-06T12:40:00Z");
-    assert_eq!(request.expires_at, "2026-10-06T12:45:00Z");
+    assert_eq!(request.requested_at, ts("2026-10-06T12:40:00Z"));
+    assert_eq!(request.expires_at, ts("2026-10-06T12:45:00Z"));
     // Independent of liblinkkeys' verifier: the descriptor key signed
     // CBOR([refresh tag, request bytes]).
     let key = ed25519_dalek::VerifyingKey::from_bytes(&m.signing_public_key).unwrap();

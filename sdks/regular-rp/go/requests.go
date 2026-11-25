@@ -24,15 +24,7 @@ import (
 // checkWindow checks a `(requestedAt, expiresAt)` pair against now, tolerant
 // of skewSeconds of clock skew in either direction. Mirrors
 // `application_keys::check_window`.
-func checkWindow(requestedAt, expiresAt string, now time.Time, skewSeconds int64) error {
-	start, err := parseAppKeyTime(requestedAt)
-	if err != nil {
-		return &ApplicationKeyError{Kind: ErrBadTimestamp, Detail: err.Error()}
-	}
-	end, err := parseAppKeyTime(expiresAt)
-	if err != nil {
-		return &ApplicationKeyError{Kind: ErrBadTimestamp, Detail: err.Error()}
-	}
+func checkWindow(start, end time.Time, now time.Time, skewSeconds int64) error {
 	if !end.After(start) {
 		return &ApplicationKeyError{Kind: ErrRequestExpired}
 	}
@@ -84,7 +76,7 @@ func checkAdditionPossession(signed api.SignedApplicationKeyAddition, addition a
 		}
 		return nil
 	default:
-		return &ApplicationKeyError{Kind: ErrUsageMismatch, Detail: "expected sign or agree, got " + addition.KeyUsage}
+		return &ApplicationKeyError{Kind: ErrUsageMismatch, Detail: "expected sign or agree, got " + enumLabel(addition.KeyUsage)}
 	}
 }
 
@@ -170,7 +162,7 @@ func VerifyRenewal(signed api.SignedApplicationKeyRenewal, target ApplicationKey
 			return api.ApplicationKeyRenewal{}, &ApplicationKeyError{Kind: ErrInsufficientSignatures, Got: len(accepted), Need: RenewalQuorum}
 		}
 	default:
-		return api.ApplicationKeyRenewal{}, &ApplicationKeyError{Kind: ErrUsageMismatch, Detail: "expected sign or agree, got " + target.KeyUsage}
+		return api.ApplicationKeyRenewal{}, &ApplicationKeyError{Kind: ErrUsageMismatch, Detail: "expected sign or agree, got " + enumLabel(target.KeyUsage)}
 	}
 	return renewal, nil
 }

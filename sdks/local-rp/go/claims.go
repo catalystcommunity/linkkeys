@@ -26,8 +26,19 @@ const claimPayloadTag = "linkkeys-claim-v1alpha"
 // replayed as the same user_id at another. signingDomain is bound
 // per-signature so a signature from domain A cannot satisfy a claim
 // presented as signed by B.
-func claimSignPayload(claimID, claimType string, claimValue []byte, userID, subjectDomain, signingDomain string, expiresAt *string, attestedAt string) []byte {
+//
+// Timestamps are signed as whole Unix seconds (CBOR integers); a time with a
+// fraction of a second cannot be signed and yields an error.
+func claimSignPayload(claimID, claimType string, claimValue []byte, userID, subjectDomain, signingDomain string, expiresAt *time.Time, attestedAt time.Time) ([]byte, error) {
 	subject := userID + "@" + subjectDomain
+	expires, err := signedOptTime(expiresAt)
+	if err != nil {
+		return nil, &ClaimError{Kind: ClaimErrKindBadTimestamp}
+	}
+	attested, err := signedTime(attestedAt)
+	if err != nil {
+		return nil, &ClaimError{Kind: ClaimErrKindBadTimestamp}
+	}
 	return cborTuple(
 		cborText(claimPayloadTag),
 		cborText(claimID),
@@ -35,9 +46,9 @@ func claimSignPayload(claimID, claimType string, claimValue []byte, userID, subj
 		cborBytesVal(claimValue),
 		cborText(subject),
 		cborText(signingDomain),
-		cborOptText(expiresAt),
-		cborText(attestedAt),
-	)
+		expires,
+		attested,
+	), nil
 }
 
 // ClaimSpec is what is being claimed: the pieces that go into a Claim
@@ -48,8 +59,10 @@ type ClaimSpec struct {
 	ClaimValue    []byte
 	UserID        string
 	SubjectDomain string
-	ExpiresAt     *string
-	AttestedAt    string
+	// ExpiresAt must be whole seconds.
+	ExpiresAt *time.Time
+	// AttestedAt is when the claim is signed. Must be whole seconds.
+	AttestedAt time.Time
 }
 
 // ClaimSigner is one signer of a claim: a single key, owned by Domain, used
@@ -67,10 +80,16 @@ type ClaimSigner struct {
 // wire bytes a real IDP would; the local-RP SDK itself never calls it in
 // production — an app only ever verifies claims returned from ticket
 // redemption. Test fixtures (fake IDPs) use it to build realistic claims.
-func SignClaim(spec ClaimSpec, signers []ClaimSigner) api.Claim {
+//
+// Returns a *ClaimError of kind ClaimErrKindBadTimestamp when ExpiresAt or
+// AttestedAt has a fraction of a second.
+func SignClaim(spec ClaimSpec, signers []ClaimSigner) (api.Claim, error) {
 	signatures := make([]api.ClaimSignature, 0, len(signers))
 	for _, signer := range signers {
-		payload := claimSignPayload(spec.ClaimID, spec.ClaimType, spec.ClaimValue, spec.UserID, spec.SubjectDomain, signer.Domain, spec.ExpiresAt, spec.AttestedAt)
+		payload, err := claimSignPayload(spec.ClaimID, spec.ClaimType, spec.ClaimValue, spec.UserID, spec.SubjectDomain, signer.Domain, spec.ExpiresAt, spec.AttestedAt)
+		if err != nil {
+			return api.Claim{}, err
+		}
 		sig := signEd25519(signer.PrivateKeySeed, payload)
 		signatures = append(signatures, api.ClaimSignature{
 			Domain:        signer.Domain,
@@ -85,10 +104,10 @@ func SignClaim(spec ClaimSpec, signers []ClaimSigner) api.Claim {
 		ClaimValue: spec.ClaimValue,
 		Signatures: signatures,
 		AttestedAt: spec.AttestedAt,
-		CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
+		CreatedAt:  time.Now().UTC(),
 		ExpiresAt:  spec.ExpiresAt,
 		RevokedAt:  nil,
-	}
+	}, nil
 }
 
 // DomainKeySet is a domain and the set of its currently-known public keys,
@@ -116,7 +135,7 @@ func verifyOneClaimSignature(sig api.ClaimSignature, payload []byte, keys []api.
 
 	// A claim signature must come from a signing key, never an encryption
 	// key sharing the same id.
-	if key.KeyUsage != "sign" {
+	if key.KeyUsage != api.KeyUsageSign {
 		return &ClaimError{Kind: ClaimErrKindSignatureInvalid}
 	}
 
@@ -128,8 +147,8 @@ func verifyOneClaimSignature(sig api.ClaimSignature, payload []byte, keys []api.
 		return &ClaimError{Kind: ClaimErrKindKeyExpired, Detail: key.KeyId}
 	}
 
-	if key.Algorithm != "ed25519" {
-		return &ClaimError{Kind: ClaimErrKindUnsupportedAlgorithm, Detail: key.Algorithm}
+	if key.Algorithm != api.KeyAlgorithmEd25519 {
+		return &ClaimError{Kind: ClaimErrKindUnsupportedAlgorithm, Detail: keyAlgorithmLabel(key.Algorithm)}
 	}
 	if len(key.PublicKey) != ed25519.PublicKeySize || !ed25519.Verify(ed25519.PublicKey(key.PublicKey), payload, sig.Signature) {
 		return &ClaimError{Kind: ClaimErrKindSignatureInvalid}
@@ -141,7 +160,7 @@ func verifyOneClaimSignature(sig api.ClaimSignature, payload []byte, keys []api.
 // every domain that signed must contribute at least one signature from a
 // currently-valid key of that domain, over the payload payloadFor(domain)
 // produces for it. Does NOT check the claim's own revocation/expiry.
-func verifySignatureQuorum(signatures []api.ClaimSignature, domainKeys []DomainKeySet, payloadFor func(signingDomain string) []byte) error {
+func verifySignatureQuorum(signatures []api.ClaimSignature, domainKeys []DomainKeySet, payloadFor func(signingDomain string) ([]byte, error)) error {
 	if len(signatures) == 0 {
 		return &ClaimError{Kind: ClaimErrKindUnsigned}
 	}
@@ -168,7 +187,10 @@ func verifySignatureQuorum(signatures []api.ClaimSignature, domainKeys []DomainK
 			return &ClaimError{Kind: ClaimErrKindDomainKeysUnavailable, Detail: signingDomain}
 		}
 
-		payload := payloadFor(signingDomain)
+		payload, err := payloadFor(signingDomain)
+		if err != nil {
+			return err
+		}
 
 		var lastErr error = &ClaimError{Kind: ClaimErrKindDomainUnverified, Detail: signingDomain}
 		satisfied := false
@@ -196,7 +218,7 @@ func verifySignatureQuorum(signatures []api.ClaimSignature, domainKeys []DomainK
 // input), binding a claim about user@A from being replayed as one about
 // user@B.
 func VerifyClaimSignatures(claim api.Claim, subjectDomain string, domainKeys []DomainKeySet) error {
-	return verifySignatureQuorum(claim.Signatures, domainKeys, func(signingDomain string) []byte {
+	return verifySignatureQuorum(claim.Signatures, domainKeys, func(signingDomain string) ([]byte, error) {
 		return claimSignPayload(claim.ClaimId, claim.ClaimType, claim.ClaimValue, claim.UserId, subjectDomain, signingDomain, claim.ExpiresAt, claim.AttestedAt)
 	})
 }
@@ -213,11 +235,7 @@ func VerifyClaim(claim api.Claim, subjectDomain string, domainKeys []DomainKeySe
 		return &ClaimError{Kind: ClaimErrKindRevoked}
 	}
 	if claim.ExpiresAt != nil {
-		expires, err := time.Parse(time.RFC3339Nano, *claim.ExpiresAt)
-		if err != nil {
-			return &ClaimError{Kind: ClaimErrKindBadExpiry}
-		}
-		if time.Now().UTC().After(expires.UTC()) {
+		if time.Now().UTC().After(claim.ExpiresAt.UTC()) {
 			return &ClaimError{Kind: ClaimErrKindExpired}
 		}
 	}

@@ -59,7 +59,7 @@ Follow [`docs/DEPLOYING-RP.md`](../../../docs/DEPLOYING-RP.md) end to end:
 same `linkkeys` Docker image and Helm chart as a full IDP, RP-mode values
 (no password login, no human user accounts — service accounts only).
 
-### 2. Initialize domain keys and create a service account for this app
+### 2. Initialize domain keys and create an application account for this app
 
 Inside the RP pod/container:
 
@@ -67,11 +67,18 @@ Inside the RP pod/container:
 linkkeys domain init
 ```
 
-Create a service account for this PHP app and mint it an API key:
+Create an application account for this PHP app and mint it an API key:
 
 ```sh
-linkkeys user create my-webapp "My Web Application" --api-key
+linkkeys user create my-webapp "My Web Application" --application-id my-webapp
 ```
+
+The application account is the application principal: the account, this
+domain, and its `application_id`. Only an administrator sets the
+application id. `Rp/sign-request` does not take an application id; the RP
+server uses the id of the calling account. A call from an account that is
+not an application account gets the `RpError` code
+`not_application_account`.
 
 Save the printed API key (`RP_API_KEY` below) — it is only shown once.
 
@@ -102,7 +109,7 @@ if let Some(required) =
 }
 ```
 
-It is **not** granted automatically by `user create --api-key`. Grant it
+It is **not** granted automatically by `user create`. Grant it
 explicitly:
 
 ```sh
@@ -115,7 +122,7 @@ needing a key to grant the first key's own permissions. It's idempotent, so
 re-running it is safe.) Or do it in one shot at creation time:
 
 ```sh
-linkkeys user create my-webapp "My Web Application" --api-key --relation api_access
+linkkeys user create my-webapp "My Web Application" --application-id my-webapp --relation api_access
 ```
 
 ### 4. DNS
@@ -194,6 +201,18 @@ sudo nerdctl run --rm -v "$(pwd)":/repo -w /repo php:8.3-cli php -l some_file.ph
 7. Your app calls `Rp/userinfo-fetch` to get the user's actual claim values.
 
 All four `Rp` ops are **TCP CSIL-RPC only** — see "Why TCP, not HTTP" below.
+
+Each `Rp` reply has status 0 and a `variant`. On success, the variant is the
+response type (`RpSignResponse`, `RpDecryptResponse`, `RpVerifyResponse`, or
+`UserInfo`). When the RP server refuses the request, the variant is
+`RpError` and the payload is `RpError { code, message }`. The `code` is an
+`RpErrorCode`, for example `application_mismatch`. `RpRpcClient` below
+changes an `RpError` reply into an `RpRpcRefusal` exception, with the code
+in `$errorCode`.
+
+The `IdentityAssertion` from step 5 has an `application` field
+(`subject_user_id`, `subject_domain`, `application_id`). It identifies the
+application that the login was for.
 
 ## Why TCP, not HTTP
 
@@ -373,17 +392,21 @@ declare(strict_types=1);
 namespace App\LinkKeysRp;
 
 use Csilgen\Generated\ClaimRequest;
+use Csilgen\Generated\ClaimValueType;
 use Csilgen\Generated\IdentityAssertion;
 use Csilgen\Generated\RequestedClaim;
 use Csilgen\Generated\RpDecryptRequest;
 use Csilgen\Generated\RpDecryptResponse;
+use Csilgen\Generated\RpErrorCode;
 use Csilgen\Generated\RpSignRequest;
 use Csilgen\Generated\RpSignResponse;
 use Csilgen\Generated\RpUserInfoRequest;
 use Csilgen\Generated\RpVerifyRequest;
 use Csilgen\Generated\RpVerifyResponse;
 use Csilgen\Generated\UserInfo;
+use LinkKeys\LocalRp\ActAsWire;
 use LinkKeys\LocalRp\Cbor;
+use LinkKeys\LocalRp\Time;
 use LinkKeys\LocalRp\Wire;
 
 /**
@@ -407,7 +430,12 @@ use LinkKeys\LocalRp\Wire;
  *    generated codec is broken).
  *
  * Field names/shapes are taken directly from csil/linkkeys.csil, same as
- * the SDK's own Wire.php.
+ * the SDK's own Wire.php. Two wire rules apply:
+ *
+ *  - A `timestamp` field is CBOR tag 0 around RFC 3339 text in UTC. Use
+ *    LinkKeys\LocalRp\Time::toWire() and Time::fromWire().
+ *  - A closed vocabulary (for example `ClaimValueType`) is a CBOR unsigned
+ *    integer. Use the generated enum class: toNumber() and fromNumber().
  */
 final class RpWire
 {
@@ -440,7 +468,7 @@ final class RpWire
     {
         return [
             'claim_type' => $c->claimType,
-            'datatype' => $c->datatype,
+            'datatype' => ClaimValueType::toNumber($c->datatype),
         ];
     }
 
@@ -486,10 +514,12 @@ final class RpWire
             'domain' => $m['domain'] ?? null,
             'audience' => $m['audience'] ?? null,
             'nonce' => $m['nonce'] ?? null,
-            'issued_at' => $m['issued_at'] ?? null,
-            'expires_at' => $m['expires_at'] ?? null,
+            'issued_at' => Time::fromWire($m['issued_at'] ?? null, 'issued_at'),
+            'expires_at' => Time::fromWire($m['expires_at'] ?? null, 'expires_at'),
             'authorized_claims' => $m['authorized_claims'] ?? [],
             'display_name' => $m['display_name'] ?? null,
+            // The application the login was for (required).
+            'application' => ActAsWire::applicationRefFromMap($m['application'] ?? null),
         ]);
     }
 
@@ -500,6 +530,16 @@ final class RpWire
             'api_base' => $v->apiBase,
             'domain' => $v->domain,
         ]);
+    }
+
+    /** @return array{code: string, message: string} */
+    public static function decodeRpError(string $bytes): array
+    {
+        $m = Cbor::decode($bytes);
+        return [
+            'code' => RpErrorCode::fromNumber($m['code'] ?? null),
+            'message' => (string) ($m['message'] ?? ''),
+        ];
     }
 
     public static function decodeUserInfo(string $bytes): UserInfo
@@ -593,33 +633,38 @@ final class RpRpcClient
     public function signRequest(RpSignRequest $req): RpSignResponse
     {
         return RpWire::decodeRpSignResponse(
-            $this->call('sign-request', RpWire::encodeRpSignRequest($req))
+            $this->call('sign-request', RpWire::encodeRpSignRequest($req), 'RpSignResponse')
         );
     }
 
     public function decryptToken(RpDecryptRequest $req): RpDecryptResponse
     {
         return RpWire::decodeRpDecryptResponse(
-            $this->call('decrypt-token', RpWire::encodeRpDecryptRequest($req))
+            $this->call('decrypt-token', RpWire::encodeRpDecryptRequest($req), 'RpDecryptResponse')
         );
     }
 
     public function verifyAssertion(RpVerifyRequest $req): RpVerifyResponse
     {
         return RpWire::decodeRpVerifyResponse(
-            $this->call('verify-assertion', RpWire::encodeRpVerifyRequest($req))
+            $this->call('verify-assertion', RpWire::encodeRpVerifyRequest($req), 'RpVerifyResponse')
         );
     }
 
     public function userinfoFetch(RpUserInfoRequest $req): UserInfo
     {
         return RpWire::decodeUserInfo(
-            $this->call('userinfo-fetch', RpWire::encodeRpUserInfoRequest($req))
+            $this->call('userinfo-fetch', RpWire::encodeRpUserInfoRequest($req), 'UserInfo')
         );
     }
 
-    /** Dial, TLS-pin, send one framed request, read one framed response, close. */
-    private function call(string $op, string $payload): string
+    /**
+     * Dial, TLS-pin, send one framed request, read one framed response, close.
+     * A reply has status 0 and a `variant`: `$expectedVariant` on success, or
+     * `RpError` when the server refused the request. An `RpError` reply
+     * becomes an RpRpcRefusal with its typed code.
+     */
+    private function call(string $op, string $payload, string $expectedVariant): string
     {
         $raw = $this->transport->dial($this->tcpAddr);
         $hostname = Tls::extractHostname($this->tcpAddr);
@@ -639,6 +684,13 @@ final class RpRpcClient
         $resp = self::decodeResponse($respBytes);
         if ($resp['status'] !== 0) {
             throw new RpRpcServerError($resp['status'], $resp['error'] ?? 'unknown error', $op);
+        }
+        if ($resp['variant'] === 'RpError') {
+            $err = RpWire::decodeRpError($resp['payload']);
+            throw new RpRpcRefusal($err['code'], $err['message'], $op);
+        }
+        if ($resp['variant'] !== $expectedVariant) {
+            throw new RpRpcProtocolError("Rp/{$op}: unexpected reply variant");
         }
         return $resp['payload'];
     }
@@ -730,6 +782,18 @@ final class RpRpcProtocolError extends RpRpcError
 
 final class RpRpcTransportError extends RpRpcError
 {
+}
+
+/**
+ * The RP server refused the request with an `RpError` reply. `$errorCode` is the
+ * `RpErrorCode` member, for example `not_application_account`.
+ */
+final class RpRpcRefusal extends RpRpcError
+{
+    public function __construct(public readonly string $errorCode, public readonly string $errorMessage, string $op)
+    {
+        parent::__construct("Rp/{$op} refused: {$errorCode}: {$errorMessage}");
+    }
 }
 
 final class RpRpcServerError extends RpRpcError

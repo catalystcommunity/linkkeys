@@ -41,13 +41,14 @@ fn call(
 }
 
 fn get_payload() -> Vec<u8> {
-    liblinkkeys::generated::encode_empty_request(&EmptyRequest {})
+    liblinkkeys::generated::encode_empty_request(&EmptyRequest {}).unwrap()
 }
 
 fn set_payload(hours: i64) -> Vec<u8> {
     liblinkkeys::generated::encode_set_sign_in_policy_request(&SetSignInPolicyRequest {
         sign_in_hours: hours,
     })
+    .unwrap()
 }
 
 fn new_session_hours(pool: &linkkeys::db::DbPool) -> i64 {
@@ -57,8 +58,8 @@ fn new_session_hours(pool: &linkkeys::db::DbPool) -> i64 {
         authenticated_at: time::OffsetDateTime::now_utc(),
     };
     let (_, session) = browser_session::create(pool, &user.id, &evidence).expect("session");
-    let issued = liblinkkeys::timestamp::parse_rfc3339(&session.issued_at).unwrap();
-    let expires = liblinkkeys::timestamp::parse_rfc3339(&session.expires_at).unwrap();
+    let issued = session.issued_at;
+    let expires = session.expires_at;
     // Round to whole hours: storage can drop sub-second precision.
     ((expires - issued).whole_seconds() + 1_800) / 3_600
 }

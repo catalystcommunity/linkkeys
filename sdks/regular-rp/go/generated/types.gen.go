@@ -5,6 +5,7 @@ package api
 
 import (
 	"fmt"
+	"time"
 )
 
 // CheckValue is a type alias
@@ -19,6 +20,1273 @@ type CheckResult struct {
 	Entries CheckEntries `json:"entries" yaml:"entries"`
 }
 
+type KeyAlgorithm int64
+
+const (
+	KeyAlgorithmEd25519 KeyAlgorithm = 1
+	KeyAlgorithmX25519  KeyAlgorithm = 2
+)
+
+func (v KeyAlgorithm) ToNumber() int64 {
+	return int64(v)
+}
+
+func KeyAlgorithmFromNumber(number int64) (KeyAlgorithm, error) {
+	v := KeyAlgorithm(number)
+	switch v {
+	case KeyAlgorithmEd25519, KeyAlgorithmX25519:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown KeyAlgorithm value %d", number)
+}
+
+func (v KeyAlgorithm) MarshalText() ([]byte, error) {
+	switch v {
+	case KeyAlgorithmEd25519:
+		return []byte("ed25519"), nil
+	case KeyAlgorithmX25519:
+		return []byte("x25519"), nil
+	}
+	return nil, fmt.Errorf("unknown KeyAlgorithm value %d", v)
+}
+
+func (v *KeyAlgorithm) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "ed25519":
+		*v = KeyAlgorithmEd25519
+	case "x25519":
+		*v = KeyAlgorithmX25519
+	default:
+		return fmt.Errorf("unknown KeyAlgorithm label %q", text)
+	}
+	return nil
+}
+
+type KeyUsage int64
+
+const (
+	KeyUsageSign    KeyUsage = 1
+	KeyUsageEncrypt KeyUsage = 2
+	KeyUsageAgree   KeyUsage = 3
+)
+
+func (v KeyUsage) ToNumber() int64 {
+	return int64(v)
+}
+
+func KeyUsageFromNumber(number int64) (KeyUsage, error) {
+	v := KeyUsage(number)
+	switch v {
+	case KeyUsageSign, KeyUsageEncrypt, KeyUsageAgree:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown KeyUsage value %d", number)
+}
+
+func (v KeyUsage) MarshalText() ([]byte, error) {
+	switch v {
+	case KeyUsageSign:
+		return []byte("sign"), nil
+	case KeyUsageEncrypt:
+		return []byte("encrypt"), nil
+	case KeyUsageAgree:
+		return []byte("agree"), nil
+	}
+	return nil, fmt.Errorf("unknown KeyUsage value %d", v)
+}
+
+func (v *KeyUsage) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "sign":
+		*v = KeyUsageSign
+	case "encrypt":
+		*v = KeyUsageEncrypt
+	case "agree":
+		*v = KeyUsageAgree
+	default:
+		return fmt.Errorf("unknown KeyUsage label %q", text)
+	}
+	return nil
+}
+
+type AeadSuite int64
+
+const (
+	AeadSuiteAes256Gcm        AeadSuite = 1
+	AeadSuiteChacha20Poly1305 AeadSuite = 2
+)
+
+func (v AeadSuite) ToNumber() int64 {
+	return int64(v)
+}
+
+func AeadSuiteFromNumber(number int64) (AeadSuite, error) {
+	v := AeadSuite(number)
+	switch v {
+	case AeadSuiteAes256Gcm, AeadSuiteChacha20Poly1305:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown AeadSuite value %d", number)
+}
+
+func (v AeadSuite) MarshalText() ([]byte, error) {
+	switch v {
+	case AeadSuiteAes256Gcm:
+		return []byte("aes_256_gcm"), nil
+	case AeadSuiteChacha20Poly1305:
+		return []byte("chacha20_poly1305"), nil
+	}
+	return nil, fmt.Errorf("unknown AeadSuite value %d", v)
+}
+
+func (v *AeadSuite) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "aes_256_gcm":
+		*v = AeadSuiteAes256Gcm
+	case "chacha20_poly1305":
+		*v = AeadSuiteChacha20Poly1305
+	default:
+		return fmt.Errorf("unknown AeadSuite label %q", text)
+	}
+	return nil
+}
+
+type ClaimValueType int64
+
+const (
+	ClaimValueTypeText      ClaimValueType = 1
+	ClaimValueTypeUrl       ClaimValueType = 2
+	ClaimValueTypeEmail     ClaimValueType = 3
+	ClaimValueTypeBool      ClaimValueType = 4
+	ClaimValueTypeInt       ClaimValueType = 5
+	ClaimValueTypeFloat     ClaimValueType = 6
+	ClaimValueTypeDecimal   ClaimValueType = 7
+	ClaimValueTypeDate      ClaimValueType = 8
+	ClaimValueTypeTimestamp ClaimValueType = 9
+	ClaimValueTypeOpaque    ClaimValueType = 10
+)
+
+func (v ClaimValueType) ToNumber() int64 {
+	return int64(v)
+}
+
+func ClaimValueTypeFromNumber(number int64) (ClaimValueType, error) {
+	v := ClaimValueType(number)
+	switch v {
+	case ClaimValueTypeText, ClaimValueTypeUrl, ClaimValueTypeEmail, ClaimValueTypeBool, ClaimValueTypeInt, ClaimValueTypeFloat, ClaimValueTypeDecimal, ClaimValueTypeDate, ClaimValueTypeTimestamp, ClaimValueTypeOpaque:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown ClaimValueType value %d", number)
+}
+
+func (v ClaimValueType) MarshalText() ([]byte, error) {
+	switch v {
+	case ClaimValueTypeText:
+		return []byte("text"), nil
+	case ClaimValueTypeUrl:
+		return []byte("url"), nil
+	case ClaimValueTypeEmail:
+		return []byte("email"), nil
+	case ClaimValueTypeBool:
+		return []byte("bool"), nil
+	case ClaimValueTypeInt:
+		return []byte("int"), nil
+	case ClaimValueTypeFloat:
+		return []byte("float"), nil
+	case ClaimValueTypeDecimal:
+		return []byte("decimal"), nil
+	case ClaimValueTypeDate:
+		return []byte("date"), nil
+	case ClaimValueTypeTimestamp:
+		return []byte("timestamp"), nil
+	case ClaimValueTypeOpaque:
+		return []byte("opaque"), nil
+	}
+	return nil, fmt.Errorf("unknown ClaimValueType value %d", v)
+}
+
+func (v *ClaimValueType) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "text":
+		*v = ClaimValueTypeText
+	case "url":
+		*v = ClaimValueTypeUrl
+	case "email":
+		*v = ClaimValueTypeEmail
+	case "bool":
+		*v = ClaimValueTypeBool
+	case "int":
+		*v = ClaimValueTypeInt
+	case "float":
+		*v = ClaimValueTypeFloat
+	case "decimal":
+		*v = ClaimValueTypeDecimal
+	case "date":
+		*v = ClaimValueTypeDate
+	case "timestamp":
+		*v = ClaimValueTypeTimestamp
+	case "opaque":
+		*v = ClaimValueTypeOpaque
+	default:
+		return fmt.Errorf("unknown ClaimValueType label %q", text)
+	}
+	return nil
+}
+
+type SetRule int64
+
+const (
+	SetRuleUserSelf          SetRule = 1
+	SetRuleIdpOnRequest      SetRule = 2
+	SetRuleTrustedIssuerOnly SetRule = 3
+	SetRuleAdminOnly         SetRule = 4
+	SetRuleDeny              SetRule = 5
+)
+
+func (v SetRule) ToNumber() int64 {
+	return int64(v)
+}
+
+func SetRuleFromNumber(number int64) (SetRule, error) {
+	v := SetRule(number)
+	switch v {
+	case SetRuleUserSelf, SetRuleIdpOnRequest, SetRuleTrustedIssuerOnly, SetRuleAdminOnly, SetRuleDeny:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown SetRule value %d", number)
+}
+
+func (v SetRule) MarshalText() ([]byte, error) {
+	switch v {
+	case SetRuleUserSelf:
+		return []byte("user_self"), nil
+	case SetRuleIdpOnRequest:
+		return []byte("idp_on_request"), nil
+	case SetRuleTrustedIssuerOnly:
+		return []byte("trusted_issuer_only"), nil
+	case SetRuleAdminOnly:
+		return []byte("admin_only"), nil
+	case SetRuleDeny:
+		return []byte("deny"), nil
+	}
+	return nil, fmt.Errorf("unknown SetRule value %d", v)
+}
+
+func (v *SetRule) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "user_self":
+		*v = SetRuleUserSelf
+	case "idp_on_request":
+		*v = SetRuleIdpOnRequest
+	case "trusted_issuer_only":
+		*v = SetRuleTrustedIssuerOnly
+	case "admin_only":
+		*v = SetRuleAdminOnly
+	case "deny":
+		*v = SetRuleDeny
+	default:
+		return fmt.Errorf("unknown SetRule label %q", text)
+	}
+	return nil
+}
+
+type SigningRule int64
+
+const (
+	SigningRuleSelfSigned SigningRule = 1
+	SigningRuleVerified   SigningRule = 2
+	SigningRuleAttested   SigningRule = 3
+	SigningRuleUnsigned   SigningRule = 4
+)
+
+func (v SigningRule) ToNumber() int64 {
+	return int64(v)
+}
+
+func SigningRuleFromNumber(number int64) (SigningRule, error) {
+	v := SigningRule(number)
+	switch v {
+	case SigningRuleSelfSigned, SigningRuleVerified, SigningRuleAttested, SigningRuleUnsigned:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown SigningRule value %d", number)
+}
+
+func (v SigningRule) MarshalText() ([]byte, error) {
+	switch v {
+	case SigningRuleSelfSigned:
+		return []byte("self_signed"), nil
+	case SigningRuleVerified:
+		return []byte("verified"), nil
+	case SigningRuleAttested:
+		return []byte("attested"), nil
+	case SigningRuleUnsigned:
+		return []byte("unsigned"), nil
+	}
+	return nil, fmt.Errorf("unknown SigningRule value %d", v)
+}
+
+func (v *SigningRule) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "self_signed":
+		*v = SigningRuleSelfSigned
+	case "verified":
+		*v = SigningRuleVerified
+	case "attested":
+		*v = SigningRuleAttested
+	case "unsigned":
+		*v = SigningRuleUnsigned
+	default:
+		return fmt.Errorf("unknown SigningRule label %q", text)
+	}
+	return nil
+}
+
+type SetClaimOutcome int64
+
+const (
+	SetClaimOutcomeSigned               SetClaimOutcome = 1
+	SetClaimOutcomeStoredUnsigned       SetClaimOutcome = 2
+	SetClaimOutcomeVerificationRequired SetClaimOutcome = 3
+	SetClaimOutcomeQueued               SetClaimOutcome = 4
+)
+
+func (v SetClaimOutcome) ToNumber() int64 {
+	return int64(v)
+}
+
+func SetClaimOutcomeFromNumber(number int64) (SetClaimOutcome, error) {
+	v := SetClaimOutcome(number)
+	switch v {
+	case SetClaimOutcomeSigned, SetClaimOutcomeStoredUnsigned, SetClaimOutcomeVerificationRequired, SetClaimOutcomeQueued:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown SetClaimOutcome value %d", number)
+}
+
+func (v SetClaimOutcome) MarshalText() ([]byte, error) {
+	switch v {
+	case SetClaimOutcomeSigned:
+		return []byte("signed"), nil
+	case SetClaimOutcomeStoredUnsigned:
+		return []byte("stored_unsigned"), nil
+	case SetClaimOutcomeVerificationRequired:
+		return []byte("verification_required"), nil
+	case SetClaimOutcomeQueued:
+		return []byte("queued"), nil
+	}
+	return nil, fmt.Errorf("unknown SetClaimOutcome value %d", v)
+}
+
+func (v *SetClaimOutcome) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "signed":
+		*v = SetClaimOutcomeSigned
+	case "stored_unsigned":
+		*v = SetClaimOutcomeStoredUnsigned
+	case "verification_required":
+		*v = SetClaimOutcomeVerificationRequired
+	case "queued":
+		*v = SetClaimOutcomeQueued
+	default:
+		return fmt.Errorf("unknown SetClaimOutcome label %q", text)
+	}
+	return nil
+}
+
+type ReleaseDisposition int64
+
+const (
+	ReleaseDispositionForcedAllow ReleaseDisposition = 1
+	ReleaseDispositionForcedDeny  ReleaseDisposition = 2
+)
+
+func (v ReleaseDisposition) ToNumber() int64 {
+	return int64(v)
+}
+
+func ReleaseDispositionFromNumber(number int64) (ReleaseDisposition, error) {
+	v := ReleaseDisposition(number)
+	switch v {
+	case ReleaseDispositionForcedAllow, ReleaseDispositionForcedDeny:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown ReleaseDisposition value %d", number)
+}
+
+func (v ReleaseDisposition) MarshalText() ([]byte, error) {
+	switch v {
+	case ReleaseDispositionForcedAllow:
+		return []byte("forced_allow"), nil
+	case ReleaseDispositionForcedDeny:
+		return []byte("forced_deny"), nil
+	}
+	return nil, fmt.Errorf("unknown ReleaseDisposition value %d", v)
+}
+
+func (v *ReleaseDisposition) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "forced_allow":
+		*v = ReleaseDispositionForcedAllow
+	case "forced_deny":
+		*v = ReleaseDispositionForcedDeny
+	default:
+		return fmt.Errorf("unknown ReleaseDisposition label %q", text)
+	}
+	return nil
+}
+
+type ConsentRowPolicy int64
+
+const (
+	ConsentRowPolicyUser        ConsentRowPolicy = 1
+	ConsentRowPolicyForcedAllow ConsentRowPolicy = 2
+	ConsentRowPolicyForcedDeny  ConsentRowPolicy = 3
+)
+
+func (v ConsentRowPolicy) ToNumber() int64 {
+	return int64(v)
+}
+
+func ConsentRowPolicyFromNumber(number int64) (ConsentRowPolicy, error) {
+	v := ConsentRowPolicy(number)
+	switch v {
+	case ConsentRowPolicyUser, ConsentRowPolicyForcedAllow, ConsentRowPolicyForcedDeny:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown ConsentRowPolicy value %d", number)
+}
+
+func (v ConsentRowPolicy) MarshalText() ([]byte, error) {
+	switch v {
+	case ConsentRowPolicyUser:
+		return []byte("user"), nil
+	case ConsentRowPolicyForcedAllow:
+		return []byte("forced_allow"), nil
+	case ConsentRowPolicyForcedDeny:
+		return []byte("forced_deny"), nil
+	}
+	return nil, fmt.Errorf("unknown ConsentRowPolicy value %d", v)
+}
+
+func (v *ConsentRowPolicy) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "user":
+		*v = ConsentRowPolicyUser
+	case "forced_allow":
+		*v = ConsentRowPolicyForcedAllow
+	case "forced_deny":
+		*v = ConsentRowPolicyForcedDeny
+	default:
+		return fmt.Errorf("unknown ConsentRowPolicy label %q", text)
+	}
+	return nil
+}
+
+type ClaimApprovalStatus int64
+
+const (
+	ClaimApprovalStatusPending  ClaimApprovalStatus = 1
+	ClaimApprovalStatusApproved ClaimApprovalStatus = 2
+	ClaimApprovalStatusRejected ClaimApprovalStatus = 3
+)
+
+func (v ClaimApprovalStatus) ToNumber() int64 {
+	return int64(v)
+}
+
+func ClaimApprovalStatusFromNumber(number int64) (ClaimApprovalStatus, error) {
+	v := ClaimApprovalStatus(number)
+	switch v {
+	case ClaimApprovalStatusPending, ClaimApprovalStatusApproved, ClaimApprovalStatusRejected:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown ClaimApprovalStatus value %d", number)
+}
+
+func (v ClaimApprovalStatus) MarshalText() ([]byte, error) {
+	switch v {
+	case ClaimApprovalStatusPending:
+		return []byte("pending"), nil
+	case ClaimApprovalStatusApproved:
+		return []byte("approved"), nil
+	case ClaimApprovalStatusRejected:
+		return []byte("rejected"), nil
+	}
+	return nil, fmt.Errorf("unknown ClaimApprovalStatus value %d", v)
+}
+
+func (v *ClaimApprovalStatus) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "pending":
+		*v = ClaimApprovalStatusPending
+	case "approved":
+		*v = ClaimApprovalStatusApproved
+	case "rejected":
+		*v = ClaimApprovalStatusRejected
+	default:
+		return fmt.Errorf("unknown ClaimApprovalStatus label %q", text)
+	}
+	return nil
+}
+
+type PinRecheckOutcome int64
+
+const (
+	PinRecheckOutcomeFirstSeen PinRecheckOutcome = 1
+	PinRecheckOutcomeUnchanged PinRecheckOutcome = 2
+	PinRecheckOutcomeRotated   PinRecheckOutcome = 3
+	PinRecheckOutcomeMismatch  PinRecheckOutcome = 4
+	PinRecheckOutcomeError     PinRecheckOutcome = 5
+)
+
+func (v PinRecheckOutcome) ToNumber() int64 {
+	return int64(v)
+}
+
+func PinRecheckOutcomeFromNumber(number int64) (PinRecheckOutcome, error) {
+	v := PinRecheckOutcome(number)
+	switch v {
+	case PinRecheckOutcomeFirstSeen, PinRecheckOutcomeUnchanged, PinRecheckOutcomeRotated, PinRecheckOutcomeMismatch, PinRecheckOutcomeError:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown PinRecheckOutcome value %d", number)
+}
+
+func (v PinRecheckOutcome) MarshalText() ([]byte, error) {
+	switch v {
+	case PinRecheckOutcomeFirstSeen:
+		return []byte("first_seen"), nil
+	case PinRecheckOutcomeUnchanged:
+		return []byte("unchanged"), nil
+	case PinRecheckOutcomeRotated:
+		return []byte("rotated"), nil
+	case PinRecheckOutcomeMismatch:
+		return []byte("mismatch"), nil
+	case PinRecheckOutcomeError:
+		return []byte("error"), nil
+	}
+	return nil, fmt.Errorf("unknown PinRecheckOutcome value %d", v)
+}
+
+func (v *PinRecheckOutcome) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "first_seen":
+		*v = PinRecheckOutcomeFirstSeen
+	case "unchanged":
+		*v = PinRecheckOutcomeUnchanged
+	case "rotated":
+		*v = PinRecheckOutcomeRotated
+	case "mismatch":
+		*v = PinRecheckOutcomeMismatch
+	case "error":
+		*v = PinRecheckOutcomeError
+	default:
+		return fmt.Errorf("unknown PinRecheckOutcome label %q", text)
+	}
+	return nil
+}
+
+type NotificationPurpose int64
+
+const (
+	NotificationPurposeVerifyContact NotificationPurpose = 1
+	NotificationPurposeResetPassword NotificationPurpose = 2
+)
+
+func (v NotificationPurpose) ToNumber() int64 {
+	return int64(v)
+}
+
+func NotificationPurposeFromNumber(number int64) (NotificationPurpose, error) {
+	v := NotificationPurpose(number)
+	switch v {
+	case NotificationPurposeVerifyContact, NotificationPurposeResetPassword:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown NotificationPurpose value %d", number)
+}
+
+func (v NotificationPurpose) MarshalText() ([]byte, error) {
+	switch v {
+	case NotificationPurposeVerifyContact:
+		return []byte("verify_contact"), nil
+	case NotificationPurposeResetPassword:
+		return []byte("reset_password"), nil
+	}
+	return nil, fmt.Errorf("unknown NotificationPurpose value %d", v)
+}
+
+func (v *NotificationPurpose) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "verify_contact":
+		*v = NotificationPurposeVerifyContact
+	case "reset_password":
+		*v = NotificationPurposeResetPassword
+	default:
+		return fmt.Errorf("unknown NotificationPurpose label %q", text)
+	}
+	return nil
+}
+
+type NotificationChannel int64
+
+const (
+	NotificationChannelEmail NotificationChannel = 1
+)
+
+func (v NotificationChannel) ToNumber() int64 {
+	return int64(v)
+}
+
+func NotificationChannelFromNumber(number int64) (NotificationChannel, error) {
+	v := NotificationChannel(number)
+	switch v {
+	case NotificationChannelEmail:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown NotificationChannel value %d", number)
+}
+
+func (v NotificationChannel) MarshalText() ([]byte, error) {
+	switch v {
+	case NotificationChannelEmail:
+		return []byte("email"), nil
+	}
+	return nil, fmt.Errorf("unknown NotificationChannel value %d", v)
+}
+
+func (v *NotificationChannel) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "email":
+		*v = NotificationChannelEmail
+	default:
+		return fmt.Errorf("unknown NotificationChannel label %q", text)
+	}
+	return nil
+}
+
+type DestinationKind int64
+
+const (
+	DestinationKindEmail DestinationKind = 1
+)
+
+func (v DestinationKind) ToNumber() int64 {
+	return int64(v)
+}
+
+func DestinationKindFromNumber(number int64) (DestinationKind, error) {
+	v := DestinationKind(number)
+	switch v {
+	case DestinationKindEmail:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown DestinationKind value %d", number)
+}
+
+func (v DestinationKind) MarshalText() ([]byte, error) {
+	switch v {
+	case DestinationKindEmail:
+		return []byte("email"), nil
+	}
+	return nil, fmt.Errorf("unknown DestinationKind value %d", v)
+}
+
+func (v *DestinationKind) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "email":
+		*v = DestinationKindEmail
+	default:
+		return fmt.Errorf("unknown DestinationKind label %q", text)
+	}
+	return nil
+}
+
+type LocalRpPolicy int64
+
+const (
+	LocalRpPolicyDisabled              LocalRpPolicy = 1
+	LocalRpPolicyAdminApprovalRequired LocalRpPolicy = 2
+	LocalRpPolicyAllowByDefault        LocalRpPolicy = 3
+)
+
+func (v LocalRpPolicy) ToNumber() int64 {
+	return int64(v)
+}
+
+func LocalRpPolicyFromNumber(number int64) (LocalRpPolicy, error) {
+	v := LocalRpPolicy(number)
+	switch v {
+	case LocalRpPolicyDisabled, LocalRpPolicyAdminApprovalRequired, LocalRpPolicyAllowByDefault:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown LocalRpPolicy value %d", number)
+}
+
+func (v LocalRpPolicy) MarshalText() ([]byte, error) {
+	switch v {
+	case LocalRpPolicyDisabled:
+		return []byte("disabled"), nil
+	case LocalRpPolicyAdminApprovalRequired:
+		return []byte("admin_approval_required"), nil
+	case LocalRpPolicyAllowByDefault:
+		return []byte("allow_by_default"), nil
+	}
+	return nil, fmt.Errorf("unknown LocalRpPolicy value %d", v)
+}
+
+func (v *LocalRpPolicy) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "disabled":
+		*v = LocalRpPolicyDisabled
+	case "admin_approval_required":
+		*v = LocalRpPolicyAdminApprovalRequired
+	case "allow_by_default":
+		*v = LocalRpPolicyAllowByDefault
+	default:
+		return fmt.Errorf("unknown LocalRpPolicy label %q", text)
+	}
+	return nil
+}
+
+type LocalRpStatus int64
+
+const (
+	LocalRpStatusPending  LocalRpStatus = 1
+	LocalRpStatusApproved LocalRpStatus = 2
+	LocalRpStatusDenied   LocalRpStatus = 3
+	LocalRpStatusRevoked  LocalRpStatus = 4
+)
+
+func (v LocalRpStatus) ToNumber() int64 {
+	return int64(v)
+}
+
+func LocalRpStatusFromNumber(number int64) (LocalRpStatus, error) {
+	v := LocalRpStatus(number)
+	switch v {
+	case LocalRpStatusPending, LocalRpStatusApproved, LocalRpStatusDenied, LocalRpStatusRevoked:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown LocalRpStatus value %d", number)
+}
+
+func (v LocalRpStatus) MarshalText() ([]byte, error) {
+	switch v {
+	case LocalRpStatusPending:
+		return []byte("pending"), nil
+	case LocalRpStatusApproved:
+		return []byte("approved"), nil
+	case LocalRpStatusDenied:
+		return []byte("denied"), nil
+	case LocalRpStatusRevoked:
+		return []byte("revoked"), nil
+	}
+	return nil, fmt.Errorf("unknown LocalRpStatus value %d", v)
+}
+
+func (v *LocalRpStatus) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "pending":
+		*v = LocalRpStatusPending
+	case "approved":
+		*v = LocalRpStatusApproved
+	case "denied":
+		*v = LocalRpStatusDenied
+	case "revoked":
+		*v = LocalRpStatusRevoked
+	default:
+		return fmt.Errorf("unknown LocalRpStatus label %q", text)
+	}
+	return nil
+}
+
+type LocalRpAdmission int64
+
+const (
+	LocalRpAdmissionConsent LocalRpAdmission = 1
+	LocalRpAdmissionPending LocalRpAdmission = 2
+	LocalRpAdmissionBlocked LocalRpAdmission = 3
+)
+
+func (v LocalRpAdmission) ToNumber() int64 {
+	return int64(v)
+}
+
+func LocalRpAdmissionFromNumber(number int64) (LocalRpAdmission, error) {
+	v := LocalRpAdmission(number)
+	switch v {
+	case LocalRpAdmissionConsent, LocalRpAdmissionPending, LocalRpAdmissionBlocked:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown LocalRpAdmission value %d", number)
+}
+
+func (v LocalRpAdmission) MarshalText() ([]byte, error) {
+	switch v {
+	case LocalRpAdmissionConsent:
+		return []byte("consent"), nil
+	case LocalRpAdmissionPending:
+		return []byte("pending"), nil
+	case LocalRpAdmissionBlocked:
+		return []byte("blocked"), nil
+	}
+	return nil, fmt.Errorf("unknown LocalRpAdmission value %d", v)
+}
+
+func (v *LocalRpAdmission) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "consent":
+		*v = LocalRpAdmissionConsent
+	case "pending":
+		*v = LocalRpAdmissionPending
+	case "blocked":
+		*v = LocalRpAdmissionBlocked
+	default:
+		return fmt.Errorf("unknown LocalRpAdmission label %q", text)
+	}
+	return nil
+}
+
+type AppAccessMode int64
+
+const (
+	AppAccessModeAllow AppAccessMode = 1
+	AppAccessModeDeny  AppAccessMode = 2
+)
+
+func (v AppAccessMode) ToNumber() int64 {
+	return int64(v)
+}
+
+func AppAccessModeFromNumber(number int64) (AppAccessMode, error) {
+	v := AppAccessMode(number)
+	switch v {
+	case AppAccessModeAllow, AppAccessModeDeny:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown AppAccessMode value %d", number)
+}
+
+func (v AppAccessMode) MarshalText() ([]byte, error) {
+	switch v {
+	case AppAccessModeAllow:
+		return []byte("allow"), nil
+	case AppAccessModeDeny:
+		return []byte("deny"), nil
+	}
+	return nil, fmt.Errorf("unknown AppAccessMode value %d", v)
+}
+
+func (v *AppAccessMode) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "allow":
+		*v = AppAccessModeAllow
+	case "deny":
+		*v = AppAccessModeDeny
+	default:
+		return fmt.Errorf("unknown AppAccessMode label %q", text)
+	}
+	return nil
+}
+
+type AppAccessTargetKind int64
+
+const (
+	AppAccessTargetKindEveryone AppAccessTargetKind = 1
+	AppAccessTargetKindUser     AppAccessTargetKind = 2
+	AppAccessTargetKindGroup    AppAccessTargetKind = 3
+	AppAccessTargetKindClaim    AppAccessTargetKind = 4
+)
+
+func (v AppAccessTargetKind) ToNumber() int64 {
+	return int64(v)
+}
+
+func AppAccessTargetKindFromNumber(number int64) (AppAccessTargetKind, error) {
+	v := AppAccessTargetKind(number)
+	switch v {
+	case AppAccessTargetKindEveryone, AppAccessTargetKindUser, AppAccessTargetKindGroup, AppAccessTargetKindClaim:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown AppAccessTargetKind value %d", number)
+}
+
+func (v AppAccessTargetKind) MarshalText() ([]byte, error) {
+	switch v {
+	case AppAccessTargetKindEveryone:
+		return []byte("everyone"), nil
+	case AppAccessTargetKindUser:
+		return []byte("user"), nil
+	case AppAccessTargetKindGroup:
+		return []byte("group"), nil
+	case AppAccessTargetKindClaim:
+		return []byte("claim"), nil
+	}
+	return nil, fmt.Errorf("unknown AppAccessTargetKind value %d", v)
+}
+
+func (v *AppAccessTargetKind) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "everyone":
+		*v = AppAccessTargetKindEveryone
+	case "user":
+		*v = AppAccessTargetKindUser
+	case "group":
+		*v = AppAccessTargetKindGroup
+	case "claim":
+		*v = AppAccessTargetKindClaim
+	default:
+		return fmt.Errorf("unknown AppAccessTargetKind label %q", text)
+	}
+	return nil
+}
+
+type ClaimOperator int64
+
+const (
+	ClaimOperatorPresent    ClaimOperator = 1
+	ClaimOperatorAbsent     ClaimOperator = 2
+	ClaimOperatorEquals     ClaimOperator = 3
+	ClaimOperatorAgeUnder   ClaimOperator = 4
+	ClaimOperatorAgeAtLeast ClaimOperator = 5
+)
+
+func (v ClaimOperator) ToNumber() int64 {
+	return int64(v)
+}
+
+func ClaimOperatorFromNumber(number int64) (ClaimOperator, error) {
+	v := ClaimOperator(number)
+	switch v {
+	case ClaimOperatorPresent, ClaimOperatorAbsent, ClaimOperatorEquals, ClaimOperatorAgeUnder, ClaimOperatorAgeAtLeast:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown ClaimOperator value %d", number)
+}
+
+func (v ClaimOperator) MarshalText() ([]byte, error) {
+	switch v {
+	case ClaimOperatorPresent:
+		return []byte("present"), nil
+	case ClaimOperatorAbsent:
+		return []byte("absent"), nil
+	case ClaimOperatorEquals:
+		return []byte("equals"), nil
+	case ClaimOperatorAgeUnder:
+		return []byte("age_under"), nil
+	case ClaimOperatorAgeAtLeast:
+		return []byte("age_at_least"), nil
+	}
+	return nil, fmt.Errorf("unknown ClaimOperator value %d", v)
+}
+
+func (v *ClaimOperator) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "present":
+		*v = ClaimOperatorPresent
+	case "absent":
+		*v = ClaimOperatorAbsent
+	case "equals":
+		*v = ClaimOperatorEquals
+	case "age_under":
+		*v = ClaimOperatorAgeUnder
+	case "age_at_least":
+		*v = ClaimOperatorAgeAtLeast
+	default:
+		return fmt.Errorf("unknown ClaimOperator label %q", text)
+	}
+	return nil
+}
+
+type ApplicationKeyChallengePurpose int64
+
+const (
+	ApplicationKeyChallengePurposeAdd   ApplicationKeyChallengePurpose = 1
+	ApplicationKeyChallengePurposeRenew ApplicationKeyChallengePurpose = 2
+)
+
+func (v ApplicationKeyChallengePurpose) ToNumber() int64 {
+	return int64(v)
+}
+
+func ApplicationKeyChallengePurposeFromNumber(number int64) (ApplicationKeyChallengePurpose, error) {
+	v := ApplicationKeyChallengePurpose(number)
+	switch v {
+	case ApplicationKeyChallengePurposeAdd, ApplicationKeyChallengePurposeRenew:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown ApplicationKeyChallengePurpose value %d", number)
+}
+
+func (v ApplicationKeyChallengePurpose) MarshalText() ([]byte, error) {
+	switch v {
+	case ApplicationKeyChallengePurposeAdd:
+		return []byte("add"), nil
+	case ApplicationKeyChallengePurposeRenew:
+		return []byte("renew"), nil
+	}
+	return nil, fmt.Errorf("unknown ApplicationKeyChallengePurpose value %d", v)
+}
+
+func (v *ApplicationKeyChallengePurpose) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "add":
+		*v = ApplicationKeyChallengePurposeAdd
+	case "renew":
+		*v = ApplicationKeyChallengePurposeRenew
+	default:
+		return fmt.Errorf("unknown ApplicationKeyChallengePurpose label %q", text)
+	}
+	return nil
+}
+
+type AuthFlow int64
+
+const (
+	AuthFlowLogin        AuthFlow = 1
+	AuthFlowClaimsUpdate AuthFlow = 2
+)
+
+func (v AuthFlow) ToNumber() int64 {
+	return int64(v)
+}
+
+func AuthFlowFromNumber(number int64) (AuthFlow, error) {
+	v := AuthFlow(number)
+	switch v {
+	case AuthFlowLogin, AuthFlowClaimsUpdate:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown AuthFlow value %d", number)
+}
+
+func (v AuthFlow) MarshalText() ([]byte, error) {
+	switch v {
+	case AuthFlowLogin:
+		return []byte("login"), nil
+	case AuthFlowClaimsUpdate:
+		return []byte("claims_update"), nil
+	}
+	return nil, fmt.Errorf("unknown AuthFlow value %d", v)
+}
+
+func (v *AuthFlow) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "login":
+		*v = AuthFlowLogin
+	case "claims_update":
+		*v = AuthFlowClaimsUpdate
+	default:
+		return fmt.Errorf("unknown AuthFlow label %q", text)
+	}
+	return nil
+}
+
+type RpCacheStatus int64
+
+const (
+	RpCacheStatusFresh     RpCacheStatus = 1
+	RpCacheStatusRefreshed RpCacheStatus = 2
+	RpCacheStatusStale     RpCacheStatus = 3
+)
+
+func (v RpCacheStatus) ToNumber() int64 {
+	return int64(v)
+}
+
+func RpCacheStatusFromNumber(number int64) (RpCacheStatus, error) {
+	v := RpCacheStatus(number)
+	switch v {
+	case RpCacheStatusFresh, RpCacheStatusRefreshed, RpCacheStatusStale:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown RpCacheStatus value %d", number)
+}
+
+func (v RpCacheStatus) MarshalText() ([]byte, error) {
+	switch v {
+	case RpCacheStatusFresh:
+		return []byte("fresh"), nil
+	case RpCacheStatusRefreshed:
+		return []byte("refreshed"), nil
+	case RpCacheStatusStale:
+		return []byte("stale"), nil
+	}
+	return nil, fmt.Errorf("unknown RpCacheStatus value %d", v)
+}
+
+func (v *RpCacheStatus) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "fresh":
+		*v = RpCacheStatusFresh
+	case "refreshed":
+		*v = RpCacheStatusRefreshed
+	case "stale":
+		*v = RpCacheStatusStale
+	default:
+		return fmt.Errorf("unknown RpCacheStatus label %q", text)
+	}
+	return nil
+}
+
+type AccountKind int64
+
+const (
+	AccountKindHuman       AccountKind = 1
+	AccountKindApplication AccountKind = 2
+)
+
+func (v AccountKind) ToNumber() int64 {
+	return int64(v)
+}
+
+func AccountKindFromNumber(number int64) (AccountKind, error) {
+	v := AccountKind(number)
+	switch v {
+	case AccountKindHuman, AccountKindApplication:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown AccountKind value %d", number)
+}
+
+func (v AccountKind) MarshalText() ([]byte, error) {
+	switch v {
+	case AccountKindHuman:
+		return []byte("human"), nil
+	case AccountKindApplication:
+		return []byte("application"), nil
+	}
+	return nil, fmt.Errorf("unknown AccountKind value %d", v)
+}
+
+func (v *AccountKind) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "human":
+		*v = AccountKindHuman
+	case "application":
+		*v = AccountKindApplication
+	default:
+		return fmt.Errorf("unknown AccountKind label %q", text)
+	}
+	return nil
+}
+
+type RpErrorCode int64
+
+const (
+	RpErrorCodeNotApplicationAccount RpErrorCode = 1
+	RpErrorCodeApplicationMismatch   RpErrorCode = 2
+	RpErrorCodeApplicationUserLimit  RpErrorCode = 3
+	RpErrorCodeBadRequest            RpErrorCode = 4
+	RpErrorCodeUpstreamFailed        RpErrorCode = 5
+	RpErrorCodeInternal              RpErrorCode = 6
+)
+
+func (v RpErrorCode) ToNumber() int64 {
+	return int64(v)
+}
+
+func RpErrorCodeFromNumber(number int64) (RpErrorCode, error) {
+	v := RpErrorCode(number)
+	switch v {
+	case RpErrorCodeNotApplicationAccount, RpErrorCodeApplicationMismatch, RpErrorCodeApplicationUserLimit, RpErrorCodeBadRequest, RpErrorCodeUpstreamFailed, RpErrorCodeInternal:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown RpErrorCode value %d", number)
+}
+
+func (v RpErrorCode) MarshalText() ([]byte, error) {
+	switch v {
+	case RpErrorCodeNotApplicationAccount:
+		return []byte("not_application_account"), nil
+	case RpErrorCodeApplicationMismatch:
+		return []byte("application_mismatch"), nil
+	case RpErrorCodeApplicationUserLimit:
+		return []byte("application_user_limit"), nil
+	case RpErrorCodeBadRequest:
+		return []byte("bad_request"), nil
+	case RpErrorCodeUpstreamFailed:
+		return []byte("upstream_failed"), nil
+	case RpErrorCodeInternal:
+		return []byte("internal"), nil
+	}
+	return nil, fmt.Errorf("unknown RpErrorCode value %d", v)
+}
+
+func (v *RpErrorCode) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "not_application_account":
+		*v = RpErrorCodeNotApplicationAccount
+	case "application_mismatch":
+		*v = RpErrorCodeApplicationMismatch
+	case "application_user_limit":
+		*v = RpErrorCodeApplicationUserLimit
+	case "bad_request":
+		*v = RpErrorCodeBadRequest
+	case "upstream_failed":
+		*v = RpErrorCodeUpstreamFailed
+	case "internal":
+		*v = RpErrorCodeInternal
+	default:
+		return fmt.Errorf("unknown RpErrorCode label %q", text)
+	}
+	return nil
+}
+
+type IssuedClaimOutcome int64
+
+const (
+	IssuedClaimOutcomeDeposited IssuedClaimOutcome = 1
+	IssuedClaimOutcomeHandoff   IssuedClaimOutcome = 2
+	IssuedClaimOutcomeSkipped   IssuedClaimOutcome = 3
+	IssuedClaimOutcomeFailed    IssuedClaimOutcome = 4
+)
+
+func (v IssuedClaimOutcome) ToNumber() int64 {
+	return int64(v)
+}
+
+func IssuedClaimOutcomeFromNumber(number int64) (IssuedClaimOutcome, error) {
+	v := IssuedClaimOutcome(number)
+	switch v {
+	case IssuedClaimOutcomeDeposited, IssuedClaimOutcomeHandoff, IssuedClaimOutcomeSkipped, IssuedClaimOutcomeFailed:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown IssuedClaimOutcome value %d", number)
+}
+
+func (v IssuedClaimOutcome) MarshalText() ([]byte, error) {
+	switch v {
+	case IssuedClaimOutcomeDeposited:
+		return []byte("deposited"), nil
+	case IssuedClaimOutcomeHandoff:
+		return []byte("handoff"), nil
+	case IssuedClaimOutcomeSkipped:
+		return []byte("skipped"), nil
+	case IssuedClaimOutcomeFailed:
+		return []byte("failed"), nil
+	}
+	return nil, fmt.Errorf("unknown IssuedClaimOutcome value %d", v)
+}
+
+func (v *IssuedClaimOutcome) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "deposited":
+		*v = IssuedClaimOutcomeDeposited
+	case "handoff":
+		*v = IssuedClaimOutcomeHandoff
+	case "skipped":
+		*v = IssuedClaimOutcomeSkipped
+	case "failed":
+		*v = IssuedClaimOutcomeFailed
+	default:
+		return fmt.Errorf("unknown IssuedClaimOutcome label %q", text)
+	}
+	return nil
+}
+
 // HelloRequest represents a structured data type
 type HelloRequest struct {
 	Name *string `json:"name,omitempty" yaml:"name,omitempty"`
@@ -31,10 +1299,13 @@ type HelloResponse struct {
 
 // GuestbookEntry represents a structured data type
 type GuestbookEntry struct {
-	Id        string `json:"id" yaml:"id"`
-	Name      string `json:"name" yaml:"name"`
-	CreatedAt string `json:"created_at" yaml:"created_at"`
-	UpdatedAt string `json:"updated_at" yaml:"updated_at"`
+	// receive-only
+	Id   string `json:"id" yaml:"id"`
+	Name string `json:"name" yaml:"name"`
+	// receive-only
+	CreatedAt time.Time `json:"created_at" yaml:"created_at"`
+	// receive-only
+	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at"`
 }
 
 // CreateGuestbookRequest represents a structured data type
@@ -75,16 +1346,16 @@ type EmptyRequest struct {
 
 // DomainPublicKey represents a structured data type
 type DomainPublicKey struct {
-	KeyId         string  `json:"key_id" yaml:"key_id"`
-	PublicKey     []byte  `json:"public_key" yaml:"public_key"`
-	Fingerprint   string  `json:"fingerprint" yaml:"fingerprint"`
-	Algorithm     string  `json:"algorithm" yaml:"algorithm"`
-	KeyUsage      string  `json:"key_usage" yaml:"key_usage"`
-	CreatedAt     string  `json:"created_at" yaml:"created_at"`
-	ExpiresAt     string  `json:"expires_at" yaml:"expires_at"`
-	RevokedAt     *string `json:"revoked_at,omitempty" yaml:"revoked_at,omitempty"`
-	SignedByKeyId *string `json:"signed_by_key_id,omitempty" yaml:"signed_by_key_id,omitempty"`
-	KeySignature  *[]byte `json:"key_signature,omitempty" yaml:"key_signature,omitempty"`
+	KeyId         string       `json:"key_id" yaml:"key_id"`
+	PublicKey     []byte       `json:"public_key" yaml:"public_key"`
+	Fingerprint   string       `json:"fingerprint" yaml:"fingerprint"`
+	Algorithm     KeyAlgorithm `json:"algorithm" yaml:"algorithm"`
+	KeyUsage      KeyUsage     `json:"key_usage" yaml:"key_usage"`
+	CreatedAt     time.Time    `json:"created_at" yaml:"created_at"`
+	ExpiresAt     time.Time    `json:"expires_at" yaml:"expires_at"`
+	RevokedAt     *time.Time   `json:"revoked_at,omitempty" yaml:"revoked_at,omitempty"`
+	SignedByKeyId *string      `json:"signed_by_key_id,omitempty" yaml:"signed_by_key_id,omitempty"`
+	KeySignature  *[]byte      `json:"key_signature,omitempty" yaml:"key_signature,omitempty"`
 }
 
 // GetDomainKeysResponse represents a structured data type
@@ -96,7 +1367,7 @@ type GetDomainKeysResponse struct {
 
 // GetRevocationsRequest represents a structured data type
 type GetRevocationsRequest struct {
-	Since *string `json:"since,omitempty" yaml:"since,omitempty"`
+	Since *time.Time `json:"since,omitempty" yaml:"since,omitempty"`
 }
 
 // GetRevocationsResponse represents a structured data type
@@ -111,8 +1382,9 @@ type RecheckPinsRequest struct {
 
 // PinRecheckResult represents a structured data type
 type PinRecheckResult struct {
-	Domain  string `json:"domain" yaml:"domain"`
-	Outcome string `json:"outcome" yaml:"outcome"`
+	Domain  string            `json:"domain" yaml:"domain"`
+	Outcome PinRecheckOutcome `json:"outcome" yaml:"outcome"`
+	Message *string           `json:"message,omitempty" yaml:"message,omitempty"`
 }
 
 // RecheckPinsResponse represents a structured data type
@@ -122,17 +1394,17 @@ type RecheckPinsResponse struct {
 
 // UserPublicKey represents a structured data type
 type UserPublicKey struct {
-	KeyId         string  `json:"key_id" yaml:"key_id"`
-	UserId        string  `json:"user_id" yaml:"user_id"`
-	PublicKey     []byte  `json:"public_key" yaml:"public_key"`
-	Fingerprint   string  `json:"fingerprint" yaml:"fingerprint"`
-	Algorithm     string  `json:"algorithm" yaml:"algorithm"`
-	KeyUsage      string  `json:"key_usage" yaml:"key_usage"`
-	CreatedAt     string  `json:"created_at" yaml:"created_at"`
-	ExpiresAt     string  `json:"expires_at" yaml:"expires_at"`
-	RevokedAt     *string `json:"revoked_at,omitempty" yaml:"revoked_at,omitempty"`
-	SignedByKeyId *string `json:"signed_by_key_id,omitempty" yaml:"signed_by_key_id,omitempty"`
-	KeySignature  *[]byte `json:"key_signature,omitempty" yaml:"key_signature,omitempty"`
+	KeyId         string       `json:"key_id" yaml:"key_id"`
+	UserId        string       `json:"user_id" yaml:"user_id"`
+	PublicKey     []byte       `json:"public_key" yaml:"public_key"`
+	Fingerprint   string       `json:"fingerprint" yaml:"fingerprint"`
+	Algorithm     KeyAlgorithm `json:"algorithm" yaml:"algorithm"`
+	KeyUsage      KeyUsage     `json:"key_usage" yaml:"key_usage"`
+	CreatedAt     time.Time    `json:"created_at" yaml:"created_at"`
+	ExpiresAt     time.Time    `json:"expires_at" yaml:"expires_at"`
+	RevokedAt     *time.Time   `json:"revoked_at,omitempty" yaml:"revoked_at,omitempty"`
+	SignedByKeyId *string      `json:"signed_by_key_id,omitempty" yaml:"signed_by_key_id,omitempty"`
+	KeySignature  *[]byte      `json:"key_signature,omitempty" yaml:"key_signature,omitempty"`
 }
 
 // GetUserKeysRequest represents a structured data type
@@ -158,7 +1430,7 @@ type ClaimSignature struct {
 type RevocationCertificate struct {
 	TargetKeyId       string           `json:"target_key_id" yaml:"target_key_id"`
 	TargetFingerprint string           `json:"target_fingerprint" yaml:"target_fingerprint"`
-	RevokedAt         string           `json:"revoked_at" yaml:"revoked_at"`
+	RevokedAt         time.Time        `json:"revoked_at" yaml:"revoked_at"`
 	Signatures        []ClaimSignature `json:"signatures" yaml:"signatures"`
 }
 
@@ -169,10 +1441,10 @@ type Claim struct {
 	ClaimType  string           `json:"claim_type" yaml:"claim_type"`
 	ClaimValue []byte           `json:"claim_value" yaml:"claim_value"`
 	Signatures []ClaimSignature `json:"signatures" yaml:"signatures"`
-	AttestedAt string           `json:"attested_at" yaml:"attested_at"`
-	CreatedAt  string           `json:"created_at" yaml:"created_at"`
-	ExpiresAt  *string          `json:"expires_at,omitempty" yaml:"expires_at,omitempty"`
-	RevokedAt  *string          `json:"revoked_at,omitempty" yaml:"revoked_at,omitempty"`
+	AttestedAt time.Time        `json:"attested_at" yaml:"attested_at"`
+	CreatedAt  time.Time        `json:"created_at" yaml:"created_at"`
+	ExpiresAt  *time.Time       `json:"expires_at,omitempty" yaml:"expires_at,omitempty"`
+	RevokedAt  *time.Time       `json:"revoked_at,omitempty" yaml:"revoked_at,omitempty"`
 }
 
 // GetUserClaimsRequest represents a structured data type
@@ -190,8 +1462,8 @@ type GetUserClaimsResponse struct {
 
 // RequestedClaim represents a structured data type
 type RequestedClaim struct {
-	ClaimType string `json:"claim_type" yaml:"claim_type"`
-	Datatype  string `json:"datatype" yaml:"datatype"`
+	ClaimType string         `json:"claim_type" yaml:"claim_type"`
+	Datatype  ClaimValueType `json:"datatype" yaml:"datatype"`
 }
 
 // ClaimRequest represents a structured data type
@@ -207,9 +1479,9 @@ type AuthenticationRequirements struct {
 
 // AuthFlowContext represents a structured data type
 type AuthFlowContext struct {
-	Flow          string  `json:"flow" yaml:"flow"`
-	PriorSession  *string `json:"prior_session,omitempty" yaml:"prior_session,omitempty"`
-	RequestReason *string `json:"request_reason,omitempty" yaml:"request_reason,omitempty"`
+	Flow          AuthFlow `json:"flow" yaml:"flow"`
+	PriorSession  *string  `json:"prior_session,omitempty" yaml:"prior_session,omitempty"`
+	RequestReason *string  `json:"request_reason,omitempty" yaml:"request_reason,omitempty"`
 }
 
 // ConsentGrant represents a structured data type
@@ -219,9 +1491,9 @@ type ConsentGrant struct {
 	SubjectDomain string          `json:"subject_domain" yaml:"subject_domain"`
 	Audience      string          `json:"audience" yaml:"audience"`
 	ClaimTypes    []string        `json:"claim_types" yaml:"claim_types"`
-	IssuedAt      string          `json:"issued_at" yaml:"issued_at"`
-	ExpiresAt     string          `json:"expires_at" yaml:"expires_at"`
-	RevokedAt     *string         `json:"revoked_at,omitempty" yaml:"revoked_at,omitempty"`
+	IssuedAt      time.Time       `json:"issued_at" yaml:"issued_at"`
+	ExpiresAt     time.Time       `json:"expires_at" yaml:"expires_at"`
+	RevokedAt     *time.Time      `json:"revoked_at,omitempty" yaml:"revoked_at,omitempty"`
 	Application   *ApplicationRef `json:"application,omitempty" yaml:"application,omitempty"`
 }
 
@@ -236,21 +1508,21 @@ type DomainClaim struct {
 	ClaimType  string           `json:"claim_type" yaml:"claim_type"`
 	ClaimValue []byte           `json:"claim_value" yaml:"claim_value"`
 	Signatures []ClaimSignature `json:"signatures" yaml:"signatures"`
-	AttestedAt string           `json:"attested_at" yaml:"attested_at"`
-	ExpiresAt  *string          `json:"expires_at,omitempty" yaml:"expires_at,omitempty"`
+	AttestedAt time.Time        `json:"attested_at" yaml:"attested_at"`
+	ExpiresAt  *time.Time       `json:"expires_at,omitempty" yaml:"expires_at,omitempty"`
 }
 
 // SigningRequest represents a structured data type
 type SigningRequest struct {
-	RequestId           string   `json:"request_id" yaml:"request_id"`
-	SubjectUserId       string   `json:"subject_user_id" yaml:"subject_user_id"`
-	SubjectDomain       string   `json:"subject_domain" yaml:"subject_domain"`
-	IssuerDomain        string   `json:"issuer_domain" yaml:"issuer_domain"`
-	RequestedClaimTypes []string `json:"requested_claim_types" yaml:"requested_claim_types"`
-	Nonce               string   `json:"nonce" yaml:"nonce"`
-	IssuedAt            string   `json:"issued_at" yaml:"issued_at"`
-	ExpiresAt           string   `json:"expires_at" yaml:"expires_at"`
-	Callback            *string  `json:"callback,omitempty" yaml:"callback,omitempty"`
+	RequestId           string    `json:"request_id" yaml:"request_id"`
+	SubjectUserId       string    `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain       string    `json:"subject_domain" yaml:"subject_domain"`
+	IssuerDomain        string    `json:"issuer_domain" yaml:"issuer_domain"`
+	RequestedClaimTypes []string  `json:"requested_claim_types" yaml:"requested_claim_types"`
+	Nonce               string    `json:"nonce" yaml:"nonce"`
+	IssuedAt            time.Time `json:"issued_at" yaml:"issued_at"`
+	ExpiresAt           time.Time `json:"expires_at" yaml:"expires_at"`
+	Callback            *string   `json:"callback,omitempty" yaml:"callback,omitempty"`
 }
 
 // SignedSigningRequest represents a structured data type
@@ -271,14 +1543,15 @@ type DepositClaimResponse struct {
 
 // IdentityAssertion represents a structured data type
 type IdentityAssertion struct {
-	UserId           string   `json:"user_id" yaml:"user_id"`
-	Domain           string   `json:"domain" yaml:"domain"`
-	Audience         string   `json:"audience" yaml:"audience"`
-	Nonce            string   `json:"nonce" yaml:"nonce"`
-	IssuedAt         string   `json:"issued_at" yaml:"issued_at"`
-	ExpiresAt        string   `json:"expires_at" yaml:"expires_at"`
-	AuthorizedClaims []string `json:"authorized_claims" yaml:"authorized_claims"`
-	DisplayName      *string  `json:"display_name,omitempty" yaml:"display_name,omitempty"`
+	UserId           string         `json:"user_id" yaml:"user_id"`
+	Domain           string         `json:"domain" yaml:"domain"`
+	Audience         string         `json:"audience" yaml:"audience"`
+	Nonce            string         `json:"nonce" yaml:"nonce"`
+	IssuedAt         time.Time      `json:"issued_at" yaml:"issued_at"`
+	ExpiresAt        time.Time      `json:"expires_at" yaml:"expires_at"`
+	AuthorizedClaims []string       `json:"authorized_claims" yaml:"authorized_claims"`
+	DisplayName      *string        `json:"display_name,omitempty" yaml:"display_name,omitempty"`
+	Application      ApplicationRef `json:"application" yaml:"application"`
 }
 
 // SignedIdentityAssertion represents a structured data type
@@ -295,10 +1568,10 @@ type GetUserInfoRequest struct {
 
 // UserInfoRequest represents a structured data type
 type UserInfoRequest struct {
-	Token        []byte `json:"token" yaml:"token"`
-	RelyingParty string `json:"relying_party" yaml:"relying_party"`
-	Timestamp    string `json:"timestamp" yaml:"timestamp"`
-	Nonce        string `json:"nonce" yaml:"nonce"`
+	Token        []byte    `json:"token" yaml:"token"`
+	RelyingParty string    `json:"relying_party" yaml:"relying_party"`
+	Timestamp    time.Time `json:"timestamp" yaml:"timestamp"`
+	Nonce        string    `json:"nonce" yaml:"nonce"`
 }
 
 // SignedUserInfoRequest represents a structured data type
@@ -328,13 +1601,13 @@ type AuthRequest struct {
 	RelyingParty               string                      `json:"relying_party" yaml:"relying_party"`
 	CallbackUrl                string                      `json:"callback_url" yaml:"callback_url"`
 	Nonce                      string                      `json:"nonce" yaml:"nonce"`
-	Timestamp                  string                      `json:"timestamp" yaml:"timestamp"`
+	Timestamp                  time.Time                   `json:"timestamp" yaml:"timestamp"`
 	SigningKeyId               string                      `json:"signing_key_id" yaml:"signing_key_id"`
 	RequestedClaims            *ClaimRequest               `json:"requested_claims,omitempty" yaml:"requested_claims,omitempty"`
 	AuthenticationRequirements *AuthenticationRequirements `json:"authentication_requirements,omitempty" yaml:"authentication_requirements,omitempty"`
 	FlowContext                *AuthFlowContext            `json:"flow_context,omitempty" yaml:"flow_context,omitempty"`
 	RelyingPartyClaims         []DomainClaim               `json:"relying_party_claims,omitempty" yaml:"relying_party_claims,omitempty"`
-	Application                *RelyingPartyApplication    `json:"application,omitempty" yaml:"application,omitempty"`
+	Application                RelyingPartyApplication     `json:"application" yaml:"application"`
 }
 
 // SignedAuthRequest represents a structured data type
@@ -354,8 +1627,8 @@ type EncryptedToken struct {
 
 // AlgorithmSupport represents a structured data type
 type AlgorithmSupport struct {
-	Signing    []string `json:"signing" yaml:"signing"`
-	Encryption []string `json:"encryption,omitempty" yaml:"encryption,omitempty"`
+	Signing    []KeyAlgorithm `json:"signing" yaml:"signing"`
+	Encryption []AeadSuite    `json:"encryption,omitempty" yaml:"encryption,omitempty"`
 }
 
 // HandshakeRequest represents a structured data type
@@ -372,27 +1645,29 @@ type HandshakeResponse struct {
 
 // Relation represents a structured data type
 type Relation struct {
-	Id          string  `json:"id" yaml:"id"`
-	SubjectType string  `json:"subject_type" yaml:"subject_type"`
-	SubjectId   string  `json:"subject_id" yaml:"subject_id"`
-	Relation    string  `json:"relation" yaml:"relation"`
-	ObjectType  string  `json:"object_type" yaml:"object_type"`
-	ObjectId    string  `json:"object_id" yaml:"object_id"`
-	CreatedAt   string  `json:"created_at" yaml:"created_at"`
-	RemovedAt   *string `json:"removed_at,omitempty" yaml:"removed_at,omitempty"`
+	Id          string     `json:"id" yaml:"id"`
+	SubjectType string     `json:"subject_type" yaml:"subject_type"`
+	SubjectId   string     `json:"subject_id" yaml:"subject_id"`
+	Relation    string     `json:"relation" yaml:"relation"`
+	ObjectType  string     `json:"object_type" yaml:"object_type"`
+	ObjectId    string     `json:"object_id" yaml:"object_id"`
+	CreatedAt   time.Time  `json:"created_at" yaml:"created_at"`
+	RemovedAt   *time.Time `json:"removed_at,omitempty" yaml:"removed_at,omitempty"`
 }
 
 // AdminUser represents a structured data type
 type AdminUser struct {
-	Id             string  `json:"id" yaml:"id"`
-	Username       string  `json:"username" yaml:"username"`
-	DisplayName    string  `json:"display_name" yaml:"display_name"`
-	IsActive       bool    `json:"is_active" yaml:"is_active"`
-	CreatedAt      string  `json:"created_at" yaml:"created_at"`
-	UpdatedAt      string  `json:"updated_at" yaml:"updated_at"`
-	PurgedAt       *string `json:"purged_at,omitempty" yaml:"purged_at,omitempty"`
-	PurgeReason    *string `json:"purge_reason,omitempty" yaml:"purge_reason,omitempty"`
-	PasswordLocked *bool   `json:"password_locked,omitempty" yaml:"password_locked,omitempty"`
+	Id             string      `json:"id" yaml:"id"`
+	Username       string      `json:"username" yaml:"username"`
+	DisplayName    string      `json:"display_name" yaml:"display_name"`
+	Kind           AccountKind `json:"kind" yaml:"kind"`
+	ApplicationId  *string     `json:"application_id,omitempty" yaml:"application_id,omitempty"`
+	IsActive       bool        `json:"is_active" yaml:"is_active"`
+	CreatedAt      time.Time   `json:"created_at" yaml:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at" yaml:"updated_at"`
+	PurgedAt       *time.Time  `json:"purged_at,omitempty" yaml:"purged_at,omitempty"`
+	PurgeReason    *string     `json:"purge_reason,omitempty" yaml:"purge_reason,omitempty"`
+	PasswordLocked *bool       `json:"password_locked,omitempty" yaml:"password_locked,omitempty"`
 }
 
 // ListUsersRequest represents a structured data type
@@ -419,11 +1694,11 @@ type GetUserResponse struct {
 
 // UserAuthenticationActivity represents a structured data type
 type UserAuthenticationActivity struct {
-	UserId                        string  `json:"user_id" yaml:"user_id"`
-	LastAuthenticatedAt           *string `json:"last_authenticated_at,omitempty" yaml:"last_authenticated_at,omitempty"`
-	LastSeenAt                    *string `json:"last_seen_at,omitempty" yaml:"last_seen_at,omitempty"`
-	SuccessfulAuthenticationCount int64   `json:"successful_authentication_count" yaml:"successful_authentication_count"`
-	ActiveBrowserSessionCount     int64   `json:"active_browser_session_count" yaml:"active_browser_session_count"`
+	UserId                        string     `json:"user_id" yaml:"user_id"`
+	LastAuthenticatedAt           *time.Time `json:"last_authenticated_at,omitempty" yaml:"last_authenticated_at,omitempty"`
+	LastSeenAt                    *time.Time `json:"last_seen_at,omitempty" yaml:"last_seen_at,omitempty"`
+	SuccessfulAuthenticationCount int64      `json:"successful_authentication_count" yaml:"successful_authentication_count"`
+	ActiveBrowserSessionCount     int64      `json:"active_browser_session_count" yaml:"active_browser_session_count"`
 }
 
 // GetUserAuthenticationActivityRequest represents a structured data type
@@ -438,15 +1713,133 @@ type GetUserAuthenticationActivityResponse struct {
 
 // CreateUserRequest represents a structured data type
 type CreateUserRequest struct {
-	Username    string  `json:"username" yaml:"username"`
-	DisplayName string  `json:"display_name" yaml:"display_name"`
-	Password    *string `json:"password,omitempty" yaml:"password,omitempty"`
+	Username      string  `json:"username" yaml:"username"`
+	DisplayName   string  `json:"display_name" yaml:"display_name"`
+	Password      *string `json:"password,omitempty" yaml:"password,omitempty"`
+	ApplicationId *string `json:"application_id,omitempty" yaml:"application_id,omitempty"`
 }
 
 // CreateUserResponse represents a structured data type
 type CreateUserResponse struct {
 	User   AdminUser `json:"user" yaml:"user"`
 	ApiKey *string   `json:"api_key,omitempty" yaml:"api_key,omitempty"`
+}
+
+// RenameUserRequest represents a structured data type
+type RenameUserRequest struct {
+	UserId   string `json:"user_id" yaml:"user_id"`
+	Username string `json:"username" yaml:"username"`
+}
+
+// RenameUserResponse represents a structured data type
+type RenameUserResponse struct {
+	User AdminUser `json:"user" yaml:"user"`
+}
+
+// SetApplicationIdRequest represents a structured data type
+type SetApplicationIdRequest struct {
+	UserId        string `json:"user_id" yaml:"user_id"`
+	ApplicationId string `json:"application_id" yaml:"application_id"`
+}
+
+// SetApplicationIdResponse represents a structured data type
+type SetApplicationIdResponse struct {
+	User AdminUser `json:"user" yaml:"user"`
+}
+
+// ApiKeyInfo represents a structured data type
+type ApiKeyInfo struct {
+	KeyId      string     `json:"key_id" yaml:"key_id"`
+	Name       string     `json:"name" yaml:"name"`
+	Hint       string     `json:"hint" yaml:"hint"`
+	CreatedAt  time.Time  `json:"created_at" yaml:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty" yaml:"last_used_at,omitempty"`
+}
+
+// CreateApiKeyRequest represents a structured data type
+type CreateApiKeyRequest struct {
+	UserId string `json:"user_id" yaml:"user_id"`
+	Name   string `json:"name" yaml:"name"`
+}
+
+// CreateApiKeyResponse represents a structured data type
+type CreateApiKeyResponse struct {
+	Key    ApiKeyInfo `json:"key" yaml:"key"`
+	ApiKey string     `json:"api_key" yaml:"api_key"`
+}
+
+// ListApiKeysRequest represents a structured data type
+type ListApiKeysRequest struct {
+	UserId string `json:"user_id" yaml:"user_id"`
+}
+
+// ListApiKeysResponse represents a structured data type
+type ListApiKeysResponse struct {
+	Keys []ApiKeyInfo `json:"keys" yaml:"keys"`
+}
+
+// RevokeApiKeyRequest represents a structured data type
+type RevokeApiKeyRequest struct {
+	UserId string `json:"user_id" yaml:"user_id"`
+	KeyId  string `json:"key_id" yaml:"key_id"`
+}
+
+// RevokeApiKeyResponse represents a structured data type
+type RevokeApiKeyResponse struct {
+	Revoked bool `json:"revoked" yaml:"revoked"`
+}
+
+// AccountLimits represents a structured data type
+type AccountLimits struct {
+	MaxApiKeys             *int64 `json:"max_api_keys,omitempty" yaml:"max_api_keys,omitempty"`
+	MaxDistinctUsers       *int64 `json:"max_distinct_users,omitempty" yaml:"max_distinct_users,omitempty"`
+	DistinctUserWindowDays int64  `json:"distinct_user_window_days" yaml:"distinct_user_window_days"`
+	RequestsPerMinute      *int64 `json:"requests_per_minute,omitempty" yaml:"requests_per_minute,omitempty"`
+	RequestBurst           *int64 `json:"request_burst,omitempty" yaml:"request_burst,omitempty"`
+}
+
+// GetAccountLimitsRequest represents a structured data type
+type GetAccountLimitsRequest struct {
+	UserId string `json:"user_id" yaml:"user_id"`
+}
+
+// GetAccountLimitsResponse represents a structured data type
+type GetAccountLimitsResponse struct {
+	Limits AccountLimits `json:"limits" yaml:"limits"`
+}
+
+// SetAccountLimitsRequest represents a structured data type
+type SetAccountLimitsRequest struct {
+	UserId string        `json:"user_id" yaml:"user_id"`
+	Limits AccountLimits `json:"limits" yaml:"limits"`
+}
+
+// SetAccountLimitsResponse represents a structured data type
+type SetAccountLimitsResponse struct {
+	Limits AccountLimits `json:"limits" yaml:"limits"`
+}
+
+// RpUsageDay represents a structured data type
+type RpUsageDay struct {
+	Day       string `json:"day" yaml:"day"`
+	Operation string `json:"operation" yaml:"operation"`
+	Succeeded int64  `json:"succeeded" yaml:"succeeded"`
+	Failed    int64  `json:"failed" yaml:"failed"`
+}
+
+// GetApplicationUsageRequest represents a structured data type
+type GetApplicationUsageRequest struct {
+	UserId   string `json:"user_id" yaml:"user_id"`
+	FirstDay string `json:"first_day" yaml:"first_day"`
+	LastDay  string `json:"last_day" yaml:"last_day"`
+}
+
+// GetApplicationUsageResponse represents a structured data type
+type GetApplicationUsageResponse struct {
+	DistinctUsers          int64        `json:"distinct_users" yaml:"distinct_users"`
+	DistinctUserWindowDays int64        `json:"distinct_user_window_days" yaml:"distinct_user_window_days"`
+	MaxDistinctUsers       *int64       `json:"max_distinct_users,omitempty" yaml:"max_distinct_users,omitempty"`
+	Days                   []RpUsageDay `json:"days" yaml:"days"`
 }
 
 // UpdateUserRequest represents a structured data type
@@ -547,10 +1940,10 @@ type RemoveCredentialResponse struct {
 
 // SetClaimRequest represents a structured data type
 type SetClaimRequest struct {
-	UserId     string  `json:"user_id" yaml:"user_id"`
-	ClaimType  string  `json:"claim_type" yaml:"claim_type"`
-	ClaimValue string  `json:"claim_value" yaml:"claim_value"`
-	ExpiresAt  *string `json:"expires_at,omitempty" yaml:"expires_at,omitempty"`
+	UserId     string     `json:"user_id" yaml:"user_id"`
+	ClaimType  string     `json:"claim_type" yaml:"claim_type"`
+	ClaimValue string     `json:"claim_value" yaml:"claim_value"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty" yaml:"expires_at,omitempty"`
 }
 
 // SetClaimResponse represents a structured data type
@@ -597,20 +1990,20 @@ type SetUserClaimRequest struct {
 
 // SetUserClaimResponse represents a structured data type
 type SetUserClaimResponse struct {
-	Outcome string `json:"outcome" yaml:"outcome"`
-	Claim   *Claim `json:"claim,omitempty" yaml:"claim,omitempty"`
+	Outcome SetClaimOutcome `json:"outcome" yaml:"outcome"`
+	Claim   *Claim          `json:"claim,omitempty" yaml:"claim,omitempty"`
 }
 
 // SettableClaimPolicy represents a structured data type
 type SettableClaimPolicy struct {
-	ClaimType        string `json:"claim_type" yaml:"claim_type"`
-	Label            string `json:"label" yaml:"label"`
-	Description      string `json:"description" yaml:"description"`
-	Datatype         string `json:"datatype" yaml:"datatype"`
-	MaxBytes         int64  `json:"max_bytes" yaml:"max_bytes"`
-	SetRule          string `json:"set_rule" yaml:"set_rule"`
-	RequiresApproval bool   `json:"requires_approval" yaml:"requires_approval"`
-	SigningRule      string `json:"signing_rule" yaml:"signing_rule"`
+	ClaimType        string         `json:"claim_type" yaml:"claim_type"`
+	Label            string         `json:"label" yaml:"label"`
+	Description      string         `json:"description" yaml:"description"`
+	Datatype         ClaimValueType `json:"datatype" yaml:"datatype"`
+	MaxBytes         int64          `json:"max_bytes" yaml:"max_bytes"`
+	SetRule          SetRule        `json:"set_rule" yaml:"set_rule"`
+	RequiresApproval bool           `json:"requires_approval" yaml:"requires_approval"`
+	SigningRule      SigningRule    `json:"signing_rule" yaml:"signing_rule"`
 }
 
 // ListSettablePoliciesResponse represents a structured data type
@@ -620,17 +2013,17 @@ type ListSettablePoliciesResponse struct {
 
 // ClaimTypePolicy represents a structured data type
 type ClaimTypePolicy struct {
-	ClaimType        string `json:"claim_type" yaml:"claim_type"`
-	Label            string `json:"label" yaml:"label"`
-	Description      string `json:"description" yaml:"description"`
-	ValueType        string `json:"value_type" yaml:"value_type"`
-	MaxBytes         int64  `json:"max_bytes" yaml:"max_bytes"`
-	SetRule          string `json:"set_rule" yaml:"set_rule"`
-	SigningRule      string `json:"signing_rule" yaml:"signing_rule"`
-	RequiresApproval bool   `json:"requires_approval" yaml:"requires_approval"`
-	UserSettable     bool   `json:"user_settable" yaml:"user_settable"`
-	DefaultAutoSign  bool   `json:"default_auto_sign" yaml:"default_auto_sign"`
-	Suggested        bool   `json:"suggested" yaml:"suggested"`
+	ClaimType        string         `json:"claim_type" yaml:"claim_type"`
+	Label            string         `json:"label" yaml:"label"`
+	Description      string         `json:"description" yaml:"description"`
+	ValueType        ClaimValueType `json:"value_type" yaml:"value_type"`
+	MaxBytes         int64          `json:"max_bytes" yaml:"max_bytes"`
+	SetRule          SetRule        `json:"set_rule" yaml:"set_rule"`
+	SigningRule      SigningRule    `json:"signing_rule" yaml:"signing_rule"`
+	RequiresApproval bool           `json:"requires_approval" yaml:"requires_approval"`
+	UserSettable     bool           `json:"user_settable" yaml:"user_settable"`
+	DefaultAutoSign  bool           `json:"default_auto_sign" yaml:"default_auto_sign"`
+	Suggested        bool           `json:"suggested" yaml:"suggested"`
 }
 
 // ListClaimTypesResponse represents a structured data type
@@ -640,17 +2033,17 @@ type ListClaimTypesResponse struct {
 
 // SetClaimTypeRequest represents a structured data type
 type SetClaimTypeRequest struct {
-	ClaimType        string  `json:"claim_type" yaml:"claim_type"`
-	Label            string  `json:"label" yaml:"label"`
-	Description      *string `json:"description,omitempty" yaml:"description,omitempty"`
-	ValueType        string  `json:"value_type" yaml:"value_type"`
-	MaxBytes         int64   `json:"max_bytes" yaml:"max_bytes"`
-	SetRule          string  `json:"set_rule" yaml:"set_rule"`
-	SigningRule      string  `json:"signing_rule" yaml:"signing_rule"`
-	UserSettable     bool    `json:"user_settable" yaml:"user_settable"`
-	DefaultAutoSign  bool    `json:"default_auto_sign" yaml:"default_auto_sign"`
-	RequiresApproval bool    `json:"requires_approval" yaml:"requires_approval"`
-	Suggested        bool    `json:"suggested" yaml:"suggested"`
+	ClaimType        string         `json:"claim_type" yaml:"claim_type"`
+	Label            string         `json:"label" yaml:"label"`
+	Description      *string        `json:"description,omitempty" yaml:"description,omitempty"`
+	ValueType        ClaimValueType `json:"value_type" yaml:"value_type"`
+	MaxBytes         int64          `json:"max_bytes" yaml:"max_bytes"`
+	SetRule          SetRule        `json:"set_rule" yaml:"set_rule"`
+	SigningRule      SigningRule    `json:"signing_rule" yaml:"signing_rule"`
+	UserSettable     bool           `json:"user_settable" yaml:"user_settable"`
+	DefaultAutoSign  bool           `json:"default_auto_sign" yaml:"default_auto_sign"`
+	RequiresApproval bool           `json:"requires_approval" yaml:"requires_approval"`
+	Suggested        bool           `json:"suggested" yaml:"suggested"`
 }
 
 // SetClaimTypeResponse represents a structured data type
@@ -740,9 +2133,9 @@ type RemoveTrustedIssuerResponse struct {
 
 // ReleaseRule represents a structured data type
 type ReleaseRule struct {
-	Audience    string `json:"audience" yaml:"audience"`
-	ClaimType   string `json:"claim_type" yaml:"claim_type"`
-	Disposition string `json:"disposition" yaml:"disposition"`
+	Audience    string             `json:"audience" yaml:"audience"`
+	ClaimType   string             `json:"claim_type" yaml:"claim_type"`
+	Disposition ReleaseDisposition `json:"disposition" yaml:"disposition"`
 }
 
 // ListReleaseRulesResponse represents a structured data type
@@ -752,9 +2145,9 @@ type ListReleaseRulesResponse struct {
 
 // SetReleaseRuleRequest represents a structured data type
 type SetReleaseRuleRequest struct {
-	Audience    string `json:"audience" yaml:"audience"`
-	ClaimType   string `json:"claim_type" yaml:"claim_type"`
-	Disposition string `json:"disposition" yaml:"disposition"`
+	Audience    string             `json:"audience" yaml:"audience"`
+	ClaimType   string             `json:"claim_type" yaml:"claim_type"`
+	Disposition ReleaseDisposition `json:"disposition" yaml:"disposition"`
 }
 
 // SetReleaseRuleResponse represents a structured data type
@@ -775,14 +2168,14 @@ type RemoveReleaseRuleResponse struct {
 
 // ClaimApproval represents a structured data type
 type ClaimApproval struct {
-	Id         string  `json:"id" yaml:"id"`
-	UserId     string  `json:"user_id" yaml:"user_id"`
-	ClaimType  string  `json:"claim_type" yaml:"claim_type"`
-	ClaimValue []byte  `json:"claim_value" yaml:"claim_value"`
-	Status     string  `json:"status" yaml:"status"`
-	ResolvedBy *string `json:"resolved_by,omitempty" yaml:"resolved_by,omitempty"`
-	ResolvedAt *string `json:"resolved_at,omitempty" yaml:"resolved_at,omitempty"`
-	CreatedAt  string  `json:"created_at" yaml:"created_at"`
+	Id         string              `json:"id" yaml:"id"`
+	UserId     string              `json:"user_id" yaml:"user_id"`
+	ClaimType  string              `json:"claim_type" yaml:"claim_type"`
+	ClaimValue []byte              `json:"claim_value" yaml:"claim_value"`
+	Status     ClaimApprovalStatus `json:"status" yaml:"status"`
+	ResolvedBy *string             `json:"resolved_by,omitempty" yaml:"resolved_by,omitempty"`
+	ResolvedAt *time.Time          `json:"resolved_at,omitempty" yaml:"resolved_at,omitempty"`
+	CreatedAt  time.Time           `json:"created_at" yaml:"created_at"`
 }
 
 // ListPendingClaimApprovalsResponse represents a structured data type
@@ -898,8 +2291,8 @@ type SetMyClaimRequest struct {
 
 // SetMyClaimResponse represents a structured data type
 type SetMyClaimResponse struct {
-	Outcome string `json:"outcome" yaml:"outcome"`
-	Claim   *Claim `json:"claim,omitempty" yaml:"claim,omitempty"`
+	Outcome SetClaimOutcome `json:"outcome" yaml:"outcome"`
+	Claim   *Claim          `json:"claim,omitempty" yaml:"claim,omitempty"`
 }
 
 // RemoveMyClaimRequest represents a structured data type
@@ -985,9 +2378,9 @@ type PasswordPolicy struct {
 // BrowserSessionInfo represents a structured data type
 type BrowserSessionInfo struct {
 	User                  AdminUser `json:"user" yaml:"user"`
-	IssuedAt              string    `json:"issued_at" yaml:"issued_at"`
-	AuthenticatedAt       string    `json:"authenticated_at" yaml:"authenticated_at"`
-	ExpiresAt             string    `json:"expires_at" yaml:"expires_at"`
+	IssuedAt              time.Time `json:"issued_at" yaml:"issued_at"`
+	AuthenticatedAt       time.Time `json:"authenticated_at" yaml:"authenticated_at"`
+	ExpiresAt             time.Time `json:"expires_at" yaml:"expires_at"`
 	AuthenticationMethods []string  `json:"authentication_methods" yaml:"authentication_methods"`
 }
 
@@ -1019,18 +2412,18 @@ type IntrospectBrowserSessionRequest struct {
 
 // IntrospectBrowserSessionResponse represents a structured data type
 type IntrospectBrowserSessionResponse struct {
-	UserId                string   `json:"user_id" yaml:"user_id"`
-	UserDomain            string   `json:"user_domain" yaml:"user_domain"`
-	AuthenticatedAt       string   `json:"authenticated_at" yaml:"authenticated_at"`
-	ExpiresAt             string   `json:"expires_at" yaml:"expires_at"`
-	AuthenticationMethods []string `json:"authentication_methods" yaml:"authentication_methods"`
+	UserId                string    `json:"user_id" yaml:"user_id"`
+	UserDomain            string    `json:"user_domain" yaml:"user_domain"`
+	AuthenticatedAt       time.Time `json:"authenticated_at" yaml:"authenticated_at"`
+	ExpiresAt             time.Time `json:"expires_at" yaml:"expires_at"`
+	AuthenticationMethods []string  `json:"authentication_methods" yaml:"authentication_methods"`
 }
 
 // NotificationCapability represents a structured data type
 type NotificationCapability struct {
-	Purpose         string `json:"purpose" yaml:"purpose"`
-	Channel         string `json:"channel" yaml:"channel"`
-	DestinationKind string `json:"destination_kind" yaml:"destination_kind"`
+	Purpose         NotificationPurpose `json:"purpose" yaml:"purpose"`
+	Channel         NotificationChannel `json:"channel" yaml:"channel"`
+	DestinationKind DestinationKind     `json:"destination_kind" yaml:"destination_kind"`
 }
 
 // GetNotificationCapabilitiesResponse represents a structured data type
@@ -1040,12 +2433,12 @@ type GetNotificationCapabilitiesResponse struct {
 
 // VerifiedContactMethod represents a structured data type
 type VerifiedContactMethod struct {
-	Id          string   `json:"id" yaml:"id"`
-	Channel     string   `json:"channel" yaml:"channel"`
-	Destination string   `json:"destination" yaml:"destination"`
-	VerifiedAt  string   `json:"verified_at" yaml:"verified_at"`
-	Purposes    []string `json:"purposes" yaml:"purposes"`
-	RevokedAt   *string  `json:"revoked_at,omitempty" yaml:"revoked_at,omitempty"`
+	Id          string                `json:"id" yaml:"id"`
+	Channel     NotificationChannel   `json:"channel" yaml:"channel"`
+	Destination string                `json:"destination" yaml:"destination"`
+	VerifiedAt  time.Time             `json:"verified_at" yaml:"verified_at"`
+	Purposes    []NotificationPurpose `json:"purposes" yaml:"purposes"`
+	RevokedAt   *time.Time            `json:"revoked_at,omitempty" yaml:"revoked_at,omitempty"`
 }
 
 // ListVerifiedContactMethodsResponse represents a structured data type
@@ -1066,14 +2459,14 @@ type RevokeVerifiedContactMethodResponse struct {
 
 // RequestContactVerificationRequest represents a structured data type
 type RequestContactVerificationRequest struct {
-	Channel         string `json:"channel" yaml:"channel"`
-	Destination     string `json:"destination" yaml:"destination"`
-	CurrentPassword string `json:"current_password" yaml:"current_password"`
+	Channel         NotificationChannel `json:"channel" yaml:"channel"`
+	Destination     string              `json:"destination" yaml:"destination"`
+	CurrentPassword string              `json:"current_password" yaml:"current_password"`
 }
 
 // RequestContactVerificationResponse represents a structured data type
 type RequestContactVerificationResponse struct {
-	ExpiresAt string `json:"expires_at" yaml:"expires_at"`
+	ExpiresAt time.Time `json:"expires_at" yaml:"expires_at"`
 }
 
 // ConfirmContactVerificationRequest represents a structured data type
@@ -1103,7 +2496,7 @@ type ValidatePasswordRecoveryRequest struct {
 
 // ValidatePasswordRecoveryResponse represents a structured data type
 type ValidatePasswordRecoveryResponse struct {
-	ExpiresAt      string         `json:"expires_at" yaml:"expires_at"`
+	ExpiresAt      time.Time      `json:"expires_at" yaml:"expires_at"`
 	PasswordPolicy PasswordPolicy `json:"password_policy" yaml:"password_policy"`
 }
 
@@ -1125,17 +2518,17 @@ type BrowserAuthorizationInspectRequest struct {
 
 // BrowserConsentClaim represents a structured data type
 type BrowserConsentClaim struct {
-	ClaimType        string `json:"claim_type" yaml:"claim_type"`
-	Label            string `json:"label" yaml:"label"`
-	Datatype         string `json:"datatype" yaml:"datatype"`
-	Required         bool   `json:"required" yaml:"required"`
-	Available        bool   `json:"available" yaml:"available"`
-	DefaultGranted   bool   `json:"default_granted" yaml:"default_granted"`
-	Policy           string `json:"policy" yaml:"policy"`
-	UserSettable     bool   `json:"user_settable" yaml:"user_settable"`
-	MaxBytes         int64  `json:"max_bytes" yaml:"max_bytes"`
-	RequiresApproval bool   `json:"requires_approval" yaml:"requires_approval"`
-	NewlyRequested   *bool  `json:"newly_requested,omitempty" yaml:"newly_requested,omitempty"`
+	ClaimType        string           `json:"claim_type" yaml:"claim_type"`
+	Label            string           `json:"label" yaml:"label"`
+	Datatype         ClaimValueType   `json:"datatype" yaml:"datatype"`
+	Required         bool             `json:"required" yaml:"required"`
+	Available        bool             `json:"available" yaml:"available"`
+	DefaultGranted   bool             `json:"default_granted" yaml:"default_granted"`
+	Policy           ConsentRowPolicy `json:"policy" yaml:"policy"`
+	UserSettable     bool             `json:"user_settable" yaml:"user_settable"`
+	MaxBytes         int64            `json:"max_bytes" yaml:"max_bytes"`
+	RequiresApproval bool             `json:"requires_approval" yaml:"requires_approval"`
+	NewlyRequested   *bool            `json:"newly_requested,omitempty" yaml:"newly_requested,omitempty"`
 }
 
 // BrowserAuthorizationInspectResponse represents a structured data type
@@ -1172,11 +2565,11 @@ type BrowserLocalRpInspectRequest struct {
 
 // BrowserLocalRpInspectResponse represents a structured data type
 type BrowserLocalRpInspectResponse struct {
-	Admission        string                `json:"admission" yaml:"admission"`
+	Admission        LocalRpAdmission      `json:"admission" yaml:"admission"`
 	AppName          string                `json:"app_name" yaml:"app_name"`
 	Fingerprint      string                `json:"fingerprint" yaml:"fingerprint"`
 	CallbackHost     string                `json:"callback_host" yaml:"callback_host"`
-	FirstSeenAt      *string               `json:"first_seen_at,omitempty" yaml:"first_seen_at,omitempty"`
+	FirstSeenAt      *time.Time            `json:"first_seen_at,omitempty" yaml:"first_seen_at,omitempty"`
 	Claims           []BrowserConsentClaim `json:"claims" yaml:"claims"`
 	RequestReason    *string               `json:"request_reason,omitempty" yaml:"request_reason,omitempty"`
 	AlreadyConsented *bool                 `json:"already_consented,omitempty" yaml:"already_consented,omitempty"`
@@ -1235,7 +2628,6 @@ type GetUiConfigurationResponse struct {
 type RpSignRequest struct {
 	CallbackUrl                string                      `json:"callback_url" yaml:"callback_url"`
 	Nonce                      string                      `json:"nonce" yaml:"nonce"`
-	ApplicationId              *string                     `json:"application_id,omitempty" yaml:"application_id,omitempty"`
 	RequestedClaims            *ClaimRequest               `json:"requested_claims,omitempty" yaml:"requested_claims,omitempty"`
 	AuthenticationRequirements *AuthenticationRequirements `json:"authentication_requirements,omitempty" yaml:"authentication_requirements,omitempty"`
 	FlowContext                *AuthFlowContext            `json:"flow_context,omitempty" yaml:"flow_context,omitempty"`
@@ -1273,6 +2665,12 @@ type RpUserInfoRequest struct {
 	Token   string `json:"token" yaml:"token"`
 	ApiBase string `json:"api_base" yaml:"api_base"`
 	Domain  string `json:"domain" yaml:"domain"`
+}
+
+// RpError represents a structured data type
+type RpError struct {
+	Code    RpErrorCode `json:"code" yaml:"code"`
+	Message string      `json:"message" yaml:"message"`
 }
 
 // RpIssueAttestationRequest represents a structured data type
@@ -1333,7 +2731,9 @@ const (
 	ApiErrorCodeInternal              ApiErrorCode = 10
 )
 
-func (v ApiErrorCode) ToNumber() int64 { return int64(v) }
+func (v ApiErrorCode) ToNumber() int64 {
+	return int64(v)
+}
 
 func ApiErrorCodeFromNumber(number int64) (ApiErrorCode, error) {
 	v := ApiErrorCode(number)
@@ -1404,12 +2804,6 @@ type ApiError struct {
 	Message string       `json:"message" yaml:"message"`
 }
 
-// AeadSuite is a type alias
-type AeadSuite string
-
-// LocalRpPolicy is a type alias
-type LocalRpPolicy string
-
 // LocalRpDescriptor represents a structured data type
 type LocalRpDescriptor struct {
 	AppName             string      `json:"app_name" yaml:"app_name"`
@@ -1418,8 +2812,8 @@ type LocalRpDescriptor struct {
 	EncryptionPublicKey []byte      `json:"encryption_public_key" yaml:"encryption_public_key"`
 	Fingerprint         string      `json:"fingerprint" yaml:"fingerprint"`
 	SupportedSuites     []AeadSuite `json:"supported_suites" yaml:"supported_suites"`
-	CreatedAt           string      `json:"created_at" yaml:"created_at"`
-	ExpiresAt           string      `json:"expires_at" yaml:"expires_at"`
+	CreatedAt           time.Time   `json:"created_at" yaml:"created_at"`
+	ExpiresAt           time.Time   `json:"expires_at" yaml:"expires_at"`
 }
 
 // SignedLocalRpDescriptor represents a structured data type
@@ -1438,8 +2832,8 @@ type LocalRpLoginRequest struct {
 	RequiredClaims             []string                    `json:"required_claims" yaml:"required_claims"`
 	AuthenticationRequirements *AuthenticationRequirements `json:"authentication_requirements,omitempty" yaml:"authentication_requirements,omitempty"`
 	FlowContext                *AuthFlowContext            `json:"flow_context,omitempty" yaml:"flow_context,omitempty"`
-	IssuedAt                   string                      `json:"issued_at" yaml:"issued_at"`
-	ExpiresAt                  string                      `json:"expires_at" yaml:"expires_at"`
+	IssuedAt                   time.Time                   `json:"issued_at" yaml:"issued_at"`
+	ExpiresAt                  time.Time                   `json:"expires_at" yaml:"expires_at"`
 }
 
 // SignedLocalRpLoginRequest represents a structured data type
@@ -1456,8 +2850,8 @@ type LocalRpCallbackHeader struct {
 	Suite              AeadSuite `json:"suite" yaml:"suite"`
 	EphemeralPublicKey []byte    `json:"ephemeral_public_key" yaml:"ephemeral_public_key"`
 	AeadNonce          []byte    `json:"aead_nonce" yaml:"aead_nonce"`
-	IssuedAt           string    `json:"issued_at" yaml:"issued_at"`
-	ExpiresAt          string    `json:"expires_at" yaml:"expires_at"`
+	IssuedAt           time.Time `json:"issued_at" yaml:"issued_at"`
+	ExpiresAt          time.Time `json:"expires_at" yaml:"expires_at"`
 }
 
 // LocalRpEncryptedCallback represents a structured data type
@@ -1468,15 +2862,15 @@ type LocalRpEncryptedCallback struct {
 
 // LocalRpCallbackPayload represents a structured data type
 type LocalRpCallbackPayload struct {
-	UserId              string `json:"user_id" yaml:"user_id"`
-	UserDomain          string `json:"user_domain" yaml:"user_domain"`
-	ClaimTicket         []byte `json:"claim_ticket" yaml:"claim_ticket"`
-	AudienceFingerprint string `json:"audience_fingerprint" yaml:"audience_fingerprint"`
-	CallbackUrl         string `json:"callback_url" yaml:"callback_url"`
-	Nonce               []byte `json:"nonce" yaml:"nonce"`
-	State               []byte `json:"state" yaml:"state"`
-	IssuedAt            string `json:"issued_at" yaml:"issued_at"`
-	ExpiresAt           string `json:"expires_at" yaml:"expires_at"`
+	UserId              string    `json:"user_id" yaml:"user_id"`
+	UserDomain          string    `json:"user_domain" yaml:"user_domain"`
+	ClaimTicket         []byte    `json:"claim_ticket" yaml:"claim_ticket"`
+	AudienceFingerprint string    `json:"audience_fingerprint" yaml:"audience_fingerprint"`
+	CallbackUrl         string    `json:"callback_url" yaml:"callback_url"`
+	Nonce               []byte    `json:"nonce" yaml:"nonce"`
+	State               []byte    `json:"state" yaml:"state"`
+	IssuedAt            time.Time `json:"issued_at" yaml:"issued_at"`
+	ExpiresAt           time.Time `json:"expires_at" yaml:"expires_at"`
 }
 
 // SignedLocalRpCallbackPayload represents a structured data type
@@ -1488,9 +2882,9 @@ type SignedLocalRpCallbackPayload struct {
 
 // LocalRpTicketRedemptionRequest represents a structured data type
 type LocalRpTicketRedemptionRequest struct {
-	ClaimTicket []byte `json:"claim_ticket" yaml:"claim_ticket"`
-	Fingerprint string `json:"fingerprint" yaml:"fingerprint"`
-	IssuedAt    string `json:"issued_at" yaml:"issued_at"`
+	ClaimTicket []byte    `json:"claim_ticket" yaml:"claim_ticket"`
+	Fingerprint string    `json:"fingerprint" yaml:"fingerprint"`
+	IssuedAt    time.Time `json:"issued_at" yaml:"issued_at"`
 }
 
 // SignedLocalRpTicketRedemptionRequest represents a structured data type
@@ -1501,32 +2895,32 @@ type SignedLocalRpTicketRedemptionRequest struct {
 
 // LocalRpTicketRedemptionResponse represents a structured data type
 type LocalRpTicketRedemptionResponse struct {
-	UserId          string  `json:"user_id" yaml:"user_id"`
-	UserDomain      string  `json:"user_domain" yaml:"user_domain"`
-	Claims          []Claim `json:"claims" yaml:"claims"`
-	TicketExpiresAt string  `json:"ticket_expires_at" yaml:"ticket_expires_at"`
+	UserId          string    `json:"user_id" yaml:"user_id"`
+	UserDomain      string    `json:"user_domain" yaml:"user_domain"`
+	Claims          []Claim   `json:"claims" yaml:"claims"`
+	TicketExpiresAt time.Time `json:"ticket_expires_at" yaml:"ticket_expires_at"`
 }
 
 // AdminLocalRp represents a structured data type
 type AdminLocalRp struct {
-	Fingerprint         string  `json:"fingerprint" yaml:"fingerprint"`
-	SigningPublicKey    []byte  `json:"signing_public_key" yaml:"signing_public_key"`
-	EncryptionPublicKey []byte  `json:"encryption_public_key" yaml:"encryption_public_key"`
-	AppName             string  `json:"app_name" yaml:"app_name"`
-	LocalDomainHint     *string `json:"local_domain_hint,omitempty" yaml:"local_domain_hint,omitempty"`
-	Status              string  `json:"status" yaml:"status"`
-	CreatedAt           string  `json:"created_at" yaml:"created_at"`
-	UpdatedAt           string  `json:"updated_at" yaml:"updated_at"`
-	ExpiresAt           *string `json:"expires_at,omitempty" yaml:"expires_at,omitempty"`
-	LastSeenAt          *string `json:"last_seen_at,omitempty" yaml:"last_seen_at,omitempty"`
-	AdminNotes          *string `json:"admin_notes,omitempty" yaml:"admin_notes,omitempty"`
+	Fingerprint         string        `json:"fingerprint" yaml:"fingerprint"`
+	SigningPublicKey    []byte        `json:"signing_public_key" yaml:"signing_public_key"`
+	EncryptionPublicKey []byte        `json:"encryption_public_key" yaml:"encryption_public_key"`
+	AppName             string        `json:"app_name" yaml:"app_name"`
+	LocalDomainHint     *string       `json:"local_domain_hint,omitempty" yaml:"local_domain_hint,omitempty"`
+	Status              LocalRpStatus `json:"status" yaml:"status"`
+	CreatedAt           time.Time     `json:"created_at" yaml:"created_at"`
+	UpdatedAt           time.Time     `json:"updated_at" yaml:"updated_at"`
+	ExpiresAt           *time.Time    `json:"expires_at,omitempty" yaml:"expires_at,omitempty"`
+	LastSeenAt          *time.Time    `json:"last_seen_at,omitempty" yaml:"last_seen_at,omitempty"`
+	AdminNotes          *string       `json:"admin_notes,omitempty" yaml:"admin_notes,omitempty"`
 }
 
 // ListLocalRpsRequest represents a structured data type
 type ListLocalRpsRequest struct {
-	Offset *int64  `json:"offset,omitempty" yaml:"offset,omitempty"`
-	Limit  *int64  `json:"limit,omitempty" yaml:"limit,omitempty"`
-	Status *string `json:"status,omitempty" yaml:"status,omitempty"`
+	Offset *int64         `json:"offset,omitempty" yaml:"offset,omitempty"`
+	Limit  *int64         `json:"limit,omitempty" yaml:"limit,omitempty"`
+	Status *LocalRpStatus `json:"status,omitempty" yaml:"status,omitempty"`
 }
 
 // ListLocalRpsResponse represents a structured data type
@@ -1622,19 +3016,19 @@ type SetUserPasswordLockResponse struct {
 
 // AppAccessTarget represents a structured data type
 type AppAccessTarget struct {
-	Kind          string  `json:"kind" yaml:"kind"`
-	UserId        *string `json:"user_id,omitempty" yaml:"user_id,omitempty"`
-	GroupName     *string `json:"group_name,omitempty" yaml:"group_name,omitempty"`
-	ClaimType     *string `json:"claim_type,omitempty" yaml:"claim_type,omitempty"`
-	ClaimOperator *string `json:"claim_operator,omitempty" yaml:"claim_operator,omitempty"`
-	ClaimValue    *string `json:"claim_value,omitempty" yaml:"claim_value,omitempty"`
+	Kind          AppAccessTargetKind `json:"kind" yaml:"kind"`
+	UserId        *string             `json:"user_id,omitempty" yaml:"user_id,omitempty"`
+	GroupName     *string             `json:"group_name,omitempty" yaml:"group_name,omitempty"`
+	ClaimType     *string             `json:"claim_type,omitempty" yaml:"claim_type,omitempty"`
+	ClaimOperator *ClaimOperator      `json:"claim_operator,omitempty" yaml:"claim_operator,omitempty"`
+	ClaimValue    *string             `json:"claim_value,omitempty" yaml:"claim_value,omitempty"`
 }
 
 // AppAccessPolicy represents a structured data type
 type AppAccessPolicy struct {
 	Id       string            `json:"id" yaml:"id"`
 	Name     string            `json:"name" yaml:"name"`
-	Mode     string            `json:"mode" yaml:"mode"`
+	Mode     AppAccessMode     `json:"mode" yaml:"mode"`
 	Patterns []string          `json:"patterns" yaml:"patterns"`
 	Message  *string           `json:"message,omitempty" yaml:"message,omitempty"`
 	Targets  []AppAccessTarget `json:"targets" yaml:"targets"`
@@ -1649,7 +3043,7 @@ type ListAppAccessPoliciesResponse struct {
 type SetAppAccessPolicyRequest struct {
 	Id       *string           `json:"id,omitempty" yaml:"id,omitempty"`
 	Name     string            `json:"name" yaml:"name"`
-	Mode     string            `json:"mode" yaml:"mode"`
+	Mode     AppAccessMode     `json:"mode" yaml:"mode"`
 	Patterns []string          `json:"patterns" yaml:"patterns"`
 	Message  *string           `json:"message,omitempty" yaml:"message,omitempty"`
 	Targets  []AppAccessTarget `json:"targets" yaml:"targets"`
@@ -1728,19 +3122,19 @@ type ApplicationKeySignature struct {
 
 // ApplicationKeyAttestation represents a structured data type
 type ApplicationKeyAttestation struct {
-	SubjectUserId        string `json:"subject_user_id" yaml:"subject_user_id"`
-	SubjectDomain        string `json:"subject_domain" yaml:"subject_domain"`
-	ApplicationId        string `json:"application_id" yaml:"application_id"`
-	InstanceId           string `json:"instance_id" yaml:"instance_id"`
-	KeyId                string `json:"key_id" yaml:"key_id"`
-	KeyUsage             string `json:"key_usage" yaml:"key_usage"`
-	Algorithm            string `json:"algorithm" yaml:"algorithm"`
-	PublicKey            []byte `json:"public_key" yaml:"public_key"`
-	Fingerprint          string `json:"fingerprint" yaml:"fingerprint"`
-	KeyCreatedAt         string `json:"key_created_at" yaml:"key_created_at"`
-	KeyExpiresAt         string `json:"key_expires_at" yaml:"key_expires_at"`
-	AttestedAt           string `json:"attested_at" yaml:"attested_at"`
-	AttestationExpiresAt string `json:"attestation_expires_at" yaml:"attestation_expires_at"`
+	SubjectUserId        string       `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain        string       `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId        string       `json:"application_id" yaml:"application_id"`
+	InstanceId           string       `json:"instance_id" yaml:"instance_id"`
+	KeyId                string       `json:"key_id" yaml:"key_id"`
+	KeyUsage             KeyUsage     `json:"key_usage" yaml:"key_usage"`
+	Algorithm            KeyAlgorithm `json:"algorithm" yaml:"algorithm"`
+	PublicKey            []byte       `json:"public_key" yaml:"public_key"`
+	Fingerprint          string       `json:"fingerprint" yaml:"fingerprint"`
+	KeyCreatedAt         time.Time    `json:"key_created_at" yaml:"key_created_at"`
+	KeyExpiresAt         time.Time    `json:"key_expires_at" yaml:"key_expires_at"`
+	AttestedAt           time.Time    `json:"attested_at" yaml:"attested_at"`
+	AttestationExpiresAt time.Time    `json:"attestation_expires_at" yaml:"attestation_expires_at"`
 }
 
 // SignedApplicationKeyAttestation represents a structured data type
@@ -1751,20 +3145,20 @@ type SignedApplicationKeyAttestation struct {
 
 // ApplicationKeyAddition represents a structured data type
 type ApplicationKeyAddition struct {
-	SubjectUserId               string `json:"subject_user_id" yaml:"subject_user_id"`
-	SubjectDomain               string `json:"subject_domain" yaml:"subject_domain"`
-	ApplicationId               string `json:"application_id" yaml:"application_id"`
-	InstanceId                  string `json:"instance_id" yaml:"instance_id"`
-	KeyId                       string `json:"key_id" yaml:"key_id"`
-	KeyUsage                    string `json:"key_usage" yaml:"key_usage"`
-	Algorithm                   string `json:"algorithm" yaml:"algorithm"`
-	PublicKey                   []byte `json:"public_key" yaml:"public_key"`
-	Fingerprint                 string `json:"fingerprint" yaml:"fingerprint"`
-	RequestedKeyLifetimeSeconds int64  `json:"requested_key_lifetime_seconds" yaml:"requested_key_lifetime_seconds"`
-	ChallengeId                 string `json:"challenge_id" yaml:"challenge_id"`
-	Challenge                   []byte `json:"challenge" yaml:"challenge"`
-	RequestedAt                 string `json:"requested_at" yaml:"requested_at"`
-	ExpiresAt                   string `json:"expires_at" yaml:"expires_at"`
+	SubjectUserId               string       `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain               string       `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId               string       `json:"application_id" yaml:"application_id"`
+	InstanceId                  string       `json:"instance_id" yaml:"instance_id"`
+	KeyId                       string       `json:"key_id" yaml:"key_id"`
+	KeyUsage                    KeyUsage     `json:"key_usage" yaml:"key_usage"`
+	Algorithm                   KeyAlgorithm `json:"algorithm" yaml:"algorithm"`
+	PublicKey                   []byte       `json:"public_key" yaml:"public_key"`
+	Fingerprint                 string       `json:"fingerprint" yaml:"fingerprint"`
+	RequestedKeyLifetimeSeconds int64        `json:"requested_key_lifetime_seconds" yaml:"requested_key_lifetime_seconds"`
+	ChallengeId                 string       `json:"challenge_id" yaml:"challenge_id"`
+	Challenge                   []byte       `json:"challenge" yaml:"challenge"`
+	RequestedAt                 time.Time    `json:"requested_at" yaml:"requested_at"`
+	ExpiresAt                   time.Time    `json:"expires_at" yaml:"expires_at"`
 }
 
 // SignedApplicationKeyAddition represents a structured data type
@@ -1776,15 +3170,15 @@ type SignedApplicationKeyAddition struct {
 
 // ApplicationKeyRenewal represents a structured data type
 type ApplicationKeyRenewal struct {
-	SubjectUserId string `json:"subject_user_id" yaml:"subject_user_id"`
-	SubjectDomain string `json:"subject_domain" yaml:"subject_domain"`
-	ApplicationId string `json:"application_id" yaml:"application_id"`
-	InstanceId    string `json:"instance_id" yaml:"instance_id"`
-	KeyId         string `json:"key_id" yaml:"key_id"`
-	ChallengeId   string `json:"challenge_id" yaml:"challenge_id"`
-	Challenge     []byte `json:"challenge" yaml:"challenge"`
-	RequestedAt   string `json:"requested_at" yaml:"requested_at"`
-	ExpiresAt     string `json:"expires_at" yaml:"expires_at"`
+	SubjectUserId string    `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain string    `json:"subject_domain" yaml:"subject_domain"`
+	ApplicationId string    `json:"application_id" yaml:"application_id"`
+	InstanceId    string    `json:"instance_id" yaml:"instance_id"`
+	KeyId         string    `json:"key_id" yaml:"key_id"`
+	ChallengeId   string    `json:"challenge_id" yaml:"challenge_id"`
+	Challenge     []byte    `json:"challenge" yaml:"challenge"`
+	RequestedAt   time.Time `json:"requested_at" yaml:"requested_at"`
+	ExpiresAt     time.Time `json:"expires_at" yaml:"expires_at"`
 }
 
 // SignedApplicationKeyRenewal represents a structured data type
@@ -1802,27 +3196,27 @@ type ApplicationKeyRevocation struct {
 	InstanceId        string                    `json:"instance_id" yaml:"instance_id"`
 	TargetKeyId       string                    `json:"target_key_id" yaml:"target_key_id"`
 	TargetFingerprint string                    `json:"target_fingerprint" yaml:"target_fingerprint"`
-	RevokedAt         string                    `json:"revoked_at" yaml:"revoked_at"`
+	RevokedAt         time.Time                 `json:"revoked_at" yaml:"revoked_at"`
 	Signatures        []ApplicationKeySignature `json:"signatures" yaml:"signatures"`
 }
 
 // StartApplicationKeyChallengeRequest represents a structured data type
 type StartApplicationKeyChallengeRequest struct {
-	SubjectUserId string `json:"subject_user_id" yaml:"subject_user_id"`
-	ApplicationId string `json:"application_id" yaml:"application_id"`
-	InstanceId    string `json:"instance_id" yaml:"instance_id"`
-	Purpose       string `json:"purpose" yaml:"purpose"`
-	KeyUsage      string `json:"key_usage" yaml:"key_usage"`
-	Algorithm     string `json:"algorithm" yaml:"algorithm"`
-	PublicKey     []byte `json:"public_key" yaml:"public_key"`
+	SubjectUserId string                         `json:"subject_user_id" yaml:"subject_user_id"`
+	ApplicationId string                         `json:"application_id" yaml:"application_id"`
+	InstanceId    string                         `json:"instance_id" yaml:"instance_id"`
+	Purpose       ApplicationKeyChallengePurpose `json:"purpose" yaml:"purpose"`
+	KeyUsage      KeyUsage                       `json:"key_usage" yaml:"key_usage"`
+	Algorithm     KeyAlgorithm                   `json:"algorithm" yaml:"algorithm"`
+	PublicKey     []byte                         `json:"public_key" yaml:"public_key"`
 }
 
 // StartApplicationKeyChallengeResponse represents a structured data type
 type StartApplicationKeyChallengeResponse struct {
-	ChallengeId     string  `json:"challenge_id" yaml:"challenge_id"`
-	Challenge       *[]byte `json:"challenge,omitempty" yaml:"challenge,omitempty"`
-	SealedChallenge *[]byte `json:"sealed_challenge,omitempty" yaml:"sealed_challenge,omitempty"`
-	ExpiresAt       string  `json:"expires_at" yaml:"expires_at"`
+	ChallengeId     string    `json:"challenge_id" yaml:"challenge_id"`
+	Challenge       *[]byte   `json:"challenge,omitempty" yaml:"challenge,omitempty"`
+	SealedChallenge *[]byte   `json:"sealed_challenge,omitempty" yaml:"sealed_challenge,omitempty"`
+	ExpiresAt       time.Time `json:"expires_at" yaml:"expires_at"`
 }
 
 // AddApplicationKeyRequest represents a structured data type
@@ -1853,7 +3247,7 @@ type RevokeApplicationKeyRequest struct {
 
 // RevokeApplicationKeyResponse represents a structured data type
 type RevokeApplicationKeyResponse struct {
-	RevokedAt string `json:"revoked_at" yaml:"revoked_at"`
+	RevokedAt time.Time `json:"revoked_at" yaml:"revoked_at"`
 }
 
 // EnrollApplicationInstanceRequest represents a structured data type
@@ -1900,9 +3294,9 @@ type RpResolveDomainKeysResponse struct {
 	Domain               string                  `json:"domain" yaml:"domain"`
 	Keys                 []DomainPublicKey       `json:"keys" yaml:"keys"`
 	Revocations          []RevocationCertificate `json:"revocations" yaml:"revocations"`
-	FetchedAt            string                  `json:"fetched_at" yaml:"fetched_at"`
-	RevocationsCheckedAt string                  `json:"revocations_checked_at" yaml:"revocations_checked_at"`
-	CacheStatus          string                  `json:"cache_status" yaml:"cache_status"`
+	FetchedAt            time.Time               `json:"fetched_at" yaml:"fetched_at"`
+	RevocationsCheckedAt time.Time               `json:"revocations_checked_at" yaml:"revocations_checked_at"`
+	CacheStatus          RpCacheStatus           `json:"cache_status" yaml:"cache_status"`
 }
 
 // RpResolveApplicationKeysRequest represents a structured data type
@@ -1924,9 +3318,9 @@ type RpResolveApplicationKeysResponse struct {
 	ApplicationKeyRevocations []ApplicationKeyRevocation        `json:"application_key_revocations" yaml:"application_key_revocations"`
 	HomeDomainKeys            []DomainPublicKey                 `json:"home_domain_keys" yaml:"home_domain_keys"`
 	HomeDomainKeyRevocations  []RevocationCertificate           `json:"home_domain_key_revocations" yaml:"home_domain_key_revocations"`
-	FetchedAt                 string                            `json:"fetched_at" yaml:"fetched_at"`
-	RevocationsCheckedAt      string                            `json:"revocations_checked_at" yaml:"revocations_checked_at"`
-	CacheStatus               string                            `json:"cache_status" yaml:"cache_status"`
+	FetchedAt                 time.Time                         `json:"fetched_at" yaml:"fetched_at"`
+	RevocationsCheckedAt      time.Time                         `json:"revocations_checked_at" yaml:"revocations_checked_at"`
+	CacheStatus               RpCacheStatus                     `json:"cache_status" yaml:"cache_status"`
 }
 
 // ApplicationRef represents a structured data type
@@ -1962,8 +3356,8 @@ type ActAsScopeSet struct {
 	Entries             []ActAsScopeEntry `json:"entries" yaml:"entries"`
 	Language            *string           `json:"language,omitempty" yaml:"language,omitempty"`
 	AudienceHandleClaim *Claim            `json:"audience_handle_claim,omitempty" yaml:"audience_handle_claim,omitempty"`
-	IssuedAt            string            `json:"issued_at" yaml:"issued_at"`
-	ExpiresAt           string            `json:"expires_at" yaml:"expires_at"`
+	IssuedAt            time.Time         `json:"issued_at" yaml:"issued_at"`
+	ExpiresAt           time.Time         `json:"expires_at" yaml:"expires_at"`
 }
 
 // SignedActAsScopeSet represents a structured data type
@@ -1989,10 +3383,10 @@ type ActAsGrant struct {
 	Audience          ApplicationRef      `json:"audience" yaml:"audience"`
 	ScopeSet          SignedActAsScopeSet `json:"scope_set" yaml:"scope_set"`
 	ApprovedScope     []string            `json:"approved_scope" yaml:"approved_scope"`
-	IssuedAt          string              `json:"issued_at" yaml:"issued_at"`
-	ExpiresAt         string              `json:"expires_at" yaml:"expires_at"`
-	SeriesIssuedAt    string              `json:"series_issued_at" yaml:"series_issued_at"`
-	RenewableUntil    string              `json:"renewable_until" yaml:"renewable_until"`
+	IssuedAt          time.Time           `json:"issued_at" yaml:"issued_at"`
+	ExpiresAt         time.Time           `json:"expires_at" yaml:"expires_at"`
+	SeriesIssuedAt    time.Time           `json:"series_issued_at" yaml:"series_issued_at"`
+	RenewableUntil    time.Time           `json:"renewable_until" yaml:"renewable_until"`
 	DeviceFingerprint *string             `json:"device_fingerprint,omitempty" yaml:"device_fingerprint,omitempty"`
 }
 
@@ -2011,8 +3405,8 @@ type ActAsGrantRequest struct {
 	GranteeHandleClaim            *Claim              `json:"grantee_handle_claim,omitempty" yaml:"grantee_handle_claim,omitempty"`
 	CallbackUrl                   string              `json:"callback_url" yaml:"callback_url"`
 	Nonce                         string              `json:"nonce" yaml:"nonce"`
-	RequestedAt                   string              `json:"requested_at" yaml:"requested_at"`
-	ExpiresAt                     string              `json:"expires_at" yaml:"expires_at"`
+	RequestedAt                   time.Time           `json:"requested_at" yaml:"requested_at"`
+	ExpiresAt                     time.Time           `json:"expires_at" yaml:"expires_at"`
 }
 
 // SignedActAsGrantRequest represents a structured data type
@@ -2025,8 +3419,8 @@ type SignedActAsGrantRequest struct {
 type ActAsRefreshRequest struct {
 	GrantId     string     `json:"grant_id" yaml:"grant_id"`
 	Grantee     GranteeRef `json:"grantee" yaml:"grantee"`
-	RequestedAt string     `json:"requested_at" yaml:"requested_at"`
-	ExpiresAt   string     `json:"expires_at" yaml:"expires_at"`
+	RequestedAt time.Time  `json:"requested_at" yaml:"requested_at"`
+	ExpiresAt   time.Time  `json:"expires_at" yaml:"expires_at"`
 	Nonce       string     `json:"nonce" yaml:"nonce"`
 }
 
@@ -2052,7 +3446,7 @@ type ActAsPresentation struct {
 	GrantHash     []byte         `json:"grant_hash" yaml:"grant_hash"`
 	Audience      ApplicationRef `json:"audience" yaml:"audience"`
 	RequestDigest []byte         `json:"request_digest" yaml:"request_digest"`
-	PresentedAt   string         `json:"presented_at" yaml:"presented_at"`
+	PresentedAt   time.Time      `json:"presented_at" yaml:"presented_at"`
 	Nonce         []byte         `json:"nonce" yaml:"nonce"`
 }
 
@@ -2070,10 +3464,10 @@ type ActAsCredential struct {
 
 // ActAsGrantRevocation represents a structured data type
 type ActAsGrantRevocation struct {
-	GrantId       string `json:"grant_id" yaml:"grant_id"`
-	UserId        string `json:"user_id" yaml:"user_id"`
-	SubjectDomain string `json:"subject_domain" yaml:"subject_domain"`
-	RevokedAt     string `json:"revoked_at" yaml:"revoked_at"`
+	GrantId       string    `json:"grant_id" yaml:"grant_id"`
+	UserId        string    `json:"user_id" yaml:"user_id"`
+	SubjectDomain string    `json:"subject_domain" yaml:"subject_domain"`
+	RevokedAt     time.Time `json:"revoked_at" yaml:"revoked_at"`
 }
 
 // SignedActAsGrantRevocation represents a structured data type
@@ -2164,10 +3558,10 @@ type ActAsGrantSummary struct {
 	Grantee        GranteeRef     `json:"grantee" yaml:"grantee"`
 	Audience       ApplicationRef `json:"audience" yaml:"audience"`
 	ApprovedScope  []string       `json:"approved_scope" yaml:"approved_scope"`
-	IssuedAt       string         `json:"issued_at" yaml:"issued_at"`
-	ExpiresAt      string         `json:"expires_at" yaml:"expires_at"`
-	RenewableUntil string         `json:"renewable_until" yaml:"renewable_until"`
-	RevokedAt      *string        `json:"revoked_at,omitempty" yaml:"revoked_at,omitempty"`
+	IssuedAt       time.Time      `json:"issued_at" yaml:"issued_at"`
+	ExpiresAt      time.Time      `json:"expires_at" yaml:"expires_at"`
+	RenewableUntil time.Time      `json:"renewable_until" yaml:"renewable_until"`
+	RevokedAt      *time.Time     `json:"revoked_at,omitempty" yaml:"revoked_at,omitempty"`
 }
 
 // ListActAsGrantsResponse represents a structured data type
@@ -2182,29 +3576,29 @@ type RevokeActAsGrantRequest struct {
 
 // RevokeActAsGrantResponse represents a structured data type
 type RevokeActAsGrantResponse struct {
-	RevokedAt string `json:"revoked_at" yaml:"revoked_at"`
+	RevokedAt time.Time `json:"revoked_at" yaml:"revoked_at"`
 }
 
 // PreviewReleasePolicyRequest represents a structured data type
 type PreviewReleasePolicyRequest struct {
-	Audience        string   `json:"audience" yaml:"audience"`
-	RequiredClaims  []string `json:"required_claims" yaml:"required_claims"`
-	OptionalClaims  []string `json:"optional_claims" yaml:"optional_claims"`
-	AvailableClaims []string `json:"available_claims" yaml:"available_claims"`
-	UserChoices     []string `json:"user_choices" yaml:"user_choices"`
-	TempAudience    *string  `json:"temp_audience,omitempty" yaml:"temp_audience,omitempty"`
-	TempClaimType   *string  `json:"temp_claim_type,omitempty" yaml:"temp_claim_type,omitempty"`
-	TempDisposition *string  `json:"temp_disposition,omitempty" yaml:"temp_disposition,omitempty"`
+	Audience        string              `json:"audience" yaml:"audience"`
+	RequiredClaims  []string            `json:"required_claims" yaml:"required_claims"`
+	OptionalClaims  []string            `json:"optional_claims" yaml:"optional_claims"`
+	AvailableClaims []string            `json:"available_claims" yaml:"available_claims"`
+	UserChoices     []string            `json:"user_choices" yaml:"user_choices"`
+	TempAudience    *string             `json:"temp_audience,omitempty" yaml:"temp_audience,omitempty"`
+	TempClaimType   *string             `json:"temp_claim_type,omitempty" yaml:"temp_claim_type,omitempty"`
+	TempDisposition *ReleaseDisposition `json:"temp_disposition,omitempty" yaml:"temp_disposition,omitempty"`
 }
 
 // PreviewReleaseRow represents a structured data type
 type PreviewReleaseRow struct {
-	ClaimType      string `json:"claim_type" yaml:"claim_type"`
-	Required       bool   `json:"required" yaml:"required"`
-	Available      bool   `json:"available" yaml:"available"`
-	Locked         bool   `json:"locked" yaml:"locked"`
-	Policy         string `json:"policy" yaml:"policy"`
-	DefaultGranted bool   `json:"default_granted" yaml:"default_granted"`
+	ClaimType      string           `json:"claim_type" yaml:"claim_type"`
+	Required       bool             `json:"required" yaml:"required"`
+	Available      bool             `json:"available" yaml:"available"`
+	Locked         bool             `json:"locked" yaml:"locked"`
+	Policy         ConsentRowPolicy `json:"policy" yaml:"policy"`
+	DefaultGranted bool             `json:"default_granted" yaml:"default_granted"`
 }
 
 // PreviewReleasePolicyResponse represents a structured data type
@@ -2241,11 +3635,11 @@ type InspectSigningRequestRequest struct {
 
 // InspectSigningRequestResponse represents a structured data type
 type InspectSigningRequestResponse struct {
-	SubjectUserId       string   `json:"subject_user_id" yaml:"subject_user_id"`
-	SubjectDomain       string   `json:"subject_domain" yaml:"subject_domain"`
-	RequestedClaimTypes []string `json:"requested_claim_types" yaml:"requested_claim_types"`
-	ExpiresAt           string   `json:"expires_at" yaml:"expires_at"`
-	IssuableClaimTypes  []string `json:"issuable_claim_types" yaml:"issuable_claim_types"`
+	SubjectUserId       string    `json:"subject_user_id" yaml:"subject_user_id"`
+	SubjectDomain       string    `json:"subject_domain" yaml:"subject_domain"`
+	RequestedClaimTypes []string  `json:"requested_claim_types" yaml:"requested_claim_types"`
+	ExpiresAt           time.Time `json:"expires_at" yaml:"expires_at"`
+	IssuableClaimTypes  []string  `json:"issuable_claim_types" yaml:"issuable_claim_types"`
 }
 
 // IssueForSigningRequestRequest represents a structured data type
@@ -2257,10 +3651,10 @@ type IssueForSigningRequestRequest struct {
 
 // IssuedClaimResult represents a structured data type
 type IssuedClaimResult struct {
-	ClaimType string  `json:"claim_type" yaml:"claim_type"`
-	Outcome   string  `json:"outcome" yaml:"outcome"`
-	Message   *string `json:"message,omitempty" yaml:"message,omitempty"`
-	ClaimCode *string `json:"claim_code,omitempty" yaml:"claim_code,omitempty"`
+	ClaimType string             `json:"claim_type" yaml:"claim_type"`
+	Outcome   IssuedClaimOutcome `json:"outcome" yaml:"outcome"`
+	Message   *string            `json:"message,omitempty" yaml:"message,omitempty"`
+	ClaimCode *string            `json:"claim_code,omitempty" yaml:"claim_code,omitempty"`
 }
 
 // IssueForSigningRequestResponse represents a structured data type

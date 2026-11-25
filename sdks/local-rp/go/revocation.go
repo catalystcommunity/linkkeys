@@ -2,6 +2,7 @@ package localrp
 
 import (
 	"crypto/ed25519"
+	"time"
 
 	api "github.com/catalystcommunity/linkkeys/sdks/local-rp/go/generated"
 )
@@ -24,14 +25,21 @@ const revocationTag = "linkkeys-key-revocation-v1alpha"
 // revocationPayload builds the canonical signed bytes: the tag, the target
 // key id + fingerprint, the revocation instant, and the signing sibling's
 // domain (bound per-signature to stop cross-domain reuse of a signature).
-func revocationPayload(targetKeyID, targetFingerprint, revokedAt, signingDomain string) []byte {
+//
+// revokedAt is signed as whole Unix seconds; a time with a fraction of a
+// second cannot be signed and yields an error.
+func revocationPayload(targetKeyID, targetFingerprint string, revokedAt time.Time, signingDomain string) ([]byte, error) {
+	revoked, err := signedTime(revokedAt)
+	if err != nil {
+		return nil, err
+	}
 	return cborTuple(
 		cborText(revocationTag),
 		cborText(targetKeyID),
 		cborText(targetFingerprint),
-		cborText(revokedAt),
+		revoked,
 		cborText(signingDomain),
-	)
+	), nil
 }
 
 // CountRevocationSigners walks a revocation certificate's signatures against
@@ -52,6 +60,11 @@ func revocationPayload(targetKeyID, targetFingerprint, revokedAt, signingDomain 
 //     wire domain claims this one) and Ed25519-verify.
 //  3. Count distinct signed_by_key_id values that verified.
 func CountRevocationSigners(cert api.RevocationCertificate, domainKeys []api.DomainPublicKey, domain string) int {
+	// A revocation time with a fraction of a second was never signed by a
+	// conforming signer: no signature counts.
+	if cert.RevokedAt.Nanosecond() != 0 {
+		return 0
+	}
 	validSigners := make(map[string]bool)
 
 	for _, sig := range cert.Signatures {
@@ -77,8 +90,11 @@ func CountRevocationSigners(cert api.RevocationCertificate, domainKeys []api.Dom
 		if checkSigningKeyValid(*key) != nil {
 			continue
 		}
-		payload := revocationPayload(cert.TargetKeyId, cert.TargetFingerprint, cert.RevokedAt, sig.Domain)
-		if key.Algorithm == "ed25519" && len(key.PublicKey) == ed25519.PublicKeySize &&
+		payload, err := revocationPayload(cert.TargetKeyId, cert.TargetFingerprint, cert.RevokedAt, sig.Domain)
+		if err != nil {
+			return 0
+		}
+		if key.Algorithm == api.KeyAlgorithmEd25519 && len(key.PublicKey) == ed25519.PublicKeySize &&
 			ed25519.Verify(ed25519.PublicKey(key.PublicKey), payload, sig.Signature) {
 			validSigners[sig.SignedByKeyId] = true
 		}
@@ -103,10 +119,15 @@ type RevocationSigner struct {
 // the local-RP SDK itself never calls it in production — only test fixtures
 // (fake IDPs) use it to build realistic revocation certificates for
 // exercising FetchDomainKeys' quorum-verified revocation-drop behavior.
-func SignRevocationCertificate(targetKeyID, targetFingerprint, revokedAt string, signers []RevocationSigner) api.RevocationCertificate {
+//
+// revokedAt must be whole seconds; otherwise an error is returned.
+func SignRevocationCertificate(targetKeyID, targetFingerprint string, revokedAt time.Time, signers []RevocationSigner) (api.RevocationCertificate, error) {
 	signatures := make([]api.ClaimSignature, 0, len(signers))
 	for _, signer := range signers {
-		payload := revocationPayload(targetKeyID, targetFingerprint, revokedAt, signer.Domain)
+		payload, err := revocationPayload(targetKeyID, targetFingerprint, revokedAt, signer.Domain)
+		if err != nil {
+			return api.RevocationCertificate{}, err
+		}
 		sig := signEd25519(signer.PrivateKeySeed, payload)
 		signatures = append(signatures, api.ClaimSignature{
 			Domain:        signer.Domain,
@@ -119,7 +140,7 @@ func SignRevocationCertificate(targetKeyID, targetFingerprint, revokedAt string,
 		TargetFingerprint: targetFingerprint,
 		RevokedAt:         revokedAt,
 		Signatures:        signatures,
-	}
+	}, nil
 }
 
 // VerifyRevocationCertificate verifies a revocation certificate against a

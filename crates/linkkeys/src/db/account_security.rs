@@ -713,6 +713,8 @@ pub mod pg {
                 challenge.user_id,
                 "password",
                 password_hash,
+                None,
+                None,
             )?;
             diesel::update(
                 browser_sessions::table
@@ -763,7 +765,14 @@ pub mod pg {
                 auth_credentials::updated_at.eq(now),
             ))
             .execute(conn)?;
-            crate::db::auth_credentials::pg::create(conn, user_id, "password", password_hash)?;
+            crate::db::auth_credentials::pg::create(
+                conn,
+                user_id,
+                "password",
+                password_hash,
+                None,
+                None,
+            )?;
             diesel::update(
                 browser_sessions::table
                     .filter(browser_sessions::user_id.eq(user_id))
@@ -1664,6 +1673,8 @@ pub mod sqlite {
                 &c.user_id,
                 "password",
                 password_hash,
+                None,
+                None,
             )?;
             diesel::update(
                 browser_sessions::table
@@ -1713,7 +1724,14 @@ pub mod sqlite {
                 auth_credentials::updated_at.eq(&now),
             ))
             .execute(conn)?;
-            crate::db::auth_credentials::sqlite::create(conn, user_id, "password", password_hash)?;
+            crate::db::auth_credentials::sqlite::create(
+                conn,
+                user_id,
+                "password",
+                password_hash,
+                None,
+                None,
+            )?;
             diesel::update(
                 browser_sessions::table
                     .filter(browser_sessions::user_id.eq(user_id))

@@ -15,9 +15,9 @@ public class RevocationsConformanceTests
         k.Get("fingerprint_hex").AsString(),
         k.Get("algorithm").AsString(),
         k.Get("key_usage").AsString(),
-        k.Get("created_at").AsString(),
-        k.Get("expires_at").AsString(),
-        k.GetStringOrNull("revoked_at"),
+        k.Get("created_at").AsTime(),
+        k.Get("expires_at").AsTime(),
+        k.GetTimeOrNull("revoked_at"),
         null,
         null);
 
@@ -35,7 +35,7 @@ public class RevocationsConformanceTests
         return new RevocationCertificate(
             certNode.Get("target_key_id").AsString(),
             certNode.Get("target_fingerprint").AsString(),
-            certNode.Get("revoked_at").AsString(),
+            certNode.Get("revoked_at").AsTime(),
             signatures);
     }
 

@@ -50,7 +50,7 @@ def test_check_timestamps_skew_boundaries_are_exact(expirations):
         now = _parse(case["now"])
         expected_valid = case["expected_valid"]
         try:
-            check_timestamps(issued_at, expires_at, now, skew)
+            check_timestamps(_parse(issued_at), _parse(expires_at), now, skew)
             valid = True
         except Exception:
             valid = False

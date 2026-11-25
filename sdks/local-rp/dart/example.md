@@ -266,17 +266,35 @@ complete `verify-assertion`/`userinfo-fetch` at all, per
 
 ```
 service Rp {
-    sign-request:      RpSignRequest      -> RpSignResponse,
-    decrypt-token:      RpDecryptRequest   -> RpDecryptResponse,
-    verify-assertion:   RpVerifyRequest    -> RpVerifyResponse,
-    userinfo-fetch:     RpUserInfoRequest  -> UserInfo,
+    sign-request:      RpSignRequest      -> RpSignResponse / RpError,
+    decrypt-token:      RpDecryptRequest   -> RpDecryptResponse / RpError,
+    verify-assertion:   RpVerifyRequest    -> RpVerifyResponse / RpError,
+    userinfo-fetch:     RpUserInfoRequest  -> UserInfo / RpError,
     issue-attestation:  RpIssueAttestationRequest -> RpIssueAttestationResponse
 }
 ```
 
+The first four operations have two reply arms. The response envelope has
+status 0 and a `variant` field. The `variant` is the name of the success
+type (for example `RpSignResponse`), or `RpError`. An `RpError` payload is
+`{code: RpErrorCode, message: text}`. The client must examine `variant` and
+must show an `RpError` as an error.
+
+Wire types in these messages:
+
+- A `timestamp` field is CBOR tag 0 around RFC 3339 text in UTC
+  (`c0 74 "2026-01-01T00:00:00Z"`).
+- A closed vocabulary (`ClaimValueType`, `RpErrorCode`, ...) is a CBOR
+  unsigned integer. For `ClaimValueType`: text=1, url=2, email=3, bool=4,
+  int=5, float=6, decimal=7, date=8, timestamp=9, opaque=10. For
+  `RpErrorCode`: not_application_account=1, application_mismatch=2,
+  application_user_limit=3, bad_request=4, upstream_failed=5, internal=6.
+
 1. **`Rp/sign-request`** `{callback_url, nonce, ?requested_claims}` →
    `{signed_request}`. Your app mints a fresh single-use `nonce` before ever
-   redirecting the browser.
+   redirecting the browser. The request has no `application_id`. The RP
+   server names the application from the API-key account that calls it,
+   so this account must be an application account.
 2. **Redirect the browser** to
    `https://<user's chosen domain>/auth/authorize?signed_request=<...>`
    (`username=` is optional). `GET /auth/authorize` uses `signed_request`
@@ -287,7 +305,9 @@ service Rp {
 4. **`Rp/decrypt-token`** `{encrypted_token}` → `{signed_assertion}`. Only
    your RP server (holder of your domain's private key) can do this.
 5. **`Rp/verify-assertion`** `{signed_assertion, expected_domain}` →
-   `{assertion, verified}`. **Check `verified` explicitly** — a call that
+   `{assertion, verified}`. The `assertion` includes `application`
+   (`{subject_user_id, subject_domain, application_id}`), the application
+   that the login is for. **Check `verified` explicitly** — a call that
    doesn't throw only means the round trip succeeded, not that the assertion
    is trustworthy. Nonce single-use is your app's job, not the server's.
 6. **`Rp/userinfo-fetch`** (optional) `{token, api_base, domain}` → claims.
@@ -420,9 +440,10 @@ dev_dependencies:
 //
 // Supported subset: unsigned/negative integers, byte strings, UTF-8 text
 // strings, booleans, null, definite-length arrays and maps (text-string keys
-// only, RFC 8949 4.2.1 canonical key ordering on encode), and tag 24
+// only, RFC 8949 4.2.1 canonical key ordering on encode), tag 24
 // ("encoded CBOR data item", used only for the RPC envelope's `payload`
-// field). Indefinite-length items are not supported -- the CSIL-RPC
+// field), and tag 0 (a CSIL `timestamp`: RFC 3339 text in UTC, decoded to a
+// UTC `DateTime`). Indefinite-length items are not supported -- the CSIL-RPC
 // transport and this protocol never emit them.
 library;
 
@@ -531,8 +552,9 @@ class CborLiteDecodeException implements Exception {
 }
 
 /// Decode a single top-level CBOR data item. Returns `null`, `bool`, `int`,
-/// `String`, `Uint8List`, `List<Object?>`, `Map<String, Object?>`, or
-/// [CborTag24] (for a tag-24-wrapped byte string). Trailing bytes after the
+/// `String`, `Uint8List`, `List<Object?>`, `Map<String, Object?>`,
+/// [CborTag24] (for a tag-24-wrapped byte string), or a UTC `DateTime` (for
+/// a tag-0 timestamp). Trailing bytes after the
 /// item are rejected -- every wire message this app decodes is exactly one
 /// CBOR item.
 Object? cborDecode(Uint8List data) {
@@ -623,6 +645,18 @@ class _Reader {
           }
           return CborTag24(inner);
         }
+        if (tag == 0) {
+          // CSIL `timestamp`: RFC 3339 text with an explicit offset.
+          if (inner is! String ||
+              !RegExp(r'([Zz]|[+-]\d{2}:\d{2})$').hasMatch(inner)) {
+            throw CborLiteDecodeException('tag 0 is not RFC 3339 text');
+          }
+          final t = DateTime.tryParse(inner);
+          if (t == null) {
+            throw CborLiteDecodeException('tag 0 is not RFC 3339 text');
+          }
+          return t.toUtc();
+        }
         throw CborLiteDecodeException('unsupported CBOR tag $tag');
       case 7:
         if (ai == 20) return false;
@@ -657,6 +691,17 @@ Object? cborRequire(Object? map, String key) {
 String cborAsText(Object? v) {
   if (v is String) return v;
   throw CborLiteDecodeException('expected a CBOR text string, got $v');
+}
+
+int cborAsInt(Object? v) {
+  if (v is int) return v;
+  throw CborLiteDecodeException('expected a CBOR integer, got $v');
+}
+
+/// A CSIL `timestamp` (tag 0). Text without the tag is refused.
+DateTime cborAsTime(Object? v) {
+  if (v is DateTime) return v;
+  throw CborLiteDecodeException('expected a CBOR tag 0 timestamp, got $v');
 }
 
 bool cborAsBool(Object? v) {
@@ -694,6 +739,17 @@ List<Object?> cborRequireArray(Object? map, String key) =>
 String? cborOptText(Object? map, String key) {
   final v = cborMapGet(map, key);
   return v == null ? null : cborAsText(v);
+}
+
+int cborRequireInt(Object? map, String key) =>
+    cborAsInt(cborRequire(map, key));
+
+DateTime cborRequireTime(Object? map, String key) =>
+    cborAsTime(cborRequire(map, key));
+
+DateTime? cborOptTime(Object? map, String key) {
+  final v = cborMapGet(map, key);
+  return v == null ? null : cborAsTime(v);
 }
 ```
 
@@ -744,6 +800,18 @@ class RpCallError implements Exception {
 
   @override
   String toString() => 'RpCallError: $message';
+}
+
+/// The `RpError` reply arm of an `Rp` operation. [code] is the CSIL
+/// `RpErrorCode` number (not_application_account=1, application_mismatch=2,
+/// application_user_limit=3, bad_request=4, upstream_failed=5, internal=6).
+class RpErrorReply implements Exception {
+  final int code;
+  final String message;
+  RpErrorReply(this.code, this.message);
+
+  @override
+  String toString() => 'RpErrorReply($code): $message';
 }
 
 /// This app's connection to its own co-located RP server (see
@@ -833,8 +901,10 @@ Uint8List _encodeRpcRequest({
 class _RpcResponse {
   final int status;
   final Uint8List payload;
+  final String? variant;
   final String? error;
-  const _RpcResponse({required this.status, required this.payload, this.error});
+  const _RpcResponse(
+      {required this.status, required this.payload, this.variant, this.error});
 }
 
 _RpcResponse _decodeRpcResponse(Uint8List bytes) {
@@ -850,7 +920,10 @@ _RpcResponse _decodeRpcResponse(Uint8List bytes) {
   final payloadField = cborMapGet(env, 'payload');
   final payload = payloadField is CborTag24 ? payloadField.bytes : Uint8List(0);
   return _RpcResponse(
-      status: status, payload: payload, error: cborOptText(env, 'error'));
+      status: status,
+      payload: payload,
+      variant: cborOptText(env, 'variant'),
+      error: cborOptText(env, 'error'));
 }
 
 Future<void> _sendFrame(Socket sock, Uint8List data) async {
@@ -897,8 +970,12 @@ class _FrameReader {
 /// Make one API-key-authenticated `Rp/<op>` call. [transport] is the SDK's
 /// own [Transport] seam (typically [StdTransport]) -- see the file doc
 /// comment for why there is deliberately no TLS step here.
-Future<Uint8List> rpCall(
-    Transport transport, RpConfig rp, String op, Uint8List payload) async {
+///
+/// [okVariant] is the name of the success reply type (for example
+/// `RpSignResponse`). A reply with variant `RpError` throws [RpErrorReply].
+/// A reply with a different variant throws [RpCallError].
+Future<Uint8List> rpCall(Transport transport, RpConfig rp, String op,
+    Uint8List payload, String okVariant) async {
   final sock = await transport.dial(rp.tcpAddr);
   try {
     final reqBytes = _encodeRpcRequest(
@@ -908,6 +985,15 @@ Future<Uint8List> rpCall(
     if (resp.status != 0) {
       final detail = resp.error == null ? '' : ': ${resp.error}';
       throw RpCallError('Rp/$op: server status ${resp.status}$detail');
+    }
+    if (resp.variant == 'RpError') {
+      final err = cborDecode(resp.payload);
+      throw RpErrorReply(
+          cborRequireInt(err, 'code'), cborRequireText(err, 'message'));
+    }
+    if (resp.variant != okVariant) {
+      throw RpCallError(
+          'Rp/$op: unexpected reply variant ${resp.variant}, want $okVariant');
     }
     return resp.payload;
   } finally {
@@ -920,14 +1006,19 @@ Future<Uint8List> rpCall(
 // for the same reason as the envelope codec above.
 // -----------------------------------------------------------------
 
-Map<String, Object?> _requestedClaim(String claimType, String datatype) =>
+/// `csil/linkkeys.csil`'s `ClaimValueType` numbers (the ones this example
+/// uses). On the wire, `datatype` is the number.
+const int claimValueTypeText = 1;
+const int claimValueTypeEmail = 3;
+
+Map<String, Object?> _requestedClaim(String claimType, int datatype) =>
     {'claim_type': claimType, 'datatype': datatype};
 
 /// Adjust to whatever claims your app actually needs. Matches the shape of
 /// `csil/linkkeys.csil`'s `ClaimRequest`/`RequestedClaim`.
 Map<String, Object?> defaultClaimRequest() => {
-      'required': [_requestedClaim('display_name', 'text')],
-      'optional': [_requestedClaim('email', 'email')],
+      'required': [_requestedClaim('display_name', claimValueTypeText)],
+      'optional': [_requestedClaim('email', claimValueTypeEmail)],
     };
 
 /// Step 1: sign an auth request addressed to the user's chosen LinkKeys
@@ -944,7 +1035,8 @@ Future<String> signRequest(
     'nonce': nonce,
     'requested_claims': requestedClaims ?? defaultClaimRequest(),
   });
-  final respBytes = await rpCall(transport, rp, 'sign-request', payload);
+  final respBytes =
+      await rpCall(transport, rp, 'sign-request', payload, 'RpSignResponse');
   return cborRequireText(cborDecode(respBytes), 'signed_request');
 }
 
@@ -955,8 +1047,29 @@ Future<String> decryptToken(
     Transport transport, RpConfig rp, String encryptedToken) async {
   final payload =
       cborEncode(<String, Object?>{'encrypted_token': encryptedToken});
-  final respBytes = await rpCall(transport, rp, 'decrypt-token', payload);
+  final respBytes = await rpCall(
+      transport, rp, 'decrypt-token', payload, 'RpDecryptResponse');
   return cborRequireText(cborDecode(respBytes), 'signed_assertion');
+}
+
+/// `csil/linkkeys.csil`'s `ApplicationRef`: the application that a login
+/// is for.
+class AssertionApplication {
+  final String subjectUserId;
+  final String subjectDomain;
+  final String applicationId;
+
+  const AssertionApplication({
+    required this.subjectUserId,
+    required this.subjectDomain,
+    required this.applicationId,
+  });
+
+  static AssertionApplication _fromCbor(Object? v) => AssertionApplication(
+        subjectUserId: cborRequireText(v, 'subject_user_id'),
+        subjectDomain: cborRequireText(v, 'subject_domain'),
+        applicationId: cborRequireText(v, 'application_id'),
+      );
 }
 
 /// `csil/linkkeys.csil`'s `IdentityAssertion`.
@@ -965,10 +1078,11 @@ class IdentityAssertion {
   final String domain;
   final String audience;
   final String nonce;
-  final String issuedAt;
-  final String expiresAt;
+  final DateTime issuedAt;
+  final DateTime expiresAt;
   final List<String> authorizedClaims;
   final String? displayName;
+  final AssertionApplication application;
 
   const IdentityAssertion({
     required this.userId,
@@ -979,6 +1093,7 @@ class IdentityAssertion {
     required this.expiresAt,
     required this.authorizedClaims,
     this.displayName,
+    required this.application,
   });
 
   static IdentityAssertion _fromCbor(Object? v) {
@@ -988,10 +1103,12 @@ class IdentityAssertion {
       domain: cborRequireText(v, 'domain'),
       audience: cborRequireText(v, 'audience'),
       nonce: cborRequireText(v, 'nonce'),
-      issuedAt: cborRequireText(v, 'issued_at'),
-      expiresAt: cborRequireText(v, 'expires_at'),
+      issuedAt: cborRequireTime(v, 'issued_at'),
+      expiresAt: cborRequireTime(v, 'expires_at'),
       authorizedClaims: [for (final c in claims) cborAsText(c)],
       displayName: cborOptText(v, 'display_name'),
+      application:
+          AssertionApplication._fromCbor(cborRequireMap(v, 'application')),
     );
   }
 }
@@ -1016,7 +1133,8 @@ Future<VerifyResult> verifyAssertion(
     'signed_assertion': signedAssertion,
     'expected_domain': expectedDomain,
   });
-  final respBytes = await rpCall(transport, rp, 'verify-assertion', payload);
+  final respBytes = await rpCall(
+      transport, rp, 'verify-assertion', payload, 'RpVerifyResponse');
   final resp = cborDecode(respBytes);
   return VerifyResult(
     IdentityAssertion._fromCbor(cborRequireMap(resp, 'assertion')),
@@ -1032,10 +1150,10 @@ Claim _decodeClaim(Object? v) {
     claimType: cborRequireText(v, 'claim_type'),
     claimValue: cborAsBytes(cborRequire(v, 'claim_value')),
     signatures: [for (final s in sigs) _decodeClaimSignature(s)],
-    attestedAt: cborRequireText(v, 'attested_at'),
-    createdAt: cborRequireText(v, 'created_at'),
-    expiresAt: cborOptText(v, 'expires_at'),
-    revokedAt: cborOptText(v, 'revoked_at'),
+    attestedAt: cborRequireTime(v, 'attested_at'),
+    createdAt: cborRequireTime(v, 'created_at'),
+    expiresAt: cborOptTime(v, 'expires_at'),
+    revokedAt: cborOptTime(v, 'revoked_at'),
   );
 }
 
@@ -1080,7 +1198,8 @@ Future<UserInfo> userInfoFetch(
     'api_base': apiBase,
     'domain': domain,
   });
-  final respBytes = await rpCall(transport, rp, 'userinfo-fetch', payload);
+  final respBytes =
+      await rpCall(transport, rp, 'userinfo-fetch', payload, 'UserInfo');
   final resp = cborDecode(respBytes);
   final claims = cborRequireArray(resp, 'claims');
   return UserInfo(

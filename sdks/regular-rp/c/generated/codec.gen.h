@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "types.gen.h"
+#include "csil_timestamp.gen.h"
 
 /* ===== self-contained canonical CBOR codec (RFC 8949 subset) ===== */
 
@@ -66,6 +67,60 @@ static inline int csilc_buf_append(csilc_buf *b, const uint8_t *p, size_t n) {
     if (csilc_buf_reserve(b, n)) return -1;
     memcpy(b->data + b->len, p, n);
     b->len += n;
+    return 0;
+}
+
+/* The bytewise order of the encoded keys of map entries i and j (RFC 8949 4.2.1).
+ * marks[2k] is where entry k's key starts and marks[2k+1] where its value starts. */
+static inline int csilc_key_cmp(const uint8_t *base, const size_t *marks, size_t i, size_t j) {
+    size_t li = marks[2 * i + 1] - marks[2 * i];
+    size_t lj = marks[2 * j + 1] - marks[2 * j];
+    int c = memcmp(base + marks[2 * i], base + marks[2 * j], li < lj ? li : lj);
+    if (c) return c;
+    return li < lj ? -1 : (li > lj ? 1 : 0);
+}
+
+/* Reorder the n map entries already written into b (bounded by marks, with
+ * marks[2n] the end of the last entry) into canonical key order. A bottom-up merge
+ * sort needs no comparator context, which qsort cannot carry. Two equal keys are
+ * an error: canonical CBOR has no duplicate map keys. */
+static inline int csilc_sort_map_entries(csilc_buf *b, const size_t *marks, size_t n) {
+    if (n < 2) return 0;
+    if (n > SIZE_MAX / (2 * sizeof(size_t))) return -1;
+    size_t *order = (size_t *)malloc(2 * n * sizeof(size_t));
+    if (!order) return -1;
+    size_t *tmp = order + n;
+    for (size_t i = 0; i < n; i++) order[i] = i;
+    for (size_t w = 1; w < n; w = w > n / 2 ? n : w * 2) {
+        for (size_t lo = 0; lo < n; lo += 2 * w) {
+            size_t mid = w < n - lo ? lo + w : n;
+            size_t hi = 2 * w < n - lo ? lo + 2 * w : n;
+            size_t i = lo, j = mid, k = lo;
+            while (i < mid && j < hi) {
+                tmp[k++] = csilc_key_cmp(b->data, marks, order[j], order[i]) < 0 ? order[j++] : order[i++];
+            }
+            while (i < mid) tmp[k++] = order[i++];
+            while (j < hi) tmp[k++] = order[j++];
+        }
+        memcpy(order, tmp, n * sizeof(size_t));
+    }
+    for (size_t i = 1; i < n; i++) {
+        if (csilc_key_cmp(b->data, marks, order[i - 1], order[i]) == 0) { free(order); return -1; }
+    }
+    size_t start = marks[0];
+    size_t total = marks[2 * n] - start;
+    uint8_t *copy = (uint8_t *)malloc(total);
+    if (!copy) { free(order); return -1; }
+    memcpy(copy, b->data + start, total);
+    size_t at = start;
+    for (size_t i = 0; i < n; i++) {
+        size_t e = order[i];
+        size_t len = marks[2 * e + 2] - marks[2 * e];
+        memcpy(b->data + at, copy + (marks[2 * e] - start), len);
+        at += len;
+    }
+    free(copy);
+    free(order);
     return 0;
 }
 
@@ -223,6 +278,11 @@ typedef struct csilc_value csilc_value;
 typedef struct csilc_pair {
     csilc_value *key;
     csilc_value *val;
+    /* Where the key's encoded bytes start, relative to the map's own first byte,
+     * and how many there are. Offsets, not pointers, because the input buffer does
+     * not outlive the decode call. */
+    size_t key_at;
+    size_t key_len;
 } csilc_pair;
 
 struct csilc_value {
@@ -243,6 +303,15 @@ struct csilc_value {
         struct {
             csilc_pair *pairs;
             size_t count;
+            /* The encoded keys are strictly ascending in bytewise order (RFC 8949
+             * 4.2.1). A dynamic map must arrive so; a record may not. */
+            bool canonical;
+            /* Some encoded key occurs twice. Only computed when not canonical. */
+            bool duplicate;
+            /* Some key's head is longer than its value or length needs
+             * ("csil cbor: map key is not in shortest form"). Such a map is not
+             * canonical either, because one key would have two byte forms. */
+            bool long_key;
         } map;
         struct {
             uint64_t num;
@@ -343,6 +412,58 @@ static inline double csilc_half_to_double(uint16_t h) {
     return (double)f;
 }
 
+/* Whether the head of the already decoded item at b uses the shortest argument for
+ * its value or length (RFC 8949 4.2.1). A float (major 7) has no such rule. */
+static inline bool csilc_shortest_head(const uint8_t *b) {
+    uint8_t major = b[0] >> 5;
+    uint8_t low = b[0] & 0x1f;
+    if (major == 7 || low < 24) return true;
+    uint64_t arg = 0;
+    size_t width = (size_t)1 << (low - 24);
+    for (size_t i = 1; i <= width; i++) arg = (arg << 8) | (uint64_t)b[i];
+    static const uint64_t floor_of[] = {24u, 0x100u, 0x10000u, 0x100000000u};
+    return arg >= floor_of[low - 24];
+}
+
+/* The bytewise order of two encoded map keys of one map that starts at base. */
+static inline int csilc_span_cmp(const uint8_t *base, const csilc_pair *x, const csilc_pair *y) {
+    size_t n = x->key_len < y->key_len ? x->key_len : y->key_len;
+    int c = memcmp(base + x->key_at, base + y->key_at, n);
+    if (c) return c;
+    return x->key_len < y->key_len ? -1 : (x->key_len > y->key_len ? 1 : 0);
+}
+
+/* 1 when two of the n keys have the same encoding, 0 when not, -1 when out of
+ * memory. A merge sort of the key spans keeps this O(n log n) for a hostile map
+ * that is not in canonical order; a canonical map never comes here. */
+static inline int csilc_has_duplicate_key(const uint8_t *base, const csilc_pair *pairs, size_t n) {
+    if (n < 2) return 0;
+    if (n > SIZE_MAX / (2 * sizeof(size_t))) return -1;
+    size_t *order = (size_t *)malloc(2 * n * sizeof(size_t));
+    if (!order) return -1;
+    size_t *tmp = order + n;
+    for (size_t i = 0; i < n; i++) order[i] = i;
+    for (size_t w = 1; w < n; w = w > n / 2 ? n : w * 2) {
+        for (size_t lo = 0; lo < n; lo += 2 * w) {
+            size_t mid = w < n - lo ? lo + w : n;
+            size_t hi = 2 * w < n - lo ? lo + 2 * w : n;
+            size_t i = lo, j = mid, k = lo;
+            while (i < mid && j < hi) {
+                tmp[k++] = csilc_span_cmp(base, &pairs[order[j]], &pairs[order[i]]) < 0 ? order[j++] : order[i++];
+            }
+            while (i < mid) tmp[k++] = order[i++];
+            while (j < hi) tmp[k++] = order[j++];
+        }
+        memcpy(order, tmp, n * sizeof(size_t));
+    }
+    int dup = 0;
+    for (size_t i = 1; i < n && !dup; i++) {
+        if (csilc_span_cmp(base, &pairs[order[i - 1]], &pairs[order[i]]) == 0) dup = 1;
+    }
+    free(order);
+    return dup;
+}
+
 static inline int csilc_decode_value(CsilCodecArena *a, const uint8_t *b, size_t len,
                               csilc_value *out, size_t *consumed, size_t depth) {
     if (depth > 64) return -1;
@@ -413,6 +534,8 @@ static inline int csilc_decode_value(CsilCodecArena *a, const uint8_t *b, size_t
             if (!pairs) return -1;
         }
         size_t off = head;
+        bool canonical = true;
+        bool long_key = false;
         for (uint64_t i = 0; i < arg; i++) {
             if (i == cap) {
                 size_t grown = cap * 2 < (size_t)arg ? cap * 2 : (size_t)arg;
@@ -425,6 +548,11 @@ static inline int csilc_decode_value(CsilCodecArena *a, const uint8_t *b, size_t
             if (!k || !v) return -1;
             size_t m = 0;
             if (csilc_decode_value(a, b + off, len - off, k, &m, depth + 1)) return -1;
+            pairs[i].key_at = off;
+            pairs[i].key_len = m;
+            if (!csilc_shortest_head(b + off)) long_key = true;
+            /* Comparing each key with the one before keeps the order check O(n). */
+            if (canonical && i > 0 && csilc_span_cmp(b, &pairs[i - 1], &pairs[i]) >= 0) canonical = false;
             off += m;
             if (csilc_decode_value(a, b + off, len - off, v, &m, depth + 1)) return -1;
             off += m;
@@ -434,6 +562,15 @@ static inline int csilc_decode_value(CsilCodecArena *a, const uint8_t *b, size_t
         out->kind = CSILC_MAP;
         out->as.map.pairs = pairs;
         out->as.map.count = (size_t)arg;
+        if (long_key) canonical = false;
+        out->as.map.canonical = canonical;
+        out->as.map.duplicate = false;
+        out->as.map.long_key = long_key;
+        if (!canonical) {
+            int dup = csilc_has_duplicate_key(b, pairs, (size_t)arg);
+            if (dup < 0) return -1;
+            out->as.map.duplicate = dup == 1;
+        }
         *consumed = off;
         return 0;
     }
@@ -606,6 +743,225 @@ static inline bool csilc_get_date(const csilc_value *v, const char **out) {
         && csilc_valid_date(*out);
 }
 
+/* The longest canonical timestamp, `YYYY-MM-DDThh:mm:ss.fffffffffZ`, plus its NUL. */
+#define CSILC_TIMESTAMP_CAP 31
+/* `0001-01-01T00:00:00Z` and `9999-12-31T23:59:59Z` as epoch seconds. */
+#define CSILC_EPOCH_FIRST INT64_C(-62135596800)
+#define CSILC_EPOCH_LAST INT64_C(253402300799)
+
+static inline bool csilc_ts_digits(const char *s, size_t n, size_t at, size_t width, int64_t *out) {
+    if (at + width > n) return false;
+    int64_t v = 0;
+    for (size_t i = at; i < at + width; i++) {
+        if (s[i] < '0' || s[i] > '9') return false;
+        v = v * 10 + (s[i] - '0');
+    }
+    *out = v;
+    return true;
+}
+
+/* C division truncates toward zero; the civil-date arithmetic needs floor. */
+static inline int64_t csilc_floor_div(int64_t a, int64_t b) {
+    int64_t q = a / b;
+    return (a % b != 0 && ((a < 0) != (b < 0))) ? q - 1 : q;
+}
+
+static inline int64_t csilc_days_from_civil(int64_t y, int64_t m, int64_t d) {
+    y -= m <= 2;
+    int64_t era = csilc_floor_div(y, 400);
+    int64_t yoe = y - era * 400;
+    int64_t doy = (153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1;
+    int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + doe - 719468;
+}
+
+static inline void csilc_ts_put(char *out, size_t at, int64_t v, size_t width) {
+    while (width > 0) {
+        width--;
+        out[at + width] = (char)('0' + v % 10);
+        v /= 10;
+    }
+}
+
+/* Read the strict RFC 3339 form of the wire contract into UTC epoch seconds and
+ * nanoseconds. The year must be 0001 to 9999 after conversion to UTC. */
+static inline bool csilc_timestamp_parse(const char *s, size_t n, int64_t *epoch, int64_t *nanos_out) {
+    int64_t year, month, day, hour, minute, second, nanos = 0, offset = 0;
+    if (n < 20 || s[4] != '-' || s[7] != '-' || (s[10] != 'T' && s[10] != 't') ||
+        s[13] != ':' || s[16] != ':') {
+        return 0;
+    }
+    if (!csilc_ts_digits(s, n, 0, 4, &year) || !csilc_ts_digits(s, n, 5, 2, &month) ||
+        !csilc_ts_digits(s, n, 8, 2, &day) || !csilc_ts_digits(s, n, 11, 2, &hour) ||
+        !csilc_ts_digits(s, n, 14, 2, &minute) || !csilc_ts_digits(s, n, 17, 2, &second)) {
+        return 0;
+    }
+    bool leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    const int64_t days[] = {31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (year < 1 || month < 1 || month > 12 || day < 1 || day > days[month - 1] || hour > 23 ||
+        minute > 59 || second > 59) {
+        return 0;
+    }
+    size_t i = 19;
+    if (s[i] == '.') {
+        size_t start = ++i;
+        while (i < n && s[i] >= '0' && s[i] <= '9') i++;
+        size_t width = i - start;
+        if (width < 1 || width > 9 || !csilc_ts_digits(s, n, start, width, &nanos)) return 0;
+        for (; width < 9; width++) nanos *= 10;
+    }
+    if (i >= n) return 0;
+    if ((s[i] == 'Z' || s[i] == 'z') && i + 1 == n) {
+        offset = 0;
+    } else if ((s[i] == '+' || s[i] == '-') && i + 6 == n && s[i + 3] == ':') {
+        int64_t oh, om;
+        if (!csilc_ts_digits(s, n, i + 1, 2, &oh) || !csilc_ts_digits(s, n, i + 4, 2, &om) ||
+            oh > 23 || om > 59) {
+            return 0;
+        }
+        offset = (oh * 3600 + om * 60) * (s[i] == '-' ? -1 : 1);
+    } else {
+        return 0;
+    }
+    int64_t utc = csilc_days_from_civil(year, month, day) * 86400 + hour * 3600 + minute * 60 +
+                  second - offset;
+    if (utc < CSILC_EPOCH_FIRST || utc > CSILC_EPOCH_LAST) return false;
+    *epoch = utc;
+    *nanos_out = nanos;
+    return true;
+}
+
+/* Write the canonical UTC text for an instant already known to lie in years
+ * 0001 to 9999, so that both wire forms produce the same text. */
+static inline size_t csilc_timestamp_write(int64_t utc, int64_t nanos, char out[CSILC_TIMESTAMP_CAP]) {
+    int64_t z = csilc_floor_div(utc, 86400) + 719468;
+    int64_t sod = utc - csilc_floor_div(utc, 86400) * 86400;
+    int64_t era = csilc_floor_div(z, 146097);
+    int64_t doe = z - era * 146097;
+    int64_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    int64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    int64_t mp = (5 * doy + 2) / 153;
+    int64_t d = doy - (153 * mp + 2) / 5 + 1;
+    int64_t m = mp < 10 ? mp + 3 : mp - 9;
+    int64_t y = yoe + era * 400 + (m <= 2);
+    csilc_ts_put(out, 0, y, 4);
+    out[4] = '-';
+    csilc_ts_put(out, 5, m, 2);
+    out[7] = '-';
+    csilc_ts_put(out, 8, d, 2);
+    out[10] = 'T';
+    csilc_ts_put(out, 11, sod / 3600, 2);
+    out[13] = ':';
+    csilc_ts_put(out, 14, sod / 60 % 60, 2);
+    out[16] = ':';
+    csilc_ts_put(out, 17, sod % 60, 2);
+    size_t len = 19;
+    if (nanos != 0) {
+        /* The fewest of 3, 6, or 9 digits that hold the value exactly, so every
+         * peer writes the same bytes for the same instant. */
+        size_t width = nanos % 1000000 == 0 ? 3 : nanos % 1000 == 0 ? 6 : 9;
+        int64_t scaled = width == 3 ? nanos / 1000000 : width == 6 ? nanos / 1000 : nanos;
+        out[len++] = '.';
+        csilc_ts_put(out, len, scaled, width);
+        len += width;
+    }
+    out[len++] = 'Z';
+    out[len] = 0;
+    return len;
+}
+
+/* Validate the strict RFC 3339 form of the wire contract and write the canonical
+ * UTC spelling to `out`, so equal instants compare equal as text. Returns the
+ * canonical length, or 0 when `s` is not a valid timestamp. */
+static inline size_t csilc_timestamp_canon(const char *s, size_t n, char out[CSILC_TIMESTAMP_CAP],
+                                           int64_t *epoch) {
+    int64_t nanos;
+    if (!csilc_timestamp_parse(s, n, epoch, &nanos)) return 0;
+    return csilc_timestamp_write(*epoch, nanos, out);
+}
+
+/* Decoded text that is already canonical is borrowed as is; only a value that
+ * needs normalizing costs an arena copy. */
+static inline bool csilc_get_timestamp(const csilc_value *v, CsilCodecArena *a, const char **text,
+                                       int64_t *epoch) {
+    const char *raw;
+    if (!csilc_get_tagged_text(v, 0, &raw)) return false;
+    size_t n = v->as.tag.content->as.bytes.len;
+    char buf[CSILC_TIMESTAMP_CAP];
+    size_t len = csilc_timestamp_canon(raw, n, buf, epoch);
+    if (!len) return false;
+    if (len == n && memcmp(buf, raw, n) == 0) {
+        *text = raw;
+        return true;
+    }
+    char *copy = (char *)csilc_arena_alloc(a, len + 1);
+    if (!copy) return false;
+    memcpy(copy, buf, len + 1);
+    *text = copy;
+    return true;
+}
+
+/* A caller-built value is normalized too, so the wire never carries an offset,
+ * lowercase separators, or a non-minimal fraction. */
+static inline int csilc_w_timestamp(csilc_buf *b, const char *text) {
+    char buf[CSILC_TIMESTAMP_CAP];
+    int64_t epoch;
+    size_t len = text ? csilc_timestamp_canon(text, strlen(text), buf, &epoch) : 0;
+    if (!len || csilc_w_tag(b, 0)) return -1;
+    return csilc_w_text(b, buf, len);
+}
+
+/* `cddl_time`: tag 1 around epoch seconds, kept as the same canonical text as a
+ * `timestamp` so both wire forms compare equal for one instant. */
+static inline bool csilc_get_epoch(const csilc_value *v, CsilCodecArena *a, const char **text,
+                                   int64_t *epoch) {
+    if (!v || v->kind != CSILC_TAG || v->as.tag.num != 1) return false;
+    const csilc_value *c = v->as.tag.content;
+    int64_t seconds, units = 0;
+    if (c->kind == CSILC_UINT) {
+        if (c->as.u > (uint64_t)CSILC_EPOCH_LAST) return false;
+        seconds = (int64_t)c->as.u;
+    } else if (c->kind == CSILC_NINT) {
+        seconds = c->as.i;
+    } else if (c->kind == CSILC_FLOAT) {
+        double value = c->as.f;
+        /* The range test also refuses NaN and infinity, and it comes before the
+         * conversion to an integer, which is undefined behavior out of range. */
+        if (!(value >= (double)(CSILC_EPOCH_FIRST - 1) && value <= (double)(CSILC_EPOCH_LAST + 1)))
+            return false;
+        seconds = (int64_t)value;
+        if ((double)seconds > value) seconds--;
+        /* Separate volatile stores keep the compiler from fusing the multiply and
+         * the add into one operation, which can round differently. */
+        volatile double scaled = (value - (double)seconds) * 1e9;
+        volatile double shifted = scaled + 0.5;
+        units = (int64_t)shifted;
+        if (units == 1000000000) {
+            seconds++;
+            units = 0;
+        }
+    } else {
+        return false;
+    }
+    if (seconds < CSILC_EPOCH_FIRST || seconds > CSILC_EPOCH_LAST) return false;
+    char buf[CSILC_TIMESTAMP_CAP];
+    size_t len = csilc_timestamp_write(seconds, units, buf);
+    char *copy = (char *)csilc_arena_alloc(a, len + 1);
+    if (!copy) return false;
+    memcpy(copy, buf, len + 1);
+    *text = copy;
+    *epoch = seconds;
+    return true;
+}
+
+static inline int csilc_w_epoch(csilc_buf *b, const char *text) {
+    int64_t seconds, nanos;
+    if (!text || !csilc_timestamp_parse(text, strlen(text), &seconds, &nanos) || csilc_w_tag(b, 1))
+        return -1;
+    if (nanos == 0) return csilc_w_int(b, seconds);
+    return csilc_w_f64(b, (double)seconds + (double)nanos / 1e9);
+}
+
 static inline bool csilc_get_decimal(const csilc_value *v, int64_t *exp, int64_t *mant) {
     if (!v || v->kind != CSILC_TAG || v->as.tag.num != 4) return false;
     const csilc_value *arr = v->as.tag.content;
@@ -654,6 +1010,58 @@ static inline int csilc_enc_CheckEntries(csilc_buf *b, const CheckEntries *v);
 static inline int csilc_dec_CheckEntries(const csilc_value *m, CsilCodecArena *a, CheckEntries *out);
 static inline int csilc_enc_CheckResult(csilc_buf *b, const CheckResult *v);
 static inline int csilc_dec_CheckResult(const csilc_value *m, CsilCodecArena *a, CheckResult *out);
+static inline int csilc_enc_KeyAlgorithm(csilc_buf *b, const KeyAlgorithm *v);
+static inline int csilc_dec_KeyAlgorithm(const csilc_value *src, CsilCodecArena *a, KeyAlgorithm *out);
+static inline int csilc_enc_KeyUsage(csilc_buf *b, const KeyUsage *v);
+static inline int csilc_dec_KeyUsage(const csilc_value *src, CsilCodecArena *a, KeyUsage *out);
+static inline int csilc_enc_AeadSuite(csilc_buf *b, const AeadSuite *v);
+static inline int csilc_dec_AeadSuite(const csilc_value *src, CsilCodecArena *a, AeadSuite *out);
+static inline int csilc_enc_ClaimValueType(csilc_buf *b, const ClaimValueType *v);
+static inline int csilc_dec_ClaimValueType(const csilc_value *src, CsilCodecArena *a, ClaimValueType *out);
+static inline int csilc_enc_SetRule(csilc_buf *b, const SetRule *v);
+static inline int csilc_dec_SetRule(const csilc_value *src, CsilCodecArena *a, SetRule *out);
+static inline int csilc_enc_SigningRule(csilc_buf *b, const SigningRule *v);
+static inline int csilc_dec_SigningRule(const csilc_value *src, CsilCodecArena *a, SigningRule *out);
+static inline int csilc_enc_SetClaimOutcome(csilc_buf *b, const SetClaimOutcome *v);
+static inline int csilc_dec_SetClaimOutcome(const csilc_value *src, CsilCodecArena *a, SetClaimOutcome *out);
+static inline int csilc_enc_ReleaseDisposition(csilc_buf *b, const ReleaseDisposition *v);
+static inline int csilc_dec_ReleaseDisposition(const csilc_value *src, CsilCodecArena *a, ReleaseDisposition *out);
+static inline int csilc_enc_ConsentRowPolicy(csilc_buf *b, const ConsentRowPolicy *v);
+static inline int csilc_dec_ConsentRowPolicy(const csilc_value *src, CsilCodecArena *a, ConsentRowPolicy *out);
+static inline int csilc_enc_ClaimApprovalStatus(csilc_buf *b, const ClaimApprovalStatus *v);
+static inline int csilc_dec_ClaimApprovalStatus(const csilc_value *src, CsilCodecArena *a, ClaimApprovalStatus *out);
+static inline int csilc_enc_PinRecheckOutcome(csilc_buf *b, const PinRecheckOutcome *v);
+static inline int csilc_dec_PinRecheckOutcome(const csilc_value *src, CsilCodecArena *a, PinRecheckOutcome *out);
+static inline int csilc_enc_NotificationPurpose(csilc_buf *b, const NotificationPurpose *v);
+static inline int csilc_dec_NotificationPurpose(const csilc_value *src, CsilCodecArena *a, NotificationPurpose *out);
+static inline int csilc_enc_NotificationChannel(csilc_buf *b, const NotificationChannel *v);
+static inline int csilc_dec_NotificationChannel(const csilc_value *src, CsilCodecArena *a, NotificationChannel *out);
+static inline int csilc_enc_DestinationKind(csilc_buf *b, const DestinationKind *v);
+static inline int csilc_dec_DestinationKind(const csilc_value *src, CsilCodecArena *a, DestinationKind *out);
+static inline int csilc_enc_LocalRpPolicy(csilc_buf *b, const LocalRpPolicy *v);
+static inline int csilc_dec_LocalRpPolicy(const csilc_value *src, CsilCodecArena *a, LocalRpPolicy *out);
+static inline int csilc_enc_LocalRpStatus(csilc_buf *b, const LocalRpStatus *v);
+static inline int csilc_dec_LocalRpStatus(const csilc_value *src, CsilCodecArena *a, LocalRpStatus *out);
+static inline int csilc_enc_LocalRpAdmission(csilc_buf *b, const LocalRpAdmission *v);
+static inline int csilc_dec_LocalRpAdmission(const csilc_value *src, CsilCodecArena *a, LocalRpAdmission *out);
+static inline int csilc_enc_AppAccessMode(csilc_buf *b, const AppAccessMode *v);
+static inline int csilc_dec_AppAccessMode(const csilc_value *src, CsilCodecArena *a, AppAccessMode *out);
+static inline int csilc_enc_AppAccessTargetKind(csilc_buf *b, const AppAccessTargetKind *v);
+static inline int csilc_dec_AppAccessTargetKind(const csilc_value *src, CsilCodecArena *a, AppAccessTargetKind *out);
+static inline int csilc_enc_ClaimOperator(csilc_buf *b, const ClaimOperator *v);
+static inline int csilc_dec_ClaimOperator(const csilc_value *src, CsilCodecArena *a, ClaimOperator *out);
+static inline int csilc_enc_ApplicationKeyChallengePurpose(csilc_buf *b, const ApplicationKeyChallengePurpose *v);
+static inline int csilc_dec_ApplicationKeyChallengePurpose(const csilc_value *src, CsilCodecArena *a, ApplicationKeyChallengePurpose *out);
+static inline int csilc_enc_AuthFlow(csilc_buf *b, const AuthFlow *v);
+static inline int csilc_dec_AuthFlow(const csilc_value *src, CsilCodecArena *a, AuthFlow *out);
+static inline int csilc_enc_RpCacheStatus(csilc_buf *b, const RpCacheStatus *v);
+static inline int csilc_dec_RpCacheStatus(const csilc_value *src, CsilCodecArena *a, RpCacheStatus *out);
+static inline int csilc_enc_AccountKind(csilc_buf *b, const AccountKind *v);
+static inline int csilc_dec_AccountKind(const csilc_value *src, CsilCodecArena *a, AccountKind *out);
+static inline int csilc_enc_RpErrorCode(csilc_buf *b, const RpErrorCode *v);
+static inline int csilc_dec_RpErrorCode(const csilc_value *src, CsilCodecArena *a, RpErrorCode *out);
+static inline int csilc_enc_IssuedClaimOutcome(csilc_buf *b, const IssuedClaimOutcome *v);
+static inline int csilc_dec_IssuedClaimOutcome(const csilc_value *src, CsilCodecArena *a, IssuedClaimOutcome *out);
 static inline int csilc_enc_HelloRequest(csilc_buf *b, const HelloRequest *v);
 static inline int csilc_dec_HelloRequest(const csilc_value *m, CsilCodecArena *a, HelloRequest *out);
 static inline int csilc_enc_HelloResponse(csilc_buf *b, const HelloResponse *v);
@@ -774,6 +1182,44 @@ static inline int csilc_enc_CreateUserRequest(csilc_buf *b, const CreateUserRequ
 static inline int csilc_dec_CreateUserRequest(const csilc_value *m, CsilCodecArena *a, CreateUserRequest *out);
 static inline int csilc_enc_CreateUserResponse(csilc_buf *b, const CreateUserResponse *v);
 static inline int csilc_dec_CreateUserResponse(const csilc_value *m, CsilCodecArena *a, CreateUserResponse *out);
+static inline int csilc_enc_RenameUserRequest(csilc_buf *b, const RenameUserRequest *v);
+static inline int csilc_dec_RenameUserRequest(const csilc_value *m, CsilCodecArena *a, RenameUserRequest *out);
+static inline int csilc_enc_RenameUserResponse(csilc_buf *b, const RenameUserResponse *v);
+static inline int csilc_dec_RenameUserResponse(const csilc_value *m, CsilCodecArena *a, RenameUserResponse *out);
+static inline int csilc_enc_SetApplicationIdRequest(csilc_buf *b, const SetApplicationIdRequest *v);
+static inline int csilc_dec_SetApplicationIdRequest(const csilc_value *m, CsilCodecArena *a, SetApplicationIdRequest *out);
+static inline int csilc_enc_SetApplicationIdResponse(csilc_buf *b, const SetApplicationIdResponse *v);
+static inline int csilc_dec_SetApplicationIdResponse(const csilc_value *m, CsilCodecArena *a, SetApplicationIdResponse *out);
+static inline int csilc_enc_ApiKeyInfo(csilc_buf *b, const ApiKeyInfo *v);
+static inline int csilc_dec_ApiKeyInfo(const csilc_value *m, CsilCodecArena *a, ApiKeyInfo *out);
+static inline int csilc_enc_CreateApiKeyRequest(csilc_buf *b, const CreateApiKeyRequest *v);
+static inline int csilc_dec_CreateApiKeyRequest(const csilc_value *m, CsilCodecArena *a, CreateApiKeyRequest *out);
+static inline int csilc_enc_CreateApiKeyResponse(csilc_buf *b, const CreateApiKeyResponse *v);
+static inline int csilc_dec_CreateApiKeyResponse(const csilc_value *m, CsilCodecArena *a, CreateApiKeyResponse *out);
+static inline int csilc_enc_ListApiKeysRequest(csilc_buf *b, const ListApiKeysRequest *v);
+static inline int csilc_dec_ListApiKeysRequest(const csilc_value *m, CsilCodecArena *a, ListApiKeysRequest *out);
+static inline int csilc_enc_ListApiKeysResponse(csilc_buf *b, const ListApiKeysResponse *v);
+static inline int csilc_dec_ListApiKeysResponse(const csilc_value *m, CsilCodecArena *a, ListApiKeysResponse *out);
+static inline int csilc_enc_RevokeApiKeyRequest(csilc_buf *b, const RevokeApiKeyRequest *v);
+static inline int csilc_dec_RevokeApiKeyRequest(const csilc_value *m, CsilCodecArena *a, RevokeApiKeyRequest *out);
+static inline int csilc_enc_RevokeApiKeyResponse(csilc_buf *b, const RevokeApiKeyResponse *v);
+static inline int csilc_dec_RevokeApiKeyResponse(const csilc_value *m, CsilCodecArena *a, RevokeApiKeyResponse *out);
+static inline int csilc_enc_AccountLimits(csilc_buf *b, const AccountLimits *v);
+static inline int csilc_dec_AccountLimits(const csilc_value *m, CsilCodecArena *a, AccountLimits *out);
+static inline int csilc_enc_GetAccountLimitsRequest(csilc_buf *b, const GetAccountLimitsRequest *v);
+static inline int csilc_dec_GetAccountLimitsRequest(const csilc_value *m, CsilCodecArena *a, GetAccountLimitsRequest *out);
+static inline int csilc_enc_GetAccountLimitsResponse(csilc_buf *b, const GetAccountLimitsResponse *v);
+static inline int csilc_dec_GetAccountLimitsResponse(const csilc_value *m, CsilCodecArena *a, GetAccountLimitsResponse *out);
+static inline int csilc_enc_SetAccountLimitsRequest(csilc_buf *b, const SetAccountLimitsRequest *v);
+static inline int csilc_dec_SetAccountLimitsRequest(const csilc_value *m, CsilCodecArena *a, SetAccountLimitsRequest *out);
+static inline int csilc_enc_SetAccountLimitsResponse(csilc_buf *b, const SetAccountLimitsResponse *v);
+static inline int csilc_dec_SetAccountLimitsResponse(const csilc_value *m, CsilCodecArena *a, SetAccountLimitsResponse *out);
+static inline int csilc_enc_RpUsageDay(csilc_buf *b, const RpUsageDay *v);
+static inline int csilc_dec_RpUsageDay(const csilc_value *m, CsilCodecArena *a, RpUsageDay *out);
+static inline int csilc_enc_GetApplicationUsageRequest(csilc_buf *b, const GetApplicationUsageRequest *v);
+static inline int csilc_dec_GetApplicationUsageRequest(const csilc_value *m, CsilCodecArena *a, GetApplicationUsageRequest *out);
+static inline int csilc_enc_GetApplicationUsageResponse(csilc_buf *b, const GetApplicationUsageResponse *v);
+static inline int csilc_dec_GetApplicationUsageResponse(const csilc_value *m, CsilCodecArena *a, GetApplicationUsageResponse *out);
 static inline int csilc_enc_UpdateUserRequest(csilc_buf *b, const UpdateUserRequest *v);
 static inline int csilc_dec_UpdateUserRequest(const csilc_value *m, CsilCodecArena *a, UpdateUserRequest *out);
 static inline int csilc_enc_UpdateUserResponse(csilc_buf *b, const UpdateUserResponse *v);
@@ -1034,6 +1480,8 @@ static inline int csilc_enc_RpVerifyResponse(csilc_buf *b, const RpVerifyRespons
 static inline int csilc_dec_RpVerifyResponse(const csilc_value *m, CsilCodecArena *a, RpVerifyResponse *out);
 static inline int csilc_enc_RpUserInfoRequest(csilc_buf *b, const RpUserInfoRequest *v);
 static inline int csilc_dec_RpUserInfoRequest(const csilc_value *m, CsilCodecArena *a, RpUserInfoRequest *out);
+static inline int csilc_enc_RpError(csilc_buf *b, const RpError *v);
+static inline int csilc_dec_RpError(const csilc_value *m, CsilCodecArena *a, RpError *out);
 static inline int csilc_enc_RpIssueAttestationRequest(csilc_buf *b, const RpIssueAttestationRequest *v);
 static inline int csilc_dec_RpIssueAttestationRequest(const csilc_value *m, CsilCodecArena *a, RpIssueAttestationRequest *out);
 static inline int csilc_enc_RpIssueAttestationResponse(csilc_buf *b, const RpIssueAttestationResponse *v);
@@ -1326,16 +1774,27 @@ static inline int csilc_dec_CheckValue(const csilc_value *m, CsilCodecArena *a, 
 /* csilc_enc_CheckEntries writes CheckEntries as a CBOR map of text keys to encoded values. */
 static inline int csilc_enc_CheckEntries(csilc_buf *b, const CheckEntries *v) {
     if (csilc_w_map_head(b, v->count)) return -1;
-    for (size_t csilc_i = 0; csilc_i < v->count; csilc_i++) {
-        if (csilc_w_text(b, (v->keys[csilc_i]), (v->keys[csilc_i]) ? strlen(v->keys[csilc_i]) : 0)) return -1;
-        if (csilc_enc_CheckValue(b, &(v->values[csilc_i]))) return -1;
+    if (v->count) {
+        if (v->count > (SIZE_MAX / sizeof(size_t) - 1) / 2) return -1;
+        size_t *csilc_marks = (size_t *)malloc((2 * v->count + 1) * sizeof(size_t));
+        if (!csilc_marks) return -1;
+        for (size_t csilc_i = 0; csilc_i < v->count; csilc_i++) {
+            csilc_marks[2 * csilc_i] = b->len;
+            if (csilc_w_text(b, (v->keys[csilc_i]), (v->keys[csilc_i]) ? strlen(v->keys[csilc_i]) : 0)) { free(csilc_marks); return -1; }
+            csilc_marks[2 * csilc_i + 1] = b->len;
+            if (csilc_enc_CheckValue(b, &(v->values[csilc_i]))) { free(csilc_marks); return -1; }
+        }
+        csilc_marks[2 * v->count] = b->len;
+        int csilc_sorted = csilc_sort_map_entries(b, csilc_marks, v->count);
+        free(csilc_marks);
+        if (csilc_sorted) return -1;
     }
     return 0;
 }
 
 /* csilc_dec_CheckEntries reads CheckEntries from a decoded CBOR map (arena-borrowed). */
 static inline int csilc_dec_CheckEntries(const csilc_value *m, CsilCodecArena *a, CheckEntries *out) {
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || !m->as.map.canonical) return -1;
     out->count = m->as.map.count;
     out->keys = NULL;
     out->values = NULL;
@@ -1366,12 +1825,298 @@ static inline int csilc_enc_CheckResult(csilc_buf *b, const CheckResult *v) {
 static inline int csilc_dec_CheckResult(const csilc_value *m, CsilCodecArena *a, CheckResult *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "result");
     if (!csilc_as_bool(csilc_f, &(out->result))) return -1;
     csilc_f = csilc_map_get(m, "entries");
     if (csilc_dec_CheckEntries(csilc_f, a, &(out->entries))) return -1;
     return 0;
+}
+
+static inline int csilc_enc_KeyAlgorithm(csilc_buf *b, const KeyAlgorithm *v) {
+    int64_t number;
+    return csil_KeyAlgorithm_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_KeyAlgorithm(const csilc_value *src, CsilCodecArena *a, KeyAlgorithm *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_KeyAlgorithm_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_KeyUsage(csilc_buf *b, const KeyUsage *v) {
+    int64_t number;
+    return csil_KeyUsage_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_KeyUsage(const csilc_value *src, CsilCodecArena *a, KeyUsage *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_KeyUsage_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_AeadSuite(csilc_buf *b, const AeadSuite *v) {
+    int64_t number;
+    return csil_AeadSuite_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_AeadSuite(const csilc_value *src, CsilCodecArena *a, AeadSuite *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_AeadSuite_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_ClaimValueType(csilc_buf *b, const ClaimValueType *v) {
+    int64_t number;
+    return csil_ClaimValueType_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_ClaimValueType(const csilc_value *src, CsilCodecArena *a, ClaimValueType *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_ClaimValueType_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_SetRule(csilc_buf *b, const SetRule *v) {
+    int64_t number;
+    return csil_SetRule_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_SetRule(const csilc_value *src, CsilCodecArena *a, SetRule *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_SetRule_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_SigningRule(csilc_buf *b, const SigningRule *v) {
+    int64_t number;
+    return csil_SigningRule_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_SigningRule(const csilc_value *src, CsilCodecArena *a, SigningRule *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_SigningRule_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_SetClaimOutcome(csilc_buf *b, const SetClaimOutcome *v) {
+    int64_t number;
+    return csil_SetClaimOutcome_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_SetClaimOutcome(const csilc_value *src, CsilCodecArena *a, SetClaimOutcome *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_SetClaimOutcome_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_ReleaseDisposition(csilc_buf *b, const ReleaseDisposition *v) {
+    int64_t number;
+    return csil_ReleaseDisposition_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_ReleaseDisposition(const csilc_value *src, CsilCodecArena *a, ReleaseDisposition *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_ReleaseDisposition_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_ConsentRowPolicy(csilc_buf *b, const ConsentRowPolicy *v) {
+    int64_t number;
+    return csil_ConsentRowPolicy_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_ConsentRowPolicy(const csilc_value *src, CsilCodecArena *a, ConsentRowPolicy *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_ConsentRowPolicy_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_ClaimApprovalStatus(csilc_buf *b, const ClaimApprovalStatus *v) {
+    int64_t number;
+    return csil_ClaimApprovalStatus_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_ClaimApprovalStatus(const csilc_value *src, CsilCodecArena *a, ClaimApprovalStatus *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_ClaimApprovalStatus_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_PinRecheckOutcome(csilc_buf *b, const PinRecheckOutcome *v) {
+    int64_t number;
+    return csil_PinRecheckOutcome_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_PinRecheckOutcome(const csilc_value *src, CsilCodecArena *a, PinRecheckOutcome *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_PinRecheckOutcome_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_NotificationPurpose(csilc_buf *b, const NotificationPurpose *v) {
+    int64_t number;
+    return csil_NotificationPurpose_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_NotificationPurpose(const csilc_value *src, CsilCodecArena *a, NotificationPurpose *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_NotificationPurpose_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_NotificationChannel(csilc_buf *b, const NotificationChannel *v) {
+    int64_t number;
+    return csil_NotificationChannel_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_NotificationChannel(const csilc_value *src, CsilCodecArena *a, NotificationChannel *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_NotificationChannel_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_DestinationKind(csilc_buf *b, const DestinationKind *v) {
+    int64_t number;
+    return csil_DestinationKind_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_DestinationKind(const csilc_value *src, CsilCodecArena *a, DestinationKind *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_DestinationKind_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_LocalRpPolicy(csilc_buf *b, const LocalRpPolicy *v) {
+    int64_t number;
+    return csil_LocalRpPolicy_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_LocalRpPolicy(const csilc_value *src, CsilCodecArena *a, LocalRpPolicy *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_LocalRpPolicy_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_LocalRpStatus(csilc_buf *b, const LocalRpStatus *v) {
+    int64_t number;
+    return csil_LocalRpStatus_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_LocalRpStatus(const csilc_value *src, CsilCodecArena *a, LocalRpStatus *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_LocalRpStatus_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_LocalRpAdmission(csilc_buf *b, const LocalRpAdmission *v) {
+    int64_t number;
+    return csil_LocalRpAdmission_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_LocalRpAdmission(const csilc_value *src, CsilCodecArena *a, LocalRpAdmission *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_LocalRpAdmission_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_AppAccessMode(csilc_buf *b, const AppAccessMode *v) {
+    int64_t number;
+    return csil_AppAccessMode_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_AppAccessMode(const csilc_value *src, CsilCodecArena *a, AppAccessMode *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_AppAccessMode_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_AppAccessTargetKind(csilc_buf *b, const AppAccessTargetKind *v) {
+    int64_t number;
+    return csil_AppAccessTargetKind_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_AppAccessTargetKind(const csilc_value *src, CsilCodecArena *a, AppAccessTargetKind *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_AppAccessTargetKind_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_ClaimOperator(csilc_buf *b, const ClaimOperator *v) {
+    int64_t number;
+    return csil_ClaimOperator_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_ClaimOperator(const csilc_value *src, CsilCodecArena *a, ClaimOperator *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_ClaimOperator_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_ApplicationKeyChallengePurpose(csilc_buf *b, const ApplicationKeyChallengePurpose *v) {
+    int64_t number;
+    return csil_ApplicationKeyChallengePurpose_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_ApplicationKeyChallengePurpose(const csilc_value *src, CsilCodecArena *a, ApplicationKeyChallengePurpose *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_ApplicationKeyChallengePurpose_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_AuthFlow(csilc_buf *b, const AuthFlow *v) {
+    int64_t number;
+    return csil_AuthFlow_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_AuthFlow(const csilc_value *src, CsilCodecArena *a, AuthFlow *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_AuthFlow_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_RpCacheStatus(csilc_buf *b, const RpCacheStatus *v) {
+    int64_t number;
+    return csil_RpCacheStatus_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_RpCacheStatus(const csilc_value *src, CsilCodecArena *a, RpCacheStatus *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_RpCacheStatus_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_AccountKind(csilc_buf *b, const AccountKind *v) {
+    int64_t number;
+    return csil_AccountKind_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_AccountKind(const csilc_value *src, CsilCodecArena *a, AccountKind *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_AccountKind_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_RpErrorCode(csilc_buf *b, const RpErrorCode *v) {
+    int64_t number;
+    return csil_RpErrorCode_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_RpErrorCode(const csilc_value *src, CsilCodecArena *a, RpErrorCode *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_RpErrorCode_from_number(number, out) ? 0 : -1;
+}
+
+static inline int csilc_enc_IssuedClaimOutcome(csilc_buf *b, const IssuedClaimOutcome *v) {
+    int64_t number;
+    return csil_IssuedClaimOutcome_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_IssuedClaimOutcome(const csilc_value *src, CsilCodecArena *a, IssuedClaimOutcome *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_IssuedClaimOutcome_from_number(number, out) ? 0 : -1;
 }
 
 /* csilc_enc_HelloRequest writes HelloRequest as a canonical CBOR map. */
@@ -1390,7 +2135,7 @@ static inline int csilc_enc_HelloRequest(csilc_buf *b, const HelloRequest *v) {
 static inline int csilc_dec_HelloRequest(const csilc_value *m, CsilCodecArena *a, HelloRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "name");
     out->name = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     return 0;
@@ -1409,7 +2154,7 @@ static inline int csilc_enc_HelloResponse(csilc_buf *b, const HelloResponse *v) 
 static inline int csilc_dec_HelloResponse(const csilc_value *m, CsilCodecArena *a, HelloResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "greeting");
     if (!csilc_get_text(csilc_f, &(out->greeting))) return -1;
     return 0;
@@ -1424,9 +2169,9 @@ static inline int csilc_enc_GuestbookEntry(csilc_buf *b, const GuestbookEntry *v
     if (csilc_w_text(b, "name", 4)) return -1;
     if (csilc_w_text(b, (v->name), (v->name) ? strlen(v->name) : 0)) return -1;
     if (csilc_w_text(b, "created_at", 10)) return -1;
-    if (csilc_w_text(b, (v->created_at), (v->created_at) ? strlen(v->created_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->created_at).rfc3339)) return -1;
     if (csilc_w_text(b, "updated_at", 10)) return -1;
-    if (csilc_w_text(b, (v->updated_at), (v->updated_at) ? strlen(v->updated_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->updated_at).rfc3339)) return -1;
     return 0;
 }
 
@@ -1434,15 +2179,15 @@ static inline int csilc_enc_GuestbookEntry(csilc_buf *b, const GuestbookEntry *v
 static inline int csilc_dec_GuestbookEntry(const csilc_value *m, CsilCodecArena *a, GuestbookEntry *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "id");
     if (!csilc_get_text(csilc_f, &(out->id))) return -1;
     csilc_f = csilc_map_get(m, "name");
     if (!csilc_get_text(csilc_f, &(out->name))) return -1;
     csilc_f = csilc_map_get(m, "created_at");
-    if (!csilc_get_text(csilc_f, &(out->created_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->created_at).rfc3339, &(out->created_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "updated_at");
-    if (!csilc_get_text(csilc_f, &(out->updated_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->updated_at).rfc3339, &(out->updated_at).epoch_seconds)) return -1;
     return 0;
 }
 
@@ -1459,7 +2204,7 @@ static inline int csilc_enc_CreateGuestbookRequest(csilc_buf *b, const CreateGue
 static inline int csilc_dec_CreateGuestbookRequest(const csilc_value *m, CsilCodecArena *a, CreateGuestbookRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "name");
     if (!csilc_get_text(csilc_f, &(out->name))) return -1;
     return 0;
@@ -1480,7 +2225,7 @@ static inline int csilc_enc_UpdateGuestbookRequest(csilc_buf *b, const UpdateGue
 static inline int csilc_dec_UpdateGuestbookRequest(const csilc_value *m, CsilCodecArena *a, UpdateGuestbookRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "id");
     if (!csilc_get_text(csilc_f, &(out->id))) return -1;
     csilc_f = csilc_map_get(m, "name");
@@ -1501,7 +2246,7 @@ static inline int csilc_enc_DeleteGuestbookRequest(csilc_buf *b, const DeleteGue
 static inline int csilc_dec_DeleteGuestbookRequest(const csilc_value *m, CsilCodecArena *a, DeleteGuestbookRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "id");
     if (!csilc_get_text(csilc_f, &(out->id))) return -1;
     return 0;
@@ -1520,7 +2265,7 @@ static inline int csilc_enc_DeleteGuestbookResponse(csilc_buf *b, const DeleteGu
 static inline int csilc_dec_DeleteGuestbookResponse(const csilc_value *m, CsilCodecArena *a, DeleteGuestbookResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "success");
     if (!csilc_as_bool(csilc_f, &(out->success))) return -1;
     return 0;
@@ -1547,7 +2292,7 @@ static inline int csilc_enc_GuestbookListRequest(csilc_buf *b, const GuestbookLi
 static inline int csilc_dec_GuestbookListRequest(const csilc_value *m, CsilCodecArena *a, GuestbookListRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "limit");
     out->limit = NULL;
     if (csilc_f) {
@@ -1583,7 +2328,7 @@ static inline int csilc_enc_GuestbookListResponse(csilc_buf *b, const GuestbookL
 static inline int csilc_dec_GuestbookListResponse(const csilc_value *m, CsilCodecArena *a, GuestbookListResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "entries");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->entries_count = csilc_f->as.array.count;
@@ -1610,7 +2355,7 @@ static inline int csilc_enc_EmptyRequest(csilc_buf *b, const EmptyRequest *v) {
 static inline int csilc_dec_EmptyRequest(const csilc_value *m, CsilCodecArena *a, EmptyRequest *out) {
     (void)a;
     (void)out;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     return 0;
 }
 
@@ -1624,18 +2369,18 @@ static inline int csilc_enc_DomainPublicKey(csilc_buf *b, const DomainPublicKey 
     if (csilc_w_text(b, "key_id", 6)) return -1;
     if (csilc_w_text(b, (v->key_id), (v->key_id) ? strlen(v->key_id) : 0)) return -1;
     if (csilc_w_text(b, "algorithm", 9)) return -1;
-    if (csilc_w_text(b, (v->algorithm), (v->algorithm) ? strlen(v->algorithm) : 0)) return -1;
+    if (csilc_enc_KeyAlgorithm(b, &(v->algorithm))) return -1;
     if (csilc_w_text(b, "key_usage", 9)) return -1;
-    if (csilc_w_text(b, (v->key_usage), (v->key_usage) ? strlen(v->key_usage) : 0)) return -1;
+    if (csilc_enc_KeyUsage(b, &(v->key_usage))) return -1;
     if (csilc_w_text(b, "created_at", 10)) return -1;
-    if (csilc_w_text(b, (v->created_at), (v->created_at) ? strlen(v->created_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->created_at).rfc3339)) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (csilc_w_text(b, "public_key", 10)) return -1;
     if (csilc_w_bytes(b, (v->public_key).data, (v->public_key).len)) return -1;
     if (v->revoked_at) {
         if (csilc_w_text(b, "revoked_at", 10)) return -1;
-        if (csilc_w_text(b, (v->revoked_at), (v->revoked_at) ? strlen(v->revoked_at) : 0)) return -1;
+        if (csilc_w_timestamp(b, ((*v->revoked_at)).rfc3339)) return -1;
     }
     if (csilc_w_text(b, "fingerprint", 11)) return -1;
     if (csilc_w_text(b, (v->fingerprint), (v->fingerprint) ? strlen(v->fingerprint) : 0)) return -1;
@@ -1654,21 +2399,27 @@ static inline int csilc_enc_DomainPublicKey(csilc_buf *b, const DomainPublicKey 
 static inline int csilc_dec_DomainPublicKey(const csilc_value *m, CsilCodecArena *a, DomainPublicKey *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "key_id");
     if (!csilc_get_text(csilc_f, &(out->key_id))) return -1;
     csilc_f = csilc_map_get(m, "algorithm");
-    if (!csilc_get_text(csilc_f, &(out->algorithm))) return -1;
+    if (csilc_dec_KeyAlgorithm(csilc_f, a, &(out->algorithm))) return -1;
     csilc_f = csilc_map_get(m, "key_usage");
-    if (!csilc_get_text(csilc_f, &(out->key_usage))) return -1;
+    if (csilc_dec_KeyUsage(csilc_f, a, &(out->key_usage))) return -1;
     csilc_f = csilc_map_get(m, "created_at");
-    if (!csilc_get_text(csilc_f, &(out->created_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->created_at).rfc3339, &(out->created_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "public_key");
     if (!csilc_get_bytes(csilc_f, &(out->public_key).data, &(out->public_key).len)) return -1;
     csilc_f = csilc_map_get(m, "revoked_at");
-    out->revoked_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->revoked_at = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->revoked_at = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "fingerprint");
     if (!csilc_get_text(csilc_f, &(out->fingerprint))) return -1;
     csilc_f = csilc_map_get(m, "key_signature");
@@ -1707,7 +2458,7 @@ static inline int csilc_enc_GetDomainKeysResponse(csilc_buf *b, const GetDomainK
 static inline int csilc_dec_GetDomainKeysResponse(const csilc_value *m, CsilCodecArena *a, GetDomainKeysResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "keys");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->keys_count = csilc_f->as.array.count;
@@ -1739,7 +2490,7 @@ static inline int csilc_enc_GetRevocationsRequest(csilc_buf *b, const GetRevocat
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (v->since) {
         if (csilc_w_text(b, "since", 5)) return -1;
-        if (csilc_w_text(b, (v->since), (v->since) ? strlen(v->since) : 0)) return -1;
+        if (csilc_w_timestamp(b, ((*v->since)).rfc3339)) return -1;
     }
     return 0;
 }
@@ -1748,9 +2499,15 @@ static inline int csilc_enc_GetRevocationsRequest(csilc_buf *b, const GetRevocat
 static inline int csilc_dec_GetRevocationsRequest(const csilc_value *m, CsilCodecArena *a, GetRevocationsRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "since");
-    out->since = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->since = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->since = csilc_p;
+    }
     return 0;
 }
 
@@ -1770,7 +2527,7 @@ static inline int csilc_enc_GetRevocationsResponse(csilc_buf *b, const GetRevoca
 static inline int csilc_dec_GetRevocationsResponse(const csilc_value *m, CsilCodecArena *a, GetRevocationsResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "revocations");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->revocations_count = csilc_f->as.array.count;
@@ -1801,7 +2558,7 @@ static inline int csilc_enc_RecheckPinsRequest(csilc_buf *b, const RecheckPinsRe
 static inline int csilc_dec_RecheckPinsRequest(const csilc_value *m, CsilCodecArena *a, RecheckPinsRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "domain");
     out->domain = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     return 0;
@@ -1810,11 +2567,16 @@ static inline int csilc_dec_RecheckPinsRequest(const csilc_value *m, CsilCodecAr
 /* csilc_enc_PinRecheckResult writes PinRecheckResult as a canonical CBOR map. */
 static inline int csilc_enc_PinRecheckResult(csilc_buf *b, const PinRecheckResult *v) {
     size_t csilc_n = 2;
+    if (v->message) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "domain", 6)) return -1;
     if (csilc_w_text(b, (v->domain), (v->domain) ? strlen(v->domain) : 0)) return -1;
+    if (v->message) {
+        if (csilc_w_text(b, "message", 7)) return -1;
+        if (csilc_w_text(b, (v->message), (v->message) ? strlen(v->message) : 0)) return -1;
+    }
     if (csilc_w_text(b, "outcome", 7)) return -1;
-    if (csilc_w_text(b, (v->outcome), (v->outcome) ? strlen(v->outcome) : 0)) return -1;
+    if (csilc_enc_PinRecheckOutcome(b, &(v->outcome))) return -1;
     return 0;
 }
 
@@ -1822,11 +2584,13 @@ static inline int csilc_enc_PinRecheckResult(csilc_buf *b, const PinRecheckResul
 static inline int csilc_dec_PinRecheckResult(const csilc_value *m, CsilCodecArena *a, PinRecheckResult *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "domain");
     if (!csilc_get_text(csilc_f, &(out->domain))) return -1;
+    csilc_f = csilc_map_get(m, "message");
+    out->message = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "outcome");
-    if (!csilc_get_text(csilc_f, &(out->outcome))) return -1;
+    if (csilc_dec_PinRecheckOutcome(csilc_f, a, &(out->outcome))) return -1;
     return 0;
 }
 
@@ -1846,7 +2610,7 @@ static inline int csilc_enc_RecheckPinsResponse(csilc_buf *b, const RecheckPinsR
 static inline int csilc_dec_RecheckPinsResponse(const csilc_value *m, CsilCodecArena *a, RecheckPinsResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "results");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->results_count = csilc_f->as.array.count;
@@ -1873,18 +2637,18 @@ static inline int csilc_enc_UserPublicKey(csilc_buf *b, const UserPublicKey *v) 
     if (csilc_w_text(b, "user_id", 7)) return -1;
     if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
     if (csilc_w_text(b, "algorithm", 9)) return -1;
-    if (csilc_w_text(b, (v->algorithm), (v->algorithm) ? strlen(v->algorithm) : 0)) return -1;
+    if (csilc_enc_KeyAlgorithm(b, &(v->algorithm))) return -1;
     if (csilc_w_text(b, "key_usage", 9)) return -1;
-    if (csilc_w_text(b, (v->key_usage), (v->key_usage) ? strlen(v->key_usage) : 0)) return -1;
+    if (csilc_enc_KeyUsage(b, &(v->key_usage))) return -1;
     if (csilc_w_text(b, "created_at", 10)) return -1;
-    if (csilc_w_text(b, (v->created_at), (v->created_at) ? strlen(v->created_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->created_at).rfc3339)) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (csilc_w_text(b, "public_key", 10)) return -1;
     if (csilc_w_bytes(b, (v->public_key).data, (v->public_key).len)) return -1;
     if (v->revoked_at) {
         if (csilc_w_text(b, "revoked_at", 10)) return -1;
-        if (csilc_w_text(b, (v->revoked_at), (v->revoked_at) ? strlen(v->revoked_at) : 0)) return -1;
+        if (csilc_w_timestamp(b, ((*v->revoked_at)).rfc3339)) return -1;
     }
     if (csilc_w_text(b, "fingerprint", 11)) return -1;
     if (csilc_w_text(b, (v->fingerprint), (v->fingerprint) ? strlen(v->fingerprint) : 0)) return -1;
@@ -1903,23 +2667,29 @@ static inline int csilc_enc_UserPublicKey(csilc_buf *b, const UserPublicKey *v) 
 static inline int csilc_dec_UserPublicKey(const csilc_value *m, CsilCodecArena *a, UserPublicKey *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "key_id");
     if (!csilc_get_text(csilc_f, &(out->key_id))) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     csilc_f = csilc_map_get(m, "algorithm");
-    if (!csilc_get_text(csilc_f, &(out->algorithm))) return -1;
+    if (csilc_dec_KeyAlgorithm(csilc_f, a, &(out->algorithm))) return -1;
     csilc_f = csilc_map_get(m, "key_usage");
-    if (!csilc_get_text(csilc_f, &(out->key_usage))) return -1;
+    if (csilc_dec_KeyUsage(csilc_f, a, &(out->key_usage))) return -1;
     csilc_f = csilc_map_get(m, "created_at");
-    if (!csilc_get_text(csilc_f, &(out->created_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->created_at).rfc3339, &(out->created_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "public_key");
     if (!csilc_get_bytes(csilc_f, &(out->public_key).data, &(out->public_key).len)) return -1;
     csilc_f = csilc_map_get(m, "revoked_at");
-    out->revoked_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->revoked_at = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->revoked_at = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "fingerprint");
     if (!csilc_get_text(csilc_f, &(out->fingerprint))) return -1;
     csilc_f = csilc_map_get(m, "key_signature");
@@ -1948,7 +2718,7 @@ static inline int csilc_enc_GetUserKeysRequest(csilc_buf *b, const GetUserKeysRe
 static inline int csilc_dec_GetUserKeysRequest(const csilc_value *m, CsilCodecArena *a, GetUserKeysRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     return 0;
@@ -1974,7 +2744,7 @@ static inline int csilc_enc_GetUserKeysResponse(csilc_buf *b, const GetUserKeysR
 static inline int csilc_dec_GetUserKeysResponse(const csilc_value *m, CsilCodecArena *a, GetUserKeysResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "keys");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->keys_count = csilc_f->as.array.count;
@@ -2010,7 +2780,7 @@ static inline int csilc_enc_ClaimSignature(csilc_buf *b, const ClaimSignature *v
 static inline int csilc_dec_ClaimSignature(const csilc_value *m, CsilCodecArena *a, ClaimSignature *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "domain");
     if (!csilc_get_text(csilc_f, &(out->domain))) return -1;
     csilc_f = csilc_map_get(m, "signature");
@@ -2025,7 +2795,7 @@ static inline int csilc_enc_RevocationCertificate(csilc_buf *b, const Revocation
     size_t csilc_n = 4;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "revoked_at", 10)) return -1;
-    if (csilc_w_text(b, (v->revoked_at), (v->revoked_at) ? strlen(v->revoked_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->revoked_at).rfc3339)) return -1;
     if (csilc_w_text(b, "signatures", 10)) return -1;
     if (csilc_w_array_head(b, v->signatures_count)) return -1;
     for (size_t csilc_i = 0; csilc_i < v->signatures_count; csilc_i++) {
@@ -2042,9 +2812,9 @@ static inline int csilc_enc_RevocationCertificate(csilc_buf *b, const Revocation
 static inline int csilc_dec_RevocationCertificate(const csilc_value *m, CsilCodecArena *a, RevocationCertificate *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "revoked_at");
-    if (!csilc_get_text(csilc_f, &(out->revoked_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->revoked_at).rfc3339, &(out->revoked_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "signatures");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->signatures_count = csilc_f->as.array.count;
@@ -2076,14 +2846,14 @@ static inline int csilc_enc_Claim(csilc_buf *b, const Claim *v) {
     if (csilc_w_text(b, "claim_type", 10)) return -1;
     if (csilc_w_text(b, (v->claim_type), (v->claim_type) ? strlen(v->claim_type) : 0)) return -1;
     if (csilc_w_text(b, "created_at", 10)) return -1;
-    if (csilc_w_text(b, (v->created_at), (v->created_at) ? strlen(v->created_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->created_at).rfc3339)) return -1;
     if (v->expires_at) {
         if (csilc_w_text(b, "expires_at", 10)) return -1;
-        if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+        if (csilc_w_timestamp(b, ((*v->expires_at)).rfc3339)) return -1;
     }
     if (v->revoked_at) {
         if (csilc_w_text(b, "revoked_at", 10)) return -1;
-        if (csilc_w_text(b, (v->revoked_at), (v->revoked_at) ? strlen(v->revoked_at) : 0)) return -1;
+        if (csilc_w_timestamp(b, ((*v->revoked_at)).rfc3339)) return -1;
     }
     if (csilc_w_text(b, "signatures", 10)) return -1;
     if (csilc_w_array_head(b, v->signatures_count)) return -1;
@@ -2091,7 +2861,7 @@ static inline int csilc_enc_Claim(csilc_buf *b, const Claim *v) {
         if (csilc_enc_ClaimSignature(b, &(v->signatures[csilc_i]))) return -1;
     }
     if (csilc_w_text(b, "attested_at", 11)) return -1;
-    if (csilc_w_text(b, (v->attested_at), (v->attested_at) ? strlen(v->attested_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->attested_at).rfc3339)) return -1;
     if (csilc_w_text(b, "claim_value", 11)) return -1;
     if (csilc_w_bytes(b, (v->claim_value).data, (v->claim_value).len)) return -1;
     return 0;
@@ -2101,7 +2871,7 @@ static inline int csilc_enc_Claim(csilc_buf *b, const Claim *v) {
 static inline int csilc_dec_Claim(const csilc_value *m, CsilCodecArena *a, Claim *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     csilc_f = csilc_map_get(m, "claim_id");
@@ -2109,11 +2879,23 @@ static inline int csilc_dec_Claim(const csilc_value *m, CsilCodecArena *a, Claim
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
     csilc_f = csilc_map_get(m, "created_at");
-    if (!csilc_get_text(csilc_f, &(out->created_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->created_at).rfc3339, &(out->created_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    out->expires_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->expires_at = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->expires_at = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "revoked_at");
-    out->revoked_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->revoked_at = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->revoked_at = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "signatures");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->signatures_count = csilc_f->as.array.count;
@@ -2126,7 +2908,7 @@ static inline int csilc_dec_Claim(const csilc_value *m, CsilCodecArena *a, Claim
         }
     }
     csilc_f = csilc_map_get(m, "attested_at");
-    if (!csilc_get_text(csilc_f, &(out->attested_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->attested_at).rfc3339, &(out->attested_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "claim_value");
     if (!csilc_get_bytes(csilc_f, &(out->claim_value).data, &(out->claim_value).len)) return -1;
     return 0;
@@ -2147,7 +2929,7 @@ static inline int csilc_enc_GetUserClaimsRequest(csilc_buf *b, const GetUserClai
 static inline int csilc_dec_GetUserClaimsRequest(const csilc_value *m, CsilCodecArena *a, GetUserClaimsRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "token");
     if (!csilc_get_bytes(csilc_f, &(out->token).data, &(out->token).len)) return -1;
     csilc_f = csilc_map_get(m, "user_id");
@@ -2175,7 +2957,7 @@ static inline int csilc_enc_GetUserClaimsResponse(csilc_buf *b, const GetUserCla
 static inline int csilc_dec_GetUserClaimsResponse(const csilc_value *m, CsilCodecArena *a, GetUserClaimsResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claims");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->claims_count = csilc_f->as.array.count;
@@ -2199,7 +2981,7 @@ static inline int csilc_enc_RequestedClaim(csilc_buf *b, const RequestedClaim *v
     size_t csilc_n = 2;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "datatype", 8)) return -1;
-    if (csilc_w_text(b, (v->datatype), (v->datatype) ? strlen(v->datatype) : 0)) return -1;
+    if (csilc_enc_ClaimValueType(b, &(v->datatype))) return -1;
     if (csilc_w_text(b, "claim_type", 10)) return -1;
     if (csilc_w_text(b, (v->claim_type), (v->claim_type) ? strlen(v->claim_type) : 0)) return -1;
     return 0;
@@ -2209,9 +2991,9 @@ static inline int csilc_enc_RequestedClaim(csilc_buf *b, const RequestedClaim *v
 static inline int csilc_dec_RequestedClaim(const csilc_value *m, CsilCodecArena *a, RequestedClaim *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "datatype");
-    if (!csilc_get_text(csilc_f, &(out->datatype))) return -1;
+    if (csilc_dec_ClaimValueType(csilc_f, a, &(out->datatype))) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
     return 0;
@@ -2238,7 +3020,7 @@ static inline int csilc_enc_ClaimRequest(csilc_buf *b, const ClaimRequest *v) {
 static inline int csilc_dec_ClaimRequest(const csilc_value *m, CsilCodecArena *a, ClaimRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "optional");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->optional_count = csilc_f->as.array.count;
@@ -2277,7 +3059,7 @@ static inline int csilc_enc_AuthenticationRequirements(csilc_buf *b, const Authe
 static inline int csilc_dec_AuthenticationRequirements(const csilc_value *m, CsilCodecArena *a, AuthenticationRequirements *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "minimum_factor_count");
     if (!csilc_as_i64(csilc_f, &(out->minimum_factor_count))) return -1;
     return 0;
@@ -2290,7 +3072,7 @@ static inline int csilc_enc_AuthFlowContext(csilc_buf *b, const AuthFlowContext 
     if (v->request_reason) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "flow", 4)) return -1;
-    if (csilc_w_text(b, (v->flow), (v->flow) ? strlen(v->flow) : 0)) return -1;
+    if (csilc_enc_AuthFlow(b, &(v->flow))) return -1;
     if (v->prior_session) {
         if (csilc_w_text(b, "prior_session", 13)) return -1;
         if (csilc_w_text(b, (v->prior_session), (v->prior_session) ? strlen(v->prior_session) : 0)) return -1;
@@ -2306,9 +3088,9 @@ static inline int csilc_enc_AuthFlowContext(csilc_buf *b, const AuthFlowContext 
 static inline int csilc_dec_AuthFlowContext(const csilc_value *m, CsilCodecArena *a, AuthFlowContext *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "flow");
-    if (!csilc_get_text(csilc_f, &(out->flow))) return -1;
+    if (csilc_dec_AuthFlow(csilc_f, a, &(out->flow))) return -1;
     csilc_f = csilc_map_get(m, "prior_session");
     out->prior_session = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "request_reason");
@@ -2329,12 +3111,12 @@ static inline int csilc_enc_ConsentGrant(csilc_buf *b, const ConsentGrant *v) {
     if (csilc_w_text(b, "grant_id", 8)) return -1;
     if (csilc_w_text(b, (v->grant_id), (v->grant_id) ? strlen(v->grant_id) : 0)) return -1;
     if (csilc_w_text(b, "issued_at", 9)) return -1;
-    if (csilc_w_text(b, (v->issued_at), (v->issued_at) ? strlen(v->issued_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->issued_at).rfc3339)) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (v->revoked_at) {
         if (csilc_w_text(b, "revoked_at", 10)) return -1;
-        if (csilc_w_text(b, (v->revoked_at), (v->revoked_at) ? strlen(v->revoked_at) : 0)) return -1;
+        if (csilc_w_timestamp(b, ((*v->revoked_at)).rfc3339)) return -1;
     }
     if (v->application) {
         if (csilc_w_text(b, "application", 11)) return -1;
@@ -2354,7 +3136,7 @@ static inline int csilc_enc_ConsentGrant(csilc_buf *b, const ConsentGrant *v) {
 static inline int csilc_dec_ConsentGrant(const csilc_value *m, CsilCodecArena *a, ConsentGrant *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     csilc_f = csilc_map_get(m, "audience");
@@ -2362,11 +3144,17 @@ static inline int csilc_dec_ConsentGrant(const csilc_value *m, CsilCodecArena *a
     csilc_f = csilc_map_get(m, "grant_id");
     if (!csilc_get_text(csilc_f, &(out->grant_id))) return -1;
     csilc_f = csilc_map_get(m, "issued_at");
-    if (!csilc_get_text(csilc_f, &(out->issued_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->issued_at).rfc3339, &(out->issued_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "revoked_at");
-    out->revoked_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->revoked_at = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->revoked_at = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "application");
     out->application = NULL;
     if (csilc_f) {
@@ -2409,7 +3197,7 @@ static inline int csilc_enc_SignedConsentGrant(csilc_buf *b, const SignedConsent
 static inline int csilc_dec_SignedConsentGrant(const csilc_value *m, CsilCodecArena *a, SignedConsentGrant *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "grant");
     if (!csilc_get_bytes(csilc_f, &(out->grant).data, &(out->grant).len)) return -1;
     csilc_f = csilc_map_get(m, "signatures");
@@ -2435,7 +3223,7 @@ static inline int csilc_enc_DomainClaim(csilc_buf *b, const DomainClaim *v) {
     if (csilc_w_text(b, (v->claim_type), (v->claim_type) ? strlen(v->claim_type) : 0)) return -1;
     if (v->expires_at) {
         if (csilc_w_text(b, "expires_at", 10)) return -1;
-        if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+        if (csilc_w_timestamp(b, ((*v->expires_at)).rfc3339)) return -1;
     }
     if (csilc_w_text(b, "signatures", 10)) return -1;
     if (csilc_w_array_head(b, v->signatures_count)) return -1;
@@ -2443,7 +3231,7 @@ static inline int csilc_enc_DomainClaim(csilc_buf *b, const DomainClaim *v) {
         if (csilc_enc_ClaimSignature(b, &(v->signatures[csilc_i]))) return -1;
     }
     if (csilc_w_text(b, "attested_at", 11)) return -1;
-    if (csilc_w_text(b, (v->attested_at), (v->attested_at) ? strlen(v->attested_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->attested_at).rfc3339)) return -1;
     if (csilc_w_text(b, "claim_value", 11)) return -1;
     if (csilc_w_bytes(b, (v->claim_value).data, (v->claim_value).len)) return -1;
     return 0;
@@ -2453,11 +3241,17 @@ static inline int csilc_enc_DomainClaim(csilc_buf *b, const DomainClaim *v) {
 static inline int csilc_dec_DomainClaim(const csilc_value *m, CsilCodecArena *a, DomainClaim *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    out->expires_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->expires_at = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->expires_at = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "signatures");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->signatures_count = csilc_f->as.array.count;
@@ -2470,7 +3264,7 @@ static inline int csilc_dec_DomainClaim(const csilc_value *m, CsilCodecArena *a,
         }
     }
     csilc_f = csilc_map_get(m, "attested_at");
-    if (!csilc_get_text(csilc_f, &(out->attested_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->attested_at).rfc3339, &(out->attested_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "claim_value");
     if (!csilc_get_bytes(csilc_f, &(out->claim_value).data, &(out->claim_value).len)) return -1;
     return 0;
@@ -2488,9 +3282,9 @@ static inline int csilc_enc_SigningRequest(csilc_buf *b, const SigningRequest *v
         if (csilc_w_text(b, (v->callback), (v->callback) ? strlen(v->callback) : 0)) return -1;
     }
     if (csilc_w_text(b, "issued_at", 9)) return -1;
-    if (csilc_w_text(b, (v->issued_at), (v->issued_at) ? strlen(v->issued_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->issued_at).rfc3339)) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (csilc_w_text(b, "request_id", 10)) return -1;
     if (csilc_w_text(b, (v->request_id), (v->request_id) ? strlen(v->request_id) : 0)) return -1;
     if (csilc_w_text(b, "issuer_domain", 13)) return -1;
@@ -2511,15 +3305,15 @@ static inline int csilc_enc_SigningRequest(csilc_buf *b, const SigningRequest *v
 static inline int csilc_dec_SigningRequest(const csilc_value *m, CsilCodecArena *a, SigningRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "nonce");
     if (!csilc_get_text(csilc_f, &(out->nonce))) return -1;
     csilc_f = csilc_map_get(m, "callback");
     out->callback = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "issued_at");
-    if (!csilc_get_text(csilc_f, &(out->issued_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->issued_at).rfc3339, &(out->issued_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "request_id");
     if (!csilc_get_text(csilc_f, &(out->request_id))) return -1;
     csilc_f = csilc_map_get(m, "issuer_domain");
@@ -2560,7 +3354,7 @@ static inline int csilc_enc_SignedSigningRequest(csilc_buf *b, const SignedSigni
 static inline int csilc_dec_SignedSigningRequest(const csilc_value *m, CsilCodecArena *a, SignedSigningRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "request");
     if (!csilc_get_bytes(csilc_f, &(out->request).data, &(out->request).len)) return -1;
     csilc_f = csilc_map_get(m, "signatures");
@@ -2590,7 +3384,7 @@ static inline int csilc_enc_DepositClaimRequest(csilc_buf *b, const DepositClaim
 static inline int csilc_dec_DepositClaimRequest(const csilc_value *m, CsilCodecArena *a, DepositClaimRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim");
     if (csilc_dec_Claim(csilc_f, a, &(out->claim))) return -1;
     return 0;
@@ -2609,7 +3403,7 @@ static inline int csilc_enc_DepositClaimResponse(csilc_buf *b, const DepositClai
 static inline int csilc_dec_DepositClaimResponse(const csilc_value *m, CsilCodecArena *a, DepositClaimResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "stored");
     if (!csilc_as_bool(csilc_f, &(out->stored))) return -1;
     return 0;
@@ -2617,7 +3411,7 @@ static inline int csilc_dec_DepositClaimResponse(const csilc_value *m, CsilCodec
 
 /* csilc_enc_IdentityAssertion writes IdentityAssertion as a canonical CBOR map. */
 static inline int csilc_enc_IdentityAssertion(csilc_buf *b, const IdentityAssertion *v) {
-    size_t csilc_n = 7;
+    size_t csilc_n = 8;
     if (v->display_name) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "nonce", 5)) return -1;
@@ -2629,9 +3423,11 @@ static inline int csilc_enc_IdentityAssertion(csilc_buf *b, const IdentityAssert
     if (csilc_w_text(b, "audience", 8)) return -1;
     if (csilc_w_text(b, (v->audience), (v->audience) ? strlen(v->audience) : 0)) return -1;
     if (csilc_w_text(b, "issued_at", 9)) return -1;
-    if (csilc_w_text(b, (v->issued_at), (v->issued_at) ? strlen(v->issued_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->issued_at).rfc3339)) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
+    if (csilc_w_text(b, "application", 11)) return -1;
+    if (csilc_enc_ApplicationRef(b, &(v->application))) return -1;
     if (v->display_name) {
         if (csilc_w_text(b, "display_name", 12)) return -1;
         if (csilc_w_text(b, (v->display_name), (v->display_name) ? strlen(v->display_name) : 0)) return -1;
@@ -2648,7 +3444,7 @@ static inline int csilc_enc_IdentityAssertion(csilc_buf *b, const IdentityAssert
 static inline int csilc_dec_IdentityAssertion(const csilc_value *m, CsilCodecArena *a, IdentityAssertion *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "nonce");
     if (!csilc_get_text(csilc_f, &(out->nonce))) return -1;
     csilc_f = csilc_map_get(m, "domain");
@@ -2658,9 +3454,11 @@ static inline int csilc_dec_IdentityAssertion(const csilc_value *m, CsilCodecAre
     csilc_f = csilc_map_get(m, "audience");
     if (!csilc_get_text(csilc_f, &(out->audience))) return -1;
     csilc_f = csilc_map_get(m, "issued_at");
-    if (!csilc_get_text(csilc_f, &(out->issued_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->issued_at).rfc3339, &(out->issued_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
+    csilc_f = csilc_map_get(m, "application");
+    if (csilc_dec_ApplicationRef(csilc_f, a, &(out->application))) return -1;
     csilc_f = csilc_map_get(m, "display_name");
     out->display_name = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "authorized_claims");
@@ -2694,7 +3492,7 @@ static inline int csilc_enc_SignedIdentityAssertion(csilc_buf *b, const SignedId
 static inline int csilc_dec_SignedIdentityAssertion(const csilc_value *m, CsilCodecArena *a, SignedIdentityAssertion *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "assertion");
     if (!csilc_get_bytes(csilc_f, &(out->assertion).data, &(out->assertion).len)) return -1;
     csilc_f = csilc_map_get(m, "signature");
@@ -2717,7 +3515,7 @@ static inline int csilc_enc_GetUserInfoRequest(csilc_buf *b, const GetUserInfoRe
 static inline int csilc_dec_GetUserInfoRequest(const csilc_value *m, CsilCodecArena *a, GetUserInfoRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "token");
     if (!csilc_get_bytes(csilc_f, &(out->token).data, &(out->token).len)) return -1;
     return 0;
@@ -2732,7 +3530,7 @@ static inline int csilc_enc_UserInfoRequest(csilc_buf *b, const UserInfoRequest 
     if (csilc_w_text(b, "token", 5)) return -1;
     if (csilc_w_bytes(b, (v->token).data, (v->token).len)) return -1;
     if (csilc_w_text(b, "timestamp", 9)) return -1;
-    if (csilc_w_text(b, (v->timestamp), (v->timestamp) ? strlen(v->timestamp) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->timestamp).rfc3339)) return -1;
     if (csilc_w_text(b, "relying_party", 13)) return -1;
     if (csilc_w_text(b, (v->relying_party), (v->relying_party) ? strlen(v->relying_party) : 0)) return -1;
     return 0;
@@ -2742,13 +3540,13 @@ static inline int csilc_enc_UserInfoRequest(csilc_buf *b, const UserInfoRequest 
 static inline int csilc_dec_UserInfoRequest(const csilc_value *m, CsilCodecArena *a, UserInfoRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "nonce");
     if (!csilc_get_text(csilc_f, &(out->nonce))) return -1;
     csilc_f = csilc_map_get(m, "token");
     if (!csilc_get_bytes(csilc_f, &(out->token).data, &(out->token).len)) return -1;
     csilc_f = csilc_map_get(m, "timestamp");
-    if (!csilc_get_text(csilc_f, &(out->timestamp))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->timestamp).rfc3339, &(out->timestamp).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "relying_party");
     if (!csilc_get_text(csilc_f, &(out->relying_party))) return -1;
     return 0;
@@ -2779,7 +3577,7 @@ static inline int csilc_enc_SignedUserInfoRequest(csilc_buf *b, const SignedUser
 static inline int csilc_dec_SignedUserInfoRequest(const csilc_value *m, CsilCodecArena *a, SignedUserInfoRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "request");
     if (!csilc_get_bytes(csilc_f, &(out->request).data, &(out->request).len)) return -1;
     csilc_f = csilc_map_get(m, "signature");
@@ -2822,7 +3620,7 @@ static inline int csilc_enc_UserInfo(csilc_buf *b, const UserInfo *v) {
 static inline int csilc_dec_UserInfo(const csilc_value *m, CsilCodecArena *a, UserInfo *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claims");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->claims_count = csilc_f->as.array.count;
@@ -2858,7 +3656,7 @@ static inline int csilc_enc_RelyingPartyApplication(csilc_buf *b, const RelyingP
 static inline int csilc_dec_RelyingPartyApplication(const csilc_value *m, CsilCodecArena *a, RelyingPartyApplication *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "application");
     if (csilc_dec_ApplicationRef(csilc_f, a, &(out->application))) return -1;
     csilc_f = csilc_map_get(m, "display_name");
@@ -2868,8 +3666,7 @@ static inline int csilc_dec_RelyingPartyApplication(const csilc_value *m, CsilCo
 
 /* csilc_enc_AuthRequest writes AuthRequest as a canonical CBOR map. */
 static inline int csilc_enc_AuthRequest(csilc_buf *b, const AuthRequest *v) {
-    size_t csilc_n = 5;
-    if (v->application) csilc_n++;
+    size_t csilc_n = 6;
     if (v->flow_context) csilc_n++;
     if (v->requested_claims) csilc_n++;
     if (v->relying_party_claims_count) csilc_n++;
@@ -2878,11 +3675,9 @@ static inline int csilc_enc_AuthRequest(csilc_buf *b, const AuthRequest *v) {
     if (csilc_w_text(b, "nonce", 5)) return -1;
     if (csilc_w_text(b, (v->nonce), (v->nonce) ? strlen(v->nonce) : 0)) return -1;
     if (csilc_w_text(b, "timestamp", 9)) return -1;
-    if (csilc_w_text(b, (v->timestamp), (v->timestamp) ? strlen(v->timestamp) : 0)) return -1;
-    if (v->application) {
-        if (csilc_w_text(b, "application", 11)) return -1;
-        if (csilc_enc_RelyingPartyApplication(b, &((*v->application)))) return -1;
-    }
+    if (csilc_w_timestamp(b, (v->timestamp).rfc3339)) return -1;
+    if (csilc_w_text(b, "application", 11)) return -1;
+    if (csilc_enc_RelyingPartyApplication(b, &(v->application))) return -1;
     if (csilc_w_text(b, "callback_url", 12)) return -1;
     if (csilc_w_text(b, (v->callback_url), (v->callback_url) ? strlen(v->callback_url) : 0)) return -1;
     if (v->flow_context) {
@@ -2915,19 +3710,13 @@ static inline int csilc_enc_AuthRequest(csilc_buf *b, const AuthRequest *v) {
 static inline int csilc_dec_AuthRequest(const csilc_value *m, CsilCodecArena *a, AuthRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "nonce");
     if (!csilc_get_text(csilc_f, &(out->nonce))) return -1;
     csilc_f = csilc_map_get(m, "timestamp");
-    if (!csilc_get_text(csilc_f, &(out->timestamp))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->timestamp).rfc3339, &(out->timestamp).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "application");
-    out->application = NULL;
-    if (csilc_f) {
-        RelyingPartyApplication *csilc_p = (RelyingPartyApplication *)csilc_arena_alloc(a, sizeof(RelyingPartyApplication));
-        if (!csilc_p) return -1;
-        if (csilc_dec_RelyingPartyApplication(csilc_f, a, &((*csilc_p)))) return -1;
-        out->application = csilc_p;
-    }
+    if (csilc_dec_RelyingPartyApplication(csilc_f, a, &(out->application))) return -1;
     csilc_f = csilc_map_get(m, "callback_url");
     if (!csilc_get_text(csilc_f, &(out->callback_url))) return -1;
     csilc_f = csilc_map_get(m, "flow_context");
@@ -2989,7 +3778,7 @@ static inline int csilc_enc_SignedAuthRequest(csilc_buf *b, const SignedAuthRequ
 static inline int csilc_dec_SignedAuthRequest(const csilc_value *m, CsilCodecArena *a, SignedAuthRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "request");
     if (!csilc_get_bytes(csilc_f, &(out->request).data, &(out->request).len)) return -1;
     csilc_f = csilc_map_get(m, "signature");
@@ -3008,7 +3797,7 @@ static inline int csilc_enc_EncryptedToken(csilc_buf *b, const EncryptedToken *v
     if (csilc_w_bytes(b, (v->nonce).data, (v->nonce).len)) return -1;
     if (v->suite) {
         if (csilc_w_text(b, "suite", 5)) return -1;
-        if (csilc_w_text(b, ((*v->suite)), ((*v->suite)) ? strlen((*v->suite)) : 0)) return -1;
+        if (csilc_enc_AeadSuite(b, &((*v->suite)))) return -1;
     }
     if (csilc_w_text(b, "ciphertext", 10)) return -1;
     if (csilc_w_bytes(b, (v->ciphertext).data, (v->ciphertext).len)) return -1;
@@ -3021,7 +3810,7 @@ static inline int csilc_enc_EncryptedToken(csilc_buf *b, const EncryptedToken *v
 static inline int csilc_dec_EncryptedToken(const csilc_value *m, CsilCodecArena *a, EncryptedToken *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "nonce");
     if (!csilc_get_bytes(csilc_f, &(out->nonce).data, &(out->nonce).len)) return -1;
     csilc_f = csilc_map_get(m, "suite");
@@ -3029,7 +3818,7 @@ static inline int csilc_dec_EncryptedToken(const csilc_value *m, CsilCodecArena 
     if (csilc_f) {
         AeadSuite *csilc_p = (AeadSuite *)csilc_arena_alloc(a, sizeof(AeadSuite));
         if (!csilc_p) return -1;
-        if (!csilc_get_text(csilc_f, &((*csilc_p)))) return -1;
+        if (csilc_dec_AeadSuite(csilc_f, a, &((*csilc_p)))) return -1;
         out->suite = csilc_p;
     }
     csilc_f = csilc_map_get(m, "ciphertext");
@@ -3047,13 +3836,13 @@ static inline int csilc_enc_AlgorithmSupport(csilc_buf *b, const AlgorithmSuppor
     if (csilc_w_text(b, "signing", 7)) return -1;
     if (csilc_w_array_head(b, v->signing_count)) return -1;
     for (size_t csilc_i = 0; csilc_i < v->signing_count; csilc_i++) {
-        if (csilc_w_text(b, (v->signing[csilc_i]), (v->signing[csilc_i]) ? strlen(v->signing[csilc_i]) : 0)) return -1;
+        if (csilc_enc_KeyAlgorithm(b, &(v->signing[csilc_i]))) return -1;
     }
     if (v->encryption_count) {
         if (csilc_w_text(b, "encryption", 10)) return -1;
         if (csilc_w_array_head(b, v->encryption_count)) return -1;
         for (size_t csilc_i = 0; csilc_i < v->encryption_count; csilc_i++) {
-            if (csilc_w_text(b, (v->encryption[csilc_i]), (v->encryption[csilc_i]) ? strlen(v->encryption[csilc_i]) : 0)) return -1;
+            if (csilc_enc_AeadSuite(b, &(v->encryption[csilc_i]))) return -1;
         }
     }
     return 0;
@@ -3063,16 +3852,16 @@ static inline int csilc_enc_AlgorithmSupport(csilc_buf *b, const AlgorithmSuppor
 static inline int csilc_dec_AlgorithmSupport(const csilc_value *m, CsilCodecArena *a, AlgorithmSupport *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "signing");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->signing_count = csilc_f->as.array.count;
     out->signing = NULL;
     if (out->signing_count) {
-        out->signing = (char * *)csilc_arena_alloc(a, out->signing_count * sizeof(char *));
+        out->signing = (KeyAlgorithm *)csilc_arena_alloc(a, out->signing_count * sizeof(KeyAlgorithm));
         if (!out->signing) return -1;
         for (size_t csilc_i = 0; csilc_i < out->signing_count; csilc_i++) {
-            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->signing[csilc_i]))) return -1;
+            if (csilc_dec_KeyAlgorithm(&csilc_f->as.array.items[csilc_i], a, &(out->signing[csilc_i]))) return -1;
         }
     }
     csilc_f = csilc_map_get(m, "encryption");
@@ -3080,10 +3869,10 @@ static inline int csilc_dec_AlgorithmSupport(const csilc_value *m, CsilCodecAren
     out->encryption_count = csilc_f->as.array.count;
     out->encryption = NULL;
     if (out->encryption_count) {
-        out->encryption = (char * *)csilc_arena_alloc(a, out->encryption_count * sizeof(char *));
+        out->encryption = (AeadSuite *)csilc_arena_alloc(a, out->encryption_count * sizeof(AeadSuite));
         if (!out->encryption) return -1;
         for (size_t csilc_i = 0; csilc_i < out->encryption_count; csilc_i++) {
-            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->encryption[csilc_i]))) return -1;
+            if (csilc_dec_AeadSuite(&csilc_f->as.array.items[csilc_i], a, &(out->encryption[csilc_i]))) return -1;
         }
     }
     return 0;
@@ -3104,7 +3893,7 @@ static inline int csilc_enc_HandshakeRequest(csilc_buf *b, const HandshakeReques
 static inline int csilc_dec_HandshakeRequest(const csilc_value *m, CsilCodecArena *a, HandshakeRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "version");
     if (!csilc_get_text(csilc_f, &(out->version))) return -1;
     csilc_f = csilc_map_get(m, "algorithms");
@@ -3127,7 +3916,7 @@ static inline int csilc_enc_HandshakeResponse(csilc_buf *b, const HandshakeRespo
 static inline int csilc_dec_HandshakeResponse(const csilc_value *m, CsilCodecArena *a, HandshakeResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "version");
     if (!csilc_get_text(csilc_f, &(out->version))) return -1;
     csilc_f = csilc_map_get(m, "algorithms");
@@ -3147,10 +3936,10 @@ static inline int csilc_enc_Relation(csilc_buf *b, const Relation *v) {
     if (csilc_w_text(b, "object_id", 9)) return -1;
     if (csilc_w_text(b, (v->object_id), (v->object_id) ? strlen(v->object_id) : 0)) return -1;
     if (csilc_w_text(b, "created_at", 10)) return -1;
-    if (csilc_w_text(b, (v->created_at), (v->created_at) ? strlen(v->created_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->created_at).rfc3339)) return -1;
     if (v->removed_at) {
         if (csilc_w_text(b, "removed_at", 10)) return -1;
-        if (csilc_w_text(b, (v->removed_at), (v->removed_at) ? strlen(v->removed_at) : 0)) return -1;
+        if (csilc_w_timestamp(b, ((*v->removed_at)).rfc3339)) return -1;
     }
     if (csilc_w_text(b, "subject_id", 10)) return -1;
     if (csilc_w_text(b, (v->subject_id), (v->subject_id) ? strlen(v->subject_id) : 0)) return -1;
@@ -3165,7 +3954,7 @@ static inline int csilc_enc_Relation(csilc_buf *b, const Relation *v) {
 static inline int csilc_dec_Relation(const csilc_value *m, CsilCodecArena *a, Relation *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "id");
     if (!csilc_get_text(csilc_f, &(out->id))) return -1;
     csilc_f = csilc_map_get(m, "relation");
@@ -3173,9 +3962,15 @@ static inline int csilc_dec_Relation(const csilc_value *m, CsilCodecArena *a, Re
     csilc_f = csilc_map_get(m, "object_id");
     if (!csilc_get_text(csilc_f, &(out->object_id))) return -1;
     csilc_f = csilc_map_get(m, "created_at");
-    if (!csilc_get_text(csilc_f, &(out->created_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->created_at).rfc3339, &(out->created_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "removed_at");
-    out->removed_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->removed_at = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->removed_at = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "subject_id");
     if (!csilc_get_text(csilc_f, &(out->subject_id))) return -1;
     csilc_f = csilc_map_get(m, "object_type");
@@ -3187,30 +3982,37 @@ static inline int csilc_dec_Relation(const csilc_value *m, CsilCodecArena *a, Re
 
 /* csilc_enc_AdminUser writes AdminUser as a canonical CBOR map. */
 static inline int csilc_enc_AdminUser(csilc_buf *b, const AdminUser *v) {
-    size_t csilc_n = 6;
+    size_t csilc_n = 7;
     if (v->purged_at) csilc_n++;
     if (v->purge_reason) csilc_n++;
+    if (v->application_id) csilc_n++;
     if (v->password_locked) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "id", 2)) return -1;
     if (csilc_w_text(b, (v->id), (v->id) ? strlen(v->id) : 0)) return -1;
+    if (csilc_w_text(b, "kind", 4)) return -1;
+    if (csilc_enc_AccountKind(b, &(v->kind))) return -1;
     if (csilc_w_text(b, "username", 8)) return -1;
     if (csilc_w_text(b, (v->username), (v->username) ? strlen(v->username) : 0)) return -1;
     if (csilc_w_text(b, "is_active", 9)) return -1;
     if (csilc_w_bool(b, (v->is_active))) return -1;
     if (v->purged_at) {
         if (csilc_w_text(b, "purged_at", 9)) return -1;
-        if (csilc_w_text(b, (v->purged_at), (v->purged_at) ? strlen(v->purged_at) : 0)) return -1;
+        if (csilc_w_timestamp(b, ((*v->purged_at)).rfc3339)) return -1;
     }
     if (csilc_w_text(b, "created_at", 10)) return -1;
-    if (csilc_w_text(b, (v->created_at), (v->created_at) ? strlen(v->created_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->created_at).rfc3339)) return -1;
     if (csilc_w_text(b, "updated_at", 10)) return -1;
-    if (csilc_w_text(b, (v->updated_at), (v->updated_at) ? strlen(v->updated_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->updated_at).rfc3339)) return -1;
     if (csilc_w_text(b, "display_name", 12)) return -1;
     if (csilc_w_text(b, (v->display_name), (v->display_name) ? strlen(v->display_name) : 0)) return -1;
     if (v->purge_reason) {
         if (csilc_w_text(b, "purge_reason", 12)) return -1;
         if (csilc_w_text(b, (v->purge_reason), (v->purge_reason) ? strlen(v->purge_reason) : 0)) return -1;
+    }
+    if (v->application_id) {
+        if (csilc_w_text(b, "application_id", 14)) return -1;
+        if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
     }
     if (v->password_locked) {
         if (csilc_w_text(b, "password_locked", 15)) return -1;
@@ -3223,23 +4025,33 @@ static inline int csilc_enc_AdminUser(csilc_buf *b, const AdminUser *v) {
 static inline int csilc_dec_AdminUser(const csilc_value *m, CsilCodecArena *a, AdminUser *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "id");
     if (!csilc_get_text(csilc_f, &(out->id))) return -1;
+    csilc_f = csilc_map_get(m, "kind");
+    if (csilc_dec_AccountKind(csilc_f, a, &(out->kind))) return -1;
     csilc_f = csilc_map_get(m, "username");
     if (!csilc_get_text(csilc_f, &(out->username))) return -1;
     csilc_f = csilc_map_get(m, "is_active");
     if (!csilc_as_bool(csilc_f, &(out->is_active))) return -1;
     csilc_f = csilc_map_get(m, "purged_at");
-    out->purged_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->purged_at = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->purged_at = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "created_at");
-    if (!csilc_get_text(csilc_f, &(out->created_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->created_at).rfc3339, &(out->created_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "updated_at");
-    if (!csilc_get_text(csilc_f, &(out->updated_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->updated_at).rfc3339, &(out->updated_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "display_name");
     if (!csilc_get_text(csilc_f, &(out->display_name))) return -1;
     csilc_f = csilc_map_get(m, "purge_reason");
     out->purge_reason = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    csilc_f = csilc_map_get(m, "application_id");
+    out->application_id = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "password_locked");
     out->password_locked = NULL;
     if (csilc_f) {
@@ -3277,7 +4089,7 @@ static inline int csilc_enc_ListUsersRequest(csilc_buf *b, const ListUsersReques
 static inline int csilc_dec_ListUsersRequest(const csilc_value *m, CsilCodecArena *a, ListUsersRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "limit");
     out->limit = NULL;
     if (csilc_f) {
@@ -3321,7 +4133,7 @@ static inline int csilc_enc_ListUsersResponse(csilc_buf *b, const ListUsersRespo
 static inline int csilc_dec_ListUsersResponse(const csilc_value *m, CsilCodecArena *a, ListUsersResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "users");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->users_count = csilc_f->as.array.count;
@@ -3349,7 +4161,7 @@ static inline int csilc_enc_GetUserRequest(csilc_buf *b, const GetUserRequest *v
 static inline int csilc_dec_GetUserRequest(const csilc_value *m, CsilCodecArena *a, GetUserRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     return 0;
@@ -3368,7 +4180,7 @@ static inline int csilc_enc_GetUserResponse(csilc_buf *b, const GetUserResponse 
 static inline int csilc_dec_GetUserResponse(const csilc_value *m, CsilCodecArena *a, GetUserResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user");
     if (csilc_dec_AdminUser(csilc_f, a, &(out->user))) return -1;
     return 0;
@@ -3384,11 +4196,11 @@ static inline int csilc_enc_UserAuthenticationActivity(csilc_buf *b, const UserA
     if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
     if (v->last_seen_at) {
         if (csilc_w_text(b, "last_seen_at", 12)) return -1;
-        if (csilc_w_text(b, (v->last_seen_at), (v->last_seen_at) ? strlen(v->last_seen_at) : 0)) return -1;
+        if (csilc_w_timestamp(b, ((*v->last_seen_at)).rfc3339)) return -1;
     }
     if (v->last_authenticated_at) {
         if (csilc_w_text(b, "last_authenticated_at", 21)) return -1;
-        if (csilc_w_text(b, (v->last_authenticated_at), (v->last_authenticated_at) ? strlen(v->last_authenticated_at) : 0)) return -1;
+        if (csilc_w_timestamp(b, ((*v->last_authenticated_at)).rfc3339)) return -1;
     }
     if (csilc_w_text(b, "active_browser_session_count", 28)) return -1;
     if (csilc_w_int(b, (int64_t)(v->active_browser_session_count))) return -1;
@@ -3401,13 +4213,25 @@ static inline int csilc_enc_UserAuthenticationActivity(csilc_buf *b, const UserA
 static inline int csilc_dec_UserAuthenticationActivity(const csilc_value *m, CsilCodecArena *a, UserAuthenticationActivity *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     csilc_f = csilc_map_get(m, "last_seen_at");
-    out->last_seen_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->last_seen_at = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->last_seen_at = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "last_authenticated_at");
-    out->last_authenticated_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->last_authenticated_at = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->last_authenticated_at = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "active_browser_session_count");
     if (!csilc_as_i64(csilc_f, &(out->active_browser_session_count))) return -1;
     csilc_f = csilc_map_get(m, "successful_authentication_count");
@@ -3428,7 +4252,7 @@ static inline int csilc_enc_GetUserAuthenticationActivityRequest(csilc_buf *b, c
 static inline int csilc_dec_GetUserAuthenticationActivityRequest(const csilc_value *m, CsilCodecArena *a, GetUserAuthenticationActivityRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     return 0;
@@ -3447,7 +4271,7 @@ static inline int csilc_enc_GetUserAuthenticationActivityResponse(csilc_buf *b, 
 static inline int csilc_dec_GetUserAuthenticationActivityResponse(const csilc_value *m, CsilCodecArena *a, GetUserAuthenticationActivityResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "activity");
     if (csilc_dec_UserAuthenticationActivity(csilc_f, a, &(out->activity))) return -1;
     return 0;
@@ -3457,6 +4281,7 @@ static inline int csilc_dec_GetUserAuthenticationActivityResponse(const csilc_va
 static inline int csilc_enc_CreateUserRequest(csilc_buf *b, const CreateUserRequest *v) {
     size_t csilc_n = 2;
     if (v->password) csilc_n++;
+    if (v->application_id) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (v->password) {
         if (csilc_w_text(b, "password", 8)) return -1;
@@ -3466,6 +4291,10 @@ static inline int csilc_enc_CreateUserRequest(csilc_buf *b, const CreateUserRequ
     if (csilc_w_text(b, (v->username), (v->username) ? strlen(v->username) : 0)) return -1;
     if (csilc_w_text(b, "display_name", 12)) return -1;
     if (csilc_w_text(b, (v->display_name), (v->display_name) ? strlen(v->display_name) : 0)) return -1;
+    if (v->application_id) {
+        if (csilc_w_text(b, "application_id", 14)) return -1;
+        if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
+    }
     return 0;
 }
 
@@ -3473,13 +4302,15 @@ static inline int csilc_enc_CreateUserRequest(csilc_buf *b, const CreateUserRequ
 static inline int csilc_dec_CreateUserRequest(const csilc_value *m, CsilCodecArena *a, CreateUserRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "password");
     out->password = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "username");
     if (!csilc_get_text(csilc_f, &(out->username))) return -1;
     csilc_f = csilc_map_get(m, "display_name");
     if (!csilc_get_text(csilc_f, &(out->display_name))) return -1;
+    csilc_f = csilc_map_get(m, "application_id");
+    out->application_id = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     return 0;
 }
 
@@ -3501,11 +4332,538 @@ static inline int csilc_enc_CreateUserResponse(csilc_buf *b, const CreateUserRes
 static inline int csilc_dec_CreateUserResponse(const csilc_value *m, CsilCodecArena *a, CreateUserResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user");
     if (csilc_dec_AdminUser(csilc_f, a, &(out->user))) return -1;
     csilc_f = csilc_map_get(m, "api_key");
     out->api_key = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    return 0;
+}
+
+/* csilc_enc_RenameUserRequest writes RenameUserRequest as a canonical CBOR map. */
+static inline int csilc_enc_RenameUserRequest(csilc_buf *b, const RenameUserRequest *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "user_id", 7)) return -1;
+    if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
+    if (csilc_w_text(b, "username", 8)) return -1;
+    if (csilc_w_text(b, (v->username), (v->username) ? strlen(v->username) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_RenameUserRequest reads RenameUserRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RenameUserRequest(const csilc_value *m, CsilCodecArena *a, RenameUserRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "user_id");
+    if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
+    csilc_f = csilc_map_get(m, "username");
+    if (!csilc_get_text(csilc_f, &(out->username))) return -1;
+    return 0;
+}
+
+/* csilc_enc_RenameUserResponse writes RenameUserResponse as a canonical CBOR map. */
+static inline int csilc_enc_RenameUserResponse(csilc_buf *b, const RenameUserResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "user", 4)) return -1;
+    if (csilc_enc_AdminUser(b, &(v->user))) return -1;
+    return 0;
+}
+
+/* csilc_dec_RenameUserResponse reads RenameUserResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RenameUserResponse(const csilc_value *m, CsilCodecArena *a, RenameUserResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "user");
+    if (csilc_dec_AdminUser(csilc_f, a, &(out->user))) return -1;
+    return 0;
+}
+
+/* csilc_enc_SetApplicationIdRequest writes SetApplicationIdRequest as a canonical CBOR map. */
+static inline int csilc_enc_SetApplicationIdRequest(csilc_buf *b, const SetApplicationIdRequest *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "user_id", 7)) return -1;
+    if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
+    if (csilc_w_text(b, "application_id", 14)) return -1;
+    if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_SetApplicationIdRequest reads SetApplicationIdRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SetApplicationIdRequest(const csilc_value *m, CsilCodecArena *a, SetApplicationIdRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "user_id");
+    if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
+    csilc_f = csilc_map_get(m, "application_id");
+    if (!csilc_get_text(csilc_f, &(out->application_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_SetApplicationIdResponse writes SetApplicationIdResponse as a canonical CBOR map. */
+static inline int csilc_enc_SetApplicationIdResponse(csilc_buf *b, const SetApplicationIdResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "user", 4)) return -1;
+    if (csilc_enc_AdminUser(b, &(v->user))) return -1;
+    return 0;
+}
+
+/* csilc_dec_SetApplicationIdResponse reads SetApplicationIdResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SetApplicationIdResponse(const csilc_value *m, CsilCodecArena *a, SetApplicationIdResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "user");
+    if (csilc_dec_AdminUser(csilc_f, a, &(out->user))) return -1;
+    return 0;
+}
+
+/* csilc_enc_ApiKeyInfo writes ApiKeyInfo as a canonical CBOR map. */
+static inline int csilc_enc_ApiKeyInfo(csilc_buf *b, const ApiKeyInfo *v) {
+    size_t csilc_n = 4;
+    if (v->last_used_at) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "hint", 4)) return -1;
+    if (csilc_w_text(b, (v->hint), (v->hint) ? strlen(v->hint) : 0)) return -1;
+    if (csilc_w_text(b, "name", 4)) return -1;
+    if (csilc_w_text(b, (v->name), (v->name) ? strlen(v->name) : 0)) return -1;
+    if (csilc_w_text(b, "key_id", 6)) return -1;
+    if (csilc_w_text(b, (v->key_id), (v->key_id) ? strlen(v->key_id) : 0)) return -1;
+    if (csilc_w_text(b, "created_at", 10)) return -1;
+    if (csilc_w_timestamp(b, (v->created_at).rfc3339)) return -1;
+    if (v->last_used_at) {
+        if (csilc_w_text(b, "last_used_at", 12)) return -1;
+        if (csilc_w_timestamp(b, ((*v->last_used_at)).rfc3339)) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_ApiKeyInfo reads ApiKeyInfo from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ApiKeyInfo(const csilc_value *m, CsilCodecArena *a, ApiKeyInfo *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "hint");
+    if (!csilc_get_text(csilc_f, &(out->hint))) return -1;
+    csilc_f = csilc_map_get(m, "name");
+    if (!csilc_get_text(csilc_f, &(out->name))) return -1;
+    csilc_f = csilc_map_get(m, "key_id");
+    if (!csilc_get_text(csilc_f, &(out->key_id))) return -1;
+    csilc_f = csilc_map_get(m, "created_at");
+    if (!csilc_get_timestamp(csilc_f, a, &(out->created_at).rfc3339, &(out->created_at).epoch_seconds)) return -1;
+    csilc_f = csilc_map_get(m, "last_used_at");
+    out->last_used_at = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->last_used_at = csilc_p;
+    }
+    return 0;
+}
+
+/* csilc_enc_CreateApiKeyRequest writes CreateApiKeyRequest as a canonical CBOR map. */
+static inline int csilc_enc_CreateApiKeyRequest(csilc_buf *b, const CreateApiKeyRequest *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "name", 4)) return -1;
+    if (csilc_w_text(b, (v->name), (v->name) ? strlen(v->name) : 0)) return -1;
+    if (csilc_w_text(b, "user_id", 7)) return -1;
+    if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_CreateApiKeyRequest reads CreateApiKeyRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_CreateApiKeyRequest(const csilc_value *m, CsilCodecArena *a, CreateApiKeyRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "name");
+    if (!csilc_get_text(csilc_f, &(out->name))) return -1;
+    csilc_f = csilc_map_get(m, "user_id");
+    if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_CreateApiKeyResponse writes CreateApiKeyResponse as a canonical CBOR map. */
+static inline int csilc_enc_CreateApiKeyResponse(csilc_buf *b, const CreateApiKeyResponse *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "key", 3)) return -1;
+    if (csilc_enc_ApiKeyInfo(b, &(v->key))) return -1;
+    if (csilc_w_text(b, "api_key", 7)) return -1;
+    if (csilc_w_text(b, (v->api_key), (v->api_key) ? strlen(v->api_key) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_CreateApiKeyResponse reads CreateApiKeyResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_CreateApiKeyResponse(const csilc_value *m, CsilCodecArena *a, CreateApiKeyResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "key");
+    if (csilc_dec_ApiKeyInfo(csilc_f, a, &(out->key))) return -1;
+    csilc_f = csilc_map_get(m, "api_key");
+    if (!csilc_get_text(csilc_f, &(out->api_key))) return -1;
+    return 0;
+}
+
+/* csilc_enc_ListApiKeysRequest writes ListApiKeysRequest as a canonical CBOR map. */
+static inline int csilc_enc_ListApiKeysRequest(csilc_buf *b, const ListApiKeysRequest *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "user_id", 7)) return -1;
+    if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_ListApiKeysRequest reads ListApiKeysRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ListApiKeysRequest(const csilc_value *m, CsilCodecArena *a, ListApiKeysRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "user_id");
+    if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_ListApiKeysResponse writes ListApiKeysResponse as a canonical CBOR map. */
+static inline int csilc_enc_ListApiKeysResponse(csilc_buf *b, const ListApiKeysResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "keys", 4)) return -1;
+    if (csilc_w_array_head(b, v->keys_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->keys_count; csilc_i++) {
+        if (csilc_enc_ApiKeyInfo(b, &(v->keys[csilc_i]))) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_ListApiKeysResponse reads ListApiKeysResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ListApiKeysResponse(const csilc_value *m, CsilCodecArena *a, ListApiKeysResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "keys");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->keys_count = csilc_f->as.array.count;
+    out->keys = NULL;
+    if (out->keys_count) {
+        out->keys = (ApiKeyInfo *)csilc_arena_alloc(a, out->keys_count * sizeof(ApiKeyInfo));
+        if (!out->keys) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->keys_count; csilc_i++) {
+            if (csilc_dec_ApiKeyInfo(&csilc_f->as.array.items[csilc_i], a, &(out->keys[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
+/* csilc_enc_RevokeApiKeyRequest writes RevokeApiKeyRequest as a canonical CBOR map. */
+static inline int csilc_enc_RevokeApiKeyRequest(csilc_buf *b, const RevokeApiKeyRequest *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "key_id", 6)) return -1;
+    if (csilc_w_text(b, (v->key_id), (v->key_id) ? strlen(v->key_id) : 0)) return -1;
+    if (csilc_w_text(b, "user_id", 7)) return -1;
+    if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_RevokeApiKeyRequest reads RevokeApiKeyRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RevokeApiKeyRequest(const csilc_value *m, CsilCodecArena *a, RevokeApiKeyRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "key_id");
+    if (!csilc_get_text(csilc_f, &(out->key_id))) return -1;
+    csilc_f = csilc_map_get(m, "user_id");
+    if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_RevokeApiKeyResponse writes RevokeApiKeyResponse as a canonical CBOR map. */
+static inline int csilc_enc_RevokeApiKeyResponse(csilc_buf *b, const RevokeApiKeyResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "revoked", 7)) return -1;
+    if (csilc_w_bool(b, (v->revoked))) return -1;
+    return 0;
+}
+
+/* csilc_dec_RevokeApiKeyResponse reads RevokeApiKeyResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RevokeApiKeyResponse(const csilc_value *m, CsilCodecArena *a, RevokeApiKeyResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "revoked");
+    if (!csilc_as_bool(csilc_f, &(out->revoked))) return -1;
+    return 0;
+}
+
+/* csilc_enc_AccountLimits writes AccountLimits as a canonical CBOR map. */
+static inline int csilc_enc_AccountLimits(csilc_buf *b, const AccountLimits *v) {
+    size_t csilc_n = 1;
+    if (v->max_api_keys) csilc_n++;
+    if (v->request_burst) csilc_n++;
+    if (v->max_distinct_users) csilc_n++;
+    if (v->requests_per_minute) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (v->max_api_keys) {
+        if (csilc_w_text(b, "max_api_keys", 12)) return -1;
+        if (csilc_w_int(b, (int64_t)((*v->max_api_keys)))) return -1;
+    }
+    if (v->request_burst) {
+        if (csilc_w_text(b, "request_burst", 13)) return -1;
+        if (csilc_w_int(b, (int64_t)((*v->request_burst)))) return -1;
+    }
+    if (v->max_distinct_users) {
+        if (csilc_w_text(b, "max_distinct_users", 18)) return -1;
+        if (csilc_w_int(b, (int64_t)((*v->max_distinct_users)))) return -1;
+    }
+    if (v->requests_per_minute) {
+        if (csilc_w_text(b, "requests_per_minute", 19)) return -1;
+        if (csilc_w_int(b, (int64_t)((*v->requests_per_minute)))) return -1;
+    }
+    if (csilc_w_text(b, "distinct_user_window_days", 25)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->distinct_user_window_days))) return -1;
+    return 0;
+}
+
+/* csilc_dec_AccountLimits reads AccountLimits from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_AccountLimits(const csilc_value *m, CsilCodecArena *a, AccountLimits *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "max_api_keys");
+    out->max_api_keys = NULL;
+    if (csilc_f) {
+        int64_t *csilc_p = (int64_t *)csilc_arena_alloc(a, sizeof(int64_t));
+        if (!csilc_p) return -1;
+        if (!csilc_as_i64(csilc_f, &((*csilc_p)))) return -1;
+        out->max_api_keys = csilc_p;
+    }
+    csilc_f = csilc_map_get(m, "request_burst");
+    out->request_burst = NULL;
+    if (csilc_f) {
+        int64_t *csilc_p = (int64_t *)csilc_arena_alloc(a, sizeof(int64_t));
+        if (!csilc_p) return -1;
+        if (!csilc_as_i64(csilc_f, &((*csilc_p)))) return -1;
+        out->request_burst = csilc_p;
+    }
+    csilc_f = csilc_map_get(m, "max_distinct_users");
+    out->max_distinct_users = NULL;
+    if (csilc_f) {
+        int64_t *csilc_p = (int64_t *)csilc_arena_alloc(a, sizeof(int64_t));
+        if (!csilc_p) return -1;
+        if (!csilc_as_i64(csilc_f, &((*csilc_p)))) return -1;
+        out->max_distinct_users = csilc_p;
+    }
+    csilc_f = csilc_map_get(m, "requests_per_minute");
+    out->requests_per_minute = NULL;
+    if (csilc_f) {
+        int64_t *csilc_p = (int64_t *)csilc_arena_alloc(a, sizeof(int64_t));
+        if (!csilc_p) return -1;
+        if (!csilc_as_i64(csilc_f, &((*csilc_p)))) return -1;
+        out->requests_per_minute = csilc_p;
+    }
+    csilc_f = csilc_map_get(m, "distinct_user_window_days");
+    if (!csilc_as_i64(csilc_f, &(out->distinct_user_window_days))) return -1;
+    return 0;
+}
+
+/* csilc_enc_GetAccountLimitsRequest writes GetAccountLimitsRequest as a canonical CBOR map. */
+static inline int csilc_enc_GetAccountLimitsRequest(csilc_buf *b, const GetAccountLimitsRequest *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "user_id", 7)) return -1;
+    if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_GetAccountLimitsRequest reads GetAccountLimitsRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_GetAccountLimitsRequest(const csilc_value *m, CsilCodecArena *a, GetAccountLimitsRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "user_id");
+    if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_GetAccountLimitsResponse writes GetAccountLimitsResponse as a canonical CBOR map. */
+static inline int csilc_enc_GetAccountLimitsResponse(csilc_buf *b, const GetAccountLimitsResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "limits", 6)) return -1;
+    if (csilc_enc_AccountLimits(b, &(v->limits))) return -1;
+    return 0;
+}
+
+/* csilc_dec_GetAccountLimitsResponse reads GetAccountLimitsResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_GetAccountLimitsResponse(const csilc_value *m, CsilCodecArena *a, GetAccountLimitsResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "limits");
+    if (csilc_dec_AccountLimits(csilc_f, a, &(out->limits))) return -1;
+    return 0;
+}
+
+/* csilc_enc_SetAccountLimitsRequest writes SetAccountLimitsRequest as a canonical CBOR map. */
+static inline int csilc_enc_SetAccountLimitsRequest(csilc_buf *b, const SetAccountLimitsRequest *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "limits", 6)) return -1;
+    if (csilc_enc_AccountLimits(b, &(v->limits))) return -1;
+    if (csilc_w_text(b, "user_id", 7)) return -1;
+    if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_SetAccountLimitsRequest reads SetAccountLimitsRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SetAccountLimitsRequest(const csilc_value *m, CsilCodecArena *a, SetAccountLimitsRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "limits");
+    if (csilc_dec_AccountLimits(csilc_f, a, &(out->limits))) return -1;
+    csilc_f = csilc_map_get(m, "user_id");
+    if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
+    return 0;
+}
+
+/* csilc_enc_SetAccountLimitsResponse writes SetAccountLimitsResponse as a canonical CBOR map. */
+static inline int csilc_enc_SetAccountLimitsResponse(csilc_buf *b, const SetAccountLimitsResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "limits", 6)) return -1;
+    if (csilc_enc_AccountLimits(b, &(v->limits))) return -1;
+    return 0;
+}
+
+/* csilc_dec_SetAccountLimitsResponse reads SetAccountLimitsResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_SetAccountLimitsResponse(const csilc_value *m, CsilCodecArena *a, SetAccountLimitsResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "limits");
+    if (csilc_dec_AccountLimits(csilc_f, a, &(out->limits))) return -1;
+    return 0;
+}
+
+/* csilc_enc_RpUsageDay writes RpUsageDay as a canonical CBOR map. */
+static inline int csilc_enc_RpUsageDay(csilc_buf *b, const RpUsageDay *v) {
+    size_t csilc_n = 4;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "day", 3)) return -1;
+    if (!csilc_valid_date(v->day) || csilc_w_tag(b, 1004) || csilc_w_text(b, v->day, 10)) return -1;
+    if (csilc_w_text(b, "failed", 6)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->failed))) return -1;
+    if (csilc_w_text(b, "operation", 9)) return -1;
+    if (csilc_w_text(b, (v->operation), (v->operation) ? strlen(v->operation) : 0)) return -1;
+    if (csilc_w_text(b, "succeeded", 9)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->succeeded))) return -1;
+    return 0;
+}
+
+/* csilc_dec_RpUsageDay reads RpUsageDay from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RpUsageDay(const csilc_value *m, CsilCodecArena *a, RpUsageDay *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "day");
+    if (!csilc_get_date(csilc_f, &(out->day))) return -1;
+    csilc_f = csilc_map_get(m, "failed");
+    if (!csilc_as_i64(csilc_f, &(out->failed))) return -1;
+    csilc_f = csilc_map_get(m, "operation");
+    if (!csilc_get_text(csilc_f, &(out->operation))) return -1;
+    csilc_f = csilc_map_get(m, "succeeded");
+    if (!csilc_as_i64(csilc_f, &(out->succeeded))) return -1;
+    return 0;
+}
+
+/* csilc_enc_GetApplicationUsageRequest writes GetApplicationUsageRequest as a canonical CBOR map. */
+static inline int csilc_enc_GetApplicationUsageRequest(csilc_buf *b, const GetApplicationUsageRequest *v) {
+    size_t csilc_n = 3;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "user_id", 7)) return -1;
+    if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
+    if (csilc_w_text(b, "last_day", 8)) return -1;
+    if (!csilc_valid_date(v->last_day) || csilc_w_tag(b, 1004) || csilc_w_text(b, v->last_day, 10)) return -1;
+    if (csilc_w_text(b, "first_day", 9)) return -1;
+    if (!csilc_valid_date(v->first_day) || csilc_w_tag(b, 1004) || csilc_w_text(b, v->first_day, 10)) return -1;
+    return 0;
+}
+
+/* csilc_dec_GetApplicationUsageRequest reads GetApplicationUsageRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_GetApplicationUsageRequest(const csilc_value *m, CsilCodecArena *a, GetApplicationUsageRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "user_id");
+    if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
+    csilc_f = csilc_map_get(m, "last_day");
+    if (!csilc_get_date(csilc_f, &(out->last_day))) return -1;
+    csilc_f = csilc_map_get(m, "first_day");
+    if (!csilc_get_date(csilc_f, &(out->first_day))) return -1;
+    return 0;
+}
+
+/* csilc_enc_GetApplicationUsageResponse writes GetApplicationUsageResponse as a canonical CBOR map. */
+static inline int csilc_enc_GetApplicationUsageResponse(csilc_buf *b, const GetApplicationUsageResponse *v) {
+    size_t csilc_n = 3;
+    if (v->max_distinct_users) csilc_n++;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "days", 4)) return -1;
+    if (csilc_w_array_head(b, v->days_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->days_count; csilc_i++) {
+        if (csilc_enc_RpUsageDay(b, &(v->days[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "distinct_users", 14)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->distinct_users))) return -1;
+    if (v->max_distinct_users) {
+        if (csilc_w_text(b, "max_distinct_users", 18)) return -1;
+        if (csilc_w_int(b, (int64_t)((*v->max_distinct_users)))) return -1;
+    }
+    if (csilc_w_text(b, "distinct_user_window_days", 25)) return -1;
+    if (csilc_w_int(b, (int64_t)(v->distinct_user_window_days))) return -1;
+    return 0;
+}
+
+/* csilc_dec_GetApplicationUsageResponse reads GetApplicationUsageResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_GetApplicationUsageResponse(const csilc_value *m, CsilCodecArena *a, GetApplicationUsageResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "days");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->days_count = csilc_f->as.array.count;
+    out->days = NULL;
+    if (out->days_count) {
+        out->days = (RpUsageDay *)csilc_arena_alloc(a, out->days_count * sizeof(RpUsageDay));
+        if (!out->days) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->days_count; csilc_i++) {
+            if (csilc_dec_RpUsageDay(&csilc_f->as.array.items[csilc_i], a, &(out->days[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "distinct_users");
+    if (!csilc_as_i64(csilc_f, &(out->distinct_users))) return -1;
+    csilc_f = csilc_map_get(m, "max_distinct_users");
+    out->max_distinct_users = NULL;
+    if (csilc_f) {
+        int64_t *csilc_p = (int64_t *)csilc_arena_alloc(a, sizeof(int64_t));
+        if (!csilc_p) return -1;
+        if (!csilc_as_i64(csilc_f, &((*csilc_p)))) return -1;
+        out->max_distinct_users = csilc_p;
+    }
+    csilc_f = csilc_map_get(m, "distinct_user_window_days");
+    if (!csilc_as_i64(csilc_f, &(out->distinct_user_window_days))) return -1;
     return 0;
 }
 
@@ -3527,7 +4885,7 @@ static inline int csilc_enc_UpdateUserRequest(csilc_buf *b, const UpdateUserRequ
 static inline int csilc_dec_UpdateUserRequest(const csilc_value *m, CsilCodecArena *a, UpdateUserRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     csilc_f = csilc_map_get(m, "display_name");
@@ -3548,7 +4906,7 @@ static inline int csilc_enc_UpdateUserResponse(csilc_buf *b, const UpdateUserRes
 static inline int csilc_dec_UpdateUserResponse(const csilc_value *m, CsilCodecArena *a, UpdateUserResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user");
     if (csilc_dec_AdminUser(csilc_f, a, &(out->user))) return -1;
     return 0;
@@ -3567,7 +4925,7 @@ static inline int csilc_enc_DeactivateUserRequest(csilc_buf *b, const Deactivate
 static inline int csilc_dec_DeactivateUserRequest(const csilc_value *m, CsilCodecArena *a, DeactivateUserRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     return 0;
@@ -3586,7 +4944,7 @@ static inline int csilc_enc_DeactivateUserResponse(csilc_buf *b, const Deactivat
 static inline int csilc_dec_DeactivateUserResponse(const csilc_value *m, CsilCodecArena *a, DeactivateUserResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user");
     if (csilc_dec_AdminUser(csilc_f, a, &(out->user))) return -1;
     return 0;
@@ -3605,7 +4963,7 @@ static inline int csilc_enc_ActivateUserRequest(csilc_buf *b, const ActivateUser
 static inline int csilc_dec_ActivateUserRequest(const csilc_value *m, CsilCodecArena *a, ActivateUserRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     return 0;
@@ -3624,7 +4982,7 @@ static inline int csilc_enc_ActivateUserResponse(csilc_buf *b, const ActivateUse
 static inline int csilc_dec_ActivateUserResponse(const csilc_value *m, CsilCodecArena *a, ActivateUserResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user");
     if (csilc_dec_AdminUser(csilc_f, a, &(out->user))) return -1;
     return 0;
@@ -3648,7 +5006,7 @@ static inline int csilc_enc_PurgeUserRequest(csilc_buf *b, const PurgeUserReques
 static inline int csilc_dec_PurgeUserRequest(const csilc_value *m, CsilCodecArena *a, PurgeUserRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "reason");
     out->reason = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "user_id");
@@ -3689,7 +5047,7 @@ static inline int csilc_enc_PurgeUserResponse(csilc_buf *b, const PurgeUserRespo
 static inline int csilc_dec_PurgeUserResponse(const csilc_value *m, CsilCodecArena *a, PurgeUserResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user");
     if (csilc_dec_AdminUser(csilc_f, a, &(out->user))) return -1;
     csilc_f = csilc_map_get(m, "keys_revoked");
@@ -3728,7 +5086,7 @@ static inline int csilc_enc_RevokeDomainKeyRequest(csilc_buf *b, const RevokeDom
 static inline int csilc_dec_RevokeDomainKeyRequest(const csilc_value *m, CsilCodecArena *a, RevokeDomainKeyRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "key_id");
     if (!csilc_get_text(csilc_f, &(out->key_id))) return -1;
     return 0;
@@ -3751,7 +5109,7 @@ static inline int csilc_enc_RevokeDomainKeyResponse(csilc_buf *b, const RevokeDo
 static inline int csilc_dec_RevokeDomainKeyResponse(const csilc_value *m, CsilCodecArena *a, RevokeDomainKeyResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "revoked_key");
     if (csilc_dec_DomainPublicKey(csilc_f, a, &(out->revoked_key))) return -1;
     csilc_f = csilc_map_get(m, "certificate_issued");
@@ -3776,7 +5134,7 @@ static inline int csilc_enc_ResetPasswordRequest(csilc_buf *b, const ResetPasswo
 static inline int csilc_dec_ResetPasswordRequest(const csilc_value *m, CsilCodecArena *a, ResetPasswordRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     csilc_f = csilc_map_get(m, "new_password");
@@ -3797,7 +5155,7 @@ static inline int csilc_enc_ResetPasswordResponse(csilc_buf *b, const ResetPassw
 static inline int csilc_dec_ResetPasswordResponse(const csilc_value *m, CsilCodecArena *a, ResetPasswordResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "success");
     if (!csilc_as_bool(csilc_f, &(out->success))) return -1;
     return 0;
@@ -3818,7 +5176,7 @@ static inline int csilc_enc_AuthenticateRequest(csilc_buf *b, const Authenticate
 static inline int csilc_dec_AuthenticateRequest(const csilc_value *m, CsilCodecArena *a, AuthenticateRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "password");
     if (!csilc_get_text(csilc_f, &(out->password))) return -1;
     csilc_f = csilc_map_get(m, "username");
@@ -3839,7 +5197,7 @@ static inline int csilc_enc_AuthenticateResponse(csilc_buf *b, const Authenticat
 static inline int csilc_dec_AuthenticateResponse(const csilc_value *m, CsilCodecArena *a, AuthenticateResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user");
     if (csilc_dec_AdminUser(csilc_f, a, &(out->user))) return -1;
     return 0;
@@ -3858,7 +5216,7 @@ static inline int csilc_enc_RemoveCredentialRequest(csilc_buf *b, const RemoveCr
 static inline int csilc_dec_RemoveCredentialRequest(const csilc_value *m, CsilCodecArena *a, RemoveCredentialRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "credential_id");
     if (!csilc_get_text(csilc_f, &(out->credential_id))) return -1;
     return 0;
@@ -3877,7 +5235,7 @@ static inline int csilc_enc_RemoveCredentialResponse(csilc_buf *b, const RemoveC
 static inline int csilc_dec_RemoveCredentialResponse(const csilc_value *m, CsilCodecArena *a, RemoveCredentialResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "success");
     if (!csilc_as_bool(csilc_f, &(out->success))) return -1;
     return 0;
@@ -3894,7 +5252,7 @@ static inline int csilc_enc_SetClaimRequest(csilc_buf *b, const SetClaimRequest 
     if (csilc_w_text(b, (v->claim_type), (v->claim_type) ? strlen(v->claim_type) : 0)) return -1;
     if (v->expires_at) {
         if (csilc_w_text(b, "expires_at", 10)) return -1;
-        if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+        if (csilc_w_timestamp(b, ((*v->expires_at)).rfc3339)) return -1;
     }
     if (csilc_w_text(b, "claim_value", 11)) return -1;
     if (csilc_w_text(b, (v->claim_value), (v->claim_value) ? strlen(v->claim_value) : 0)) return -1;
@@ -3905,13 +5263,19 @@ static inline int csilc_enc_SetClaimRequest(csilc_buf *b, const SetClaimRequest 
 static inline int csilc_dec_SetClaimRequest(const csilc_value *m, CsilCodecArena *a, SetClaimRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    out->expires_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->expires_at = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->expires_at = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "claim_value");
     if (!csilc_get_text(csilc_f, &(out->claim_value))) return -1;
     return 0;
@@ -3930,7 +5294,7 @@ static inline int csilc_enc_SetClaimResponse(csilc_buf *b, const SetClaimRespons
 static inline int csilc_dec_SetClaimResponse(const csilc_value *m, CsilCodecArena *a, SetClaimResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim");
     if (csilc_dec_Claim(csilc_f, a, &(out->claim))) return -1;
     return 0;
@@ -3949,7 +5313,7 @@ static inline int csilc_enc_RemoveClaimRequest(csilc_buf *b, const RemoveClaimRe
 static inline int csilc_dec_RemoveClaimRequest(const csilc_value *m, CsilCodecArena *a, RemoveClaimRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim_id");
     if (!csilc_get_text(csilc_f, &(out->claim_id))) return -1;
     return 0;
@@ -3968,7 +5332,7 @@ static inline int csilc_enc_RemoveClaimResponse(csilc_buf *b, const RemoveClaimR
 static inline int csilc_dec_RemoveClaimResponse(const csilc_value *m, CsilCodecArena *a, RemoveClaimResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "success");
     if (!csilc_as_bool(csilc_f, &(out->success))) return -1;
     return 0;
@@ -3987,7 +5351,7 @@ static inline int csilc_enc_ListUserClaimsRequest(csilc_buf *b, const ListUserCl
 static inline int csilc_dec_ListUserClaimsRequest(const csilc_value *m, CsilCodecArena *a, ListUserClaimsRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     return 0;
@@ -4009,7 +5373,7 @@ static inline int csilc_enc_ListUserClaimsResponse(csilc_buf *b, const ListUserC
 static inline int csilc_dec_ListUserClaimsResponse(const csilc_value *m, CsilCodecArena *a, ListUserClaimsResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim_types");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->claim_types_count = csilc_f->as.array.count;
@@ -4037,7 +5401,7 @@ static inline int csilc_enc_AdminUserClaimsRequest(csilc_buf *b, const AdminUser
 static inline int csilc_dec_AdminUserClaimsRequest(const csilc_value *m, CsilCodecArena *a, AdminUserClaimsRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     return 0;
@@ -4059,7 +5423,7 @@ static inline int csilc_enc_AdminUserClaimsResponse(csilc_buf *b, const AdminUse
 static inline int csilc_dec_AdminUserClaimsResponse(const csilc_value *m, CsilCodecArena *a, AdminUserClaimsResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claims");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->claims_count = csilc_f->as.array.count;
@@ -4091,7 +5455,7 @@ static inline int csilc_enc_SetUserClaimRequest(csilc_buf *b, const SetUserClaim
 static inline int csilc_dec_SetUserClaimRequest(const csilc_value *m, CsilCodecArena *a, SetUserClaimRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
@@ -4111,7 +5475,7 @@ static inline int csilc_enc_SetUserClaimResponse(csilc_buf *b, const SetUserClai
         if (csilc_enc_Claim(b, &((*v->claim)))) return -1;
     }
     if (csilc_w_text(b, "outcome", 7)) return -1;
-    if (csilc_w_text(b, (v->outcome), (v->outcome) ? strlen(v->outcome) : 0)) return -1;
+    if (csilc_enc_SetClaimOutcome(b, &(v->outcome))) return -1;
     return 0;
 }
 
@@ -4119,7 +5483,7 @@ static inline int csilc_enc_SetUserClaimResponse(csilc_buf *b, const SetUserClai
 static inline int csilc_dec_SetUserClaimResponse(const csilc_value *m, CsilCodecArena *a, SetUserClaimResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim");
     out->claim = NULL;
     if (csilc_f) {
@@ -4129,7 +5493,7 @@ static inline int csilc_dec_SetUserClaimResponse(const csilc_value *m, CsilCodec
         out->claim = csilc_p;
     }
     csilc_f = csilc_map_get(m, "outcome");
-    if (!csilc_get_text(csilc_f, &(out->outcome))) return -1;
+    if (csilc_dec_SetClaimOutcome(csilc_f, a, &(out->outcome))) return -1;
     return 0;
 }
 
@@ -4140,9 +5504,9 @@ static inline int csilc_enc_SettableClaimPolicy(csilc_buf *b, const SettableClai
     if (csilc_w_text(b, "label", 5)) return -1;
     if (csilc_w_text(b, (v->label), (v->label) ? strlen(v->label) : 0)) return -1;
     if (csilc_w_text(b, "datatype", 8)) return -1;
-    if (csilc_w_text(b, (v->datatype), (v->datatype) ? strlen(v->datatype) : 0)) return -1;
+    if (csilc_enc_ClaimValueType(b, &(v->datatype))) return -1;
     if (csilc_w_text(b, "set_rule", 8)) return -1;
-    if (csilc_w_text(b, (v->set_rule), (v->set_rule) ? strlen(v->set_rule) : 0)) return -1;
+    if (csilc_enc_SetRule(b, &(v->set_rule))) return -1;
     if (csilc_w_text(b, "max_bytes", 9)) return -1;
     if (csilc_w_int(b, (int64_t)(v->max_bytes))) return -1;
     if (csilc_w_text(b, "claim_type", 10)) return -1;
@@ -4150,7 +5514,7 @@ static inline int csilc_enc_SettableClaimPolicy(csilc_buf *b, const SettableClai
     if (csilc_w_text(b, "description", 11)) return -1;
     if (csilc_w_text(b, (v->description), (v->description) ? strlen(v->description) : 0)) return -1;
     if (csilc_w_text(b, "signing_rule", 12)) return -1;
-    if (csilc_w_text(b, (v->signing_rule), (v->signing_rule) ? strlen(v->signing_rule) : 0)) return -1;
+    if (csilc_enc_SigningRule(b, &(v->signing_rule))) return -1;
     if (csilc_w_text(b, "requires_approval", 17)) return -1;
     if (csilc_w_bool(b, (v->requires_approval))) return -1;
     return 0;
@@ -4160,13 +5524,13 @@ static inline int csilc_enc_SettableClaimPolicy(csilc_buf *b, const SettableClai
 static inline int csilc_dec_SettableClaimPolicy(const csilc_value *m, CsilCodecArena *a, SettableClaimPolicy *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "label");
     if (!csilc_get_text(csilc_f, &(out->label))) return -1;
     csilc_f = csilc_map_get(m, "datatype");
-    if (!csilc_get_text(csilc_f, &(out->datatype))) return -1;
+    if (csilc_dec_ClaimValueType(csilc_f, a, &(out->datatype))) return -1;
     csilc_f = csilc_map_get(m, "set_rule");
-    if (!csilc_get_text(csilc_f, &(out->set_rule))) return -1;
+    if (csilc_dec_SetRule(csilc_f, a, &(out->set_rule))) return -1;
     csilc_f = csilc_map_get(m, "max_bytes");
     if (!csilc_as_i64(csilc_f, &(out->max_bytes))) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
@@ -4174,7 +5538,7 @@ static inline int csilc_dec_SettableClaimPolicy(const csilc_value *m, CsilCodecA
     csilc_f = csilc_map_get(m, "description");
     if (!csilc_get_text(csilc_f, &(out->description))) return -1;
     csilc_f = csilc_map_get(m, "signing_rule");
-    if (!csilc_get_text(csilc_f, &(out->signing_rule))) return -1;
+    if (csilc_dec_SigningRule(csilc_f, a, &(out->signing_rule))) return -1;
     csilc_f = csilc_map_get(m, "requires_approval");
     if (!csilc_as_bool(csilc_f, &(out->requires_approval))) return -1;
     return 0;
@@ -4196,7 +5560,7 @@ static inline int csilc_enc_ListSettablePoliciesResponse(csilc_buf *b, const Lis
 static inline int csilc_dec_ListSettablePoliciesResponse(const csilc_value *m, CsilCodecArena *a, ListSettablePoliciesResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "policies");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->policies_count = csilc_f->as.array.count;
@@ -4218,7 +5582,7 @@ static inline int csilc_enc_ClaimTypePolicy(csilc_buf *b, const ClaimTypePolicy 
     if (csilc_w_text(b, "label", 5)) return -1;
     if (csilc_w_text(b, (v->label), (v->label) ? strlen(v->label) : 0)) return -1;
     if (csilc_w_text(b, "set_rule", 8)) return -1;
-    if (csilc_w_text(b, (v->set_rule), (v->set_rule) ? strlen(v->set_rule) : 0)) return -1;
+    if (csilc_enc_SetRule(b, &(v->set_rule))) return -1;
     if (csilc_w_text(b, "max_bytes", 9)) return -1;
     if (csilc_w_int(b, (int64_t)(v->max_bytes))) return -1;
     if (csilc_w_text(b, "suggested", 9)) return -1;
@@ -4226,11 +5590,11 @@ static inline int csilc_enc_ClaimTypePolicy(csilc_buf *b, const ClaimTypePolicy 
     if (csilc_w_text(b, "claim_type", 10)) return -1;
     if (csilc_w_text(b, (v->claim_type), (v->claim_type) ? strlen(v->claim_type) : 0)) return -1;
     if (csilc_w_text(b, "value_type", 10)) return -1;
-    if (csilc_w_text(b, (v->value_type), (v->value_type) ? strlen(v->value_type) : 0)) return -1;
+    if (csilc_enc_ClaimValueType(b, &(v->value_type))) return -1;
     if (csilc_w_text(b, "description", 11)) return -1;
     if (csilc_w_text(b, (v->description), (v->description) ? strlen(v->description) : 0)) return -1;
     if (csilc_w_text(b, "signing_rule", 12)) return -1;
-    if (csilc_w_text(b, (v->signing_rule), (v->signing_rule) ? strlen(v->signing_rule) : 0)) return -1;
+    if (csilc_enc_SigningRule(b, &(v->signing_rule))) return -1;
     if (csilc_w_text(b, "user_settable", 13)) return -1;
     if (csilc_w_bool(b, (v->user_settable))) return -1;
     if (csilc_w_text(b, "default_auto_sign", 17)) return -1;
@@ -4244,11 +5608,11 @@ static inline int csilc_enc_ClaimTypePolicy(csilc_buf *b, const ClaimTypePolicy 
 static inline int csilc_dec_ClaimTypePolicy(const csilc_value *m, CsilCodecArena *a, ClaimTypePolicy *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "label");
     if (!csilc_get_text(csilc_f, &(out->label))) return -1;
     csilc_f = csilc_map_get(m, "set_rule");
-    if (!csilc_get_text(csilc_f, &(out->set_rule))) return -1;
+    if (csilc_dec_SetRule(csilc_f, a, &(out->set_rule))) return -1;
     csilc_f = csilc_map_get(m, "max_bytes");
     if (!csilc_as_i64(csilc_f, &(out->max_bytes))) return -1;
     csilc_f = csilc_map_get(m, "suggested");
@@ -4256,11 +5620,11 @@ static inline int csilc_dec_ClaimTypePolicy(const csilc_value *m, CsilCodecArena
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
     csilc_f = csilc_map_get(m, "value_type");
-    if (!csilc_get_text(csilc_f, &(out->value_type))) return -1;
+    if (csilc_dec_ClaimValueType(csilc_f, a, &(out->value_type))) return -1;
     csilc_f = csilc_map_get(m, "description");
     if (!csilc_get_text(csilc_f, &(out->description))) return -1;
     csilc_f = csilc_map_get(m, "signing_rule");
-    if (!csilc_get_text(csilc_f, &(out->signing_rule))) return -1;
+    if (csilc_dec_SigningRule(csilc_f, a, &(out->signing_rule))) return -1;
     csilc_f = csilc_map_get(m, "user_settable");
     if (!csilc_as_bool(csilc_f, &(out->user_settable))) return -1;
     csilc_f = csilc_map_get(m, "default_auto_sign");
@@ -4286,7 +5650,7 @@ static inline int csilc_enc_ListClaimTypesResponse(csilc_buf *b, const ListClaim
 static inline int csilc_dec_ListClaimTypesResponse(const csilc_value *m, CsilCodecArena *a, ListClaimTypesResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim_types");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->claim_types_count = csilc_f->as.array.count;
@@ -4309,7 +5673,7 @@ static inline int csilc_enc_SetClaimTypeRequest(csilc_buf *b, const SetClaimType
     if (csilc_w_text(b, "label", 5)) return -1;
     if (csilc_w_text(b, (v->label), (v->label) ? strlen(v->label) : 0)) return -1;
     if (csilc_w_text(b, "set_rule", 8)) return -1;
-    if (csilc_w_text(b, (v->set_rule), (v->set_rule) ? strlen(v->set_rule) : 0)) return -1;
+    if (csilc_enc_SetRule(b, &(v->set_rule))) return -1;
     if (csilc_w_text(b, "max_bytes", 9)) return -1;
     if (csilc_w_int(b, (int64_t)(v->max_bytes))) return -1;
     if (csilc_w_text(b, "suggested", 9)) return -1;
@@ -4317,13 +5681,13 @@ static inline int csilc_enc_SetClaimTypeRequest(csilc_buf *b, const SetClaimType
     if (csilc_w_text(b, "claim_type", 10)) return -1;
     if (csilc_w_text(b, (v->claim_type), (v->claim_type) ? strlen(v->claim_type) : 0)) return -1;
     if (csilc_w_text(b, "value_type", 10)) return -1;
-    if (csilc_w_text(b, (v->value_type), (v->value_type) ? strlen(v->value_type) : 0)) return -1;
+    if (csilc_enc_ClaimValueType(b, &(v->value_type))) return -1;
     if (v->description) {
         if (csilc_w_text(b, "description", 11)) return -1;
         if (csilc_w_text(b, (v->description), (v->description) ? strlen(v->description) : 0)) return -1;
     }
     if (csilc_w_text(b, "signing_rule", 12)) return -1;
-    if (csilc_w_text(b, (v->signing_rule), (v->signing_rule) ? strlen(v->signing_rule) : 0)) return -1;
+    if (csilc_enc_SigningRule(b, &(v->signing_rule))) return -1;
     if (csilc_w_text(b, "user_settable", 13)) return -1;
     if (csilc_w_bool(b, (v->user_settable))) return -1;
     if (csilc_w_text(b, "default_auto_sign", 17)) return -1;
@@ -4337,11 +5701,11 @@ static inline int csilc_enc_SetClaimTypeRequest(csilc_buf *b, const SetClaimType
 static inline int csilc_dec_SetClaimTypeRequest(const csilc_value *m, CsilCodecArena *a, SetClaimTypeRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "label");
     if (!csilc_get_text(csilc_f, &(out->label))) return -1;
     csilc_f = csilc_map_get(m, "set_rule");
-    if (!csilc_get_text(csilc_f, &(out->set_rule))) return -1;
+    if (csilc_dec_SetRule(csilc_f, a, &(out->set_rule))) return -1;
     csilc_f = csilc_map_get(m, "max_bytes");
     if (!csilc_as_i64(csilc_f, &(out->max_bytes))) return -1;
     csilc_f = csilc_map_get(m, "suggested");
@@ -4349,11 +5713,11 @@ static inline int csilc_dec_SetClaimTypeRequest(const csilc_value *m, CsilCodecA
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
     csilc_f = csilc_map_get(m, "value_type");
-    if (!csilc_get_text(csilc_f, &(out->value_type))) return -1;
+    if (csilc_dec_ClaimValueType(csilc_f, a, &(out->value_type))) return -1;
     csilc_f = csilc_map_get(m, "description");
     out->description = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "signing_rule");
-    if (!csilc_get_text(csilc_f, &(out->signing_rule))) return -1;
+    if (csilc_dec_SigningRule(csilc_f, a, &(out->signing_rule))) return -1;
     csilc_f = csilc_map_get(m, "user_settable");
     if (!csilc_as_bool(csilc_f, &(out->user_settable))) return -1;
     csilc_f = csilc_map_get(m, "default_auto_sign");
@@ -4376,7 +5740,7 @@ static inline int csilc_enc_SetClaimTypeResponse(csilc_buf *b, const SetClaimTyp
 static inline int csilc_dec_SetClaimTypeResponse(const csilc_value *m, CsilCodecArena *a, SetClaimTypeResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
     if (csilc_dec_ClaimTypePolicy(csilc_f, a, &(out->claim_type))) return -1;
     return 0;
@@ -4395,7 +5759,7 @@ static inline int csilc_enc_RemoveClaimTypeRequest(csilc_buf *b, const RemoveCla
 static inline int csilc_dec_RemoveClaimTypeRequest(const csilc_value *m, CsilCodecArena *a, RemoveClaimTypeRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
     return 0;
@@ -4414,7 +5778,7 @@ static inline int csilc_enc_RemoveClaimTypeResponse(csilc_buf *b, const RemoveCl
 static inline int csilc_dec_RemoveClaimTypeResponse(const csilc_value *m, CsilCodecArena *a, RemoveClaimTypeResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "success");
     if (!csilc_as_bool(csilc_f, &(out->success))) return -1;
     return 0;
@@ -4442,7 +5806,7 @@ static inline int csilc_enc_ClaimTypeLabel(csilc_buf *b, const ClaimTypeLabel *v
 static inline int csilc_dec_ClaimTypeLabel(const csilc_value *m, CsilCodecArena *a, ClaimTypeLabel *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "label");
     if (!csilc_get_text(csilc_f, &(out->label))) return -1;
     csilc_f = csilc_map_get(m, "locale");
@@ -4476,7 +5840,7 @@ static inline int csilc_enc_SetClaimTypeLabelRequest(csilc_buf *b, const SetClai
 static inline int csilc_dec_SetClaimTypeLabelRequest(const csilc_value *m, CsilCodecArena *a, SetClaimTypeLabelRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "label");
     if (!csilc_get_text(csilc_f, &(out->label))) return -1;
     csilc_f = csilc_map_get(m, "locale");
@@ -4501,7 +5865,7 @@ static inline int csilc_enc_SetClaimTypeLabelResponse(csilc_buf *b, const SetCla
 static inline int csilc_dec_SetClaimTypeLabelResponse(const csilc_value *m, CsilCodecArena *a, SetClaimTypeLabelResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "label");
     if (csilc_dec_ClaimTypeLabel(csilc_f, a, &(out->label))) return -1;
     return 0;
@@ -4523,7 +5887,7 @@ static inline int csilc_enc_ListClaimTypeLabelsResponse(csilc_buf *b, const List
 static inline int csilc_dec_ListClaimTypeLabelsResponse(const csilc_value *m, CsilCodecArena *a, ListClaimTypeLabelsResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "labels");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->labels_count = csilc_f->as.array.count;
@@ -4553,7 +5917,7 @@ static inline int csilc_enc_RemoveClaimTypeLabelRequest(csilc_buf *b, const Remo
 static inline int csilc_dec_RemoveClaimTypeLabelRequest(const csilc_value *m, CsilCodecArena *a, RemoveClaimTypeLabelRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "locale");
     if (!csilc_get_text(csilc_f, &(out->locale))) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
@@ -4574,7 +5938,7 @@ static inline int csilc_enc_RemoveClaimTypeLabelResponse(csilc_buf *b, const Rem
 static inline int csilc_dec_RemoveClaimTypeLabelResponse(const csilc_value *m, CsilCodecArena *a, RemoveClaimTypeLabelResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "success");
     if (!csilc_as_bool(csilc_f, &(out->success))) return -1;
     return 0;
@@ -4595,7 +5959,7 @@ static inline int csilc_enc_TrustedIssuer(csilc_buf *b, const TrustedIssuer *v) 
 static inline int csilc_dec_TrustedIssuer(const csilc_value *m, CsilCodecArena *a, TrustedIssuer *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
     csilc_f = csilc_map_get(m, "issuer_domain");
@@ -4619,7 +5983,7 @@ static inline int csilc_enc_ListTrustedIssuersResponse(csilc_buf *b, const ListT
 static inline int csilc_dec_ListTrustedIssuersResponse(const csilc_value *m, CsilCodecArena *a, ListTrustedIssuersResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "trusted_issuers");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->trusted_issuers_count = csilc_f->as.array.count;
@@ -4649,7 +6013,7 @@ static inline int csilc_enc_AddTrustedIssuerRequest(csilc_buf *b, const AddTrust
 static inline int csilc_dec_AddTrustedIssuerRequest(const csilc_value *m, CsilCodecArena *a, AddTrustedIssuerRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
     csilc_f = csilc_map_get(m, "issuer_domain");
@@ -4670,7 +6034,7 @@ static inline int csilc_enc_AddTrustedIssuerResponse(csilc_buf *b, const AddTrus
 static inline int csilc_dec_AddTrustedIssuerResponse(const csilc_value *m, CsilCodecArena *a, AddTrustedIssuerResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "trusted_issuer");
     if (csilc_dec_TrustedIssuer(csilc_f, a, &(out->trusted_issuer))) return -1;
     return 0;
@@ -4691,7 +6055,7 @@ static inline int csilc_enc_RemoveTrustedIssuerRequest(csilc_buf *b, const Remov
 static inline int csilc_dec_RemoveTrustedIssuerRequest(const csilc_value *m, CsilCodecArena *a, RemoveTrustedIssuerRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
     csilc_f = csilc_map_get(m, "issuer_domain");
@@ -4712,7 +6076,7 @@ static inline int csilc_enc_RemoveTrustedIssuerResponse(csilc_buf *b, const Remo
 static inline int csilc_dec_RemoveTrustedIssuerResponse(const csilc_value *m, CsilCodecArena *a, RemoveTrustedIssuerResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "success");
     if (!csilc_as_bool(csilc_f, &(out->success))) return -1;
     return 0;
@@ -4727,7 +6091,7 @@ static inline int csilc_enc_ReleaseRule(csilc_buf *b, const ReleaseRule *v) {
     if (csilc_w_text(b, "claim_type", 10)) return -1;
     if (csilc_w_text(b, (v->claim_type), (v->claim_type) ? strlen(v->claim_type) : 0)) return -1;
     if (csilc_w_text(b, "disposition", 11)) return -1;
-    if (csilc_w_text(b, (v->disposition), (v->disposition) ? strlen(v->disposition) : 0)) return -1;
+    if (csilc_enc_ReleaseDisposition(b, &(v->disposition))) return -1;
     return 0;
 }
 
@@ -4735,13 +6099,13 @@ static inline int csilc_enc_ReleaseRule(csilc_buf *b, const ReleaseRule *v) {
 static inline int csilc_dec_ReleaseRule(const csilc_value *m, CsilCodecArena *a, ReleaseRule *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "audience");
     if (!csilc_get_text(csilc_f, &(out->audience))) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
     csilc_f = csilc_map_get(m, "disposition");
-    if (!csilc_get_text(csilc_f, &(out->disposition))) return -1;
+    if (csilc_dec_ReleaseDisposition(csilc_f, a, &(out->disposition))) return -1;
     return 0;
 }
 
@@ -4761,7 +6125,7 @@ static inline int csilc_enc_ListReleaseRulesResponse(csilc_buf *b, const ListRel
 static inline int csilc_dec_ListReleaseRulesResponse(const csilc_value *m, CsilCodecArena *a, ListReleaseRulesResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "release_rules");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->release_rules_count = csilc_f->as.array.count;
@@ -4785,7 +6149,7 @@ static inline int csilc_enc_SetReleaseRuleRequest(csilc_buf *b, const SetRelease
     if (csilc_w_text(b, "claim_type", 10)) return -1;
     if (csilc_w_text(b, (v->claim_type), (v->claim_type) ? strlen(v->claim_type) : 0)) return -1;
     if (csilc_w_text(b, "disposition", 11)) return -1;
-    if (csilc_w_text(b, (v->disposition), (v->disposition) ? strlen(v->disposition) : 0)) return -1;
+    if (csilc_enc_ReleaseDisposition(b, &(v->disposition))) return -1;
     return 0;
 }
 
@@ -4793,13 +6157,13 @@ static inline int csilc_enc_SetReleaseRuleRequest(csilc_buf *b, const SetRelease
 static inline int csilc_dec_SetReleaseRuleRequest(const csilc_value *m, CsilCodecArena *a, SetReleaseRuleRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "audience");
     if (!csilc_get_text(csilc_f, &(out->audience))) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
     csilc_f = csilc_map_get(m, "disposition");
-    if (!csilc_get_text(csilc_f, &(out->disposition))) return -1;
+    if (csilc_dec_ReleaseDisposition(csilc_f, a, &(out->disposition))) return -1;
     return 0;
 }
 
@@ -4816,7 +6180,7 @@ static inline int csilc_enc_SetReleaseRuleResponse(csilc_buf *b, const SetReleas
 static inline int csilc_dec_SetReleaseRuleResponse(const csilc_value *m, CsilCodecArena *a, SetReleaseRuleResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "release_rule");
     if (csilc_dec_ReleaseRule(csilc_f, a, &(out->release_rule))) return -1;
     return 0;
@@ -4837,7 +6201,7 @@ static inline int csilc_enc_RemoveReleaseRuleRequest(csilc_buf *b, const RemoveR
 static inline int csilc_dec_RemoveReleaseRuleRequest(const csilc_value *m, CsilCodecArena *a, RemoveReleaseRuleRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "audience");
     if (!csilc_get_text(csilc_f, &(out->audience))) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
@@ -4858,7 +6222,7 @@ static inline int csilc_enc_RemoveReleaseRuleResponse(csilc_buf *b, const Remove
 static inline int csilc_dec_RemoveReleaseRuleResponse(const csilc_value *m, CsilCodecArena *a, RemoveReleaseRuleResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "success");
     if (!csilc_as_bool(csilc_f, &(out->success))) return -1;
     return 0;
@@ -4873,18 +6237,18 @@ static inline int csilc_enc_ClaimApproval(csilc_buf *b, const ClaimApproval *v) 
     if (csilc_w_text(b, "id", 2)) return -1;
     if (csilc_w_text(b, (v->id), (v->id) ? strlen(v->id) : 0)) return -1;
     if (csilc_w_text(b, "status", 6)) return -1;
-    if (csilc_w_text(b, (v->status), (v->status) ? strlen(v->status) : 0)) return -1;
+    if (csilc_enc_ClaimApprovalStatus(b, &(v->status))) return -1;
     if (csilc_w_text(b, "user_id", 7)) return -1;
     if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
     if (csilc_w_text(b, "claim_type", 10)) return -1;
     if (csilc_w_text(b, (v->claim_type), (v->claim_type) ? strlen(v->claim_type) : 0)) return -1;
     if (csilc_w_text(b, "created_at", 10)) return -1;
-    if (csilc_w_text(b, (v->created_at), (v->created_at) ? strlen(v->created_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->created_at).rfc3339)) return -1;
     if (csilc_w_text(b, "claim_value", 11)) return -1;
     if (csilc_w_bytes(b, (v->claim_value).data, (v->claim_value).len)) return -1;
     if (v->resolved_at) {
         if (csilc_w_text(b, "resolved_at", 11)) return -1;
-        if (csilc_w_text(b, (v->resolved_at), (v->resolved_at) ? strlen(v->resolved_at) : 0)) return -1;
+        if (csilc_w_timestamp(b, ((*v->resolved_at)).rfc3339)) return -1;
     }
     if (v->resolved_by) {
         if (csilc_w_text(b, "resolved_by", 11)) return -1;
@@ -4897,21 +6261,27 @@ static inline int csilc_enc_ClaimApproval(csilc_buf *b, const ClaimApproval *v) 
 static inline int csilc_dec_ClaimApproval(const csilc_value *m, CsilCodecArena *a, ClaimApproval *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "id");
     if (!csilc_get_text(csilc_f, &(out->id))) return -1;
     csilc_f = csilc_map_get(m, "status");
-    if (!csilc_get_text(csilc_f, &(out->status))) return -1;
+    if (csilc_dec_ClaimApprovalStatus(csilc_f, a, &(out->status))) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
     csilc_f = csilc_map_get(m, "created_at");
-    if (!csilc_get_text(csilc_f, &(out->created_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->created_at).rfc3339, &(out->created_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "claim_value");
     if (!csilc_get_bytes(csilc_f, &(out->claim_value).data, &(out->claim_value).len)) return -1;
     csilc_f = csilc_map_get(m, "resolved_at");
-    out->resolved_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->resolved_at = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->resolved_at = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "resolved_by");
     out->resolved_by = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     return 0;
@@ -4933,7 +6303,7 @@ static inline int csilc_enc_ListPendingClaimApprovalsResponse(csilc_buf *b, cons
 static inline int csilc_dec_ListPendingClaimApprovalsResponse(const csilc_value *m, CsilCodecArena *a, ListPendingClaimApprovalsResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "approvals");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->approvals_count = csilc_f->as.array.count;
@@ -4961,7 +6331,7 @@ static inline int csilc_enc_ApproveClaimRequest(csilc_buf *b, const ApproveClaim
 static inline int csilc_dec_ApproveClaimRequest(const csilc_value *m, CsilCodecArena *a, ApproveClaimRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "approval_id");
     if (!csilc_get_text(csilc_f, &(out->approval_id))) return -1;
     return 0;
@@ -4980,7 +6350,7 @@ static inline int csilc_enc_ApproveClaimResponse(csilc_buf *b, const ApproveClai
 static inline int csilc_dec_ApproveClaimResponse(const csilc_value *m, CsilCodecArena *a, ApproveClaimResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "success");
     if (!csilc_as_bool(csilc_f, &(out->success))) return -1;
     return 0;
@@ -4999,7 +6369,7 @@ static inline int csilc_enc_RejectClaimRequest(csilc_buf *b, const RejectClaimRe
 static inline int csilc_dec_RejectClaimRequest(const csilc_value *m, CsilCodecArena *a, RejectClaimRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "approval_id");
     if (!csilc_get_text(csilc_f, &(out->approval_id))) return -1;
     return 0;
@@ -5018,7 +6388,7 @@ static inline int csilc_enc_RejectClaimResponse(csilc_buf *b, const RejectClaimR
 static inline int csilc_dec_RejectClaimResponse(const csilc_value *m, CsilCodecArena *a, RejectClaimResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "success");
     if (!csilc_as_bool(csilc_f, &(out->success))) return -1;
     return 0;
@@ -5041,7 +6411,7 @@ static inline int csilc_enc_AdminIssueAttestationRequest(csilc_buf *b, const Adm
 static inline int csilc_dec_AdminIssueAttestationRequest(const csilc_value *m, CsilCodecArena *a, AdminIssueAttestationRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
@@ -5064,7 +6434,7 @@ static inline int csilc_enc_AdminIssueAttestationResponse(csilc_buf *b, const Ad
 static inline int csilc_dec_AdminIssueAttestationResponse(const csilc_value *m, CsilCodecArena *a, AdminIssueAttestationResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim");
     if (csilc_dec_Claim(csilc_f, a, &(out->claim))) return -1;
     return 0;
@@ -5091,7 +6461,7 @@ static inline int csilc_enc_GrantRelationRequest(csilc_buf *b, const GrantRelati
 static inline int csilc_dec_GrantRelationRequest(const csilc_value *m, CsilCodecArena *a, GrantRelationRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "relation");
     if (!csilc_get_text(csilc_f, &(out->relation))) return -1;
     csilc_f = csilc_map_get(m, "object_id");
@@ -5118,7 +6488,7 @@ static inline int csilc_enc_GrantRelationResponse(csilc_buf *b, const GrantRelat
 static inline int csilc_dec_GrantRelationResponse(const csilc_value *m, CsilCodecArena *a, GrantRelationResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "relation");
     if (csilc_dec_Relation(csilc_f, a, &(out->relation))) return -1;
     return 0;
@@ -5137,7 +6507,7 @@ static inline int csilc_enc_RemoveRelationRequest(csilc_buf *b, const RemoveRela
 static inline int csilc_dec_RemoveRelationRequest(const csilc_value *m, CsilCodecArena *a, RemoveRelationRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "relation_id");
     if (!csilc_get_text(csilc_f, &(out->relation_id))) return -1;
     return 0;
@@ -5156,7 +6526,7 @@ static inline int csilc_enc_RemoveRelationResponse(csilc_buf *b, const RemoveRel
 static inline int csilc_dec_RemoveRelationResponse(const csilc_value *m, CsilCodecArena *a, RemoveRelationResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "success");
     if (!csilc_as_bool(csilc_f, &(out->success))) return -1;
     return 0;
@@ -5193,7 +6563,7 @@ static inline int csilc_enc_ListRelationsRequest(csilc_buf *b, const ListRelatio
 static inline int csilc_dec_ListRelationsRequest(const csilc_value *m, CsilCodecArena *a, ListRelationsRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "object_id");
     out->object_id = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "subject_id");
@@ -5221,7 +6591,7 @@ static inline int csilc_enc_ListRelationsResponse(csilc_buf *b, const ListRelati
 static inline int csilc_dec_ListRelationsResponse(const csilc_value *m, CsilCodecArena *a, ListRelationsResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "relations");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->relations_count = csilc_f->as.array.count;
@@ -5255,7 +6625,7 @@ static inline int csilc_enc_CheckPermissionRequest(csilc_buf *b, const CheckPerm
 static inline int csilc_dec_CheckPermissionRequest(const csilc_value *m, CsilCodecArena *a, CheckPermissionRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     csilc_f = csilc_map_get(m, "relation");
@@ -5280,7 +6650,7 @@ static inline int csilc_enc_CheckPermissionResponse(csilc_buf *b, const CheckPer
 static inline int csilc_dec_CheckPermissionResponse(const csilc_value *m, CsilCodecArena *a, CheckPermissionResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "allowed");
     if (!csilc_as_bool(csilc_f, &(out->allowed))) return -1;
     return 0;
@@ -5301,7 +6671,7 @@ static inline int csilc_enc_ChangePasswordRequest(csilc_buf *b, const ChangePass
 static inline int csilc_dec_ChangePasswordRequest(const csilc_value *m, CsilCodecArena *a, ChangePasswordRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "new_password");
     if (!csilc_get_text(csilc_f, &(out->new_password))) return -1;
     csilc_f = csilc_map_get(m, "current_password");
@@ -5322,7 +6692,7 @@ static inline int csilc_enc_ChangePasswordResponse(csilc_buf *b, const ChangePas
 static inline int csilc_dec_ChangePasswordResponse(const csilc_value *m, CsilCodecArena *a, ChangePasswordResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "success");
     if (!csilc_as_bool(csilc_f, &(out->success))) return -1;
     return 0;
@@ -5351,7 +6721,7 @@ static inline int csilc_enc_GetMyInfoResponse(csilc_buf *b, const GetMyInfoRespo
 static inline int csilc_dec_GetMyInfoResponse(const csilc_value *m, CsilCodecArena *a, GetMyInfoResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user");
     if (csilc_dec_AdminUser(csilc_f, a, &(out->user))) return -1;
     csilc_f = csilc_map_get(m, "claims");
@@ -5394,7 +6764,7 @@ static inline int csilc_enc_SetMyClaimRequest(csilc_buf *b, const SetMyClaimRequ
 static inline int csilc_dec_SetMyClaimRequest(const csilc_value *m, CsilCodecArena *a, SetMyClaimRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
     csilc_f = csilc_map_get(m, "claim_value");
@@ -5412,7 +6782,7 @@ static inline int csilc_enc_SetMyClaimResponse(csilc_buf *b, const SetMyClaimRes
         if (csilc_enc_Claim(b, &((*v->claim)))) return -1;
     }
     if (csilc_w_text(b, "outcome", 7)) return -1;
-    if (csilc_w_text(b, (v->outcome), (v->outcome) ? strlen(v->outcome) : 0)) return -1;
+    if (csilc_enc_SetClaimOutcome(b, &(v->outcome))) return -1;
     return 0;
 }
 
@@ -5420,7 +6790,7 @@ static inline int csilc_enc_SetMyClaimResponse(csilc_buf *b, const SetMyClaimRes
 static inline int csilc_dec_SetMyClaimResponse(const csilc_value *m, CsilCodecArena *a, SetMyClaimResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim");
     out->claim = NULL;
     if (csilc_f) {
@@ -5430,7 +6800,7 @@ static inline int csilc_dec_SetMyClaimResponse(const csilc_value *m, CsilCodecAr
         out->claim = csilc_p;
     }
     csilc_f = csilc_map_get(m, "outcome");
-    if (!csilc_get_text(csilc_f, &(out->outcome))) return -1;
+    if (csilc_dec_SetClaimOutcome(csilc_f, a, &(out->outcome))) return -1;
     return 0;
 }
 
@@ -5447,7 +6817,7 @@ static inline int csilc_enc_RemoveMyClaimRequest(csilc_buf *b, const RemoveMyCla
 static inline int csilc_dec_RemoveMyClaimRequest(const csilc_value *m, CsilCodecArena *a, RemoveMyClaimRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim_id");
     if (!csilc_get_text(csilc_f, &(out->claim_id))) return -1;
     return 0;
@@ -5466,7 +6836,7 @@ static inline int csilc_enc_RemoveMyClaimResponse(csilc_buf *b, const RemoveMyCl
 static inline int csilc_dec_RemoveMyClaimResponse(const csilc_value *m, CsilCodecArena *a, RemoveMyClaimResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "success");
     if (!csilc_as_bool(csilc_f, &(out->success))) return -1;
     return 0;
@@ -5487,7 +6857,7 @@ static inline int csilc_enc_SetMyClaimSharingRequest(csilc_buf *b, const SetMyCl
 static inline int csilc_dec_SetMyClaimSharingRequest(const csilc_value *m, CsilCodecArena *a, SetMyClaimSharingRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "share");
     if (!csilc_as_bool(csilc_f, &(out->share))) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
@@ -5507,7 +6877,7 @@ static inline int csilc_enc_SetMyClaimSharingResponse(csilc_buf *b, const SetMyC
 static inline int csilc_dec_SetMyClaimSharingResponse(const csilc_value *m, CsilCodecArena *a, SetMyClaimSharingResponse *out) {
     (void)a;
     (void)out;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     return 0;
 }
 
@@ -5528,7 +6898,7 @@ static inline int csilc_enc_MyClaimSetting(csilc_buf *b, const MyClaimSetting *v
 static inline int csilc_dec_MyClaimSetting(const csilc_value *m, CsilCodecArena *a, MyClaimSetting *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
     csilc_f = csilc_map_get(m, "keep_verified");
@@ -5561,7 +6931,7 @@ static inline int csilc_enc_MyClaimSettingsResponse(csilc_buf *b, const MyClaimS
 static inline int csilc_dec_MyClaimSettingsResponse(const csilc_value *m, CsilCodecArena *a, MyClaimSettingsResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "profiles");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->profiles_count = csilc_f->as.array.count;
@@ -5604,7 +6974,7 @@ static inline int csilc_enc_SetMyClaimKeepVerifiedRequest(csilc_buf *b, const Se
 static inline int csilc_dec_SetMyClaimKeepVerifiedRequest(const csilc_value *m, CsilCodecArena *a, SetMyClaimKeepVerifiedRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
     csilc_f = csilc_map_get(m, "keep_verified");
@@ -5624,7 +6994,7 @@ static inline int csilc_enc_SetMyClaimKeepVerifiedResponse(csilc_buf *b, const S
 static inline int csilc_dec_SetMyClaimKeepVerifiedResponse(const csilc_value *m, CsilCodecArena *a, SetMyClaimKeepVerifiedResponse *out) {
     (void)a;
     (void)out;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     return 0;
 }
 
@@ -5652,7 +7022,7 @@ static inline int csilc_enc_Profile(csilc_buf *b, const Profile *v) {
 static inline int csilc_dec_Profile(const csilc_value *m, CsilCodecArena *a, Profile *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "id");
     if (!csilc_get_text(csilc_f, &(out->id))) return -1;
     csilc_f = csilc_map_get(m, "label");
@@ -5682,7 +7052,7 @@ static inline int csilc_enc_CreateProfileRequest(csilc_buf *b, const CreateProfi
 static inline int csilc_dec_CreateProfileRequest(const csilc_value *m, CsilCodecArena *a, CreateProfileRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "label");
     out->label = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     return 0;
@@ -5701,7 +7071,7 @@ static inline int csilc_enc_CreateProfileResponse(csilc_buf *b, const CreateProf
 static inline int csilc_dec_CreateProfileResponse(const csilc_value *m, CsilCodecArena *a, CreateProfileResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "profile");
     if (csilc_dec_Profile(csilc_f, a, &(out->profile))) return -1;
     return 0;
@@ -5725,7 +7095,7 @@ static inline int csilc_enc_RequestVerificationRequest(csilc_buf *b, const Reque
 static inline int csilc_dec_RequestVerificationRequest(const csilc_value *m, CsilCodecArena *a, RequestVerificationRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "issuer_domain");
     if (!csilc_get_text(csilc_f, &(out->issuer_domain))) return -1;
     csilc_f = csilc_map_get(m, "requested_claim_types");
@@ -5755,7 +7125,7 @@ static inline int csilc_enc_RequestVerificationResponse(csilc_buf *b, const Requ
 static inline int csilc_dec_RequestVerificationResponse(const csilc_value *m, CsilCodecArena *a, RequestVerificationResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "signed_request");
     if (csilc_dec_SignedSigningRequest(csilc_f, a, &(out->signed_request))) return -1;
     return 0;
@@ -5776,7 +7146,7 @@ static inline int csilc_enc_PasswordPolicy(csilc_buf *b, const PasswordPolicy *v
 static inline int csilc_dec_PasswordPolicy(const csilc_value *m, CsilCodecArena *a, PasswordPolicy *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "max_length");
     if (!csilc_as_i64(csilc_f, &(out->max_length))) return -1;
     csilc_f = csilc_map_get(m, "min_length");
@@ -5791,11 +7161,11 @@ static inline int csilc_enc_BrowserSessionInfo(csilc_buf *b, const BrowserSessio
     if (csilc_w_text(b, "user", 4)) return -1;
     if (csilc_enc_AdminUser(b, &(v->user))) return -1;
     if (csilc_w_text(b, "issued_at", 9)) return -1;
-    if (csilc_w_text(b, (v->issued_at), (v->issued_at) ? strlen(v->issued_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->issued_at).rfc3339)) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (csilc_w_text(b, "authenticated_at", 16)) return -1;
-    if (csilc_w_text(b, (v->authenticated_at), (v->authenticated_at) ? strlen(v->authenticated_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->authenticated_at).rfc3339)) return -1;
     if (csilc_w_text(b, "authentication_methods", 22)) return -1;
     if (csilc_w_array_head(b, v->authentication_methods_count)) return -1;
     for (size_t csilc_i = 0; csilc_i < v->authentication_methods_count; csilc_i++) {
@@ -5808,15 +7178,15 @@ static inline int csilc_enc_BrowserSessionInfo(csilc_buf *b, const BrowserSessio
 static inline int csilc_dec_BrowserSessionInfo(const csilc_value *m, CsilCodecArena *a, BrowserSessionInfo *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user");
     if (csilc_dec_AdminUser(csilc_f, a, &(out->user))) return -1;
     csilc_f = csilc_map_get(m, "issued_at");
-    if (!csilc_get_text(csilc_f, &(out->issued_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->issued_at).rfc3339, &(out->issued_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "authenticated_at");
-    if (!csilc_get_text(csilc_f, &(out->authenticated_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->authenticated_at).rfc3339, &(out->authenticated_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "authentication_methods");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->authentication_methods_count = csilc_f->as.array.count;
@@ -5846,7 +7216,7 @@ static inline int csilc_enc_SessionPasswordLoginRequest(csilc_buf *b, const Sess
 static inline int csilc_dec_SessionPasswordLoginRequest(const csilc_value *m, CsilCodecArena *a, SessionPasswordLoginRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "password");
     if (!csilc_get_text(csilc_f, &(out->password))) return -1;
     csilc_f = csilc_map_get(m, "username");
@@ -5867,7 +7237,7 @@ static inline int csilc_enc_SessionPasswordLoginResponse(csilc_buf *b, const Ses
 static inline int csilc_dec_SessionPasswordLoginResponse(const csilc_value *m, CsilCodecArena *a, SessionPasswordLoginResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "session");
     if (csilc_dec_BrowserSessionInfo(csilc_f, a, &(out->session))) return -1;
     return 0;
@@ -5886,7 +7256,7 @@ static inline int csilc_enc_SessionCurrentResponse(csilc_buf *b, const SessionCu
 static inline int csilc_dec_SessionCurrentResponse(const csilc_value *m, CsilCodecArena *a, SessionCurrentResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "session");
     if (csilc_dec_BrowserSessionInfo(csilc_f, a, &(out->session))) return -1;
     return 0;
@@ -5905,7 +7275,7 @@ static inline int csilc_enc_SessionLogoutResponse(csilc_buf *b, const SessionLog
 static inline int csilc_dec_SessionLogoutResponse(const csilc_value *m, CsilCodecArena *a, SessionLogoutResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "success");
     if (!csilc_as_bool(csilc_f, &(out->success))) return -1;
     return 0;
@@ -5924,7 +7294,7 @@ static inline int csilc_enc_IntrospectBrowserSessionRequest(csilc_buf *b, const 
 static inline int csilc_dec_IntrospectBrowserSessionRequest(const csilc_value *m, CsilCodecArena *a, IntrospectBrowserSessionRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "session_cookie");
     if (!csilc_get_text(csilc_f, &(out->session_cookie))) return -1;
     return 0;
@@ -5937,11 +7307,11 @@ static inline int csilc_enc_IntrospectBrowserSessionResponse(csilc_buf *b, const
     if (csilc_w_text(b, "user_id", 7)) return -1;
     if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (csilc_w_text(b, "user_domain", 11)) return -1;
     if (csilc_w_text(b, (v->user_domain), (v->user_domain) ? strlen(v->user_domain) : 0)) return -1;
     if (csilc_w_text(b, "authenticated_at", 16)) return -1;
-    if (csilc_w_text(b, (v->authenticated_at), (v->authenticated_at) ? strlen(v->authenticated_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->authenticated_at).rfc3339)) return -1;
     if (csilc_w_text(b, "authentication_methods", 22)) return -1;
     if (csilc_w_array_head(b, v->authentication_methods_count)) return -1;
     for (size_t csilc_i = 0; csilc_i < v->authentication_methods_count; csilc_i++) {
@@ -5954,15 +7324,15 @@ static inline int csilc_enc_IntrospectBrowserSessionResponse(csilc_buf *b, const
 static inline int csilc_dec_IntrospectBrowserSessionResponse(const csilc_value *m, CsilCodecArena *a, IntrospectBrowserSessionResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "user_domain");
     if (!csilc_get_text(csilc_f, &(out->user_domain))) return -1;
     csilc_f = csilc_map_get(m, "authenticated_at");
-    if (!csilc_get_text(csilc_f, &(out->authenticated_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->authenticated_at).rfc3339, &(out->authenticated_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "authentication_methods");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->authentication_methods_count = csilc_f->as.array.count;
@@ -5982,11 +7352,11 @@ static inline int csilc_enc_NotificationCapability(csilc_buf *b, const Notificat
     size_t csilc_n = 3;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "channel", 7)) return -1;
-    if (csilc_w_text(b, (v->channel), (v->channel) ? strlen(v->channel) : 0)) return -1;
+    if (csilc_enc_NotificationChannel(b, &(v->channel))) return -1;
     if (csilc_w_text(b, "purpose", 7)) return -1;
-    if (csilc_w_text(b, (v->purpose), (v->purpose) ? strlen(v->purpose) : 0)) return -1;
+    if (csilc_enc_NotificationPurpose(b, &(v->purpose))) return -1;
     if (csilc_w_text(b, "destination_kind", 16)) return -1;
-    if (csilc_w_text(b, (v->destination_kind), (v->destination_kind) ? strlen(v->destination_kind) : 0)) return -1;
+    if (csilc_enc_DestinationKind(b, &(v->destination_kind))) return -1;
     return 0;
 }
 
@@ -5994,13 +7364,13 @@ static inline int csilc_enc_NotificationCapability(csilc_buf *b, const Notificat
 static inline int csilc_dec_NotificationCapability(const csilc_value *m, CsilCodecArena *a, NotificationCapability *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "channel");
-    if (!csilc_get_text(csilc_f, &(out->channel))) return -1;
+    if (csilc_dec_NotificationChannel(csilc_f, a, &(out->channel))) return -1;
     csilc_f = csilc_map_get(m, "purpose");
-    if (!csilc_get_text(csilc_f, &(out->purpose))) return -1;
+    if (csilc_dec_NotificationPurpose(csilc_f, a, &(out->purpose))) return -1;
     csilc_f = csilc_map_get(m, "destination_kind");
-    if (!csilc_get_text(csilc_f, &(out->destination_kind))) return -1;
+    if (csilc_dec_DestinationKind(csilc_f, a, &(out->destination_kind))) return -1;
     return 0;
 }
 
@@ -6020,7 +7390,7 @@ static inline int csilc_enc_GetNotificationCapabilitiesResponse(csilc_buf *b, co
 static inline int csilc_dec_GetNotificationCapabilitiesResponse(const csilc_value *m, CsilCodecArena *a, GetNotificationCapabilitiesResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "capabilities");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->capabilities_count = csilc_f->as.array.count;
@@ -6043,20 +7413,20 @@ static inline int csilc_enc_VerifiedContactMethod(csilc_buf *b, const VerifiedCo
     if (csilc_w_text(b, "id", 2)) return -1;
     if (csilc_w_text(b, (v->id), (v->id) ? strlen(v->id) : 0)) return -1;
     if (csilc_w_text(b, "channel", 7)) return -1;
-    if (csilc_w_text(b, (v->channel), (v->channel) ? strlen(v->channel) : 0)) return -1;
+    if (csilc_enc_NotificationChannel(b, &(v->channel))) return -1;
     if (csilc_w_text(b, "purposes", 8)) return -1;
     if (csilc_w_array_head(b, v->purposes_count)) return -1;
     for (size_t csilc_i = 0; csilc_i < v->purposes_count; csilc_i++) {
-        if (csilc_w_text(b, (v->purposes[csilc_i]), (v->purposes[csilc_i]) ? strlen(v->purposes[csilc_i]) : 0)) return -1;
+        if (csilc_enc_NotificationPurpose(b, &(v->purposes[csilc_i]))) return -1;
     }
     if (v->revoked_at) {
         if (csilc_w_text(b, "revoked_at", 10)) return -1;
-        if (csilc_w_text(b, (v->revoked_at), (v->revoked_at) ? strlen(v->revoked_at) : 0)) return -1;
+        if (csilc_w_timestamp(b, ((*v->revoked_at)).rfc3339)) return -1;
     }
     if (csilc_w_text(b, "destination", 11)) return -1;
     if (csilc_w_text(b, (v->destination), (v->destination) ? strlen(v->destination) : 0)) return -1;
     if (csilc_w_text(b, "verified_at", 11)) return -1;
-    if (csilc_w_text(b, (v->verified_at), (v->verified_at) ? strlen(v->verified_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->verified_at).rfc3339)) return -1;
     return 0;
 }
 
@@ -6064,28 +7434,34 @@ static inline int csilc_enc_VerifiedContactMethod(csilc_buf *b, const VerifiedCo
 static inline int csilc_dec_VerifiedContactMethod(const csilc_value *m, CsilCodecArena *a, VerifiedContactMethod *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "id");
     if (!csilc_get_text(csilc_f, &(out->id))) return -1;
     csilc_f = csilc_map_get(m, "channel");
-    if (!csilc_get_text(csilc_f, &(out->channel))) return -1;
+    if (csilc_dec_NotificationChannel(csilc_f, a, &(out->channel))) return -1;
     csilc_f = csilc_map_get(m, "purposes");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->purposes_count = csilc_f->as.array.count;
     out->purposes = NULL;
     if (out->purposes_count) {
-        out->purposes = (char * *)csilc_arena_alloc(a, out->purposes_count * sizeof(char *));
+        out->purposes = (NotificationPurpose *)csilc_arena_alloc(a, out->purposes_count * sizeof(NotificationPurpose));
         if (!out->purposes) return -1;
         for (size_t csilc_i = 0; csilc_i < out->purposes_count; csilc_i++) {
-            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->purposes[csilc_i]))) return -1;
+            if (csilc_dec_NotificationPurpose(&csilc_f->as.array.items[csilc_i], a, &(out->purposes[csilc_i]))) return -1;
         }
     }
     csilc_f = csilc_map_get(m, "revoked_at");
-    out->revoked_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->revoked_at = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->revoked_at = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "destination");
     if (!csilc_get_text(csilc_f, &(out->destination))) return -1;
     csilc_f = csilc_map_get(m, "verified_at");
-    if (!csilc_get_text(csilc_f, &(out->verified_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->verified_at).rfc3339, &(out->verified_at).epoch_seconds)) return -1;
     return 0;
 }
 
@@ -6105,7 +7481,7 @@ static inline int csilc_enc_ListVerifiedContactMethodsResponse(csilc_buf *b, con
 static inline int csilc_dec_ListVerifiedContactMethodsResponse(const csilc_value *m, CsilCodecArena *a, ListVerifiedContactMethodsResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "contact_methods");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->contact_methods_count = csilc_f->as.array.count;
@@ -6135,7 +7511,7 @@ static inline int csilc_enc_RevokeVerifiedContactMethodRequest(csilc_buf *b, con
 static inline int csilc_dec_RevokeVerifiedContactMethodRequest(const csilc_value *m, CsilCodecArena *a, RevokeVerifiedContactMethodRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "current_password");
     if (!csilc_get_text(csilc_f, &(out->current_password))) return -1;
     csilc_f = csilc_map_get(m, "contact_method_id");
@@ -6156,7 +7532,7 @@ static inline int csilc_enc_RevokeVerifiedContactMethodResponse(csilc_buf *b, co
 static inline int csilc_dec_RevokeVerifiedContactMethodResponse(const csilc_value *m, CsilCodecArena *a, RevokeVerifiedContactMethodResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "success");
     if (!csilc_as_bool(csilc_f, &(out->success))) return -1;
     return 0;
@@ -6167,7 +7543,7 @@ static inline int csilc_enc_RequestContactVerificationRequest(csilc_buf *b, cons
     size_t csilc_n = 3;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "channel", 7)) return -1;
-    if (csilc_w_text(b, (v->channel), (v->channel) ? strlen(v->channel) : 0)) return -1;
+    if (csilc_enc_NotificationChannel(b, &(v->channel))) return -1;
     if (csilc_w_text(b, "destination", 11)) return -1;
     if (csilc_w_text(b, (v->destination), (v->destination) ? strlen(v->destination) : 0)) return -1;
     if (csilc_w_text(b, "current_password", 16)) return -1;
@@ -6179,9 +7555,9 @@ static inline int csilc_enc_RequestContactVerificationRequest(csilc_buf *b, cons
 static inline int csilc_dec_RequestContactVerificationRequest(const csilc_value *m, CsilCodecArena *a, RequestContactVerificationRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "channel");
-    if (!csilc_get_text(csilc_f, &(out->channel))) return -1;
+    if (csilc_dec_NotificationChannel(csilc_f, a, &(out->channel))) return -1;
     csilc_f = csilc_map_get(m, "destination");
     if (!csilc_get_text(csilc_f, &(out->destination))) return -1;
     csilc_f = csilc_map_get(m, "current_password");
@@ -6194,7 +7570,7 @@ static inline int csilc_enc_RequestContactVerificationResponse(csilc_buf *b, con
     size_t csilc_n = 1;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     return 0;
 }
 
@@ -6202,9 +7578,9 @@ static inline int csilc_enc_RequestContactVerificationResponse(csilc_buf *b, con
 static inline int csilc_dec_RequestContactVerificationResponse(const csilc_value *m, CsilCodecArena *a, RequestContactVerificationResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     return 0;
 }
 
@@ -6221,7 +7597,7 @@ static inline int csilc_enc_ConfirmContactVerificationRequest(csilc_buf *b, cons
 static inline int csilc_dec_ConfirmContactVerificationRequest(const csilc_value *m, CsilCodecArena *a, ConfirmContactVerificationRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "token");
     if (!csilc_get_text(csilc_f, &(out->token))) return -1;
     return 0;
@@ -6245,7 +7621,7 @@ static inline int csilc_enc_ConfirmContactVerificationResponse(csilc_buf *b, con
 static inline int csilc_dec_ConfirmContactVerificationResponse(const csilc_value *m, CsilCodecArena *a, ConfirmContactVerificationResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claims");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->claims_count = csilc_f->as.array.count;
@@ -6275,7 +7651,7 @@ static inline int csilc_enc_RequestPasswordRecoveryRequest(csilc_buf *b, const R
 static inline int csilc_dec_RequestPasswordRecoveryRequest(const csilc_value *m, CsilCodecArena *a, RequestPasswordRecoveryRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "identifier");
     if (!csilc_get_text(csilc_f, &(out->identifier))) return -1;
     return 0;
@@ -6293,7 +7669,7 @@ static inline int csilc_enc_RequestPasswordRecoveryResponse(csilc_buf *b, const 
 static inline int csilc_dec_RequestPasswordRecoveryResponse(const csilc_value *m, CsilCodecArena *a, RequestPasswordRecoveryResponse *out) {
     (void)a;
     (void)out;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     return 0;
 }
 
@@ -6310,7 +7686,7 @@ static inline int csilc_enc_ValidatePasswordRecoveryRequest(csilc_buf *b, const 
 static inline int csilc_dec_ValidatePasswordRecoveryRequest(const csilc_value *m, CsilCodecArena *a, ValidatePasswordRecoveryRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "token");
     if (!csilc_get_text(csilc_f, &(out->token))) return -1;
     return 0;
@@ -6321,7 +7697,7 @@ static inline int csilc_enc_ValidatePasswordRecoveryResponse(csilc_buf *b, const
     size_t csilc_n = 2;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (csilc_w_text(b, "password_policy", 15)) return -1;
     if (csilc_enc_PasswordPolicy(b, &(v->password_policy))) return -1;
     return 0;
@@ -6331,9 +7707,9 @@ static inline int csilc_enc_ValidatePasswordRecoveryResponse(csilc_buf *b, const
 static inline int csilc_dec_ValidatePasswordRecoveryResponse(const csilc_value *m, CsilCodecArena *a, ValidatePasswordRecoveryResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "password_policy");
     if (csilc_dec_PasswordPolicy(csilc_f, a, &(out->password_policy))) return -1;
     return 0;
@@ -6354,7 +7730,7 @@ static inline int csilc_enc_CompletePasswordRecoveryRequest(csilc_buf *b, const 
 static inline int csilc_dec_CompletePasswordRecoveryRequest(const csilc_value *m, CsilCodecArena *a, CompletePasswordRecoveryRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "token");
     if (!csilc_get_text(csilc_f, &(out->token))) return -1;
     csilc_f = csilc_map_get(m, "new_password");
@@ -6375,7 +7751,7 @@ static inline int csilc_enc_CompletePasswordRecoveryResponse(csilc_buf *b, const
 static inline int csilc_dec_CompletePasswordRecoveryResponse(const csilc_value *m, CsilCodecArena *a, CompletePasswordRecoveryResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "success");
     if (!csilc_as_bool(csilc_f, &(out->success))) return -1;
     return 0;
@@ -6394,7 +7770,7 @@ static inline int csilc_enc_BrowserAuthorizationInspectRequest(csilc_buf *b, con
 static inline int csilc_dec_BrowserAuthorizationInspectRequest(const csilc_value *m, CsilCodecArena *a, BrowserAuthorizationInspectRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "signed_request");
     if (!csilc_get_text(csilc_f, &(out->signed_request))) return -1;
     return 0;
@@ -6408,9 +7784,9 @@ static inline int csilc_enc_BrowserConsentClaim(csilc_buf *b, const BrowserConse
     if (csilc_w_text(b, "label", 5)) return -1;
     if (csilc_w_text(b, (v->label), (v->label) ? strlen(v->label) : 0)) return -1;
     if (csilc_w_text(b, "policy", 6)) return -1;
-    if (csilc_w_text(b, (v->policy), (v->policy) ? strlen(v->policy) : 0)) return -1;
+    if (csilc_enc_ConsentRowPolicy(b, &(v->policy))) return -1;
     if (csilc_w_text(b, "datatype", 8)) return -1;
-    if (csilc_w_text(b, (v->datatype), (v->datatype) ? strlen(v->datatype) : 0)) return -1;
+    if (csilc_enc_ClaimValueType(b, &(v->datatype))) return -1;
     if (csilc_w_text(b, "required", 8)) return -1;
     if (csilc_w_bool(b, (v->required))) return -1;
     if (csilc_w_text(b, "available", 9)) return -1;
@@ -6436,13 +7812,13 @@ static inline int csilc_enc_BrowserConsentClaim(csilc_buf *b, const BrowserConse
 static inline int csilc_dec_BrowserConsentClaim(const csilc_value *m, CsilCodecArena *a, BrowserConsentClaim *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "label");
     if (!csilc_get_text(csilc_f, &(out->label))) return -1;
     csilc_f = csilc_map_get(m, "policy");
-    if (!csilc_get_text(csilc_f, &(out->policy))) return -1;
+    if (csilc_dec_ConsentRowPolicy(csilc_f, a, &(out->policy))) return -1;
     csilc_f = csilc_map_get(m, "datatype");
-    if (!csilc_get_text(csilc_f, &(out->datatype))) return -1;
+    if (csilc_dec_ClaimValueType(csilc_f, a, &(out->datatype))) return -1;
     csilc_f = csilc_map_get(m, "required");
     if (!csilc_as_bool(csilc_f, &(out->required))) return -1;
     csilc_f = csilc_map_get(m, "available");
@@ -6524,7 +7900,7 @@ static inline int csilc_enc_BrowserAuthorizationInspectResponse(csilc_buf *b, co
 static inline int csilc_dec_BrowserAuthorizationInspectResponse(const csilc_value *m, CsilCodecArena *a, BrowserAuthorizationInspectResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claims");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->claims_count = csilc_f->as.array.count;
@@ -6615,7 +7991,7 @@ static inline int csilc_enc_BrowserAuthorizationCompleteRequest(csilc_buf *b, co
 static inline int csilc_dec_BrowserAuthorizationCompleteRequest(const csilc_value *m, CsilCodecArena *a, BrowserAuthorizationCompleteRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "signed_request");
     if (!csilc_get_text(csilc_f, &(out->signed_request))) return -1;
     csilc_f = csilc_map_get(m, "authorized_claims");
@@ -6675,7 +8051,7 @@ static inline int csilc_enc_BrowserAuthorizationCompleteResponse(csilc_buf *b, c
 static inline int csilc_dec_BrowserAuthorizationCompleteResponse(const csilc_value *m, CsilCodecArena *a, BrowserAuthorizationCompleteResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "redirect_url");
     if (!csilc_get_text(csilc_f, &(out->redirect_url))) return -1;
     return 0;
@@ -6694,7 +8070,7 @@ static inline int csilc_enc_BrowserLocalRpInspectRequest(csilc_buf *b, const Bro
 static inline int csilc_dec_BrowserLocalRpInspectRequest(const csilc_value *m, CsilCodecArena *a, BrowserLocalRpInspectRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "signed_request");
     if (!csilc_get_text(csilc_f, &(out->signed_request))) return -1;
     return 0;
@@ -6717,7 +8093,7 @@ static inline int csilc_enc_BrowserLocalRpInspectResponse(csilc_buf *b, const Br
     if (csilc_w_text(b, "app_name", 8)) return -1;
     if (csilc_w_text(b, (v->app_name), (v->app_name) ? strlen(v->app_name) : 0)) return -1;
     if (csilc_w_text(b, "admission", 9)) return -1;
-    if (csilc_w_text(b, (v->admission), (v->admission) ? strlen(v->admission) : 0)) return -1;
+    if (csilc_enc_LocalRpAdmission(b, &(v->admission))) return -1;
     if (csilc_w_text(b, "fingerprint", 11)) return -1;
     if (csilc_w_text(b, (v->fingerprint), (v->fingerprint) ? strlen(v->fingerprint) : 0)) return -1;
     if (v->access_denied) {
@@ -6728,7 +8104,7 @@ static inline int csilc_enc_BrowserLocalRpInspectResponse(csilc_buf *b, const Br
     if (csilc_w_text(b, (v->callback_host), (v->callback_host) ? strlen(v->callback_host) : 0)) return -1;
     if (v->first_seen_at) {
         if (csilc_w_text(b, "first_seen_at", 13)) return -1;
-        if (csilc_w_text(b, (v->first_seen_at), (v->first_seen_at) ? strlen(v->first_seen_at) : 0)) return -1;
+        if (csilc_w_timestamp(b, ((*v->first_seen_at)).rfc3339)) return -1;
     }
     if (v->request_reason) {
         if (csilc_w_text(b, "request_reason", 14)) return -1;
@@ -6752,7 +8128,7 @@ static inline int csilc_enc_BrowserLocalRpInspectResponse(csilc_buf *b, const Br
 static inline int csilc_dec_BrowserLocalRpInspectResponse(const csilc_value *m, CsilCodecArena *a, BrowserLocalRpInspectResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claims");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->claims_count = csilc_f->as.array.count;
@@ -6767,7 +8143,7 @@ static inline int csilc_dec_BrowserLocalRpInspectResponse(const csilc_value *m, 
     csilc_f = csilc_map_get(m, "app_name");
     if (!csilc_get_text(csilc_f, &(out->app_name))) return -1;
     csilc_f = csilc_map_get(m, "admission");
-    if (!csilc_get_text(csilc_f, &(out->admission))) return -1;
+    if (csilc_dec_LocalRpAdmission(csilc_f, a, &(out->admission))) return -1;
     csilc_f = csilc_map_get(m, "fingerprint");
     if (!csilc_get_text(csilc_f, &(out->fingerprint))) return -1;
     csilc_f = csilc_map_get(m, "access_denied");
@@ -6781,7 +8157,13 @@ static inline int csilc_dec_BrowserLocalRpInspectResponse(const csilc_value *m, 
     csilc_f = csilc_map_get(m, "callback_host");
     if (!csilc_get_text(csilc_f, &(out->callback_host))) return -1;
     csilc_f = csilc_map_get(m, "first_seen_at");
-    out->first_seen_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->first_seen_at = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->first_seen_at = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "request_reason");
     out->request_reason = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "already_consented");
@@ -6839,7 +8221,7 @@ static inline int csilc_enc_BrowserLocalRpCompleteRequest(csilc_buf *b, const Br
 static inline int csilc_dec_BrowserLocalRpCompleteRequest(const csilc_value *m, CsilCodecArena *a, BrowserLocalRpCompleteRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "signed_request");
     if (!csilc_get_text(csilc_f, &(out->signed_request))) return -1;
     csilc_f = csilc_map_get(m, "authorized_claims");
@@ -6899,7 +8281,7 @@ static inline int csilc_enc_BrowserLocalRpCompleteResponse(csilc_buf *b, const B
 static inline int csilc_dec_BrowserLocalRpCompleteResponse(const csilc_value *m, CsilCodecArena *a, BrowserLocalRpCompleteResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "redirect_url");
     if (!csilc_get_text(csilc_f, &(out->redirect_url))) return -1;
     return 0;
@@ -6931,7 +8313,7 @@ static inline int csilc_enc_UiTheme(csilc_buf *b, const UiTheme *v) {
 static inline int csilc_dec_UiTheme(const csilc_value *m, CsilCodecArena *a, UiTheme *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "logo_url");
     out->logo_url = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "favicon_url");
@@ -6963,7 +8345,7 @@ static inline int csilc_enc_UiExtension(csilc_buf *b, const UiExtension *v) {
 static inline int csilc_dec_UiExtension(const csilc_value *m, CsilCodecArena *a, UiExtension *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "id");
     if (!csilc_get_text(csilc_f, &(out->id))) return -1;
     csilc_f = csilc_map_get(m, "module_url");
@@ -6993,7 +8375,7 @@ static inline int csilc_enc_UiDisplaySettings(csilc_buf *b, const UiDisplaySetti
 static inline int csilc_dec_UiDisplaySettings(const csilc_value *m, CsilCodecArena *a, UiDisplaySettings *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "site_name");
     if (!csilc_get_text(csilc_f, &(out->site_name))) return -1;
     csilc_f = csilc_map_get(m, "support_url");
@@ -7043,7 +8425,7 @@ static inline int csilc_enc_GetUiConfigurationResponse(csilc_buf *b, const GetUi
 static inline int csilc_dec_GetUiConfigurationResponse(const csilc_value *m, CsilCodecArena *a, GetUiConfigurationResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "theme");
     out->theme = NULL;
     if (csilc_f) {
@@ -7097,7 +8479,6 @@ static inline int csilc_dec_GetUiConfigurationResponse(const csilc_value *m, Csi
 static inline int csilc_enc_RpSignRequest(csilc_buf *b, const RpSignRequest *v) {
     size_t csilc_n = 2;
     if (v->flow_context) csilc_n++;
-    if (v->application_id) csilc_n++;
     if (v->requested_claims) csilc_n++;
     if (v->authentication_requirements) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
@@ -7108,10 +8489,6 @@ static inline int csilc_enc_RpSignRequest(csilc_buf *b, const RpSignRequest *v) 
     if (v->flow_context) {
         if (csilc_w_text(b, "flow_context", 12)) return -1;
         if (csilc_enc_AuthFlowContext(b, &((*v->flow_context)))) return -1;
-    }
-    if (v->application_id) {
-        if (csilc_w_text(b, "application_id", 14)) return -1;
-        if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
     }
     if (v->requested_claims) {
         if (csilc_w_text(b, "requested_claims", 16)) return -1;
@@ -7128,7 +8505,7 @@ static inline int csilc_enc_RpSignRequest(csilc_buf *b, const RpSignRequest *v) 
 static inline int csilc_dec_RpSignRequest(const csilc_value *m, CsilCodecArena *a, RpSignRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "nonce");
     if (!csilc_get_text(csilc_f, &(out->nonce))) return -1;
     csilc_f = csilc_map_get(m, "callback_url");
@@ -7141,8 +8518,6 @@ static inline int csilc_dec_RpSignRequest(const csilc_value *m, CsilCodecArena *
         if (csilc_dec_AuthFlowContext(csilc_f, a, &((*csilc_p)))) return -1;
         out->flow_context = csilc_p;
     }
-    csilc_f = csilc_map_get(m, "application_id");
-    out->application_id = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "requested_claims");
     out->requested_claims = NULL;
     if (csilc_f) {
@@ -7175,7 +8550,7 @@ static inline int csilc_enc_RpSignResponse(csilc_buf *b, const RpSignResponse *v
 static inline int csilc_dec_RpSignResponse(const csilc_value *m, CsilCodecArena *a, RpSignResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "signed_request");
     if (!csilc_get_text(csilc_f, &(out->signed_request))) return -1;
     return 0;
@@ -7194,7 +8569,7 @@ static inline int csilc_enc_RpDecryptRequest(csilc_buf *b, const RpDecryptReques
 static inline int csilc_dec_RpDecryptRequest(const csilc_value *m, CsilCodecArena *a, RpDecryptRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "encrypted_token");
     if (!csilc_get_text(csilc_f, &(out->encrypted_token))) return -1;
     return 0;
@@ -7213,7 +8588,7 @@ static inline int csilc_enc_RpDecryptResponse(csilc_buf *b, const RpDecryptRespo
 static inline int csilc_dec_RpDecryptResponse(const csilc_value *m, CsilCodecArena *a, RpDecryptResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "signed_assertion");
     if (!csilc_get_text(csilc_f, &(out->signed_assertion))) return -1;
     return 0;
@@ -7234,7 +8609,7 @@ static inline int csilc_enc_RpVerifyRequest(csilc_buf *b, const RpVerifyRequest 
 static inline int csilc_dec_RpVerifyRequest(const csilc_value *m, CsilCodecArena *a, RpVerifyRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "expected_domain");
     if (!csilc_get_text(csilc_f, &(out->expected_domain))) return -1;
     csilc_f = csilc_map_get(m, "signed_assertion");
@@ -7257,7 +8632,7 @@ static inline int csilc_enc_RpVerifyResponse(csilc_buf *b, const RpVerifyRespons
 static inline int csilc_dec_RpVerifyResponse(const csilc_value *m, CsilCodecArena *a, RpVerifyResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "verified");
     if (!csilc_as_bool(csilc_f, &(out->verified))) return -1;
     csilc_f = csilc_map_get(m, "assertion");
@@ -7282,13 +8657,36 @@ static inline int csilc_enc_RpUserInfoRequest(csilc_buf *b, const RpUserInfoRequ
 static inline int csilc_dec_RpUserInfoRequest(const csilc_value *m, CsilCodecArena *a, RpUserInfoRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "token");
     if (!csilc_get_text(csilc_f, &(out->token))) return -1;
     csilc_f = csilc_map_get(m, "domain");
     if (!csilc_get_text(csilc_f, &(out->domain))) return -1;
     csilc_f = csilc_map_get(m, "api_base");
     if (!csilc_get_text(csilc_f, &(out->api_base))) return -1;
+    return 0;
+}
+
+/* csilc_enc_RpError writes RpError as a canonical CBOR map. */
+static inline int csilc_enc_RpError(csilc_buf *b, const RpError *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "code", 4)) return -1;
+    if (csilc_enc_RpErrorCode(b, &(v->code))) return -1;
+    if (csilc_w_text(b, "message", 7)) return -1;
+    if (csilc_w_text(b, (v->message), (v->message) ? strlen(v->message) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_RpError reads RpError from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RpError(const csilc_value *m, CsilCodecArena *a, RpError *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "code");
+    if (csilc_dec_RpErrorCode(csilc_f, a, &(out->code))) return -1;
+    csilc_f = csilc_map_get(m, "message");
+    if (!csilc_get_text(csilc_f, &(out->message))) return -1;
     return 0;
 }
 
@@ -7309,7 +8707,7 @@ static inline int csilc_enc_RpIssueAttestationRequest(csilc_buf *b, const RpIssu
 static inline int csilc_dec_RpIssueAttestationRequest(const csilc_value *m, CsilCodecArena *a, RpIssueAttestationRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
     csilc_f = csilc_map_get(m, "claim_value");
@@ -7334,7 +8732,7 @@ static inline int csilc_enc_RpIssueAttestationResponse(csilc_buf *b, const RpIss
 static inline int csilc_dec_RpIssueAttestationResponse(const csilc_value *m, CsilCodecArena *a, RpIssueAttestationResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim");
     if (csilc_dec_Claim(csilc_f, a, &(out->claim))) return -1;
     csilc_f = csilc_map_get(m, "deposited");
@@ -7360,7 +8758,7 @@ static inline int csilc_enc_AuthorizeValidateRequest(csilc_buf *b, const Authori
 static inline int csilc_dec_AuthorizeValidateRequest(const csilc_value *m, CsilCodecArena *a, AuthorizeValidateRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     out->user_id = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "signed_request");
@@ -7419,7 +8817,7 @@ static inline int csilc_enc_AuthorizeValidateResponse(csilc_buf *b, const Author
 static inline int csilc_dec_AuthorizeValidateResponse(const csilc_value *m, CsilCodecArena *a, AuthorizeValidateResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "application");
     out->application = NULL;
     if (csilc_f) {
@@ -7504,7 +8902,7 @@ static inline int csilc_enc_AuthorizeFinalizeRequest(csilc_buf *b, const Authori
 static inline int csilc_dec_AuthorizeFinalizeRequest(const csilc_value *m, CsilCodecArena *a, AuthorizeFinalizeRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     csilc_f = csilc_map_get(m, "signed_request");
@@ -7536,7 +8934,7 @@ static inline int csilc_enc_AuthorizeFinalizeResponse(csilc_buf *b, const Author
 static inline int csilc_dec_AuthorizeFinalizeResponse(const csilc_value *m, CsilCodecArena *a, AuthorizeFinalizeResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "redirect_url");
     if (!csilc_get_text(csilc_f, &(out->redirect_url))) return -1;
     return 0;
@@ -7568,7 +8966,7 @@ static inline int csilc_enc_ApiError(csilc_buf *b, const ApiError *v) {
 static inline int csilc_dec_ApiError(const csilc_value *m, CsilCodecArena *a, ApiError *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "code");
     if (csilc_dec_ApiErrorCode(csilc_f, a, &(out->code))) return -1;
     csilc_f = csilc_map_get(m, "message");
@@ -7584,15 +8982,15 @@ static inline int csilc_enc_LocalRpDescriptor(csilc_buf *b, const LocalRpDescrip
     if (csilc_w_text(b, "app_name", 8)) return -1;
     if (csilc_w_text(b, (v->app_name), (v->app_name) ? strlen(v->app_name) : 0)) return -1;
     if (csilc_w_text(b, "created_at", 10)) return -1;
-    if (csilc_w_text(b, (v->created_at), (v->created_at) ? strlen(v->created_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->created_at).rfc3339)) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (csilc_w_text(b, "fingerprint", 11)) return -1;
     if (csilc_w_text(b, (v->fingerprint), (v->fingerprint) ? strlen(v->fingerprint) : 0)) return -1;
     if (csilc_w_text(b, "supported_suites", 16)) return -1;
     if (csilc_w_array_head(b, v->supported_suites_count)) return -1;
     for (size_t csilc_i = 0; csilc_i < v->supported_suites_count; csilc_i++) {
-        if (csilc_w_text(b, (v->supported_suites[csilc_i]), (v->supported_suites[csilc_i]) ? strlen(v->supported_suites[csilc_i]) : 0)) return -1;
+        if (csilc_enc_AeadSuite(b, &(v->supported_suites[csilc_i]))) return -1;
     }
     if (v->local_domain_hint) {
         if (csilc_w_text(b, "local_domain_hint", 17)) return -1;
@@ -7609,13 +9007,13 @@ static inline int csilc_enc_LocalRpDescriptor(csilc_buf *b, const LocalRpDescrip
 static inline int csilc_dec_LocalRpDescriptor(const csilc_value *m, CsilCodecArena *a, LocalRpDescriptor *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "app_name");
     if (!csilc_get_text(csilc_f, &(out->app_name))) return -1;
     csilc_f = csilc_map_get(m, "created_at");
-    if (!csilc_get_text(csilc_f, &(out->created_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->created_at).rfc3339, &(out->created_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "fingerprint");
     if (!csilc_get_text(csilc_f, &(out->fingerprint))) return -1;
     csilc_f = csilc_map_get(m, "supported_suites");
@@ -7626,7 +9024,7 @@ static inline int csilc_dec_LocalRpDescriptor(const csilc_value *m, CsilCodecAre
         out->supported_suites = (AeadSuite *)csilc_arena_alloc(a, out->supported_suites_count * sizeof(AeadSuite));
         if (!out->supported_suites) return -1;
         for (size_t csilc_i = 0; csilc_i < out->supported_suites_count; csilc_i++) {
-            if (!csilc_get_text(&csilc_f->as.array.items[csilc_i], &(out->supported_suites[csilc_i]))) return -1;
+            if (csilc_dec_AeadSuite(&csilc_f->as.array.items[csilc_i], a, &(out->supported_suites[csilc_i]))) return -1;
         }
     }
     csilc_f = csilc_map_get(m, "local_domain_hint");
@@ -7653,7 +9051,7 @@ static inline int csilc_enc_SignedLocalRpDescriptor(csilc_buf *b, const SignedLo
 static inline int csilc_dec_SignedLocalRpDescriptor(const csilc_value *m, CsilCodecArena *a, SignedLocalRpDescriptor *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "signature");
     if (!csilc_get_bytes(csilc_f, &(out->signature).data, &(out->signature).len)) return -1;
     csilc_f = csilc_map_get(m, "descriptor");
@@ -7672,11 +9070,11 @@ static inline int csilc_enc_LocalRpLoginRequest(csilc_buf *b, const LocalRpLogin
     if (csilc_w_text(b, "state", 5)) return -1;
     if (csilc_w_bytes(b, (v->state).data, (v->state).len)) return -1;
     if (csilc_w_text(b, "issued_at", 9)) return -1;
-    if (csilc_w_text(b, (v->issued_at), (v->issued_at) ? strlen(v->issued_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->issued_at).rfc3339)) return -1;
     if (csilc_w_text(b, "descriptor", 10)) return -1;
     if (csilc_enc_SignedLocalRpDescriptor(b, &(v->descriptor))) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (csilc_w_text(b, "callback_url", 12)) return -1;
     if (csilc_w_text(b, (v->callback_url), (v->callback_url) ? strlen(v->callback_url) : 0)) return -1;
     if (v->flow_context) {
@@ -7704,17 +9102,17 @@ static inline int csilc_enc_LocalRpLoginRequest(csilc_buf *b, const LocalRpLogin
 static inline int csilc_dec_LocalRpLoginRequest(const csilc_value *m, CsilCodecArena *a, LocalRpLoginRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "nonce");
     if (!csilc_get_bytes(csilc_f, &(out->nonce).data, &(out->nonce).len)) return -1;
     csilc_f = csilc_map_get(m, "state");
     if (!csilc_get_bytes(csilc_f, &(out->state).data, &(out->state).len)) return -1;
     csilc_f = csilc_map_get(m, "issued_at");
-    if (!csilc_get_text(csilc_f, &(out->issued_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->issued_at).rfc3339, &(out->issued_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "descriptor");
     if (csilc_dec_SignedLocalRpDescriptor(csilc_f, a, &(out->descriptor))) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "callback_url");
     if (!csilc_get_text(csilc_f, &(out->callback_url))) return -1;
     csilc_f = csilc_map_get(m, "flow_context");
@@ -7773,7 +9171,7 @@ static inline int csilc_enc_SignedLocalRpLoginRequest(csilc_buf *b, const Signed
 static inline int csilc_dec_SignedLocalRpLoginRequest(const csilc_value *m, CsilCodecArena *a, SignedLocalRpLoginRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "request");
     if (!csilc_get_bytes(csilc_f, &(out->request).data, &(out->request).len)) return -1;
     csilc_f = csilc_map_get(m, "signature");
@@ -7790,13 +9188,13 @@ static inline int csilc_enc_LocalRpCallbackHeader(csilc_buf *b, const LocalRpCal
     if (csilc_w_text(b, "state", 5)) return -1;
     if (csilc_w_bytes(b, (v->state).data, (v->state).len)) return -1;
     if (csilc_w_text(b, "suite", 5)) return -1;
-    if (csilc_w_text(b, (v->suite), (v->suite) ? strlen(v->suite) : 0)) return -1;
+    if (csilc_enc_AeadSuite(b, &(v->suite))) return -1;
     if (csilc_w_text(b, "issued_at", 9)) return -1;
-    if (csilc_w_text(b, (v->issued_at), (v->issued_at) ? strlen(v->issued_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->issued_at).rfc3339)) return -1;
     if (csilc_w_text(b, "aead_nonce", 10)) return -1;
     if (csilc_w_bytes(b, (v->aead_nonce).data, (v->aead_nonce).len)) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (csilc_w_text(b, "fingerprint", 11)) return -1;
     if (csilc_w_text(b, (v->fingerprint), (v->fingerprint) ? strlen(v->fingerprint) : 0)) return -1;
     if (csilc_w_text(b, "ephemeral_public_key", 20)) return -1;
@@ -7808,19 +9206,19 @@ static inline int csilc_enc_LocalRpCallbackHeader(csilc_buf *b, const LocalRpCal
 static inline int csilc_dec_LocalRpCallbackHeader(const csilc_value *m, CsilCodecArena *a, LocalRpCallbackHeader *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "nonce");
     if (!csilc_get_bytes(csilc_f, &(out->nonce).data, &(out->nonce).len)) return -1;
     csilc_f = csilc_map_get(m, "state");
     if (!csilc_get_bytes(csilc_f, &(out->state).data, &(out->state).len)) return -1;
     csilc_f = csilc_map_get(m, "suite");
-    if (!csilc_get_text(csilc_f, &(out->suite))) return -1;
+    if (csilc_dec_AeadSuite(csilc_f, a, &(out->suite))) return -1;
     csilc_f = csilc_map_get(m, "issued_at");
-    if (!csilc_get_text(csilc_f, &(out->issued_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->issued_at).rfc3339, &(out->issued_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "aead_nonce");
     if (!csilc_get_bytes(csilc_f, &(out->aead_nonce).data, &(out->aead_nonce).len)) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "fingerprint");
     if (!csilc_get_text(csilc_f, &(out->fingerprint))) return -1;
     csilc_f = csilc_map_get(m, "ephemeral_public_key");
@@ -7843,7 +9241,7 @@ static inline int csilc_enc_LocalRpEncryptedCallback(csilc_buf *b, const LocalRp
 static inline int csilc_dec_LocalRpEncryptedCallback(const csilc_value *m, CsilCodecArena *a, LocalRpEncryptedCallback *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "header");
     if (!csilc_get_bytes(csilc_f, &(out->header).data, &(out->header).len)) return -1;
     csilc_f = csilc_map_get(m, "ciphertext");
@@ -7862,9 +9260,9 @@ static inline int csilc_enc_LocalRpCallbackPayload(csilc_buf *b, const LocalRpCa
     if (csilc_w_text(b, "user_id", 7)) return -1;
     if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
     if (csilc_w_text(b, "issued_at", 9)) return -1;
-    if (csilc_w_text(b, (v->issued_at), (v->issued_at) ? strlen(v->issued_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->issued_at).rfc3339)) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (csilc_w_text(b, "user_domain", 11)) return -1;
     if (csilc_w_text(b, (v->user_domain), (v->user_domain) ? strlen(v->user_domain) : 0)) return -1;
     if (csilc_w_text(b, "callback_url", 12)) return -1;
@@ -7880,7 +9278,7 @@ static inline int csilc_enc_LocalRpCallbackPayload(csilc_buf *b, const LocalRpCa
 static inline int csilc_dec_LocalRpCallbackPayload(const csilc_value *m, CsilCodecArena *a, LocalRpCallbackPayload *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "nonce");
     if (!csilc_get_bytes(csilc_f, &(out->nonce).data, &(out->nonce).len)) return -1;
     csilc_f = csilc_map_get(m, "state");
@@ -7888,9 +9286,9 @@ static inline int csilc_dec_LocalRpCallbackPayload(const csilc_value *m, CsilCod
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     csilc_f = csilc_map_get(m, "issued_at");
-    if (!csilc_get_text(csilc_f, &(out->issued_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->issued_at).rfc3339, &(out->issued_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "user_domain");
     if (!csilc_get_text(csilc_f, &(out->user_domain))) return -1;
     csilc_f = csilc_map_get(m, "callback_url");
@@ -7919,7 +9317,7 @@ static inline int csilc_enc_SignedLocalRpCallbackPayload(csilc_buf *b, const Sig
 static inline int csilc_dec_SignedLocalRpCallbackPayload(const csilc_value *m, CsilCodecArena *a, SignedLocalRpCallbackPayload *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "payload");
     if (!csilc_get_bytes(csilc_f, &(out->payload).data, &(out->payload).len)) return -1;
     csilc_f = csilc_map_get(m, "signature");
@@ -7934,7 +9332,7 @@ static inline int csilc_enc_LocalRpTicketRedemptionRequest(csilc_buf *b, const L
     size_t csilc_n = 3;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "issued_at", 9)) return -1;
-    if (csilc_w_text(b, (v->issued_at), (v->issued_at) ? strlen(v->issued_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->issued_at).rfc3339)) return -1;
     if (csilc_w_text(b, "fingerprint", 11)) return -1;
     if (csilc_w_text(b, (v->fingerprint), (v->fingerprint) ? strlen(v->fingerprint) : 0)) return -1;
     if (csilc_w_text(b, "claim_ticket", 12)) return -1;
@@ -7946,9 +9344,9 @@ static inline int csilc_enc_LocalRpTicketRedemptionRequest(csilc_buf *b, const L
 static inline int csilc_dec_LocalRpTicketRedemptionRequest(const csilc_value *m, CsilCodecArena *a, LocalRpTicketRedemptionRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "issued_at");
-    if (!csilc_get_text(csilc_f, &(out->issued_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->issued_at).rfc3339, &(out->issued_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "fingerprint");
     if (!csilc_get_text(csilc_f, &(out->fingerprint))) return -1;
     csilc_f = csilc_map_get(m, "claim_ticket");
@@ -7971,7 +9369,7 @@ static inline int csilc_enc_SignedLocalRpTicketRedemptionRequest(csilc_buf *b, c
 static inline int csilc_dec_SignedLocalRpTicketRedemptionRequest(const csilc_value *m, CsilCodecArena *a, SignedLocalRpTicketRedemptionRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "request");
     if (!csilc_get_bytes(csilc_f, &(out->request).data, &(out->request).len)) return -1;
     csilc_f = csilc_map_get(m, "signature");
@@ -7993,7 +9391,7 @@ static inline int csilc_enc_LocalRpTicketRedemptionResponse(csilc_buf *b, const 
     if (csilc_w_text(b, "user_domain", 11)) return -1;
     if (csilc_w_text(b, (v->user_domain), (v->user_domain) ? strlen(v->user_domain) : 0)) return -1;
     if (csilc_w_text(b, "ticket_expires_at", 17)) return -1;
-    if (csilc_w_text(b, (v->ticket_expires_at), (v->ticket_expires_at) ? strlen(v->ticket_expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->ticket_expires_at).rfc3339)) return -1;
     return 0;
 }
 
@@ -8001,7 +9399,7 @@ static inline int csilc_enc_LocalRpTicketRedemptionResponse(csilc_buf *b, const 
 static inline int csilc_dec_LocalRpTicketRedemptionResponse(const csilc_value *m, CsilCodecArena *a, LocalRpTicketRedemptionResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claims");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->claims_count = csilc_f->as.array.count;
@@ -8018,7 +9416,7 @@ static inline int csilc_dec_LocalRpTicketRedemptionResponse(const csilc_value *m
     csilc_f = csilc_map_get(m, "user_domain");
     if (!csilc_get_text(csilc_f, &(out->user_domain))) return -1;
     csilc_f = csilc_map_get(m, "ticket_expires_at");
-    if (!csilc_get_text(csilc_f, &(out->ticket_expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->ticket_expires_at).rfc3339, &(out->ticket_expires_at).epoch_seconds)) return -1;
     return 0;
 }
 
@@ -8031,17 +9429,17 @@ static inline int csilc_enc_AdminLocalRp(csilc_buf *b, const AdminLocalRp *v) {
     if (v->local_domain_hint) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "status", 6)) return -1;
-    if (csilc_w_text(b, (v->status), (v->status) ? strlen(v->status) : 0)) return -1;
+    if (csilc_enc_LocalRpStatus(b, &(v->status))) return -1;
     if (csilc_w_text(b, "app_name", 8)) return -1;
     if (csilc_w_text(b, (v->app_name), (v->app_name) ? strlen(v->app_name) : 0)) return -1;
     if (csilc_w_text(b, "created_at", 10)) return -1;
-    if (csilc_w_text(b, (v->created_at), (v->created_at) ? strlen(v->created_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->created_at).rfc3339)) return -1;
     if (v->expires_at) {
         if (csilc_w_text(b, "expires_at", 10)) return -1;
-        if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+        if (csilc_w_timestamp(b, ((*v->expires_at)).rfc3339)) return -1;
     }
     if (csilc_w_text(b, "updated_at", 10)) return -1;
-    if (csilc_w_text(b, (v->updated_at), (v->updated_at) ? strlen(v->updated_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->updated_at).rfc3339)) return -1;
     if (v->admin_notes) {
         if (csilc_w_text(b, "admin_notes", 11)) return -1;
         if (csilc_w_text(b, (v->admin_notes), (v->admin_notes) ? strlen(v->admin_notes) : 0)) return -1;
@@ -8050,7 +9448,7 @@ static inline int csilc_enc_AdminLocalRp(csilc_buf *b, const AdminLocalRp *v) {
     if (csilc_w_text(b, (v->fingerprint), (v->fingerprint) ? strlen(v->fingerprint) : 0)) return -1;
     if (v->last_seen_at) {
         if (csilc_w_text(b, "last_seen_at", 12)) return -1;
-        if (csilc_w_text(b, (v->last_seen_at), (v->last_seen_at) ? strlen(v->last_seen_at) : 0)) return -1;
+        if (csilc_w_timestamp(b, ((*v->last_seen_at)).rfc3339)) return -1;
     }
     if (v->local_domain_hint) {
         if (csilc_w_text(b, "local_domain_hint", 17)) return -1;
@@ -8067,23 +9465,35 @@ static inline int csilc_enc_AdminLocalRp(csilc_buf *b, const AdminLocalRp *v) {
 static inline int csilc_dec_AdminLocalRp(const csilc_value *m, CsilCodecArena *a, AdminLocalRp *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "status");
-    if (!csilc_get_text(csilc_f, &(out->status))) return -1;
+    if (csilc_dec_LocalRpStatus(csilc_f, a, &(out->status))) return -1;
     csilc_f = csilc_map_get(m, "app_name");
     if (!csilc_get_text(csilc_f, &(out->app_name))) return -1;
     csilc_f = csilc_map_get(m, "created_at");
-    if (!csilc_get_text(csilc_f, &(out->created_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->created_at).rfc3339, &(out->created_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    out->expires_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->expires_at = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->expires_at = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "updated_at");
-    if (!csilc_get_text(csilc_f, &(out->updated_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->updated_at).rfc3339, &(out->updated_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "admin_notes");
     out->admin_notes = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "fingerprint");
     if (!csilc_get_text(csilc_f, &(out->fingerprint))) return -1;
     csilc_f = csilc_map_get(m, "last_seen_at");
-    out->last_seen_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->last_seen_at = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->last_seen_at = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "local_domain_hint");
     out->local_domain_hint = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "signing_public_key");
@@ -8110,7 +9520,7 @@ static inline int csilc_enc_ListLocalRpsRequest(csilc_buf *b, const ListLocalRps
     }
     if (v->status) {
         if (csilc_w_text(b, "status", 6)) return -1;
-        if (csilc_w_text(b, (v->status), (v->status) ? strlen(v->status) : 0)) return -1;
+        if (csilc_enc_LocalRpStatus(b, &((*v->status)))) return -1;
     }
     return 0;
 }
@@ -8119,7 +9529,7 @@ static inline int csilc_enc_ListLocalRpsRequest(csilc_buf *b, const ListLocalRps
 static inline int csilc_dec_ListLocalRpsRequest(const csilc_value *m, CsilCodecArena *a, ListLocalRpsRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "limit");
     out->limit = NULL;
     if (csilc_f) {
@@ -8137,7 +9547,13 @@ static inline int csilc_dec_ListLocalRpsRequest(const csilc_value *m, CsilCodecA
         out->offset = csilc_p;
     }
     csilc_f = csilc_map_get(m, "status");
-    out->status = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->status = NULL;
+    if (csilc_f) {
+        LocalRpStatus *csilc_p = (LocalRpStatus *)csilc_arena_alloc(a, sizeof(LocalRpStatus));
+        if (!csilc_p) return -1;
+        if (csilc_dec_LocalRpStatus(csilc_f, a, &((*csilc_p)))) return -1;
+        out->status = csilc_p;
+    }
     return 0;
 }
 
@@ -8157,7 +9573,7 @@ static inline int csilc_enc_ListLocalRpsResponse(csilc_buf *b, const ListLocalRp
 static inline int csilc_dec_ListLocalRpsResponse(const csilc_value *m, CsilCodecArena *a, ListLocalRpsResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "local_rps");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->local_rps_count = csilc_f->as.array.count;
@@ -8185,7 +9601,7 @@ static inline int csilc_enc_GetLocalRpRequest(csilc_buf *b, const GetLocalRpRequ
 static inline int csilc_dec_GetLocalRpRequest(const csilc_value *m, CsilCodecArena *a, GetLocalRpRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "fingerprint");
     if (!csilc_get_text(csilc_f, &(out->fingerprint))) return -1;
     return 0;
@@ -8204,7 +9620,7 @@ static inline int csilc_enc_GetLocalRpResponse(csilc_buf *b, const GetLocalRpRes
 static inline int csilc_dec_GetLocalRpResponse(const csilc_value *m, CsilCodecArena *a, GetLocalRpResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "local_rp");
     if (csilc_dec_AdminLocalRp(csilc_f, a, &(out->local_rp))) return -1;
     return 0;
@@ -8228,7 +9644,7 @@ static inline int csilc_enc_ApproveLocalRpRequest(csilc_buf *b, const ApproveLoc
 static inline int csilc_dec_ApproveLocalRpRequest(const csilc_value *m, CsilCodecArena *a, ApproveLocalRpRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "admin_notes");
     out->admin_notes = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "fingerprint");
@@ -8249,7 +9665,7 @@ static inline int csilc_enc_ApproveLocalRpResponse(csilc_buf *b, const ApproveLo
 static inline int csilc_dec_ApproveLocalRpResponse(const csilc_value *m, CsilCodecArena *a, ApproveLocalRpResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "local_rp");
     if (csilc_dec_AdminLocalRp(csilc_f, a, &(out->local_rp))) return -1;
     return 0;
@@ -8273,7 +9689,7 @@ static inline int csilc_enc_DenyLocalRpRequest(csilc_buf *b, const DenyLocalRpRe
 static inline int csilc_dec_DenyLocalRpRequest(const csilc_value *m, CsilCodecArena *a, DenyLocalRpRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "admin_notes");
     out->admin_notes = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "fingerprint");
@@ -8294,7 +9710,7 @@ static inline int csilc_enc_DenyLocalRpResponse(csilc_buf *b, const DenyLocalRpR
 static inline int csilc_dec_DenyLocalRpResponse(const csilc_value *m, CsilCodecArena *a, DenyLocalRpResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "local_rp");
     if (csilc_dec_AdminLocalRp(csilc_f, a, &(out->local_rp))) return -1;
     return 0;
@@ -8318,7 +9734,7 @@ static inline int csilc_enc_RevokeLocalRpRequest(csilc_buf *b, const RevokeLocal
 static inline int csilc_dec_RevokeLocalRpRequest(const csilc_value *m, CsilCodecArena *a, RevokeLocalRpRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "admin_notes");
     out->admin_notes = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "fingerprint");
@@ -8339,7 +9755,7 @@ static inline int csilc_enc_RevokeLocalRpResponse(csilc_buf *b, const RevokeLoca
 static inline int csilc_dec_RevokeLocalRpResponse(const csilc_value *m, CsilCodecArena *a, RevokeLocalRpResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "local_rp");
     if (csilc_dec_AdminLocalRp(csilc_f, a, &(out->local_rp))) return -1;
     return 0;
@@ -8357,7 +9773,7 @@ static inline int csilc_enc_GetLocalRpPolicyRequest(csilc_buf *b, const GetLocal
 static inline int csilc_dec_GetLocalRpPolicyRequest(const csilc_value *m, CsilCodecArena *a, GetLocalRpPolicyRequest *out) {
     (void)a;
     (void)out;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     return 0;
 }
 
@@ -8366,7 +9782,7 @@ static inline int csilc_enc_GetLocalRpPolicyResponse(csilc_buf *b, const GetLoca
     size_t csilc_n = 1;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "policy", 6)) return -1;
-    if (csilc_w_text(b, (v->policy), (v->policy) ? strlen(v->policy) : 0)) return -1;
+    if (csilc_enc_LocalRpPolicy(b, &(v->policy))) return -1;
     return 0;
 }
 
@@ -8374,9 +9790,9 @@ static inline int csilc_enc_GetLocalRpPolicyResponse(csilc_buf *b, const GetLoca
 static inline int csilc_dec_GetLocalRpPolicyResponse(const csilc_value *m, CsilCodecArena *a, GetLocalRpPolicyResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "policy");
-    if (!csilc_get_text(csilc_f, &(out->policy))) return -1;
+    if (csilc_dec_LocalRpPolicy(csilc_f, a, &(out->policy))) return -1;
     return 0;
 }
 
@@ -8385,7 +9801,7 @@ static inline int csilc_enc_SetLocalRpPolicyRequest(csilc_buf *b, const SetLocal
     size_t csilc_n = 1;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "policy", 6)) return -1;
-    if (csilc_w_text(b, (v->policy), (v->policy) ? strlen(v->policy) : 0)) return -1;
+    if (csilc_enc_LocalRpPolicy(b, &(v->policy))) return -1;
     return 0;
 }
 
@@ -8393,9 +9809,9 @@ static inline int csilc_enc_SetLocalRpPolicyRequest(csilc_buf *b, const SetLocal
 static inline int csilc_dec_SetLocalRpPolicyRequest(const csilc_value *m, CsilCodecArena *a, SetLocalRpPolicyRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "policy");
-    if (!csilc_get_text(csilc_f, &(out->policy))) return -1;
+    if (csilc_dec_LocalRpPolicy(csilc_f, a, &(out->policy))) return -1;
     return 0;
 }
 
@@ -8404,7 +9820,7 @@ static inline int csilc_enc_SetLocalRpPolicyResponse(csilc_buf *b, const SetLoca
     size_t csilc_n = 1;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "policy", 6)) return -1;
-    if (csilc_w_text(b, (v->policy), (v->policy) ? strlen(v->policy) : 0)) return -1;
+    if (csilc_enc_LocalRpPolicy(b, &(v->policy))) return -1;
     return 0;
 }
 
@@ -8412,9 +9828,9 @@ static inline int csilc_enc_SetLocalRpPolicyResponse(csilc_buf *b, const SetLoca
 static inline int csilc_dec_SetLocalRpPolicyResponse(const csilc_value *m, CsilCodecArena *a, SetLocalRpPolicyResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "policy");
-    if (!csilc_get_text(csilc_f, &(out->policy))) return -1;
+    if (csilc_dec_LocalRpPolicy(csilc_f, a, &(out->policy))) return -1;
     return 0;
 }
 
@@ -8437,7 +9853,7 @@ static inline int csilc_enc_SignInPolicy(csilc_buf *b, const SignInPolicy *v) {
 static inline int csilc_dec_SignInPolicy(const csilc_value *m, CsilCodecArena *a, SignInPolicy *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "sign_in_hours");
     if (!csilc_as_i64(csilc_f, &(out->sign_in_hours))) return -1;
     csilc_f = csilc_map_get(m, "max_sign_in_hours");
@@ -8462,7 +9878,7 @@ static inline int csilc_enc_SetSignInPolicyRequest(csilc_buf *b, const SetSignIn
 static inline int csilc_dec_SetSignInPolicyRequest(const csilc_value *m, CsilCodecArena *a, SetSignInPolicyRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "sign_in_hours");
     if (!csilc_as_i64(csilc_f, &(out->sign_in_hours))) return -1;
     return 0;
@@ -8483,7 +9899,7 @@ static inline int csilc_enc_SetUserPasswordLockRequest(csilc_buf *b, const SetUs
 static inline int csilc_dec_SetUserPasswordLockRequest(const csilc_value *m, CsilCodecArena *a, SetUserPasswordLockRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "locked");
     if (!csilc_as_bool(csilc_f, &(out->locked))) return -1;
     csilc_f = csilc_map_get(m, "user_id");
@@ -8504,7 +9920,7 @@ static inline int csilc_enc_SetUserPasswordLockResponse(csilc_buf *b, const SetU
 static inline int csilc_dec_SetUserPasswordLockResponse(const csilc_value *m, CsilCodecArena *a, SetUserPasswordLockResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user");
     if (csilc_dec_AdminUser(csilc_f, a, &(out->user))) return -1;
     return 0;
@@ -8520,7 +9936,7 @@ static inline int csilc_enc_AppAccessTarget(csilc_buf *b, const AppAccessTarget 
     if (v->claim_operator) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "kind", 4)) return -1;
-    if (csilc_w_text(b, (v->kind), (v->kind) ? strlen(v->kind) : 0)) return -1;
+    if (csilc_enc_AppAccessTargetKind(b, &(v->kind))) return -1;
     if (v->user_id) {
         if (csilc_w_text(b, "user_id", 7)) return -1;
         if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
@@ -8539,7 +9955,7 @@ static inline int csilc_enc_AppAccessTarget(csilc_buf *b, const AppAccessTarget 
     }
     if (v->claim_operator) {
         if (csilc_w_text(b, "claim_operator", 14)) return -1;
-        if (csilc_w_text(b, (v->claim_operator), (v->claim_operator) ? strlen(v->claim_operator) : 0)) return -1;
+        if (csilc_enc_ClaimOperator(b, &((*v->claim_operator)))) return -1;
     }
     return 0;
 }
@@ -8548,9 +9964,9 @@ static inline int csilc_enc_AppAccessTarget(csilc_buf *b, const AppAccessTarget 
 static inline int csilc_dec_AppAccessTarget(const csilc_value *m, CsilCodecArena *a, AppAccessTarget *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "kind");
-    if (!csilc_get_text(csilc_f, &(out->kind))) return -1;
+    if (csilc_dec_AppAccessTargetKind(csilc_f, a, &(out->kind))) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     out->user_id = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "claim_type");
@@ -8560,7 +9976,13 @@ static inline int csilc_dec_AppAccessTarget(const csilc_value *m, CsilCodecArena
     csilc_f = csilc_map_get(m, "claim_value");
     out->claim_value = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "claim_operator");
-    out->claim_operator = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->claim_operator = NULL;
+    if (csilc_f) {
+        ClaimOperator *csilc_p = (ClaimOperator *)csilc_arena_alloc(a, sizeof(ClaimOperator));
+        if (!csilc_p) return -1;
+        if (csilc_dec_ClaimOperator(csilc_f, a, &((*csilc_p)))) return -1;
+        out->claim_operator = csilc_p;
+    }
     return 0;
 }
 
@@ -8572,7 +9994,7 @@ static inline int csilc_enc_AppAccessPolicy(csilc_buf *b, const AppAccessPolicy 
     if (csilc_w_text(b, "id", 2)) return -1;
     if (csilc_w_text(b, (v->id), (v->id) ? strlen(v->id) : 0)) return -1;
     if (csilc_w_text(b, "mode", 4)) return -1;
-    if (csilc_w_text(b, (v->mode), (v->mode) ? strlen(v->mode) : 0)) return -1;
+    if (csilc_enc_AppAccessMode(b, &(v->mode))) return -1;
     if (csilc_w_text(b, "name", 4)) return -1;
     if (csilc_w_text(b, (v->name), (v->name) ? strlen(v->name) : 0)) return -1;
     if (v->message) {
@@ -8596,11 +10018,11 @@ static inline int csilc_enc_AppAccessPolicy(csilc_buf *b, const AppAccessPolicy 
 static inline int csilc_dec_AppAccessPolicy(const csilc_value *m, CsilCodecArena *a, AppAccessPolicy *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "id");
     if (!csilc_get_text(csilc_f, &(out->id))) return -1;
     csilc_f = csilc_map_get(m, "mode");
-    if (!csilc_get_text(csilc_f, &(out->mode))) return -1;
+    if (csilc_dec_AppAccessMode(csilc_f, a, &(out->mode))) return -1;
     csilc_f = csilc_map_get(m, "name");
     if (!csilc_get_text(csilc_f, &(out->name))) return -1;
     csilc_f = csilc_map_get(m, "message");
@@ -8646,7 +10068,7 @@ static inline int csilc_enc_ListAppAccessPoliciesResponse(csilc_buf *b, const Li
 static inline int csilc_dec_ListAppAccessPoliciesResponse(const csilc_value *m, CsilCodecArena *a, ListAppAccessPoliciesResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "policies");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->policies_count = csilc_f->as.array.count;
@@ -8672,7 +10094,7 @@ static inline int csilc_enc_SetAppAccessPolicyRequest(csilc_buf *b, const SetApp
         if (csilc_w_text(b, (v->id), (v->id) ? strlen(v->id) : 0)) return -1;
     }
     if (csilc_w_text(b, "mode", 4)) return -1;
-    if (csilc_w_text(b, (v->mode), (v->mode) ? strlen(v->mode) : 0)) return -1;
+    if (csilc_enc_AppAccessMode(b, &(v->mode))) return -1;
     if (csilc_w_text(b, "name", 4)) return -1;
     if (csilc_w_text(b, (v->name), (v->name) ? strlen(v->name) : 0)) return -1;
     if (v->message) {
@@ -8696,11 +10118,11 @@ static inline int csilc_enc_SetAppAccessPolicyRequest(csilc_buf *b, const SetApp
 static inline int csilc_dec_SetAppAccessPolicyRequest(const csilc_value *m, CsilCodecArena *a, SetAppAccessPolicyRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "id");
     out->id = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "mode");
-    if (!csilc_get_text(csilc_f, &(out->mode))) return -1;
+    if (csilc_dec_AppAccessMode(csilc_f, a, &(out->mode))) return -1;
     csilc_f = csilc_map_get(m, "name");
     if (!csilc_get_text(csilc_f, &(out->name))) return -1;
     csilc_f = csilc_map_get(m, "message");
@@ -8743,7 +10165,7 @@ static inline int csilc_enc_SetAppAccessPolicyResponse(csilc_buf *b, const SetAp
 static inline int csilc_dec_SetAppAccessPolicyResponse(const csilc_value *m, CsilCodecArena *a, SetAppAccessPolicyResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "policy");
     if (csilc_dec_AppAccessPolicy(csilc_f, a, &(out->policy))) return -1;
     return 0;
@@ -8762,7 +10184,7 @@ static inline int csilc_enc_RemoveAppAccessPolicyRequest(csilc_buf *b, const Rem
 static inline int csilc_dec_RemoveAppAccessPolicyRequest(const csilc_value *m, CsilCodecArena *a, RemoveAppAccessPolicyRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "id");
     if (!csilc_get_text(csilc_f, &(out->id))) return -1;
     return 0;
@@ -8781,7 +10203,7 @@ static inline int csilc_enc_RemoveAppAccessPolicyResponse(csilc_buf *b, const Re
 static inline int csilc_dec_RemoveAppAccessPolicyResponse(const csilc_value *m, CsilCodecArena *a, RemoveAppAccessPolicyResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "success");
     if (!csilc_as_bool(csilc_f, &(out->success))) return -1;
     return 0;
@@ -8805,7 +10227,7 @@ static inline int csilc_enc_PreviewAppAccessRequest(csilc_buf *b, const PreviewA
 static inline int csilc_dec_PreviewAppAccessRequest(const csilc_value *m, CsilCodecArena *a, PreviewAppAccessRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "domain");
     out->domain = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "user_id");
@@ -8841,7 +10263,7 @@ static inline int csilc_enc_PreviewAppAccessResponse(csilc_buf *b, const Preview
 static inline int csilc_dec_PreviewAppAccessResponse(const csilc_value *m, CsilCodecArena *a, PreviewAppAccessResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "allowed");
     if (!csilc_as_bool(csilc_f, &(out->allowed))) return -1;
     csilc_f = csilc_map_get(m, "messages");
@@ -8901,7 +10323,7 @@ static inline int csilc_enc_AppAccessDenial(csilc_buf *b, const AppAccessDenial 
 static inline int csilc_dec_AppAccessDenial(const csilc_value *m, CsilCodecArena *a, AppAccessDenial *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "domain");
     out->domain = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "messages");
@@ -8930,7 +10352,7 @@ static inline int csilc_enc_PurgeLocalRpTicketsRequest(csilc_buf *b, const Purge
 static inline int csilc_dec_PurgeLocalRpTicketsRequest(const csilc_value *m, CsilCodecArena *a, PurgeLocalRpTicketsRequest *out) {
     (void)a;
     (void)out;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     return 0;
 }
 
@@ -8947,7 +10369,7 @@ static inline int csilc_enc_PurgeLocalRpTicketsResponse(csilc_buf *b, const Purg
 static inline int csilc_dec_PurgeLocalRpTicketsResponse(const csilc_value *m, CsilCodecArena *a, PurgeLocalRpTicketsResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "purged_count");
     if (!csilc_as_i64(csilc_f, &(out->purged_count))) return -1;
     return 0;
@@ -8956,16 +10378,27 @@ static inline int csilc_dec_PurgeLocalRpTicketsResponse(const csilc_value *m, Cs
 /* csilc_enc_LocaleMessages writes LocaleMessages as a CBOR map of text keys to encoded values. */
 static inline int csilc_enc_LocaleMessages(csilc_buf *b, const LocaleMessages *v) {
     if (csilc_w_map_head(b, v->count)) return -1;
-    for (size_t csilc_i = 0; csilc_i < v->count; csilc_i++) {
-        if (csilc_w_text(b, (v->keys[csilc_i]), (v->keys[csilc_i]) ? strlen(v->keys[csilc_i]) : 0)) return -1;
-        if (csilc_w_text(b, (v->values[csilc_i]), (v->values[csilc_i]) ? strlen(v->values[csilc_i]) : 0)) return -1;
+    if (v->count) {
+        if (v->count > (SIZE_MAX / sizeof(size_t) - 1) / 2) return -1;
+        size_t *csilc_marks = (size_t *)malloc((2 * v->count + 1) * sizeof(size_t));
+        if (!csilc_marks) return -1;
+        for (size_t csilc_i = 0; csilc_i < v->count; csilc_i++) {
+            csilc_marks[2 * csilc_i] = b->len;
+            if (csilc_w_text(b, (v->keys[csilc_i]), (v->keys[csilc_i]) ? strlen(v->keys[csilc_i]) : 0)) { free(csilc_marks); return -1; }
+            csilc_marks[2 * csilc_i + 1] = b->len;
+            if (csilc_w_text(b, (v->values[csilc_i]), (v->values[csilc_i]) ? strlen(v->values[csilc_i]) : 0)) { free(csilc_marks); return -1; }
+        }
+        csilc_marks[2 * v->count] = b->len;
+        int csilc_sorted = csilc_sort_map_entries(b, csilc_marks, v->count);
+        free(csilc_marks);
+        if (csilc_sorted) return -1;
     }
     return 0;
 }
 
 /* csilc_dec_LocaleMessages reads LocaleMessages from a decoded CBOR map (arena-borrowed). */
 static inline int csilc_dec_LocaleMessages(const csilc_value *m, CsilCodecArena *a, LocaleMessages *out) {
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || !m->as.map.canonical) return -1;
     out->count = m->as.map.count;
     out->keys = NULL;
     out->values = NULL;
@@ -9002,7 +10435,7 @@ static inline int csilc_enc_TranslationsRequest(csilc_buf *b, const Translations
 static inline int csilc_dec_TranslationsRequest(const csilc_value *m, CsilCodecArena *a, TranslationsRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "locale");
     out->locale = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "accept_language");
@@ -9030,7 +10463,7 @@ static inline int csilc_enc_TranslationsResponse(csilc_buf *b, const Translation
 static inline int csilc_dec_TranslationsResponse(const csilc_value *m, CsilCodecArena *a, TranslationsResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "locale");
     if (!csilc_get_text(csilc_f, &(out->locale))) return -1;
     csilc_f = csilc_map_get(m, "messages");
@@ -9065,7 +10498,7 @@ static inline int csilc_enc_ListLocalesResponse(csilc_buf *b, const ListLocalesR
 static inline int csilc_dec_ListLocalesResponse(const csilc_value *m, CsilCodecArena *a, ListLocalesResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "available_locales");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->available_locales_count = csilc_f->as.array.count;
@@ -9095,7 +10528,7 @@ static inline int csilc_enc_ApplicationKeySignature(csilc_buf *b, const Applicat
 static inline int csilc_dec_ApplicationKeySignature(const csilc_value *m, CsilCodecArena *a, ApplicationKeySignature *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "signature");
     if (!csilc_get_bytes(csilc_f, &(out->signature).data, &(out->signature).len)) return -1;
     csilc_f = csilc_map_get(m, "signed_by_key_id");
@@ -9110,13 +10543,13 @@ static inline int csilc_enc_ApplicationKeyAttestation(csilc_buf *b, const Applic
     if (csilc_w_text(b, "key_id", 6)) return -1;
     if (csilc_w_text(b, (v->key_id), (v->key_id) ? strlen(v->key_id) : 0)) return -1;
     if (csilc_w_text(b, "algorithm", 9)) return -1;
-    if (csilc_w_text(b, (v->algorithm), (v->algorithm) ? strlen(v->algorithm) : 0)) return -1;
+    if (csilc_enc_KeyAlgorithm(b, &(v->algorithm))) return -1;
     if (csilc_w_text(b, "key_usage", 9)) return -1;
-    if (csilc_w_text(b, (v->key_usage), (v->key_usage) ? strlen(v->key_usage) : 0)) return -1;
+    if (csilc_enc_KeyUsage(b, &(v->key_usage))) return -1;
     if (csilc_w_text(b, "public_key", 10)) return -1;
     if (csilc_w_bytes(b, (v->public_key).data, (v->public_key).len)) return -1;
     if (csilc_w_text(b, "attested_at", 11)) return -1;
-    if (csilc_w_text(b, (v->attested_at), (v->attested_at) ? strlen(v->attested_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->attested_at).rfc3339)) return -1;
     if (csilc_w_text(b, "fingerprint", 11)) return -1;
     if (csilc_w_text(b, (v->fingerprint), (v->fingerprint) ? strlen(v->fingerprint) : 0)) return -1;
     if (csilc_w_text(b, "instance_id", 11)) return -1;
@@ -9124,15 +10557,15 @@ static inline int csilc_enc_ApplicationKeyAttestation(csilc_buf *b, const Applic
     if (csilc_w_text(b, "application_id", 14)) return -1;
     if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
     if (csilc_w_text(b, "key_created_at", 14)) return -1;
-    if (csilc_w_text(b, (v->key_created_at), (v->key_created_at) ? strlen(v->key_created_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->key_created_at).rfc3339)) return -1;
     if (csilc_w_text(b, "key_expires_at", 14)) return -1;
-    if (csilc_w_text(b, (v->key_expires_at), (v->key_expires_at) ? strlen(v->key_expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->key_expires_at).rfc3339)) return -1;
     if (csilc_w_text(b, "subject_domain", 14)) return -1;
     if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
     if (csilc_w_text(b, "subject_user_id", 15)) return -1;
     if (csilc_w_text(b, (v->subject_user_id), (v->subject_user_id) ? strlen(v->subject_user_id) : 0)) return -1;
     if (csilc_w_text(b, "attestation_expires_at", 22)) return -1;
-    if (csilc_w_text(b, (v->attestation_expires_at), (v->attestation_expires_at) ? strlen(v->attestation_expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->attestation_expires_at).rfc3339)) return -1;
     return 0;
 }
 
@@ -9140,17 +10573,17 @@ static inline int csilc_enc_ApplicationKeyAttestation(csilc_buf *b, const Applic
 static inline int csilc_dec_ApplicationKeyAttestation(const csilc_value *m, CsilCodecArena *a, ApplicationKeyAttestation *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "key_id");
     if (!csilc_get_text(csilc_f, &(out->key_id))) return -1;
     csilc_f = csilc_map_get(m, "algorithm");
-    if (!csilc_get_text(csilc_f, &(out->algorithm))) return -1;
+    if (csilc_dec_KeyAlgorithm(csilc_f, a, &(out->algorithm))) return -1;
     csilc_f = csilc_map_get(m, "key_usage");
-    if (!csilc_get_text(csilc_f, &(out->key_usage))) return -1;
+    if (csilc_dec_KeyUsage(csilc_f, a, &(out->key_usage))) return -1;
     csilc_f = csilc_map_get(m, "public_key");
     if (!csilc_get_bytes(csilc_f, &(out->public_key).data, &(out->public_key).len)) return -1;
     csilc_f = csilc_map_get(m, "attested_at");
-    if (!csilc_get_text(csilc_f, &(out->attested_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->attested_at).rfc3339, &(out->attested_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "fingerprint");
     if (!csilc_get_text(csilc_f, &(out->fingerprint))) return -1;
     csilc_f = csilc_map_get(m, "instance_id");
@@ -9158,15 +10591,15 @@ static inline int csilc_dec_ApplicationKeyAttestation(const csilc_value *m, Csil
     csilc_f = csilc_map_get(m, "application_id");
     if (!csilc_get_text(csilc_f, &(out->application_id))) return -1;
     csilc_f = csilc_map_get(m, "key_created_at");
-    if (!csilc_get_text(csilc_f, &(out->key_created_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->key_created_at).rfc3339, &(out->key_created_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "key_expires_at");
-    if (!csilc_get_text(csilc_f, &(out->key_expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->key_expires_at).rfc3339, &(out->key_expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "subject_domain");
     if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
     csilc_f = csilc_map_get(m, "subject_user_id");
     if (!csilc_get_text(csilc_f, &(out->subject_user_id))) return -1;
     csilc_f = csilc_map_get(m, "attestation_expires_at");
-    if (!csilc_get_text(csilc_f, &(out->attestation_expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->attestation_expires_at).rfc3339, &(out->attestation_expires_at).epoch_seconds)) return -1;
     return 0;
 }
 
@@ -9188,7 +10621,7 @@ static inline int csilc_enc_SignedApplicationKeyAttestation(csilc_buf *b, const 
 static inline int csilc_dec_SignedApplicationKeyAttestation(const csilc_value *m, CsilCodecArena *a, SignedApplicationKeyAttestation *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "signatures");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->signatures_count = csilc_f->as.array.count;
@@ -9212,13 +10645,13 @@ static inline int csilc_enc_ApplicationKeyAddition(csilc_buf *b, const Applicati
     if (csilc_w_text(b, "key_id", 6)) return -1;
     if (csilc_w_text(b, (v->key_id), (v->key_id) ? strlen(v->key_id) : 0)) return -1;
     if (csilc_w_text(b, "algorithm", 9)) return -1;
-    if (csilc_w_text(b, (v->algorithm), (v->algorithm) ? strlen(v->algorithm) : 0)) return -1;
+    if (csilc_enc_KeyAlgorithm(b, &(v->algorithm))) return -1;
     if (csilc_w_text(b, "challenge", 9)) return -1;
     if (csilc_w_bytes(b, (v->challenge).data, (v->challenge).len)) return -1;
     if (csilc_w_text(b, "key_usage", 9)) return -1;
-    if (csilc_w_text(b, (v->key_usage), (v->key_usage) ? strlen(v->key_usage) : 0)) return -1;
+    if (csilc_enc_KeyUsage(b, &(v->key_usage))) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (csilc_w_text(b, "public_key", 10)) return -1;
     if (csilc_w_bytes(b, (v->public_key).data, (v->public_key).len)) return -1;
     if (csilc_w_text(b, "fingerprint", 11)) return -1;
@@ -9228,7 +10661,7 @@ static inline int csilc_enc_ApplicationKeyAddition(csilc_buf *b, const Applicati
     if (csilc_w_text(b, "challenge_id", 12)) return -1;
     if (csilc_w_text(b, (v->challenge_id), (v->challenge_id) ? strlen(v->challenge_id) : 0)) return -1;
     if (csilc_w_text(b, "requested_at", 12)) return -1;
-    if (csilc_w_text(b, (v->requested_at), (v->requested_at) ? strlen(v->requested_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->requested_at).rfc3339)) return -1;
     if (csilc_w_text(b, "application_id", 14)) return -1;
     if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
     if (csilc_w_text(b, "subject_domain", 14)) return -1;
@@ -9244,17 +10677,17 @@ static inline int csilc_enc_ApplicationKeyAddition(csilc_buf *b, const Applicati
 static inline int csilc_dec_ApplicationKeyAddition(const csilc_value *m, CsilCodecArena *a, ApplicationKeyAddition *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "key_id");
     if (!csilc_get_text(csilc_f, &(out->key_id))) return -1;
     csilc_f = csilc_map_get(m, "algorithm");
-    if (!csilc_get_text(csilc_f, &(out->algorithm))) return -1;
+    if (csilc_dec_KeyAlgorithm(csilc_f, a, &(out->algorithm))) return -1;
     csilc_f = csilc_map_get(m, "challenge");
     if (!csilc_get_bytes(csilc_f, &(out->challenge).data, &(out->challenge).len)) return -1;
     csilc_f = csilc_map_get(m, "key_usage");
-    if (!csilc_get_text(csilc_f, &(out->key_usage))) return -1;
+    if (csilc_dec_KeyUsage(csilc_f, a, &(out->key_usage))) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "public_key");
     if (!csilc_get_bytes(csilc_f, &(out->public_key).data, &(out->public_key).len)) return -1;
     csilc_f = csilc_map_get(m, "fingerprint");
@@ -9264,7 +10697,7 @@ static inline int csilc_dec_ApplicationKeyAddition(const csilc_value *m, CsilCod
     csilc_f = csilc_map_get(m, "challenge_id");
     if (!csilc_get_text(csilc_f, &(out->challenge_id))) return -1;
     csilc_f = csilc_map_get(m, "requested_at");
-    if (!csilc_get_text(csilc_f, &(out->requested_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->requested_at).rfc3339, &(out->requested_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "application_id");
     if (!csilc_get_text(csilc_f, &(out->application_id))) return -1;
     csilc_f = csilc_map_get(m, "subject_domain");
@@ -9299,7 +10732,7 @@ static inline int csilc_enc_SignedApplicationKeyAddition(csilc_buf *b, const Sig
 static inline int csilc_dec_SignedApplicationKeyAddition(const csilc_value *m, CsilCodecArena *a, SignedApplicationKeyAddition *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "addition");
     if (!csilc_get_bytes(csilc_f, &(out->addition).data, &(out->addition).len)) return -1;
     csilc_f = csilc_map_get(m, "signatures");
@@ -9333,13 +10766,13 @@ static inline int csilc_enc_ApplicationKeyRenewal(csilc_buf *b, const Applicatio
     if (csilc_w_text(b, "challenge", 9)) return -1;
     if (csilc_w_bytes(b, (v->challenge).data, (v->challenge).len)) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (csilc_w_text(b, "instance_id", 11)) return -1;
     if (csilc_w_text(b, (v->instance_id), (v->instance_id) ? strlen(v->instance_id) : 0)) return -1;
     if (csilc_w_text(b, "challenge_id", 12)) return -1;
     if (csilc_w_text(b, (v->challenge_id), (v->challenge_id) ? strlen(v->challenge_id) : 0)) return -1;
     if (csilc_w_text(b, "requested_at", 12)) return -1;
-    if (csilc_w_text(b, (v->requested_at), (v->requested_at) ? strlen(v->requested_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->requested_at).rfc3339)) return -1;
     if (csilc_w_text(b, "application_id", 14)) return -1;
     if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
     if (csilc_w_text(b, "subject_domain", 14)) return -1;
@@ -9353,19 +10786,19 @@ static inline int csilc_enc_ApplicationKeyRenewal(csilc_buf *b, const Applicatio
 static inline int csilc_dec_ApplicationKeyRenewal(const csilc_value *m, CsilCodecArena *a, ApplicationKeyRenewal *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "key_id");
     if (!csilc_get_text(csilc_f, &(out->key_id))) return -1;
     csilc_f = csilc_map_get(m, "challenge");
     if (!csilc_get_bytes(csilc_f, &(out->challenge).data, &(out->challenge).len)) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "instance_id");
     if (!csilc_get_text(csilc_f, &(out->instance_id))) return -1;
     csilc_f = csilc_map_get(m, "challenge_id");
     if (!csilc_get_text(csilc_f, &(out->challenge_id))) return -1;
     csilc_f = csilc_map_get(m, "requested_at");
-    if (!csilc_get_text(csilc_f, &(out->requested_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->requested_at).rfc3339, &(out->requested_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "application_id");
     if (!csilc_get_text(csilc_f, &(out->application_id))) return -1;
     csilc_f = csilc_map_get(m, "subject_domain");
@@ -9398,7 +10831,7 @@ static inline int csilc_enc_SignedApplicationKeyRenewal(csilc_buf *b, const Sign
 static inline int csilc_dec_SignedApplicationKeyRenewal(const csilc_value *m, CsilCodecArena *a, SignedApplicationKeyRenewal *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "renewal");
     if (!csilc_get_bytes(csilc_f, &(out->renewal).data, &(out->renewal).len)) return -1;
     csilc_f = csilc_map_get(m, "signatures");
@@ -9428,7 +10861,7 @@ static inline int csilc_enc_ApplicationKeyRevocation(csilc_buf *b, const Applica
     size_t csilc_n = 8;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "revoked_at", 10)) return -1;
-    if (csilc_w_text(b, (v->revoked_at), (v->revoked_at) ? strlen(v->revoked_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->revoked_at).rfc3339)) return -1;
     if (csilc_w_text(b, "signatures", 10)) return -1;
     if (csilc_w_array_head(b, v->signatures_count)) return -1;
     for (size_t csilc_i = 0; csilc_i < v->signatures_count; csilc_i++) {
@@ -9453,9 +10886,9 @@ static inline int csilc_enc_ApplicationKeyRevocation(csilc_buf *b, const Applica
 static inline int csilc_dec_ApplicationKeyRevocation(const csilc_value *m, CsilCodecArena *a, ApplicationKeyRevocation *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "revoked_at");
-    if (!csilc_get_text(csilc_f, &(out->revoked_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->revoked_at).rfc3339, &(out->revoked_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "signatures");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->signatures_count = csilc_f->as.array.count;
@@ -9487,11 +10920,11 @@ static inline int csilc_enc_StartApplicationKeyChallengeRequest(csilc_buf *b, co
     size_t csilc_n = 7;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "purpose", 7)) return -1;
-    if (csilc_w_text(b, (v->purpose), (v->purpose) ? strlen(v->purpose) : 0)) return -1;
+    if (csilc_enc_ApplicationKeyChallengePurpose(b, &(v->purpose))) return -1;
     if (csilc_w_text(b, "algorithm", 9)) return -1;
-    if (csilc_w_text(b, (v->algorithm), (v->algorithm) ? strlen(v->algorithm) : 0)) return -1;
+    if (csilc_enc_KeyAlgorithm(b, &(v->algorithm))) return -1;
     if (csilc_w_text(b, "key_usage", 9)) return -1;
-    if (csilc_w_text(b, (v->key_usage), (v->key_usage) ? strlen(v->key_usage) : 0)) return -1;
+    if (csilc_enc_KeyUsage(b, &(v->key_usage))) return -1;
     if (csilc_w_text(b, "public_key", 10)) return -1;
     if (csilc_w_bytes(b, (v->public_key).data, (v->public_key).len)) return -1;
     if (csilc_w_text(b, "instance_id", 11)) return -1;
@@ -9507,13 +10940,13 @@ static inline int csilc_enc_StartApplicationKeyChallengeRequest(csilc_buf *b, co
 static inline int csilc_dec_StartApplicationKeyChallengeRequest(const csilc_value *m, CsilCodecArena *a, StartApplicationKeyChallengeRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "purpose");
-    if (!csilc_get_text(csilc_f, &(out->purpose))) return -1;
+    if (csilc_dec_ApplicationKeyChallengePurpose(csilc_f, a, &(out->purpose))) return -1;
     csilc_f = csilc_map_get(m, "algorithm");
-    if (!csilc_get_text(csilc_f, &(out->algorithm))) return -1;
+    if (csilc_dec_KeyAlgorithm(csilc_f, a, &(out->algorithm))) return -1;
     csilc_f = csilc_map_get(m, "key_usage");
-    if (!csilc_get_text(csilc_f, &(out->key_usage))) return -1;
+    if (csilc_dec_KeyUsage(csilc_f, a, &(out->key_usage))) return -1;
     csilc_f = csilc_map_get(m, "public_key");
     if (!csilc_get_bytes(csilc_f, &(out->public_key).data, &(out->public_key).len)) return -1;
     csilc_f = csilc_map_get(m, "instance_id");
@@ -9536,7 +10969,7 @@ static inline int csilc_enc_StartApplicationKeyChallengeResponse(csilc_buf *b, c
         if (csilc_w_bytes(b, ((*v->challenge)).data, ((*v->challenge)).len)) return -1;
     }
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (csilc_w_text(b, "challenge_id", 12)) return -1;
     if (csilc_w_text(b, (v->challenge_id), (v->challenge_id) ? strlen(v->challenge_id) : 0)) return -1;
     if (v->sealed_challenge) {
@@ -9550,7 +10983,7 @@ static inline int csilc_enc_StartApplicationKeyChallengeResponse(csilc_buf *b, c
 static inline int csilc_dec_StartApplicationKeyChallengeResponse(const csilc_value *m, CsilCodecArena *a, StartApplicationKeyChallengeResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "challenge");
     out->challenge = NULL;
     if (csilc_f) {
@@ -9560,7 +10993,7 @@ static inline int csilc_dec_StartApplicationKeyChallengeResponse(const csilc_val
         out->challenge = csilc_p;
     }
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "challenge_id");
     if (!csilc_get_text(csilc_f, &(out->challenge_id))) return -1;
     csilc_f = csilc_map_get(m, "sealed_challenge");
@@ -9587,7 +11020,7 @@ static inline int csilc_enc_AddApplicationKeyRequest(csilc_buf *b, const AddAppl
 static inline int csilc_dec_AddApplicationKeyRequest(const csilc_value *m, CsilCodecArena *a, AddApplicationKeyRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "request");
     if (csilc_dec_SignedApplicationKeyAddition(csilc_f, a, &(out->request))) return -1;
     return 0;
@@ -9606,7 +11039,7 @@ static inline int csilc_enc_AddApplicationKeyResponse(csilc_buf *b, const AddApp
 static inline int csilc_dec_AddApplicationKeyResponse(const csilc_value *m, CsilCodecArena *a, AddApplicationKeyResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "attestation");
     if (csilc_dec_SignedApplicationKeyAttestation(csilc_f, a, &(out->attestation))) return -1;
     return 0;
@@ -9625,7 +11058,7 @@ static inline int csilc_enc_RenewApplicationKeyAttestationRequest(csilc_buf *b, 
 static inline int csilc_dec_RenewApplicationKeyAttestationRequest(const csilc_value *m, CsilCodecArena *a, RenewApplicationKeyAttestationRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "request");
     if (csilc_dec_SignedApplicationKeyRenewal(csilc_f, a, &(out->request))) return -1;
     return 0;
@@ -9646,7 +11079,7 @@ static inline int csilc_enc_RenewApplicationKeyAttestationResponse(csilc_buf *b,
 static inline int csilc_dec_RenewApplicationKeyAttestationResponse(const csilc_value *m, CsilCodecArena *a, RenewApplicationKeyAttestationResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "signed");
     if (!csilc_as_bool(csilc_f, &(out->signed_))) return -1;
     csilc_f = csilc_map_get(m, "attestation");
@@ -9667,7 +11100,7 @@ static inline int csilc_enc_RevokeApplicationKeyRequest(csilc_buf *b, const Revo
 static inline int csilc_dec_RevokeApplicationKeyRequest(const csilc_value *m, CsilCodecArena *a, RevokeApplicationKeyRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "revocation");
     if (csilc_dec_ApplicationKeyRevocation(csilc_f, a, &(out->revocation))) return -1;
     return 0;
@@ -9678,7 +11111,7 @@ static inline int csilc_enc_RevokeApplicationKeyResponse(csilc_buf *b, const Rev
     size_t csilc_n = 1;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "revoked_at", 10)) return -1;
-    if (csilc_w_text(b, (v->revoked_at), (v->revoked_at) ? strlen(v->revoked_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->revoked_at).rfc3339)) return -1;
     return 0;
 }
 
@@ -9686,9 +11119,9 @@ static inline int csilc_enc_RevokeApplicationKeyResponse(csilc_buf *b, const Rev
 static inline int csilc_dec_RevokeApplicationKeyResponse(const csilc_value *m, CsilCodecArena *a, RevokeApplicationKeyResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "revoked_at");
-    if (!csilc_get_text(csilc_f, &(out->revoked_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->revoked_at).rfc3339, &(out->revoked_at).epoch_seconds)) return -1;
     return 0;
 }
 
@@ -9712,7 +11145,7 @@ static inline int csilc_enc_EnrollApplicationInstanceRequest(csilc_buf *b, const
 static inline int csilc_dec_EnrollApplicationInstanceRequest(const csilc_value *m, CsilCodecArena *a, EnrollApplicationInstanceRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "keys");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->keys_count = csilc_f->as.array.count;
@@ -9755,7 +11188,7 @@ static inline int csilc_enc_EnrollApplicationInstanceResponse(csilc_buf *b, cons
 static inline int csilc_dec_EnrollApplicationInstanceResponse(const csilc_value *m, CsilCodecArena *a, EnrollApplicationInstanceResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "instance_id");
     if (!csilc_get_text(csilc_f, &(out->instance_id))) return -1;
     csilc_f = csilc_map_get(m, "attestations");
@@ -9795,7 +11228,7 @@ static inline int csilc_enc_GetApplicationKeysRequest(csilc_buf *b, const GetApp
 static inline int csilc_dec_GetApplicationKeysRequest(const csilc_value *m, CsilCodecArena *a, GetApplicationKeysRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "instance_id");
     if (!csilc_get_text(csilc_f, &(out->instance_id))) return -1;
     csilc_f = csilc_map_get(m, "application_id");
@@ -9834,7 +11267,7 @@ static inline int csilc_enc_GetApplicationKeysResponse(csilc_buf *b, const GetAp
 static inline int csilc_dec_GetApplicationKeysResponse(const csilc_value *m, CsilCodecArena *a, GetApplicationKeysResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "keys");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->keys_count = csilc_f->as.array.count;
@@ -9886,7 +11319,7 @@ static inline int csilc_enc_RpResolveDomainKeysRequest(csilc_buf *b, const RpRes
 static inline int csilc_dec_RpResolveDomainKeysRequest(const csilc_value *m, CsilCodecArena *a, RpResolveDomainKeysRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "domain");
     if (!csilc_get_text(csilc_f, &(out->domain))) return -1;
     csilc_f = csilc_map_get(m, "max_cache_age_seconds");
@@ -9912,16 +11345,16 @@ static inline int csilc_enc_RpResolveDomainKeysResponse(csilc_buf *b, const RpRe
     if (csilc_w_text(b, "domain", 6)) return -1;
     if (csilc_w_text(b, (v->domain), (v->domain) ? strlen(v->domain) : 0)) return -1;
     if (csilc_w_text(b, "fetched_at", 10)) return -1;
-    if (csilc_w_text(b, (v->fetched_at), (v->fetched_at) ? strlen(v->fetched_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->fetched_at).rfc3339)) return -1;
     if (csilc_w_text(b, "revocations", 11)) return -1;
     if (csilc_w_array_head(b, v->revocations_count)) return -1;
     for (size_t csilc_i = 0; csilc_i < v->revocations_count; csilc_i++) {
         if (csilc_enc_RevocationCertificate(b, &(v->revocations[csilc_i]))) return -1;
     }
     if (csilc_w_text(b, "cache_status", 12)) return -1;
-    if (csilc_w_text(b, (v->cache_status), (v->cache_status) ? strlen(v->cache_status) : 0)) return -1;
+    if (csilc_enc_RpCacheStatus(b, &(v->cache_status))) return -1;
     if (csilc_w_text(b, "revocations_checked_at", 22)) return -1;
-    if (csilc_w_text(b, (v->revocations_checked_at), (v->revocations_checked_at) ? strlen(v->revocations_checked_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->revocations_checked_at).rfc3339)) return -1;
     return 0;
 }
 
@@ -9929,7 +11362,7 @@ static inline int csilc_enc_RpResolveDomainKeysResponse(csilc_buf *b, const RpRe
 static inline int csilc_dec_RpResolveDomainKeysResponse(const csilc_value *m, CsilCodecArena *a, RpResolveDomainKeysResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "keys");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->keys_count = csilc_f->as.array.count;
@@ -9944,7 +11377,7 @@ static inline int csilc_dec_RpResolveDomainKeysResponse(const csilc_value *m, Cs
     csilc_f = csilc_map_get(m, "domain");
     if (!csilc_get_text(csilc_f, &(out->domain))) return -1;
     csilc_f = csilc_map_get(m, "fetched_at");
-    if (!csilc_get_text(csilc_f, &(out->fetched_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->fetched_at).rfc3339, &(out->fetched_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "revocations");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->revocations_count = csilc_f->as.array.count;
@@ -9957,9 +11390,9 @@ static inline int csilc_dec_RpResolveDomainKeysResponse(const csilc_value *m, Cs
         }
     }
     csilc_f = csilc_map_get(m, "cache_status");
-    if (!csilc_get_text(csilc_f, &(out->cache_status))) return -1;
+    if (csilc_dec_RpCacheStatus(csilc_f, a, &(out->cache_status))) return -1;
     csilc_f = csilc_map_get(m, "revocations_checked_at");
-    if (!csilc_get_text(csilc_f, &(out->revocations_checked_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->revocations_checked_at).rfc3339, &(out->revocations_checked_at).epoch_seconds)) return -1;
     return 0;
 }
 
@@ -9987,7 +11420,7 @@ static inline int csilc_enc_RpResolveApplicationKeysRequest(csilc_buf *b, const 
 static inline int csilc_dec_RpResolveApplicationKeysRequest(const csilc_value *m, CsilCodecArena *a, RpResolveApplicationKeysRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "instance_id");
     if (!csilc_get_text(csilc_f, &(out->instance_id))) return -1;
     csilc_f = csilc_map_get(m, "application_id");
@@ -10012,11 +11445,11 @@ static inline int csilc_enc_RpResolveApplicationKeysResponse(csilc_buf *b, const
     size_t csilc_n = 11;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "fetched_at", 10)) return -1;
-    if (csilc_w_text(b, (v->fetched_at), (v->fetched_at) ? strlen(v->fetched_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->fetched_at).rfc3339)) return -1;
     if (csilc_w_text(b, "instance_id", 11)) return -1;
     if (csilc_w_text(b, (v->instance_id), (v->instance_id) ? strlen(v->instance_id) : 0)) return -1;
     if (csilc_w_text(b, "cache_status", 12)) return -1;
-    if (csilc_w_text(b, (v->cache_status), (v->cache_status) ? strlen(v->cache_status) : 0)) return -1;
+    if (csilc_enc_RpCacheStatus(b, &(v->cache_status))) return -1;
     if (csilc_w_text(b, "application_id", 14)) return -1;
     if (csilc_w_text(b, (v->application_id), (v->application_id) ? strlen(v->application_id) : 0)) return -1;
     if (csilc_w_text(b, "subject_domain", 14)) return -1;
@@ -10034,7 +11467,7 @@ static inline int csilc_enc_RpResolveApplicationKeysResponse(csilc_buf *b, const
         if (csilc_enc_DomainPublicKey(b, &(v->home_domain_keys[csilc_i]))) return -1;
     }
     if (csilc_w_text(b, "revocations_checked_at", 22)) return -1;
-    if (csilc_w_text(b, (v->revocations_checked_at), (v->revocations_checked_at) ? strlen(v->revocations_checked_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->revocations_checked_at).rfc3339)) return -1;
     if (csilc_w_text(b, "application_key_revocations", 27)) return -1;
     if (csilc_w_array_head(b, v->application_key_revocations_count)) return -1;
     for (size_t csilc_i = 0; csilc_i < v->application_key_revocations_count; csilc_i++) {
@@ -10052,13 +11485,13 @@ static inline int csilc_enc_RpResolveApplicationKeysResponse(csilc_buf *b, const
 static inline int csilc_dec_RpResolveApplicationKeysResponse(const csilc_value *m, CsilCodecArena *a, RpResolveApplicationKeysResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "fetched_at");
-    if (!csilc_get_text(csilc_f, &(out->fetched_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->fetched_at).rfc3339, &(out->fetched_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "instance_id");
     if (!csilc_get_text(csilc_f, &(out->instance_id))) return -1;
     csilc_f = csilc_map_get(m, "cache_status");
-    if (!csilc_get_text(csilc_f, &(out->cache_status))) return -1;
+    if (csilc_dec_RpCacheStatus(csilc_f, a, &(out->cache_status))) return -1;
     csilc_f = csilc_map_get(m, "application_id");
     if (!csilc_get_text(csilc_f, &(out->application_id))) return -1;
     csilc_f = csilc_map_get(m, "subject_domain");
@@ -10088,7 +11521,7 @@ static inline int csilc_dec_RpResolveApplicationKeysResponse(const csilc_value *
         }
     }
     csilc_f = csilc_map_get(m, "revocations_checked_at");
-    if (!csilc_get_text(csilc_f, &(out->revocations_checked_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->revocations_checked_at).rfc3339, &(out->revocations_checked_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "application_key_revocations");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->application_key_revocations_count = csilc_f->as.array.count;
@@ -10131,7 +11564,7 @@ static inline int csilc_enc_ApplicationRef(csilc_buf *b, const ApplicationRef *v
 static inline int csilc_dec_ApplicationRef(const csilc_value *m, CsilCodecArena *a, ApplicationRef *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "application_id");
     if (!csilc_get_text(csilc_f, &(out->application_id))) return -1;
     csilc_f = csilc_map_get(m, "subject_domain");
@@ -10162,7 +11595,7 @@ static inline int csilc_enc_GranteeRef(csilc_buf *b, const GranteeRef *v) {
 static inline int csilc_dec_GranteeRef(const csilc_value *m, CsilCodecArena *a, GranteeRef *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "application");
     out->application = NULL;
     if (csilc_f) {
@@ -10199,7 +11632,7 @@ static inline int csilc_enc_GranteeProof(csilc_buf *b, const GranteeProof *v) {
 static inline int csilc_dec_GranteeProof(const csilc_value *m, CsilCodecArena *a, GranteeProof *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "signature");
     if (csilc_dec_ApplicationKeySignature(csilc_f, a, &(out->signature))) return -1;
     csilc_f = csilc_map_get(m, "local_rp_descriptor");
@@ -10233,7 +11666,7 @@ static inline int csilc_enc_ActAsScopeEntry(csilc_buf *b, const ActAsScopeEntry 
 static inline int csilc_dec_ActAsScopeEntry(const csilc_value *m, CsilCodecArena *a, ActAsScopeEntry *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "scope");
     if (!csilc_get_text(csilc_f, &(out->scope))) return -1;
     csilc_f = csilc_map_get(m, "description");
@@ -10261,9 +11694,9 @@ static inline int csilc_enc_ActAsScopeSet(csilc_buf *b, const ActAsScopeSet *v) 
         if (csilc_w_text(b, (v->language), (v->language) ? strlen(v->language) : 0)) return -1;
     }
     if (csilc_w_text(b, "issued_at", 9)) return -1;
-    if (csilc_w_text(b, (v->issued_at), (v->issued_at) ? strlen(v->issued_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->issued_at).rfc3339)) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (v->audience_handle_claim) {
         if (csilc_w_text(b, "audience_handle_claim", 21)) return -1;
         if (csilc_enc_Claim(b, &((*v->audience_handle_claim)))) return -1;
@@ -10275,7 +11708,7 @@ static inline int csilc_enc_ActAsScopeSet(csilc_buf *b, const ActAsScopeSet *v) 
 static inline int csilc_dec_ActAsScopeSet(const csilc_value *m, CsilCodecArena *a, ActAsScopeSet *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "entries");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->entries_count = csilc_f->as.array.count;
@@ -10294,9 +11727,9 @@ static inline int csilc_dec_ActAsScopeSet(const csilc_value *m, CsilCodecArena *
     csilc_f = csilc_map_get(m, "language");
     out->language = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "issued_at");
-    if (!csilc_get_text(csilc_f, &(out->issued_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->issued_at).rfc3339, &(out->issued_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "audience_handle_claim");
     out->audience_handle_claim = NULL;
     if (csilc_f) {
@@ -10328,7 +11761,7 @@ static inline int csilc_enc_SignedActAsScopeSet(csilc_buf *b, const SignedActAsS
 static inline int csilc_dec_SignedActAsScopeSet(const csilc_value *m, CsilCodecArena *a, SignedActAsScopeSet *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "scope_set");
     if (!csilc_get_bytes(csilc_f, &(out->scope_set).data, &(out->scope_set).len)) return -1;
     csilc_f = csilc_map_get(m, "signatures");
@@ -10373,7 +11806,7 @@ static inline int csilc_enc_ActAsScopeSetRequest(csilc_buf *b, const ActAsScopeS
 static inline int csilc_dec_ActAsScopeSetRequest(const csilc_value *m, CsilCodecArena *a, ActAsScopeSetRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "scope");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->scope_count = csilc_f->as.array.count;
@@ -10415,11 +11848,11 @@ static inline int csilc_enc_ActAsGrant(csilc_buf *b, const ActAsGrant *v) {
     if (csilc_w_text(b, "grant_id", 8)) return -1;
     if (csilc_w_text(b, (v->grant_id), (v->grant_id) ? strlen(v->grant_id) : 0)) return -1;
     if (csilc_w_text(b, "issued_at", 9)) return -1;
-    if (csilc_w_text(b, (v->issued_at), (v->issued_at) ? strlen(v->issued_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->issued_at).rfc3339)) return -1;
     if (csilc_w_text(b, "scope_set", 9)) return -1;
     if (csilc_enc_SignedActAsScopeSet(b, &(v->scope_set))) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (csilc_w_text(b, "approved_scope", 14)) return -1;
     if (csilc_w_array_head(b, v->approved_scope_count)) return -1;
     for (size_t csilc_i = 0; csilc_i < v->approved_scope_count; csilc_i++) {
@@ -10428,9 +11861,9 @@ static inline int csilc_enc_ActAsGrant(csilc_buf *b, const ActAsGrant *v) {
     if (csilc_w_text(b, "subject_domain", 14)) return -1;
     if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
     if (csilc_w_text(b, "renewable_until", 15)) return -1;
-    if (csilc_w_text(b, (v->renewable_until), (v->renewable_until) ? strlen(v->renewable_until) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->renewable_until).rfc3339)) return -1;
     if (csilc_w_text(b, "series_issued_at", 16)) return -1;
-    if (csilc_w_text(b, (v->series_issued_at), (v->series_issued_at) ? strlen(v->series_issued_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->series_issued_at).rfc3339)) return -1;
     if (v->device_fingerprint) {
         if (csilc_w_text(b, "device_fingerprint", 18)) return -1;
         if (csilc_w_text(b, (v->device_fingerprint), (v->device_fingerprint) ? strlen(v->device_fingerprint) : 0)) return -1;
@@ -10442,7 +11875,7 @@ static inline int csilc_enc_ActAsGrant(csilc_buf *b, const ActAsGrant *v) {
 static inline int csilc_dec_ActAsGrant(const csilc_value *m, CsilCodecArena *a, ActAsGrant *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "grantee");
     if (csilc_dec_GranteeRef(csilc_f, a, &(out->grantee))) return -1;
     csilc_f = csilc_map_get(m, "user_id");
@@ -10452,11 +11885,11 @@ static inline int csilc_dec_ActAsGrant(const csilc_value *m, CsilCodecArena *a, 
     csilc_f = csilc_map_get(m, "grant_id");
     if (!csilc_get_text(csilc_f, &(out->grant_id))) return -1;
     csilc_f = csilc_map_get(m, "issued_at");
-    if (!csilc_get_text(csilc_f, &(out->issued_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->issued_at).rfc3339, &(out->issued_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "scope_set");
     if (csilc_dec_SignedActAsScopeSet(csilc_f, a, &(out->scope_set))) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "approved_scope");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->approved_scope_count = csilc_f->as.array.count;
@@ -10471,9 +11904,9 @@ static inline int csilc_dec_ActAsGrant(const csilc_value *m, CsilCodecArena *a, 
     csilc_f = csilc_map_get(m, "subject_domain");
     if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
     csilc_f = csilc_map_get(m, "renewable_until");
-    if (!csilc_get_text(csilc_f, &(out->renewable_until))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->renewable_until).rfc3339, &(out->renewable_until).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "series_issued_at");
-    if (!csilc_get_text(csilc_f, &(out->series_issued_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->series_issued_at).rfc3339, &(out->series_issued_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "device_fingerprint");
     out->device_fingerprint = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     return 0;
@@ -10497,7 +11930,7 @@ static inline int csilc_enc_SignedActAsGrant(csilc_buf *b, const SignedActAsGran
 static inline int csilc_dec_SignedActAsGrant(const csilc_value *m, CsilCodecArena *a, SignedActAsGrant *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "grant");
     if (!csilc_get_bytes(csilc_f, &(out->grant).data, &(out->grant).len)) return -1;
     csilc_f = csilc_map_get(m, "signatures");
@@ -10528,11 +11961,11 @@ static inline int csilc_enc_ActAsGrantRequest(csilc_buf *b, const ActAsGrantRequ
     if (csilc_w_text(b, "scope_set", 9)) return -1;
     if (csilc_enc_SignedActAsScopeSet(b, &(v->scope_set))) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (csilc_w_text(b, "callback_url", 12)) return -1;
     if (csilc_w_text(b, (v->callback_url), (v->callback_url) ? strlen(v->callback_url) : 0)) return -1;
     if (csilc_w_text(b, "requested_at", 12)) return -1;
-    if (csilc_w_text(b, (v->requested_at), (v->requested_at) ? strlen(v->requested_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->requested_at).rfc3339)) return -1;
     if (v->grantee_handle_claim) {
         if (csilc_w_text(b, "grantee_handle_claim", 20)) return -1;
         if (csilc_enc_Claim(b, &((*v->grantee_handle_claim)))) return -1;
@@ -10552,7 +11985,7 @@ static inline int csilc_enc_ActAsGrantRequest(csilc_buf *b, const ActAsGrantRequ
 static inline int csilc_dec_ActAsGrantRequest(const csilc_value *m, CsilCodecArena *a, ActAsGrantRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "nonce");
     if (!csilc_get_text(csilc_f, &(out->nonce))) return -1;
     csilc_f = csilc_map_get(m, "grantee");
@@ -10560,11 +11993,11 @@ static inline int csilc_dec_ActAsGrantRequest(const csilc_value *m, CsilCodecAre
     csilc_f = csilc_map_get(m, "scope_set");
     if (csilc_dec_SignedActAsScopeSet(csilc_f, a, &(out->scope_set))) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "callback_url");
     if (!csilc_get_text(csilc_f, &(out->callback_url))) return -1;
     csilc_f = csilc_map_get(m, "requested_at");
-    if (!csilc_get_text(csilc_f, &(out->requested_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->requested_at).rfc3339, &(out->requested_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "grantee_handle_claim");
     out->grantee_handle_claim = NULL;
     if (csilc_f) {
@@ -10607,7 +12040,7 @@ static inline int csilc_enc_SignedActAsGrantRequest(csilc_buf *b, const SignedAc
 static inline int csilc_dec_SignedActAsGrantRequest(const csilc_value *m, CsilCodecArena *a, SignedActAsGrantRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "proof");
     if (csilc_dec_GranteeProof(csilc_f, a, &(out->proof))) return -1;
     csilc_f = csilc_map_get(m, "request");
@@ -10626,9 +12059,9 @@ static inline int csilc_enc_ActAsRefreshRequest(csilc_buf *b, const ActAsRefresh
     if (csilc_w_text(b, "grant_id", 8)) return -1;
     if (csilc_w_text(b, (v->grant_id), (v->grant_id) ? strlen(v->grant_id) : 0)) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (csilc_w_text(b, "requested_at", 12)) return -1;
-    if (csilc_w_text(b, (v->requested_at), (v->requested_at) ? strlen(v->requested_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->requested_at).rfc3339)) return -1;
     return 0;
 }
 
@@ -10636,7 +12069,7 @@ static inline int csilc_enc_ActAsRefreshRequest(csilc_buf *b, const ActAsRefresh
 static inline int csilc_dec_ActAsRefreshRequest(const csilc_value *m, CsilCodecArena *a, ActAsRefreshRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "nonce");
     if (!csilc_get_text(csilc_f, &(out->nonce))) return -1;
     csilc_f = csilc_map_get(m, "grantee");
@@ -10644,9 +12077,9 @@ static inline int csilc_dec_ActAsRefreshRequest(const csilc_value *m, CsilCodecA
     csilc_f = csilc_map_get(m, "grant_id");
     if (!csilc_get_text(csilc_f, &(out->grant_id))) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "requested_at");
-    if (!csilc_get_text(csilc_f, &(out->requested_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->requested_at).rfc3339, &(out->requested_at).epoch_seconds)) return -1;
     return 0;
 }
 
@@ -10665,7 +12098,7 @@ static inline int csilc_enc_SignedActAsRefreshRequest(csilc_buf *b, const Signed
 static inline int csilc_dec_SignedActAsRefreshRequest(const csilc_value *m, CsilCodecArena *a, SignedActAsRefreshRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "proof");
     if (csilc_dec_GranteeProof(csilc_f, a, &(out->proof))) return -1;
     csilc_f = csilc_map_get(m, "request");
@@ -10686,7 +12119,7 @@ static inline int csilc_enc_RefreshActAsGrantRequest(csilc_buf *b, const Refresh
 static inline int csilc_dec_RefreshActAsGrantRequest(const csilc_value *m, CsilCodecArena *a, RefreshActAsGrantRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "request");
     if (csilc_dec_SignedActAsRefreshRequest(csilc_f, a, &(out->request))) return -1;
     return 0;
@@ -10707,7 +12140,7 @@ static inline int csilc_enc_RefreshActAsGrantResponse(csilc_buf *b, const Refres
 static inline int csilc_dec_RefreshActAsGrantResponse(const csilc_value *m, CsilCodecArena *a, RefreshActAsGrantResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "grant");
     if (csilc_dec_SignedActAsGrant(csilc_f, a, &(out->grant))) return -1;
     csilc_f = csilc_map_get(m, "signed");
@@ -10726,7 +12159,7 @@ static inline int csilc_enc_ActAsPresentation(csilc_buf *b, const ActAsPresentat
     if (csilc_w_text(b, "grant_hash", 10)) return -1;
     if (csilc_w_bytes(b, (v->grant_hash).data, (v->grant_hash).len)) return -1;
     if (csilc_w_text(b, "presented_at", 12)) return -1;
-    if (csilc_w_text(b, (v->presented_at), (v->presented_at) ? strlen(v->presented_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->presented_at).rfc3339)) return -1;
     if (csilc_w_text(b, "request_digest", 14)) return -1;
     if (csilc_w_bytes(b, (v->request_digest).data, (v->request_digest).len)) return -1;
     return 0;
@@ -10736,7 +12169,7 @@ static inline int csilc_enc_ActAsPresentation(csilc_buf *b, const ActAsPresentat
 static inline int csilc_dec_ActAsPresentation(const csilc_value *m, CsilCodecArena *a, ActAsPresentation *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "nonce");
     if (!csilc_get_bytes(csilc_f, &(out->nonce).data, &(out->nonce).len)) return -1;
     csilc_f = csilc_map_get(m, "audience");
@@ -10744,7 +12177,7 @@ static inline int csilc_dec_ActAsPresentation(const csilc_value *m, CsilCodecAre
     csilc_f = csilc_map_get(m, "grant_hash");
     if (!csilc_get_bytes(csilc_f, &(out->grant_hash).data, &(out->grant_hash).len)) return -1;
     csilc_f = csilc_map_get(m, "presented_at");
-    if (!csilc_get_text(csilc_f, &(out->presented_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->presented_at).rfc3339, &(out->presented_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "request_digest");
     if (!csilc_get_bytes(csilc_f, &(out->request_digest).data, &(out->request_digest).len)) return -1;
     return 0;
@@ -10765,7 +12198,7 @@ static inline int csilc_enc_SignedActAsPresentation(csilc_buf *b, const SignedAc
 static inline int csilc_dec_SignedActAsPresentation(const csilc_value *m, CsilCodecArena *a, SignedActAsPresentation *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "proof");
     if (csilc_dec_GranteeProof(csilc_f, a, &(out->proof))) return -1;
     csilc_f = csilc_map_get(m, "presentation");
@@ -10788,7 +12221,7 @@ static inline int csilc_enc_ActAsCredential(csilc_buf *b, const ActAsCredential 
 static inline int csilc_dec_ActAsCredential(const csilc_value *m, CsilCodecArena *a, ActAsCredential *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "grant");
     if (csilc_dec_SignedActAsGrant(csilc_f, a, &(out->grant))) return -1;
     csilc_f = csilc_map_get(m, "presentation");
@@ -10805,7 +12238,7 @@ static inline int csilc_enc_ActAsGrantRevocation(csilc_buf *b, const ActAsGrantR
     if (csilc_w_text(b, "grant_id", 8)) return -1;
     if (csilc_w_text(b, (v->grant_id), (v->grant_id) ? strlen(v->grant_id) : 0)) return -1;
     if (csilc_w_text(b, "revoked_at", 10)) return -1;
-    if (csilc_w_text(b, (v->revoked_at), (v->revoked_at) ? strlen(v->revoked_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->revoked_at).rfc3339)) return -1;
     if (csilc_w_text(b, "subject_domain", 14)) return -1;
     if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
     return 0;
@@ -10815,13 +12248,13 @@ static inline int csilc_enc_ActAsGrantRevocation(csilc_buf *b, const ActAsGrantR
 static inline int csilc_dec_ActAsGrantRevocation(const csilc_value *m, CsilCodecArena *a, ActAsGrantRevocation *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "user_id");
     if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
     csilc_f = csilc_map_get(m, "grant_id");
     if (!csilc_get_text(csilc_f, &(out->grant_id))) return -1;
     csilc_f = csilc_map_get(m, "revoked_at");
-    if (!csilc_get_text(csilc_f, &(out->revoked_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->revoked_at).rfc3339, &(out->revoked_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "subject_domain");
     if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
     return 0;
@@ -10845,7 +12278,7 @@ static inline int csilc_enc_SignedActAsGrantRevocation(csilc_buf *b, const Signe
 static inline int csilc_dec_SignedActAsGrantRevocation(const csilc_value *m, CsilCodecArena *a, SignedActAsGrantRevocation *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "revocation");
     if (!csilc_get_bytes(csilc_f, &(out->revocation).data, &(out->revocation).len)) return -1;
     csilc_f = csilc_map_get(m, "signatures");
@@ -10878,7 +12311,7 @@ static inline int csilc_enc_GetActAsGrantRevocationsRequest(csilc_buf *b, const 
 static inline int csilc_dec_GetActAsGrantRevocationsRequest(const csilc_value *m, CsilCodecArena *a, GetActAsGrantRevocationsRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "grant_ids");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->grant_ids_count = csilc_f->as.array.count;
@@ -10909,7 +12342,7 @@ static inline int csilc_enc_GetActAsGrantRevocationsResponse(csilc_buf *b, const
 static inline int csilc_dec_GetActAsGrantRevocationsResponse(const csilc_value *m, CsilCodecArena *a, GetActAsGrantRevocationsResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "revocations");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->revocations_count = csilc_f->as.array.count;
@@ -10939,7 +12372,7 @@ static inline int csilc_enc_RpActAsRefreshRequest(csilc_buf *b, const RpActAsRef
 static inline int csilc_dec_RpActAsRefreshRequest(const csilc_value *m, CsilCodecArena *a, RpActAsRefreshRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "request");
     if (csilc_dec_SignedActAsRefreshRequest(csilc_f, a, &(out->request))) return -1;
     csilc_f = csilc_map_get(m, "subject_domain");
@@ -10965,7 +12398,7 @@ static inline int csilc_enc_RpResolveActAsRevocationsRequest(csilc_buf *b, const
 static inline int csilc_dec_RpResolveActAsRevocationsRequest(const csilc_value *m, CsilCodecArena *a, RpResolveActAsRevocationsRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "grant_ids");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->grant_ids_count = csilc_f->as.array.count;
@@ -10995,7 +12428,7 @@ static inline int csilc_enc_BrowserActAsInspectRequest(csilc_buf *b, const Brows
 static inline int csilc_dec_BrowserActAsInspectRequest(const csilc_value *m, CsilCodecArena *a, BrowserActAsInspectRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "signed_request");
     if (!csilc_get_text(csilc_f, &(out->signed_request))) return -1;
     return 0;
@@ -11021,7 +12454,7 @@ static inline int csilc_enc_BrowserActAsScopeEntry(csilc_buf *b, const BrowserAc
 static inline int csilc_dec_BrowserActAsScopeEntry(const csilc_value *m, CsilCodecArena *a, BrowserActAsScopeEntry *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "scope");
     if (!csilc_get_text(csilc_f, &(out->scope))) return -1;
     csilc_f = csilc_map_get(m, "description");
@@ -11080,7 +12513,7 @@ static inline int csilc_enc_BrowserActAsParty(csilc_buf *b, const BrowserActAsPa
 static inline int csilc_dec_BrowserActAsParty(const csilc_value *m, CsilCodecArena *a, BrowserActAsParty *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "domain");
     out->domain = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "handle");
@@ -11146,7 +12579,7 @@ static inline int csilc_enc_BrowserActAsInspectResponse(csilc_buf *b, const Brow
 static inline int csilc_dec_BrowserActAsInspectResponse(const csilc_value *m, CsilCodecArena *a, BrowserActAsInspectResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "entries");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->entries_count = csilc_f->as.array.count;
@@ -11209,7 +12642,7 @@ static inline int csilc_enc_BrowserActAsCompleteRequest(csilc_buf *b, const Brow
 static inline int csilc_dec_BrowserActAsCompleteRequest(const csilc_value *m, CsilCodecArena *a, BrowserActAsCompleteRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "approved_scope");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->approved_scope_count = csilc_f->as.array.count;
@@ -11243,7 +12676,7 @@ static inline int csilc_enc_BrowserActAsCompleteResponse(csilc_buf *b, const Bro
 static inline int csilc_dec_BrowserActAsCompleteResponse(const csilc_value *m, CsilCodecArena *a, BrowserActAsCompleteResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "redirect_url");
     if (!csilc_get_text(csilc_f, &(out->redirect_url))) return -1;
     return 0;
@@ -11261,12 +12694,12 @@ static inline int csilc_enc_ActAsGrantSummary(csilc_buf *b, const ActAsGrantSumm
     if (csilc_w_text(b, "grant_id", 8)) return -1;
     if (csilc_w_text(b, (v->grant_id), (v->grant_id) ? strlen(v->grant_id) : 0)) return -1;
     if (csilc_w_text(b, "issued_at", 9)) return -1;
-    if (csilc_w_text(b, (v->issued_at), (v->issued_at) ? strlen(v->issued_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->issued_at).rfc3339)) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (v->revoked_at) {
         if (csilc_w_text(b, "revoked_at", 10)) return -1;
-        if (csilc_w_text(b, (v->revoked_at), (v->revoked_at) ? strlen(v->revoked_at) : 0)) return -1;
+        if (csilc_w_timestamp(b, ((*v->revoked_at)).rfc3339)) return -1;
     }
     if (csilc_w_text(b, "approved_scope", 14)) return -1;
     if (csilc_w_array_head(b, v->approved_scope_count)) return -1;
@@ -11274,7 +12707,7 @@ static inline int csilc_enc_ActAsGrantSummary(csilc_buf *b, const ActAsGrantSumm
         if (csilc_w_text(b, (v->approved_scope[csilc_i]), (v->approved_scope[csilc_i]) ? strlen(v->approved_scope[csilc_i]) : 0)) return -1;
     }
     if (csilc_w_text(b, "renewable_until", 15)) return -1;
-    if (csilc_w_text(b, (v->renewable_until), (v->renewable_until) ? strlen(v->renewable_until) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->renewable_until).rfc3339)) return -1;
     return 0;
 }
 
@@ -11282,7 +12715,7 @@ static inline int csilc_enc_ActAsGrantSummary(csilc_buf *b, const ActAsGrantSumm
 static inline int csilc_dec_ActAsGrantSummary(const csilc_value *m, CsilCodecArena *a, ActAsGrantSummary *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "grantee");
     if (csilc_dec_GranteeRef(csilc_f, a, &(out->grantee))) return -1;
     csilc_f = csilc_map_get(m, "audience");
@@ -11290,11 +12723,17 @@ static inline int csilc_dec_ActAsGrantSummary(const csilc_value *m, CsilCodecAre
     csilc_f = csilc_map_get(m, "grant_id");
     if (!csilc_get_text(csilc_f, &(out->grant_id))) return -1;
     csilc_f = csilc_map_get(m, "issued_at");
-    if (!csilc_get_text(csilc_f, &(out->issued_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->issued_at).rfc3339, &(out->issued_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "revoked_at");
-    out->revoked_at = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->revoked_at = NULL;
+    if (csilc_f) {
+        CsilTimestamp *csilc_p = (CsilTimestamp *)csilc_arena_alloc(a, sizeof(CsilTimestamp));
+        if (!csilc_p) return -1;
+        if (!csilc_get_timestamp(csilc_f, a, &((*csilc_p)).rfc3339, &((*csilc_p)).epoch_seconds)) return -1;
+        out->revoked_at = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "approved_scope");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->approved_scope_count = csilc_f->as.array.count;
@@ -11307,7 +12746,7 @@ static inline int csilc_dec_ActAsGrantSummary(const csilc_value *m, CsilCodecAre
         }
     }
     csilc_f = csilc_map_get(m, "renewable_until");
-    if (!csilc_get_text(csilc_f, &(out->renewable_until))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->renewable_until).rfc3339, &(out->renewable_until).epoch_seconds)) return -1;
     return 0;
 }
 
@@ -11327,7 +12766,7 @@ static inline int csilc_enc_ListActAsGrantsResponse(csilc_buf *b, const ListActA
 static inline int csilc_dec_ListActAsGrantsResponse(const csilc_value *m, CsilCodecArena *a, ListActAsGrantsResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "grants");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->grants_count = csilc_f->as.array.count;
@@ -11355,7 +12794,7 @@ static inline int csilc_enc_RevokeActAsGrantRequest(csilc_buf *b, const RevokeAc
 static inline int csilc_dec_RevokeActAsGrantRequest(const csilc_value *m, CsilCodecArena *a, RevokeActAsGrantRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "grant_id");
     if (!csilc_get_text(csilc_f, &(out->grant_id))) return -1;
     return 0;
@@ -11366,7 +12805,7 @@ static inline int csilc_enc_RevokeActAsGrantResponse(csilc_buf *b, const RevokeA
     size_t csilc_n = 1;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "revoked_at", 10)) return -1;
-    if (csilc_w_text(b, (v->revoked_at), (v->revoked_at) ? strlen(v->revoked_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->revoked_at).rfc3339)) return -1;
     return 0;
 }
 
@@ -11374,9 +12813,9 @@ static inline int csilc_enc_RevokeActAsGrantResponse(csilc_buf *b, const RevokeA
 static inline int csilc_dec_RevokeActAsGrantResponse(const csilc_value *m, CsilCodecArena *a, RevokeActAsGrantResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "revoked_at");
-    if (!csilc_get_text(csilc_f, &(out->revoked_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->revoked_at).rfc3339, &(out->revoked_at).epoch_seconds)) return -1;
     return 0;
 }
 
@@ -11419,7 +12858,7 @@ static inline int csilc_enc_PreviewReleasePolicyRequest(csilc_buf *b, const Prev
     }
     if (v->temp_disposition) {
         if (csilc_w_text(b, "temp_disposition", 16)) return -1;
-        if (csilc_w_text(b, (v->temp_disposition), (v->temp_disposition) ? strlen(v->temp_disposition) : 0)) return -1;
+        if (csilc_enc_ReleaseDisposition(b, &((*v->temp_disposition)))) return -1;
     }
     return 0;
 }
@@ -11428,7 +12867,7 @@ static inline int csilc_enc_PreviewReleasePolicyRequest(csilc_buf *b, const Prev
 static inline int csilc_dec_PreviewReleasePolicyRequest(const csilc_value *m, CsilCodecArena *a, PreviewReleasePolicyRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "audience");
     if (!csilc_get_text(csilc_f, &(out->audience))) return -1;
     csilc_f = csilc_map_get(m, "user_choices");
@@ -11480,7 +12919,13 @@ static inline int csilc_dec_PreviewReleasePolicyRequest(const csilc_value *m, Cs
         }
     }
     csilc_f = csilc_map_get(m, "temp_disposition");
-    out->temp_disposition = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
+    out->temp_disposition = NULL;
+    if (csilc_f) {
+        ReleaseDisposition *csilc_p = (ReleaseDisposition *)csilc_arena_alloc(a, sizeof(ReleaseDisposition));
+        if (!csilc_p) return -1;
+        if (csilc_dec_ReleaseDisposition(csilc_f, a, &((*csilc_p)))) return -1;
+        out->temp_disposition = csilc_p;
+    }
     return 0;
 }
 
@@ -11491,7 +12936,7 @@ static inline int csilc_enc_PreviewReleaseRow(csilc_buf *b, const PreviewRelease
     if (csilc_w_text(b, "locked", 6)) return -1;
     if (csilc_w_bool(b, (v->locked))) return -1;
     if (csilc_w_text(b, "policy", 6)) return -1;
-    if (csilc_w_text(b, (v->policy), (v->policy) ? strlen(v->policy) : 0)) return -1;
+    if (csilc_enc_ConsentRowPolicy(b, &(v->policy))) return -1;
     if (csilc_w_text(b, "required", 8)) return -1;
     if (csilc_w_bool(b, (v->required))) return -1;
     if (csilc_w_text(b, "available", 9)) return -1;
@@ -11507,11 +12952,11 @@ static inline int csilc_enc_PreviewReleaseRow(csilc_buf *b, const PreviewRelease
 static inline int csilc_dec_PreviewReleaseRow(const csilc_value *m, CsilCodecArena *a, PreviewReleaseRow *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "locked");
     if (!csilc_as_bool(csilc_f, &(out->locked))) return -1;
     csilc_f = csilc_map_get(m, "policy");
-    if (!csilc_get_text(csilc_f, &(out->policy))) return -1;
+    if (csilc_dec_ConsentRowPolicy(csilc_f, a, &(out->policy))) return -1;
     csilc_f = csilc_map_get(m, "required");
     if (!csilc_as_bool(csilc_f, &(out->required))) return -1;
     csilc_f = csilc_map_get(m, "available");
@@ -11554,7 +12999,7 @@ static inline int csilc_enc_PreviewReleasePolicyResponse(csilc_buf *b, const Pre
 static inline int csilc_dec_PreviewReleasePolicyResponse(const csilc_value *m, CsilCodecArena *a, PreviewReleasePolicyResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "rows");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->rows_count = csilc_f->as.array.count;
@@ -11641,7 +13086,7 @@ static inline int csilc_enc_PreviewIssuerPolicyRequest(csilc_buf *b, const Previ
 static inline int csilc_dec_PreviewIssuerPolicyRequest(const csilc_value *m, CsilCodecArena *a, PreviewIssuerPolicyRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
     out->claim_type = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "denied_tlds");
@@ -11705,7 +13150,7 @@ static inline int csilc_enc_PreviewIssuerPolicyResponse(csilc_buf *b, const Prev
 static inline int csilc_dec_PreviewIssuerPolicyResponse(const csilc_value *m, CsilCodecArena *a, PreviewIssuerPolicyResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "reason");
     if (!csilc_get_text(csilc_f, &(out->reason))) return -1;
     csilc_f = csilc_map_get(m, "allowed");
@@ -11758,7 +13203,7 @@ static inline int csilc_enc_InspectSigningRequestRequest(csilc_buf *b, const Ins
 static inline int csilc_dec_InspectSigningRequestRequest(const csilc_value *m, CsilCodecArena *a, InspectSigningRequestRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "signed_request");
     if (!csilc_get_text(csilc_f, &(out->signed_request))) return -1;
     return 0;
@@ -11769,7 +13214,7 @@ static inline int csilc_enc_InspectSigningRequestResponse(csilc_buf *b, const In
     size_t csilc_n = 5;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "expires_at", 10)) return -1;
-    if (csilc_w_text(b, (v->expires_at), (v->expires_at) ? strlen(v->expires_at) : 0)) return -1;
+    if (csilc_w_timestamp(b, (v->expires_at).rfc3339)) return -1;
     if (csilc_w_text(b, "subject_domain", 14)) return -1;
     if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
     if (csilc_w_text(b, "subject_user_id", 15)) return -1;
@@ -11791,9 +13236,9 @@ static inline int csilc_enc_InspectSigningRequestResponse(csilc_buf *b, const In
 static inline int csilc_dec_InspectSigningRequestResponse(const csilc_value *m, CsilCodecArena *a, InspectSigningRequestResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "expires_at");
-    if (!csilc_get_text(csilc_f, &(out->expires_at))) return -1;
+    if (!csilc_get_timestamp(csilc_f, a, &(out->expires_at).rfc3339, &(out->expires_at).epoch_seconds)) return -1;
     csilc_f = csilc_map_get(m, "subject_domain");
     if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
     csilc_f = csilc_map_get(m, "subject_user_id");
@@ -11846,7 +13291,7 @@ static inline int csilc_enc_IssueForSigningRequestRequest(csilc_buf *b, const Is
 static inline int csilc_dec_IssueForSigningRequestRequest(const csilc_value *m, CsilCodecArena *a, IssueForSigningRequestRequest *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "claim_types");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->claim_types_count = csilc_f->as.array.count;
@@ -11885,7 +13330,7 @@ static inline int csilc_enc_IssuedClaimResult(csilc_buf *b, const IssuedClaimRes
         if (csilc_w_text(b, (v->message), (v->message) ? strlen(v->message) : 0)) return -1;
     }
     if (csilc_w_text(b, "outcome", 7)) return -1;
-    if (csilc_w_text(b, (v->outcome), (v->outcome) ? strlen(v->outcome) : 0)) return -1;
+    if (csilc_enc_IssuedClaimOutcome(b, &(v->outcome))) return -1;
     if (v->claim_code) {
         if (csilc_w_text(b, "claim_code", 10)) return -1;
         if (csilc_w_text(b, (v->claim_code), (v->claim_code) ? strlen(v->claim_code) : 0)) return -1;
@@ -11899,11 +13344,11 @@ static inline int csilc_enc_IssuedClaimResult(csilc_buf *b, const IssuedClaimRes
 static inline int csilc_dec_IssuedClaimResult(const csilc_value *m, CsilCodecArena *a, IssuedClaimResult *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "message");
     out->message = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "outcome");
-    if (!csilc_get_text(csilc_f, &(out->outcome))) return -1;
+    if (csilc_dec_IssuedClaimOutcome(csilc_f, a, &(out->outcome))) return -1;
     csilc_f = csilc_map_get(m, "claim_code");
     out->claim_code = (csilc_f && csilc_f->kind == CSILC_TEXT) ? (char *)csilc_f->as.bytes.ptr : NULL;
     csilc_f = csilc_map_get(m, "claim_type");
@@ -11927,7 +13372,7 @@ static inline int csilc_enc_IssueForSigningRequestResponse(csilc_buf *b, const I
 static inline int csilc_dec_IssueForSigningRequestResponse(const csilc_value *m, CsilCodecArena *a, IssueForSigningRequestResponse *out) {
     (void)a;
     const csilc_value *csilc_f;
-    if (!m || m->kind != CSILC_MAP) return -1;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
     csilc_f = csilc_map_get(m, "results");
     if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
     out->results_count = csilc_f->as.array.count;
@@ -12007,6 +13452,604 @@ static inline int csil_decode_CheckResult(const uint8_t *in, size_t len, CheckRe
     const csilc_value *root;
     if (csilc_decode(in, len, &a, &root)) return -1;
     if (csilc_dec_CheckResult(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a KeyAlgorithm to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_KeyAlgorithm(const KeyAlgorithm *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_KeyAlgorithm(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a KeyAlgorithm. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_KeyAlgorithm(const uint8_t *in, size_t len, KeyAlgorithm *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_KeyAlgorithm(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a KeyUsage to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_KeyUsage(const KeyUsage *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_KeyUsage(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a KeyUsage. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_KeyUsage(const uint8_t *in, size_t len, KeyUsage *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_KeyUsage(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a AeadSuite to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_AeadSuite(const AeadSuite *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_AeadSuite(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a AeadSuite. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_AeadSuite(const uint8_t *in, size_t len, AeadSuite *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_AeadSuite(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ClaimValueType to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ClaimValueType(const ClaimValueType *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ClaimValueType(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ClaimValueType. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ClaimValueType(const uint8_t *in, size_t len, ClaimValueType *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ClaimValueType(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SetRule to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SetRule(const SetRule *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SetRule(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SetRule. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SetRule(const uint8_t *in, size_t len, SetRule *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SetRule(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SigningRule to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SigningRule(const SigningRule *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SigningRule(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SigningRule. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SigningRule(const uint8_t *in, size_t len, SigningRule *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SigningRule(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SetClaimOutcome to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SetClaimOutcome(const SetClaimOutcome *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SetClaimOutcome(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SetClaimOutcome. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SetClaimOutcome(const uint8_t *in, size_t len, SetClaimOutcome *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SetClaimOutcome(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ReleaseDisposition to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ReleaseDisposition(const ReleaseDisposition *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ReleaseDisposition(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ReleaseDisposition. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ReleaseDisposition(const uint8_t *in, size_t len, ReleaseDisposition *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ReleaseDisposition(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ConsentRowPolicy to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ConsentRowPolicy(const ConsentRowPolicy *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ConsentRowPolicy(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ConsentRowPolicy. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ConsentRowPolicy(const uint8_t *in, size_t len, ConsentRowPolicy *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ConsentRowPolicy(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ClaimApprovalStatus to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ClaimApprovalStatus(const ClaimApprovalStatus *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ClaimApprovalStatus(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ClaimApprovalStatus. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ClaimApprovalStatus(const uint8_t *in, size_t len, ClaimApprovalStatus *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ClaimApprovalStatus(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a PinRecheckOutcome to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_PinRecheckOutcome(const PinRecheckOutcome *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_PinRecheckOutcome(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a PinRecheckOutcome. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_PinRecheckOutcome(const uint8_t *in, size_t len, PinRecheckOutcome *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_PinRecheckOutcome(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a NotificationPurpose to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_NotificationPurpose(const NotificationPurpose *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_NotificationPurpose(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a NotificationPurpose. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_NotificationPurpose(const uint8_t *in, size_t len, NotificationPurpose *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_NotificationPurpose(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a NotificationChannel to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_NotificationChannel(const NotificationChannel *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_NotificationChannel(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a NotificationChannel. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_NotificationChannel(const uint8_t *in, size_t len, NotificationChannel *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_NotificationChannel(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a DestinationKind to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_DestinationKind(const DestinationKind *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_DestinationKind(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a DestinationKind. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_DestinationKind(const uint8_t *in, size_t len, DestinationKind *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_DestinationKind(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a LocalRpPolicy to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_LocalRpPolicy(const LocalRpPolicy *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_LocalRpPolicy(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a LocalRpPolicy. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_LocalRpPolicy(const uint8_t *in, size_t len, LocalRpPolicy *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_LocalRpPolicy(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a LocalRpStatus to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_LocalRpStatus(const LocalRpStatus *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_LocalRpStatus(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a LocalRpStatus. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_LocalRpStatus(const uint8_t *in, size_t len, LocalRpStatus *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_LocalRpStatus(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a LocalRpAdmission to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_LocalRpAdmission(const LocalRpAdmission *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_LocalRpAdmission(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a LocalRpAdmission. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_LocalRpAdmission(const uint8_t *in, size_t len, LocalRpAdmission *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_LocalRpAdmission(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a AppAccessMode to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_AppAccessMode(const AppAccessMode *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_AppAccessMode(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a AppAccessMode. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_AppAccessMode(const uint8_t *in, size_t len, AppAccessMode *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_AppAccessMode(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a AppAccessTargetKind to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_AppAccessTargetKind(const AppAccessTargetKind *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_AppAccessTargetKind(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a AppAccessTargetKind. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_AppAccessTargetKind(const uint8_t *in, size_t len, AppAccessTargetKind *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_AppAccessTargetKind(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ClaimOperator to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ClaimOperator(const ClaimOperator *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ClaimOperator(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ClaimOperator. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ClaimOperator(const uint8_t *in, size_t len, ClaimOperator *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ClaimOperator(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ApplicationKeyChallengePurpose to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ApplicationKeyChallengePurpose(const ApplicationKeyChallengePurpose *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ApplicationKeyChallengePurpose(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ApplicationKeyChallengePurpose. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ApplicationKeyChallengePurpose(const uint8_t *in, size_t len, ApplicationKeyChallengePurpose *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ApplicationKeyChallengePurpose(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a AuthFlow to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_AuthFlow(const AuthFlow *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_AuthFlow(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a AuthFlow. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_AuthFlow(const uint8_t *in, size_t len, AuthFlow *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_AuthFlow(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RpCacheStatus to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RpCacheStatus(const RpCacheStatus *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RpCacheStatus(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RpCacheStatus. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RpCacheStatus(const uint8_t *in, size_t len, RpCacheStatus *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RpCacheStatus(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a AccountKind to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_AccountKind(const AccountKind *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_AccountKind(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a AccountKind. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_AccountKind(const uint8_t *in, size_t len, AccountKind *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_AccountKind(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RpErrorCode to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RpErrorCode(const RpErrorCode *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RpErrorCode(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RpErrorCode. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RpErrorCode(const uint8_t *in, size_t len, RpErrorCode *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RpErrorCode(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a IssuedClaimOutcome to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_IssuedClaimOutcome(const IssuedClaimOutcome *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_IssuedClaimOutcome(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a IssuedClaimOutcome. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_IssuedClaimOutcome(const uint8_t *in, size_t len, IssuedClaimOutcome *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_IssuedClaimOutcome(root, a, out)) { csil_codec_arena_free(a); return -1; }
     *owner = a;
     return 0;
 }
@@ -13387,6 +15430,443 @@ static inline int csil_decode_CreateUserResponse(const uint8_t *in, size_t len, 
     const csilc_value *root;
     if (csilc_decode(in, len, &a, &root)) return -1;
     if (csilc_dec_CreateUserResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RenameUserRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RenameUserRequest(const RenameUserRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RenameUserRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RenameUserRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RenameUserRequest(const uint8_t *in, size_t len, RenameUserRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RenameUserRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RenameUserResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RenameUserResponse(const RenameUserResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RenameUserResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RenameUserResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RenameUserResponse(const uint8_t *in, size_t len, RenameUserResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RenameUserResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SetApplicationIdRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SetApplicationIdRequest(const SetApplicationIdRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SetApplicationIdRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SetApplicationIdRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SetApplicationIdRequest(const uint8_t *in, size_t len, SetApplicationIdRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SetApplicationIdRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SetApplicationIdResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SetApplicationIdResponse(const SetApplicationIdResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SetApplicationIdResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SetApplicationIdResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SetApplicationIdResponse(const uint8_t *in, size_t len, SetApplicationIdResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SetApplicationIdResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ApiKeyInfo to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ApiKeyInfo(const ApiKeyInfo *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ApiKeyInfo(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ApiKeyInfo. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ApiKeyInfo(const uint8_t *in, size_t len, ApiKeyInfo *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ApiKeyInfo(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a CreateApiKeyRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_CreateApiKeyRequest(const CreateApiKeyRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_CreateApiKeyRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a CreateApiKeyRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_CreateApiKeyRequest(const uint8_t *in, size_t len, CreateApiKeyRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_CreateApiKeyRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a CreateApiKeyResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_CreateApiKeyResponse(const CreateApiKeyResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_CreateApiKeyResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a CreateApiKeyResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_CreateApiKeyResponse(const uint8_t *in, size_t len, CreateApiKeyResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_CreateApiKeyResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ListApiKeysRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ListApiKeysRequest(const ListApiKeysRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ListApiKeysRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ListApiKeysRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ListApiKeysRequest(const uint8_t *in, size_t len, ListApiKeysRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ListApiKeysRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ListApiKeysResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ListApiKeysResponse(const ListApiKeysResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ListApiKeysResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ListApiKeysResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ListApiKeysResponse(const uint8_t *in, size_t len, ListApiKeysResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ListApiKeysResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RevokeApiKeyRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RevokeApiKeyRequest(const RevokeApiKeyRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RevokeApiKeyRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RevokeApiKeyRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RevokeApiKeyRequest(const uint8_t *in, size_t len, RevokeApiKeyRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RevokeApiKeyRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RevokeApiKeyResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RevokeApiKeyResponse(const RevokeApiKeyResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RevokeApiKeyResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RevokeApiKeyResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RevokeApiKeyResponse(const uint8_t *in, size_t len, RevokeApiKeyResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RevokeApiKeyResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a AccountLimits to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_AccountLimits(const AccountLimits *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_AccountLimits(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a AccountLimits. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_AccountLimits(const uint8_t *in, size_t len, AccountLimits *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_AccountLimits(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a GetAccountLimitsRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_GetAccountLimitsRequest(const GetAccountLimitsRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_GetAccountLimitsRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a GetAccountLimitsRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_GetAccountLimitsRequest(const uint8_t *in, size_t len, GetAccountLimitsRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_GetAccountLimitsRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a GetAccountLimitsResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_GetAccountLimitsResponse(const GetAccountLimitsResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_GetAccountLimitsResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a GetAccountLimitsResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_GetAccountLimitsResponse(const uint8_t *in, size_t len, GetAccountLimitsResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_GetAccountLimitsResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SetAccountLimitsRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SetAccountLimitsRequest(const SetAccountLimitsRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SetAccountLimitsRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SetAccountLimitsRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SetAccountLimitsRequest(const uint8_t *in, size_t len, SetAccountLimitsRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SetAccountLimitsRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a SetAccountLimitsResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_SetAccountLimitsResponse(const SetAccountLimitsResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_SetAccountLimitsResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a SetAccountLimitsResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_SetAccountLimitsResponse(const uint8_t *in, size_t len, SetAccountLimitsResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_SetAccountLimitsResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RpUsageDay to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RpUsageDay(const RpUsageDay *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RpUsageDay(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RpUsageDay. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RpUsageDay(const uint8_t *in, size_t len, RpUsageDay *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RpUsageDay(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a GetApplicationUsageRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_GetApplicationUsageRequest(const GetApplicationUsageRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_GetApplicationUsageRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a GetApplicationUsageRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_GetApplicationUsageRequest(const uint8_t *in, size_t len, GetApplicationUsageRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_GetApplicationUsageRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a GetApplicationUsageResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_GetApplicationUsageResponse(const GetApplicationUsageResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_GetApplicationUsageResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a GetApplicationUsageResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_GetApplicationUsageResponse(const uint8_t *in, size_t len, GetApplicationUsageResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_GetApplicationUsageResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
     *owner = a;
     return 0;
 }
@@ -16381,6 +18861,29 @@ static inline int csil_decode_RpUserInfoRequest(const uint8_t *in, size_t len, R
     return 0;
 }
 
+/* Encode a RpError to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RpError(const RpError *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RpError(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RpError. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RpError(const uint8_t *in, size_t len, RpError *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RpError(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
 /* Encode a RpIssueAttestationRequest to CBOR. On success *out is a malloc'd buffer of
  * *out_len bytes the caller frees with free(); returns non-zero on failure. */
 static inline int csil_encode_RpIssueAttestationRequest(const RpIssueAttestationRequest *v, uint8_t **out, size_t *out_len) {
@@ -19185,6 +21688,106 @@ static inline int csil_decode_IssueForSigningRequestResponse(const uint8_t *in, 
     if (csilc_dec_IssueForSigningRequestResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
     *owner = a;
     return 0;
+}
+
+static inline int csil_encode_RpSignRequestReply(const RpSignRequestReply *reply, const char **variant, uint8_t **payload, size_t *len) {
+    switch (reply->kind) {
+    case RpSignRequestReply_as_rp_sign_response:
+        *variant = "RpSignResponse";
+        return csil_encode_RpSignResponse(&reply->value.as_rp_sign_response, payload, len);
+    case RpSignRequestReply_as_rp_error:
+        *variant = "RpError";
+        return csil_encode_RpError(&reply->value.as_rp_error, payload, len);
+    }
+    return -1;
+}
+
+static inline int csil_decode_RpSignRequestReply(const char *variant, const uint8_t *payload, size_t len, RpSignRequestReply *reply, CsilCodecArena **owner) {
+    if (!variant) return -1;
+    if (strcmp(variant, "RpSignResponse") == 0) {
+        reply->kind = RpSignRequestReply_as_rp_sign_response;
+        return csil_decode_RpSignResponse(payload, len, &reply->value.as_rp_sign_response, owner);
+    }
+    if (strcmp(variant, "RpError") == 0) {
+        reply->kind = RpSignRequestReply_as_rp_error;
+        return csil_decode_RpError(payload, len, &reply->value.as_rp_error, owner);
+    }
+    return -1;
+}
+
+static inline int csil_encode_RpDecryptTokenReply(const RpDecryptTokenReply *reply, const char **variant, uint8_t **payload, size_t *len) {
+    switch (reply->kind) {
+    case RpDecryptTokenReply_as_rp_decrypt_response:
+        *variant = "RpDecryptResponse";
+        return csil_encode_RpDecryptResponse(&reply->value.as_rp_decrypt_response, payload, len);
+    case RpDecryptTokenReply_as_rp_error:
+        *variant = "RpError";
+        return csil_encode_RpError(&reply->value.as_rp_error, payload, len);
+    }
+    return -1;
+}
+
+static inline int csil_decode_RpDecryptTokenReply(const char *variant, const uint8_t *payload, size_t len, RpDecryptTokenReply *reply, CsilCodecArena **owner) {
+    if (!variant) return -1;
+    if (strcmp(variant, "RpDecryptResponse") == 0) {
+        reply->kind = RpDecryptTokenReply_as_rp_decrypt_response;
+        return csil_decode_RpDecryptResponse(payload, len, &reply->value.as_rp_decrypt_response, owner);
+    }
+    if (strcmp(variant, "RpError") == 0) {
+        reply->kind = RpDecryptTokenReply_as_rp_error;
+        return csil_decode_RpError(payload, len, &reply->value.as_rp_error, owner);
+    }
+    return -1;
+}
+
+static inline int csil_encode_RpVerifyAssertionReply(const RpVerifyAssertionReply *reply, const char **variant, uint8_t **payload, size_t *len) {
+    switch (reply->kind) {
+    case RpVerifyAssertionReply_as_rp_verify_response:
+        *variant = "RpVerifyResponse";
+        return csil_encode_RpVerifyResponse(&reply->value.as_rp_verify_response, payload, len);
+    case RpVerifyAssertionReply_as_rp_error:
+        *variant = "RpError";
+        return csil_encode_RpError(&reply->value.as_rp_error, payload, len);
+    }
+    return -1;
+}
+
+static inline int csil_decode_RpVerifyAssertionReply(const char *variant, const uint8_t *payload, size_t len, RpVerifyAssertionReply *reply, CsilCodecArena **owner) {
+    if (!variant) return -1;
+    if (strcmp(variant, "RpVerifyResponse") == 0) {
+        reply->kind = RpVerifyAssertionReply_as_rp_verify_response;
+        return csil_decode_RpVerifyResponse(payload, len, &reply->value.as_rp_verify_response, owner);
+    }
+    if (strcmp(variant, "RpError") == 0) {
+        reply->kind = RpVerifyAssertionReply_as_rp_error;
+        return csil_decode_RpError(payload, len, &reply->value.as_rp_error, owner);
+    }
+    return -1;
+}
+
+static inline int csil_encode_RpUserinfoFetchReply(const RpUserinfoFetchReply *reply, const char **variant, uint8_t **payload, size_t *len) {
+    switch (reply->kind) {
+    case RpUserinfoFetchReply_as_user_info:
+        *variant = "UserInfo";
+        return csil_encode_UserInfo(&reply->value.as_user_info, payload, len);
+    case RpUserinfoFetchReply_as_rp_error:
+        *variant = "RpError";
+        return csil_encode_RpError(&reply->value.as_rp_error, payload, len);
+    }
+    return -1;
+}
+
+static inline int csil_decode_RpUserinfoFetchReply(const char *variant, const uint8_t *payload, size_t len, RpUserinfoFetchReply *reply, CsilCodecArena **owner) {
+    if (!variant) return -1;
+    if (strcmp(variant, "UserInfo") == 0) {
+        reply->kind = RpUserinfoFetchReply_as_user_info;
+        return csil_decode_UserInfo(payload, len, &reply->value.as_user_info, owner);
+    }
+    if (strcmp(variant, "RpError") == 0) {
+        reply->kind = RpUserinfoFetchReply_as_rp_error;
+        return csil_decode_RpError(payload, len, &reply->value.as_rp_error, owner);
+    }
+    return -1;
 }
 
 #endif /* CSILGEN_CODEC_GEN_H */

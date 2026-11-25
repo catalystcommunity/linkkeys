@@ -16,9 +16,14 @@
 //! with the Rust implementation they were generated from.
 
 use liblinkkeys::application_keys::{self as ak, ApplicationKeyRef, InstanceRef};
-use liblinkkeys::generated::{self, types::DomainPublicKey};
+use liblinkkeys::generated::{
+    self,
+    types::{DomainPublicKey, KeyAlgorithm, KeyUsage},
+};
+use liblinkkeys::timestamp::SignedTime;
 use serde_json::Value;
 use std::path::PathBuf;
+use time::OffsetDateTime;
 
 fn conformance_dir() -> PathBuf {
     // CARGO_MANIFEST_DIR is crates/liblinkkeys; the vectors live at the repo
@@ -51,8 +56,15 @@ fn s(v: &Value, field: &str) -> String {
         .to_string()
 }
 
-fn opt_s(v: &Value, field: &str) -> Option<String> {
-    v.get(field).and_then(|f| f.as_str()).map(|s| s.to_string())
+fn time(v: &Value, field: &str) -> OffsetDateTime {
+    liblinkkeys::timestamp::parse_rfc3339(&s(v, field))
+        .unwrap_or_else(|e| panic!("bad timestamp field {field:?} in {v}: {e}"))
+}
+
+fn opt_time(v: &Value, field: &str) -> Option<OffsetDateTime> {
+    v.get(field)
+        .and_then(|f| f.as_str())
+        .map(|_| time(v, field))
 }
 
 fn case_label(case: &Value) -> String {
@@ -83,13 +95,13 @@ fn instance_ref<'a>(parts: &'a (String, String, String, String)) -> InstanceRef<
 fn key_ref_from(v: &Value) -> ApplicationKeyRef {
     ApplicationKeyRef {
         key_id: s(v, "key_id"),
-        key_usage: s(v, "key_usage"),
-        algorithm: s(v, "algorithm"),
+        key_usage: KeyUsage::from_label(&s(v, "key_usage")).expect("known key_usage"),
+        algorithm: KeyAlgorithm::from_label(&s(v, "algorithm")).expect("known algorithm"),
         public_key: hex_decode(&s(v, "public_key_hex")),
         fingerprint: s(v, "fingerprint"),
-        created_at: s(v, "created_at"),
-        expires_at: s(v, "expires_at"),
-        revoked_at: opt_s(v, "revoked_at"),
+        created_at: time(v, "created_at"),
+        expires_at: time(v, "expires_at"),
+        revoked_at: opt_time(v, "revoked_at"),
     }
 }
 
@@ -106,11 +118,11 @@ fn domain_key_from(v: &Value) -> DomainPublicKey {
         key_id: s(v, "key_id"),
         public_key: hex_decode(&s(v, "public_key_hex")),
         fingerprint: s(v, "fingerprint"),
-        algorithm: s(v, "algorithm"),
-        key_usage: s(v, "key_usage"),
-        created_at: s(v, "created_at"),
-        expires_at: s(v, "expires_at"),
-        revoked_at: opt_s(v, "revoked_at"),
+        algorithm: KeyAlgorithm::from_label(&s(v, "algorithm")).expect("known algorithm"),
+        key_usage: KeyUsage::from_label(&s(v, "key_usage")).expect("known key_usage"),
+        created_at: time(v, "created_at"),
+        expires_at: time(v, "expires_at"),
+        revoked_at: opt_time(v, "revoked_at"),
         signed_by_key_id: None,
         key_signature: None,
     }
@@ -443,7 +455,7 @@ fn revocation_from(v: &Value) -> generated::types::ApplicationKeyRevocation {
         instance_id: s(v, "instance_id"),
         target_key_id: s(v, "target_key_id"),
         target_fingerprint: s(v, "target_fingerprint"),
-        revoked_at: s(v, "revoked_at"),
+        revoked_at: time(v, "revoked_at"),
         signatures,
     }
 }
@@ -471,7 +483,7 @@ fn revocation_payload_matches_the_real_function() {
     let instance = instance_from(&d["instance"]);
     let target_key_id = d["target_key_id"].as_str().unwrap();
     let target_fingerprint = d["target_fingerprint"].as_str().unwrap();
-    let revoked_at = d["revoked_at"].as_str().unwrap();
+    let revoked_at = SignedTime::new(&time(&d, "revoked_at")).unwrap();
     let expected = hex_decode(d["revocation_payload_cbor_hex"].as_str().unwrap());
     assert_eq!(
         ak::revocation_payload(
@@ -553,6 +565,14 @@ fn sealed_challenge_reproduces_byte_identical_output() {
     )
     .expect("deterministic seal must succeed");
     assert_eq!(sealed, expected);
+    assert_eq!(
+        d["suite_number"].as_i64().unwrap(),
+        ak::CHALLENGE_SEAL_SUITE.to_number()
+    );
+    assert_eq!(
+        d["suite"].as_str().unwrap(),
+        ak::CHALLENGE_SEAL_SUITE.as_str()
+    );
 }
 
 #[test]

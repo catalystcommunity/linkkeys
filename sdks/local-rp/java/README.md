@@ -254,6 +254,23 @@ each file's docs. Two things make this tractable and safe:
    checked-in conformance vectors**, not merely internally self-consistent —
    see the `*ConformanceTest` classes.
 
+The codec follows the CSIL wire rules (`docs/UPGRADING.md`, "Wire format:
+timestamps and enums"):
+
+- A CSIL `timestamp` is CBOR tag 0 that holds RFC 3339 text in UTC, for
+  example `c0 74 "2026-01-01T00:10:00Z"`. The wire types use
+  `java.time.Instant`. The decoder refuses a time with no tag 0 or with text
+  that is not RFC 3339.
+- A closed vocabulary is an unsigned integer on the wire: `KeyAlgorithm`
+  (`ed25519` = 1, `x25519` = 2), `KeyUsage` (`sign` = 1, `encrypt` = 2,
+  `agree` = 3), and `AeadSuite` (`aes-256-gcm` = 1, `chacha20-poly1305` = 2).
+  The wire types keep the text label. `Cbor.WireEnum` writes the number and
+  refuses an unknown number. The callback-box KDF context still uses the
+  suite text id.
+- A signed tuple payload (claim, key revocation, key vouch) holds each time
+  as a CBOR integer of whole Unix seconds. A time with a fraction of a second
+  fails verification. The SDK does not round it.
+
 If csilgen gains a Java target, this SDK's `wire`/`rpc.RpcEnvelope` packages
 should be replaced by the generated equivalent; `LocalRp`, `Claims`,
 `Revocation`, `Identity`, `Begin`, `Complete` (the actual protocol logic) stay

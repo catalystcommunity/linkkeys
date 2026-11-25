@@ -9,7 +9,13 @@
    byte-for-byte against every [*_cbor_hex] fixture in
    sdks/local-rp/conformance/ by this package's own conformance tests.
    Decode order does not matter (map lookup by key), only encode order
-   does. *)
+   does.
+
+   CSIL wire rules: every [timestamp] field is RFC 3339 text in memory and
+   CBOR tag 0 (UTC [Z] text) on the wire ([Cbor.timestamp] /
+   [Cbor.field_timestamp]). Key algorithm, key usage, and AEAD suite keep
+   their text labels in memory and are CSIL numbers on the wire
+   ([Cbor.enum_value] / [Cbor.field_enum]). *)
 
 open Cbor
 
@@ -37,10 +43,10 @@ module Local_rp_descriptor = struct
     Map
       ([
          (Text "app_name", Text v.app_name);
-         (Text "created_at", Text v.created_at);
-         (Text "expires_at", Text v.expires_at);
+         (Text "created_at", timestamp v.created_at);
+         (Text "expires_at", timestamp v.expires_at);
          (Text "fingerprint", Text v.fingerprint);
-         (Text "supported_suites", Array (List.map (fun s -> Text s) v.supported_suites));
+         (Text "supported_suites", Array (List.map (enum_value aead_suite) v.supported_suites));
        ]
       @ opt_field "local_domain_hint" (Option.map (fun s -> Text s) v.local_domain_hint)
       @ [
@@ -55,9 +61,9 @@ module Local_rp_descriptor = struct
       signing_public_key = field_bytes m "signing_public_key";
       encryption_public_key = field_bytes m "encryption_public_key";
       fingerprint = field_text m "fingerprint";
-      supported_suites = List.map as_text (field_array m "supported_suites");
-      created_at = field_text m "created_at";
-      expires_at = field_text m "expires_at";
+      supported_suites = List.map (as_enum aead_suite) (field_array m "supported_suites");
+      created_at = field_timestamp m "created_at";
+      expires_at = field_timestamp m "expires_at";
     }
 
   let to_cbor v = encode (to_value v)
@@ -90,9 +96,9 @@ module Local_rp_login_request = struct
       [
         (Text "nonce", Bytes v.nonce);
         (Text "state", Bytes v.state);
-        (Text "issued_at", Text v.issued_at);
+        (Text "issued_at", timestamp v.issued_at);
         (Text "descriptor", Signed_local_rp_descriptor.to_value v.descriptor);
-        (Text "expires_at", Text v.expires_at);
+        (Text "expires_at", timestamp v.expires_at);
         (Text "callback_url", Text v.callback_url);
         (Text "required_claims", Array (List.map (fun s -> Text s) v.required_claims));
         (Text "requested_claims", Array (List.map (fun s -> Text s) v.requested_claims));
@@ -106,8 +112,8 @@ module Local_rp_login_request = struct
       state = field_bytes m "state";
       requested_claims = List.map as_text (field_array m "requested_claims");
       required_claims = List.map as_text (field_array m "required_claims");
-      issued_at = field_text m "issued_at";
-      expires_at = field_text m "expires_at";
+      issued_at = field_timestamp m "issued_at";
+      expires_at = field_timestamp m "expires_at";
     }
 
   let to_cbor v = encode (to_value v)
@@ -144,10 +150,10 @@ module Local_rp_callback_header = struct
       [
         (Text "nonce", Bytes v.nonce);
         (Text "state", Bytes v.state);
-        (Text "suite", Text v.suite);
-        (Text "issued_at", Text v.issued_at);
+        (Text "suite", enum_value aead_suite v.suite);
+        (Text "issued_at", timestamp v.issued_at);
         (Text "aead_nonce", Bytes v.aead_nonce);
-        (Text "expires_at", Text v.expires_at);
+        (Text "expires_at", timestamp v.expires_at);
         (Text "fingerprint", Text v.fingerprint);
         (Text "ephemeral_public_key", Bytes v.ephemeral_public_key);
       ]
@@ -157,11 +163,11 @@ module Local_rp_callback_header = struct
       fingerprint = field_text m "fingerprint";
       nonce = field_bytes m "nonce";
       state = field_bytes m "state";
-      suite = field_text m "suite";
+      suite = field_enum aead_suite m "suite";
       ephemeral_public_key = field_bytes m "ephemeral_public_key";
       aead_nonce = field_bytes m "aead_nonce";
-      issued_at = field_text m "issued_at";
-      expires_at = field_text m "expires_at";
+      issued_at = field_timestamp m "issued_at";
+      expires_at = field_timestamp m "expires_at";
     }
 
   let to_cbor v = encode (to_value v)
@@ -196,8 +202,8 @@ module Local_rp_callback_payload = struct
         (Text "nonce", Bytes v.nonce);
         (Text "state", Bytes v.state);
         (Text "user_id", Text v.user_id);
-        (Text "issued_at", Text v.issued_at);
-        (Text "expires_at", Text v.expires_at);
+        (Text "issued_at", timestamp v.issued_at);
+        (Text "expires_at", timestamp v.expires_at);
         (Text "user_domain", Text v.user_domain);
         (Text "callback_url", Text v.callback_url);
         (Text "claim_ticket", Bytes v.claim_ticket);
@@ -213,8 +219,8 @@ module Local_rp_callback_payload = struct
       callback_url = field_text m "callback_url";
       nonce = field_bytes m "nonce";
       state = field_bytes m "state";
-      issued_at = field_text m "issued_at";
-      expires_at = field_text m "expires_at";
+      issued_at = field_timestamp m "issued_at";
+      expires_at = field_timestamp m "expires_at";
     }
 
   let to_cbor v = encode (to_value v)
@@ -242,10 +248,10 @@ module Local_rp_ticket_redemption_request = struct
   type t = { claim_ticket : string; fingerprint : string; issued_at : string }
 
   let to_value (v : t) : Cbor.value =
-    Map [ (Text "issued_at", Text v.issued_at); (Text "fingerprint", Text v.fingerprint); (Text "claim_ticket", Bytes v.claim_ticket) ]
+    Map [ (Text "issued_at", timestamp v.issued_at); (Text "fingerprint", Text v.fingerprint); (Text "claim_ticket", Bytes v.claim_ticket) ]
 
   let of_map m =
-    { claim_ticket = field_bytes m "claim_ticket"; fingerprint = field_text m "fingerprint"; issued_at = field_text m "issued_at" }
+    { claim_ticket = field_bytes m "claim_ticket"; fingerprint = field_text m "fingerprint"; issued_at = field_timestamp m "issued_at" }
 
   let to_cbor v = encode (to_value v)
   let of_cbor data = of_map (as_map (decode data))
@@ -282,13 +288,13 @@ module Domain_public_key = struct
     Map
       ([
          (Text "key_id", Text v.key_id);
-         (Text "algorithm", Text v.algorithm);
-         (Text "key_usage", Text v.key_usage);
-         (Text "created_at", Text v.created_at);
-         (Text "expires_at", Text v.expires_at);
+         (Text "algorithm", enum_value key_algorithm v.algorithm);
+         (Text "key_usage", enum_value key_usage v.key_usage);
+         (Text "created_at", timestamp v.created_at);
+         (Text "expires_at", timestamp v.expires_at);
          (Text "public_key", Bytes v.public_key);
        ]
-      @ opt_field "revoked_at" (Option.map (fun s -> Text s) v.revoked_at)
+      @ opt_field "revoked_at" (Option.map timestamp v.revoked_at)
       @ [ (Text "fingerprint", Text v.fingerprint) ]
       @ opt_field "key_signature" (Option.map (fun s -> Bytes s) v.key_signature)
       @ opt_field "signed_by_key_id" (Option.map (fun s -> Text s) v.signed_by_key_id))
@@ -298,11 +304,11 @@ module Domain_public_key = struct
       key_id = field_text m "key_id";
       public_key = field_bytes m "public_key";
       fingerprint = field_text m "fingerprint";
-      algorithm = field_text m "algorithm";
-      key_usage = field_text m "key_usage";
-      created_at = field_text m "created_at";
-      expires_at = field_text m "expires_at";
-      revoked_at = field_text_opt m "revoked_at";
+      algorithm = field_enum key_algorithm m "algorithm";
+      key_usage = field_enum key_usage m "key_usage";
+      created_at = field_timestamp m "created_at";
+      expires_at = field_timestamp m "expires_at";
+      revoked_at = field_timestamp_opt m "revoked_at";
       signed_by_key_id = field_text_opt m "signed_by_key_id";
       key_signature = Option.map as_bytes (field m "key_signature");
     }
@@ -343,13 +349,13 @@ module Claim = struct
          (Text "user_id", Text v.user_id);
          (Text "claim_id", Text v.claim_id);
          (Text "claim_type", Text v.claim_type);
-         (Text "created_at", Text v.created_at);
+         (Text "created_at", timestamp v.created_at);
        ]
-      @ opt_field "expires_at" (Option.map (fun s -> Text s) v.expires_at)
-      @ opt_field "revoked_at" (Option.map (fun s -> Text s) v.revoked_at)
+      @ opt_field "expires_at" (Option.map timestamp v.expires_at)
+      @ opt_field "revoked_at" (Option.map timestamp v.revoked_at)
       @ [
           (Text "signatures", Array (List.map Claim_signature.to_value v.signatures));
-          (Text "attested_at", Text v.attested_at);
+          (Text "attested_at", timestamp v.attested_at);
           (* claim_value is a CBOR BYTE string on the wire (CSIL:
              `claim_value: bytes`; Rust codec:
              `cbor_bytes(&csil_v.claim_value)`) -- a claim value may carry
@@ -366,10 +372,10 @@ module Claim = struct
       claim_type = field_text m "claim_type";
       claim_value = field_bytes m "claim_value";
       signatures = List.map (fun v -> Claim_signature.of_map (as_map v)) (field_array m "signatures");
-      attested_at = field_text m "attested_at";
-      created_at = field_text m "created_at";
-      expires_at = field_text_opt m "expires_at";
-      revoked_at = field_text_opt m "revoked_at";
+      attested_at = field_timestamp m "attested_at";
+      created_at = field_timestamp m "created_at";
+      expires_at = field_timestamp_opt m "expires_at";
+      revoked_at = field_timestamp_opt m "revoked_at";
     }
 
   let to_cbor v = encode (to_value v)
@@ -382,7 +388,7 @@ module Revocation_certificate = struct
   let to_value (v : t) : Cbor.value =
     Map
       [
-        (Text "revoked_at", Text v.revoked_at);
+        (Text "revoked_at", timestamp v.revoked_at);
         (Text "signatures", Array (List.map Claim_signature.to_value v.signatures));
         (Text "target_key_id", Text v.target_key_id);
         (Text "target_fingerprint", Text v.target_fingerprint);
@@ -392,7 +398,7 @@ module Revocation_certificate = struct
     {
       target_key_id = field_text m "target_key_id";
       target_fingerprint = field_text m "target_fingerprint";
-      revoked_at = field_text m "revoked_at";
+      revoked_at = field_timestamp m "revoked_at";
       signatures = List.map (fun v -> Claim_signature.of_map (as_map v)) (field_array m "signatures");
     }
 
@@ -427,7 +433,7 @@ end
 module Get_revocations_request = struct
   type t = { since : string option }
 
-  let to_value (v : t) : Cbor.value = Map (opt_field "since" (Option.map (fun s -> Text s) v.since))
+  let to_value (v : t) : Cbor.value = Map (opt_field "since" (Option.map timestamp v.since))
   let to_cbor v = encode (to_value v)
 end
 
@@ -447,7 +453,7 @@ module Local_rp_ticket_redemption_response = struct
         (Text "claims", Array (List.map Claim.to_value v.claims));
         (Text "user_id", Text v.user_id);
         (Text "user_domain", Text v.user_domain);
-        (Text "ticket_expires_at", Text v.ticket_expires_at);
+        (Text "ticket_expires_at", timestamp v.ticket_expires_at);
       ]
 
   let of_map m =
@@ -455,7 +461,7 @@ module Local_rp_ticket_redemption_response = struct
       user_id = field_text m "user_id";
       user_domain = field_text m "user_domain";
       claims = List.map (fun v -> Claim.of_map (as_map v)) (field_array m "claims");
-      ticket_expires_at = field_text m "ticket_expires_at";
+      ticket_expires_at = field_timestamp m "ticket_expires_at";
     }
 
   let to_cbor v = encode (to_value v)
@@ -589,8 +595,8 @@ module Act_as_grant_request = struct
       @ [
           (Text "callback_url", Text v.callback_url);
           (Text "nonce", Text v.nonce);
-          (Text "requested_at", Text v.requested_at);
-          (Text "expires_at", Text v.expires_at);
+          (Text "requested_at", timestamp v.requested_at);
+          (Text "expires_at", timestamp v.expires_at);
         ])
 
   let of_map m =
@@ -601,8 +607,8 @@ module Act_as_grant_request = struct
       requested_renewal_window_seconds = Option.map as_int (field m "requested_renewal_window_seconds");
       callback_url = field_text m "callback_url";
       nonce = field_text m "nonce";
-      requested_at = field_text m "requested_at";
-      expires_at = field_text m "expires_at";
+      requested_at = field_timestamp m "requested_at";
+      expires_at = field_timestamp m "expires_at";
     }
 
   let to_cbor v = encode (to_value v)
@@ -626,8 +632,8 @@ module Act_as_refresh_request = struct
       [
         (Text "grant_id", Text v.grant_id);
         (Text "grantee", Grantee_ref.to_value v.grantee);
-        (Text "requested_at", Text v.requested_at);
-        (Text "expires_at", Text v.expires_at);
+        (Text "requested_at", timestamp v.requested_at);
+        (Text "expires_at", timestamp v.expires_at);
         (Text "nonce", Text v.nonce);
       ]
 
@@ -635,8 +641,8 @@ module Act_as_refresh_request = struct
     {
       grant_id = field_text m "grant_id";
       grantee = Grantee_ref.of_map (as_map (field_exn m "grantee"));
-      requested_at = field_text m "requested_at";
-      expires_at = field_text m "expires_at";
+      requested_at = field_timestamp m "requested_at";
+      expires_at = field_timestamp m "expires_at";
       nonce = field_text m "nonce";
     }
 
@@ -699,7 +705,7 @@ module Act_as_presentation = struct
         (Text "grant_hash", Bytes v.grant_hash);
         (Text "audience", Application_ref.to_value v.audience);
         (Text "request_digest", Bytes v.request_digest);
-        (Text "presented_at", Text v.presented_at);
+        (Text "presented_at", timestamp v.presented_at);
         (Text "nonce", Bytes v.nonce);
       ]
 
@@ -708,7 +714,7 @@ module Act_as_presentation = struct
       grant_hash = field_bytes m "grant_hash";
       audience = Application_ref.of_map (as_map (field_exn m "audience"));
       request_digest = field_bytes m "request_digest";
-      presented_at = field_text m "presented_at";
+      presented_at = field_timestamp m "presented_at";
       nonce = field_bytes m "nonce";
     }
 

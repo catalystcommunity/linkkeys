@@ -169,8 +169,8 @@ public static class Dns
 
     private const string KeyVouchTag = "linkkeys-key-vouch-v1alpha";
 
-    internal static byte[] KeyVouchPayload(string encFingerprint, string encExpiresAt) =>
-        Cbor.Encode(Cbor.Tuple(Cbor.VTextOf(KeyVouchTag), Cbor.VTextOf(encFingerprint), Cbor.VTextOf(encExpiresAt)));
+    internal static byte[] KeyVouchPayload(string encFingerprint, long encExpiresAtUnixSeconds) =>
+        Cbor.Encode(Cbor.Tuple(Cbor.VTextOf(KeyVouchTag), Cbor.VTextOf(encFingerprint), Cbor.VInteger(encExpiresAtUnixSeconds)));
 
     /// <summary>
     /// Verify that <paramref name="signingKey"/> vouches for <paramref name="encKey"/>: the
@@ -203,8 +203,15 @@ public static class Dns
             return false;
         }
 
+        // enc_expires_at is signed as whole Unix seconds. A fraction of a second cannot
+        // be signed, so a key that carries one has no valid vouch.
+        if (encKey.ExpiresAt.UtcTicks % TimeSpan.TicksPerSecond != 0)
+        {
+            return false;
+        }
+
         var recomputedFp = Crypto.Crypto.Fingerprint(encKey.PublicKey);
-        var payload = KeyVouchPayload(recomputedFp, encKey.ExpiresAt);
+        var payload = KeyVouchPayload(recomputedFp, encKey.ExpiresAt.ToUnixTimeSeconds());
         return Crypto.Crypto.VerifyEd25519(payload, encKey.KeySignature, signingKey.PublicKey);
     }
 

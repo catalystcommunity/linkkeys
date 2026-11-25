@@ -9,14 +9,14 @@ public class ExpirationsConformanceTests
     public void CheckExpirationsThresholdsViaSdkWrapper()
     {
         var d = Fixtures.Load("expirations.json").Get("check_expirations");
-        var expiresAt = d.Get("expires_at").AsString();
+        var expiresAt = d.Get("expires_at").AsTime();
         var cases = d.Get("cases").AsArray().ToList();
         Assert.Equal(11, cases.Count);
 
         // Build an identity whose descriptor expires at exactly `expiresAt`, exercising
         // LinkKeysLocalRp.CheckExpirations end to end (identity -> descriptor ->
         // threshold logic), not the underlying LocalRp function directly.
-        var expires = DateTimeOffset.Parse(expiresAt);
+        var expires = expiresAt;
         var createdAt = expires - TimeSpan.FromDays(3650);
         var config = new Identity.GenerateLocalRpIdentityConfig(
             "Conformance Test App", createdAt, Lifetime: expires - createdAt);
@@ -34,8 +34,8 @@ public class ExpirationsConformanceTests
     public void CheckTimestampsSkewBoundariesAreExact()
     {
         var d = Fixtures.Load("expirations.json").Get("check_timestamps");
-        var issuedAt = d.Get("issued_at").AsString();
-        var expiresAt = d.Get("expires_at").AsString();
+        var issuedAt = d.Get("issued_at").AsTime();
+        var expiresAt = d.Get("expires_at").AsTime();
         var skew = d.Get("skew_seconds").AsLong();
         var cases = d.Get("cases").AsArray().ToList();
         Assert.Equal(4, cases.Count);

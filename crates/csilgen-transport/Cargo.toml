@@ -3,7 +3,7 @@ name = "csilgen-transport"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
-# VENDORED from catalystcommunity/csilgen @ csilgen/v0.2.15 = 9690ed8 (transports/rust). Temporary:
+# VENDORED from catalystcommunity/csilgen @ csilgen/v0.3.3 = 73ba5ac (transports/rust). Temporary:
 # the git dependency already works (public repo), but we run the copy while the
 # crate is still being iterated, then swap to the git dep at the end. Do NOT
 # hand-edit beyond the conformance test below — re-sync from upstream instead.

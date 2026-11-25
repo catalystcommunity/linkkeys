@@ -2,6 +2,12 @@ package community.catalyst.linkkeys.localrp.wire;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -494,4 +500,167 @@ public final class Cbor {
     private static String describe(Value v) {
         return v == null ? "<absent>" : v.getClass().getSimpleName();
     }
+
+    // -----------------------------------------------------------------
+    // CSIL `timestamp`: CBOR tag 0 wrapping RFC 3339 text
+    // -----------------------------------------------------------------
+
+    private static final Pattern RFC3339 = Pattern.compile(
+            "^(\\d{4}-\\d{2}-\\d{2})[Tt ](\\d{2}:\\d{2}):(\\d{2})(\\.\\d+)?([Zz]|[+-]\\d{2}:\\d{2})$");
+
+    /**
+     * Strict RFC 3339 parse. Accepts the same relaxations as the Rust
+     * reference ({@code t}/{@code z}/space separator, more than nine
+     * fraction digits are ignored, a leap second {@code :60} reads as
+     * {@code :59}). Returns {@code null} when the text is not RFC 3339.
+     */
+    public static Instant parseRfc3339(String s) {
+        Matcher m = RFC3339.matcher(s);
+        if (!m.matches()) {
+            return null;
+        }
+        String seconds = m.group(3).equals("60") ? "59" : m.group(3);
+        String fraction = m.group(4) == null ? "" : m.group(4).substring(0, Math.min(10, m.group(4).length()));
+        String offset = m.group(5).equalsIgnoreCase("z") ? "Z" : m.group(5);
+        try {
+            return OffsetDateTime.parse(m.group(1) + "T" + m.group(2) + ":" + seconds + fraction + offset)
+                    .toInstant();
+        } catch (DateTimeParseException e) {
+            return null;
+        }
+    }
+
+    /**
+     * RFC 3339 text in UTC with {@code Z}. Fraction digits come in groups of
+     * three (none, 3, 6 or 9), as the Rust reference writes them.
+     */
+    public static String formatRfc3339(Instant instant) {
+        return DateTimeFormatter.ISO_INSTANT.format(instant);
+    }
+
+    /** A CSIL {@code timestamp}: tag 0 wrapping RFC 3339 text in UTC. */
+    public static Value vtimestamp(Instant instant) {
+        return vtag(0, vtext(formatRfc3339(instant)));
+    }
+
+    /** Decode a CSIL {@code timestamp}. Tag 0 and RFC 3339 text are both required. */
+    public static Instant asTimestamp(Value v) {
+        if (!(v instanceof VTag t) || t.tag() != 0 || !(t.value() instanceof VText text)) {
+            throw new CborDecodeException("expected a CBOR tag-0 RFC 3339 timestamp, got " + describe(v));
+        }
+        Instant parsed = parseRfc3339(text.value());
+        if (parsed == null) {
+            throw new CborDecodeException("invalid RFC 3339 timestamp: " + text.value());
+        }
+        return parsed;
+    }
+
+    public static Instant requireTimestamp(Value map, String key) {
+        return asTimestamp(require(map, key));
+    }
+
+    public static Instant optTimestamp(Value map, String key) {
+        Value v = mapGet(map, key);
+        return v == null ? null : asTimestamp(v);
+    }
+
+    public static void putTimestamp(List<Entry> entries, String key, Instant value) {
+        entries.add(entry(key, vtimestamp(value)));
+    }
+
+    public static void putOptTimestamp(List<Entry> entries, String key, Instant value) {
+        if (value != null) {
+            entries.add(entry(key, vtimestamp(value)));
+        }
+    }
+
+    /**
+     * A timestamp inside a signed tuple payload: a CBOR integer of whole
+     * Unix seconds. A fraction of a second cannot be signed, so this throws
+     * {@link IllegalArgumentException} and does not round.
+     */
+    public static Value signedTime(Instant instant) {
+        if (instant.getNano() != 0) {
+            throw new IllegalArgumentException("a signed timestamp must be a whole number of seconds");
+        }
+        return vint(instant.getEpochSecond());
+    }
+
+    /** {@link #signedTime} for an optional slot: CBOR null when {@code instant} is {@code null}. */
+    public static Value optSignedTime(Instant instant) {
+        return instant == null ? vnull() : signedTime(instant);
+    }
+
+    // -----------------------------------------------------------------
+    // CSIL named-number enums: an unsigned integer on the wire
+    // -----------------------------------------------------------------
+
+    /**
+     * A closed CSIL vocabulary. The SDK keeps each value as its text label in
+     * memory and writes the registered number on the wire. An unknown label
+     * or number is an error.
+     */
+    public static final class WireEnum {
+        private final String name;
+        private final String[] labels;
+        private final long[] numbers;
+
+        /** {@code labels[i]} has wire number {@code numbers[i]}. Apps can declare other CSIL vocabularies the same way. */
+        public WireEnum(String name, String[] labels, long[] numbers) {
+            if (labels.length != numbers.length) {
+                throw new IllegalArgumentException(name + ": labels and numbers differ in length");
+            }
+            this.name = name;
+            this.labels = labels.clone();
+            this.numbers = numbers.clone();
+        }
+
+        /** The wire number for {@code label}. */
+        public long number(String label) {
+            for (int i = 0; i < labels.length; i++) {
+                if (labels[i].equals(label)) {
+                    return numbers[i];
+                }
+            }
+            throw new IllegalArgumentException(name + ": unknown value '" + label + "'");
+        }
+
+        /** The text label for wire number {@code n}, or {@code null} when the number is not registered. */
+        public String labelOrNull(long n) {
+            for (int i = 0; i < numbers.length; i++) {
+                if (numbers[i] == n) {
+                    return labels[i];
+                }
+            }
+            return null;
+        }
+
+        public Value encode(String label) {
+            return vint(number(label));
+        }
+
+        public String decode(Value v) {
+            if (!(v instanceof VInt i) || i.value() < 0) {
+                throw new CborDecodeException(name + ": expected an unsigned integer, got " + describe(v));
+            }
+            String label = labelOrNull(i.value());
+            if (label == null) {
+                throw new CborDecodeException(name + ": unknown enum number " + i.value());
+            }
+            return label;
+        }
+    }
+
+    public static final WireEnum KEY_ALGORITHM =
+            new WireEnum("KeyAlgorithm", new String[] {"ed25519", "x25519"}, new long[] {1, 2});
+
+    public static final WireEnum KEY_USAGE =
+            new WireEnum("KeyUsage", new String[] {"sign", "encrypt", "agree"}, new long[] {1, 2, 3});
+
+    /**
+     * AEAD suites, labelled by their text ids. The callback-box KDF context
+     * still binds this text; only the wire field is a number.
+     */
+    public static final WireEnum AEAD_SUITE = new WireEnum(
+            "AeadSuite", new String[] {"aes-256-gcm", "chacha20-poly1305"}, new long[] {1, 2});
 }

@@ -37,6 +37,12 @@ type claim_signer = { domain : string; key_id : string; algorithm : string; priv
 let claim_sign_payload (claim_id : string) (claim_type : string) (claim_value : string) (user_id : string)
     (subject_domain : string) (signing_domain : string) (expires_at : string option) (attested_at : string) : string =
   let subject = Printf.sprintf "%s@%s" user_id subject_domain in
+  (* Signed times are whole Unix seconds (CBOR integers). A fraction of a
+     second was never signed: it is refused, not rounded. *)
+  let expires, attested =
+    try ((match expires_at with Some e -> Cbor.signed_time e | None -> Null), Cbor.signed_time attested_at)
+    with Timeutil.Bad_timestamp msg -> Error.raise_ (Error.Bad_timestamp msg)
+  in
   Cbor.encode
     (Array
        [
@@ -46,8 +52,8 @@ let claim_sign_payload (claim_id : string) (claim_type : string) (claim_value : 
          Bytes claim_value;
          Text subject;
          Text signing_domain;
-         (match expires_at with Some e -> Text e | None -> Null);
-         Text attested_at;
+         expires;
+         attested;
        ])
 
 (* Sign a claim with one or more keys, producing a Claim carrying one

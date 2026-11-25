@@ -222,11 +222,11 @@ function flowEncodeGetDomainKeysResponse(GetDomainKeysResponse $resp): string
             'key_id' => $k->keyId,
             'public_key' => \LinkKeys\LocalRp\Cbor::bytes($k->publicKey),
             'fingerprint' => $k->fingerprint,
-            'algorithm' => $k->algorithm,
-            'key_usage' => $k->keyUsage,
-            'created_at' => $k->createdAt,
-            'expires_at' => $k->expiresAt,
-            'revoked_at' => $k->revokedAt,
+            'algorithm' => Wire::keyAlgorithmToWire($k->algorithm),
+            'key_usage' => Wire::keyUsageToWire($k->keyUsage),
+            'created_at' => Time::toWire($k->createdAt),
+            'expires_at' => Time::toWire($k->expiresAt),
+            'revoked_at' => Time::toWireOptional($k->revokedAt),
         ], $resp->keys),
         'recent_revocations_available' => $resp->recentRevocationsAvailable,
     ]);
@@ -247,12 +247,12 @@ function flowEncodeTicketRedemptionResponse(LocalRpTicketRedemptionResponse $res
                 'signed_by_key_id' => $s->signedByKeyId,
                 'signature' => \LinkKeys\LocalRp\Cbor::bytes($s->signature),
             ], $c->signatures),
-            'attested_at' => $c->attestedAt,
-            'created_at' => $c->createdAt,
-            'expires_at' => $c->expiresAt,
-            'revoked_at' => $c->revokedAt,
+            'attested_at' => Time::toWire($c->attestedAt),
+            'created_at' => Time::toWire($c->createdAt),
+            'expires_at' => Time::toWireOptional($c->expiresAt),
+            'revoked_at' => Time::toWireOptional($c->revokedAt),
         ], $resp->claims),
-        'ticket_expires_at' => $resp->ticketExpiresAt,
+        'ticket_expires_at' => Time::toWire($resp->ticketExpiresAt),
     ]);
 }
 
@@ -262,7 +262,7 @@ function flowEncodeGetRevocationsResponse(array $certs): string
         'revocations' => array_map(fn (RevocationCertificate $c) => [
             'target_key_id' => $c->targetKeyId,
             'target_fingerprint' => $c->targetFingerprint,
-            'revoked_at' => $c->revokedAt,
+            'revoked_at' => Time::toWire($c->revokedAt),
             'signatures' => array_map(fn (ClaimSignature $s) => [
                 'domain' => $s->domain,
                 'signed_by_key_id' => $s->signedByKeyId,

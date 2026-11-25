@@ -14,19 +14,23 @@ public final class RpClient {
     }
 
     public RpSignResponse signRequest(RpSignRequest req) throws ClientException {
-        return CsilCbor.decodeRpSignResponse(transport.call("Rp", "sign-request", CsilCbor.encodeRpSignRequest(req)));
+        WireReply reply = transport.callReply("Rp", "sign-request", CsilCbor.encodeRpSignRequest(req));
+        return CsilCbor.decodeRpSignResponse(CsilCbor.resolveRpcReply("Rp", "sign-request", reply.variant(), reply.payload()));
     }
 
     public RpDecryptResponse decryptToken(RpDecryptRequest req) throws ClientException {
-        return CsilCbor.decodeRpDecryptResponse(transport.call("Rp", "decrypt-token", CsilCbor.encodeRpDecryptRequest(req)));
+        WireReply reply = transport.callReply("Rp", "decrypt-token", CsilCbor.encodeRpDecryptRequest(req));
+        return CsilCbor.decodeRpDecryptResponse(CsilCbor.resolveRpcReply("Rp", "decrypt-token", reply.variant(), reply.payload()));
     }
 
     public RpVerifyResponse verifyAssertion(RpVerifyRequest req) throws ClientException {
-        return CsilCbor.decodeRpVerifyResponse(transport.call("Rp", "verify-assertion", CsilCbor.encodeRpVerifyRequest(req)));
+        WireReply reply = transport.callReply("Rp", "verify-assertion", CsilCbor.encodeRpVerifyRequest(req));
+        return CsilCbor.decodeRpVerifyResponse(CsilCbor.resolveRpcReply("Rp", "verify-assertion", reply.variant(), reply.payload()));
     }
 
     public UserInfo userinfoFetch(RpUserInfoRequest req) throws ClientException {
-        return CsilCbor.decodeUserInfo(transport.call("Rp", "userinfo-fetch", CsilCbor.encodeRpUserInfoRequest(req)));
+        WireReply reply = transport.callReply("Rp", "userinfo-fetch", CsilCbor.encodeRpUserInfoRequest(req));
+        return CsilCbor.decodeUserInfo(CsilCbor.resolveRpcReply("Rp", "userinfo-fetch", reply.variant(), reply.payload()));
     }
 
     public RpIssueAttestationResponse issueAttestation(RpIssueAttestationRequest req) throws ClientException {

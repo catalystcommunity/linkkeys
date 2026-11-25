@@ -16,7 +16,8 @@ from conftest import hex_decode, load_vector
 
 from linkkeys_local_rp import claims as claims_mod
 from linkkeys_local_rp.generated import codec as _codec  # noqa: F401  (attaches to_cbor/from_cbor)
-from linkkeys_local_rp.generated.types import Claim, ClaimSignature, DomainPublicKey
+from linkkeys_local_rp.timeutil import signed_time
+from linkkeys_local_rp.generated.types import Claim, ClaimSignature, DomainPublicKey, KeyAlgorithm, KeyUsage
 
 # All fixture timestamps are fixed 2026-01-01 constants with far-future
 # (2126) or absent expiry; any fixed "now" between issuance and 2126 works
@@ -32,6 +33,13 @@ _ERROR_KIND_BY_CLASS = {
 @pytest.fixture(scope="module")
 def claims_vectors():
     return load_vector("claims.json")
+
+
+def _ts(s):
+    """A vector's RFC 3339 text (or null) as the typed `datetime` field."""
+    if s is None:
+        return None
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
 def _claim_signature_from_case(s: dict) -> ClaimSignature:
@@ -50,10 +58,10 @@ def _claim_from_case(case: dict) -> Claim:
         claim_type=c["claim_type"],
         claim_value=hex_decode(c["claim_value_hex"]),
         signatures=[_claim_signature_from_case(s) for s in c["signatures"]],
-        attested_at=c["attested_at"],
-        created_at=c["created_at"],
-        expires_at=c["expires_at"],
-        revoked_at=c["revoked_at"],
+        attested_at=_ts(c["attested_at"]),
+        created_at=_ts(c["created_at"]),
+        expires_at=_ts(c["expires_at"]),
+        revoked_at=_ts(c["revoked_at"]),
     )
 
 
@@ -62,11 +70,11 @@ def _domain_public_key(k: dict) -> DomainPublicKey:
         key_id=k["key_id"],
         public_key=hex_decode(k["public_key_hex"]),
         fingerprint=k["fingerprint_hex"],
-        algorithm=k["algorithm"],
-        key_usage=k["key_usage"],
-        created_at=k["created_at"],
-        expires_at=k["expires_at"],
-        revoked_at=k["revoked_at"],
+        algorithm=KeyAlgorithm(k["algorithm"]),
+        key_usage=KeyUsage(k["key_usage"]),
+        created_at=_ts(k["created_at"]),
+        expires_at=_ts(k["expires_at"]),
+        revoked_at=_ts(k["revoked_at"]),
         signed_by_key_id=None,
         key_signature=None,
     )
@@ -121,8 +129,8 @@ def test_positive_cases_round_trip_and_verify(claims_vectors):
                 decoded.user_id,
                 case["subject_domain"],
                 sig.domain,
-                decoded.expires_at,
-                decoded.attested_at,
+                None if decoded.expires_at is None else signed_time(decoded.expires_at),
+                signed_time(decoded.attested_at),
             )
             assert payload == hex_decode(sig_case["signed_payload_cbor_hex"]), case["name"]
 
@@ -182,7 +190,7 @@ def test_ticket_redemption_response_round_trips_and_verifies(claims_vectors):
 
     assert decoded.user_id == trr["user_id"]
     assert decoded.user_domain == trr["user_domain"]
-    assert decoded.ticket_expires_at == trr["ticket_expires_at"]
+    assert decoded.ticket_expires_at == _ts(trr["ticket_expires_at"])
 
     expected_claims = [_claim_from_case(c) for c in claims_vectors["cases"]]
     assert decoded.claims == expected_claims
@@ -222,3 +230,17 @@ def test_ticket_redemption_response_with_text_claim_value_is_rejected(claims_vec
 
     with pytest.raises(_codec.CsilDecodeError):
         claims_mod.decode_ticket_redemption_response(wire)
+
+
+def test_fractional_signed_claim_time_fails_verification(claims_vectors):
+    """Signed claim times are whole Unix seconds. A claim whose
+    `attested_at` has a fraction of a second was never signed, so
+    verification fails; it is not rounded to the signed second."""
+    case = claims_vectors["cases"][0]
+    claim = claims_mod.decode_claim(hex_decode(case["claim_cbor_hex"]))
+    domain_keys = _domain_key_sets(claims_vectors["domain_keys"])
+    claims_mod.verify_claim(claim, case["subject_domain"], domain_keys, NOW)
+
+    claim.attested_at = claim.attested_at.replace(microsecond=1)
+    with pytest.raises(claims_mod.BadTimestamp):
+        claims_mod.verify_claim(claim, case["subject_domain"], domain_keys, NOW)

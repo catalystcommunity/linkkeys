@@ -40,12 +40,13 @@ use crate::assertions::check_signing_key_valid;
 use crate::claims::ClaimSigner;
 use crate::crypto::{self, CryptoError, SigningAlgorithm};
 use crate::generated::types::{
-    ApplicationKeyAddition, ApplicationKeyAttestation, ApplicationKeyRenewal,
-    ApplicationKeyRevocation, ApplicationKeySignature, ClaimSignature, DomainPublicKey,
-    SignedApplicationKeyAddition, SignedApplicationKeyAttestation, SignedApplicationKeyRenewal,
+    ApplicationKeyAddition, ApplicationKeyAttestation, ApplicationKeyChallengePurpose,
+    ApplicationKeyRenewal, ApplicationKeyRevocation, ApplicationKeySignature, ClaimSignature,
+    DomainPublicKey, KeyAlgorithm, KeyUsage, SignedApplicationKeyAddition,
+    SignedApplicationKeyAttestation, SignedApplicationKeyRenewal,
 };
 use crate::local_rp::envelope_signature_input;
-use crate::timestamp::Rfc3339 as _;
+use crate::timestamp::SignedTime;
 use std::collections::{BTreeSet, HashSet};
 use std::fmt;
 use time::{Duration, OffsetDateTime};
@@ -129,17 +130,17 @@ pub const DEFAULT_ATTESTATION_LIFETIME_SECONDS: i64 = 86_400;
 pub const DEFAULT_REVOCATION_WINDOW_SECONDS: i64 = 3 * 365 * 86_400;
 
 /// Key use: an Ed25519 signing key.
-pub const KEY_USAGE_SIGN: &str = "sign";
+pub const KEY_USAGE_SIGN: KeyUsage = KeyUsage::Sign;
 /// Key use: an X25519 key-agreement key.
-pub const KEY_USAGE_AGREE: &str = "agree";
+pub const KEY_USAGE_AGREE: KeyUsage = KeyUsage::Agree;
 
 /// Challenge purpose: enrolling or adding a key.
-pub const PURPOSE_ADD: &str = "add";
+pub const PURPOSE_ADD: ApplicationKeyChallengePurpose = ApplicationKeyChallengePurpose::Add;
 /// Challenge purpose: renewing an existing key's attestation.
-pub const PURPOSE_RENEW: &str = "renew";
+pub const PURPOSE_RENEW: ApplicationKeyChallengePurpose = ApplicationKeyChallengePurpose::Renew;
 
-const ALG_ED25519: &str = "ed25519";
-const ALG_X25519: &str = "x25519";
+const ALG_ED25519: KeyAlgorithm = KeyAlgorithm::Ed25519;
+const ALG_X25519: KeyAlgorithm = KeyAlgorithm::X25519;
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -267,13 +268,13 @@ pub struct InstanceRef<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ApplicationKeyRef {
     pub key_id: String,
-    pub key_usage: String,
-    pub algorithm: String,
+    pub key_usage: KeyUsage,
+    pub algorithm: KeyAlgorithm,
     pub public_key: Vec<u8>,
     pub fingerprint: String,
-    pub created_at: String,
-    pub expires_at: String,
-    pub revoked_at: Option<String>,
+    pub created_at: OffsetDateTime,
+    pub expires_at: OffsetDateTime,
+    pub revoked_at: Option<OffsetDateTime>,
 }
 
 impl ApplicationKeyRef {
@@ -285,17 +286,10 @@ impl ApplicationKeyRef {
 
     /// Not revoked and inside its own validity window at `now`.
     pub fn is_valid(&self, now: OffsetDateTime) -> bool {
-        if let Some(r) = &self.revoked_at {
-            match parse_time(r) {
-                Ok(t) if t <= now => return false,
-                Ok(_) => {}
-                Err(_) => return false,
-            }
+        if self.revoked_at.is_some_and(|r| r <= now) {
+            return false;
         }
-        match parse_time(&self.expires_at) {
-            Ok(exp) => exp > now,
-            Err(_) => false,
-        }
+        self.expires_at > now
     }
 
     /// Was this key able to authorize something at `at`? Used when checking a
@@ -303,28 +297,7 @@ impl ApplicationKeyRef {
     /// authorized the revocation, and a verifier must still be able to confirm
     /// that after the signer itself expires.
     pub fn was_valid_at(&self, at: OffsetDateTime) -> bool {
-        if let Ok(created) = parse_time(&self.created_at) {
-            if created > at {
-                return false;
-            }
-        }
-        if let Ok(exp) = parse_time(&self.expires_at) {
-            if exp <= at {
-                return false;
-            }
-        } else {
-            return false;
-        }
-        if let Some(r) = &self.revoked_at {
-            if let Ok(rev) = parse_time(r) {
-                if rev <= at {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
-        true
+        self.created_at <= at && self.expires_at > at && !self.revoked_at.is_some_and(|r| r <= at)
     }
 }
 
@@ -380,7 +353,7 @@ pub fn revocation_payload(
     instance_id: &str,
     target_key_id: &str,
     target_fingerprint: &str,
-    revoked_at: &str,
+    revoked_at: SignedTime,
 ) -> Vec<u8> {
     let tuple = (
         REVOCATION_TAG,
@@ -398,59 +371,72 @@ pub fn revocation_payload(
     out
 }
 
-fn revocation_payload_of(rev: &ApplicationKeyRevocation) -> Vec<u8> {
-    revocation_payload(
+fn revocation_payload_of(rev: &ApplicationKeyRevocation) -> Result<Vec<u8>, ApplicationKeyError> {
+    let revoked_at = SignedTime::new(&rev.revoked_at)
+        .map_err(|e| ApplicationKeyError::BadTimestamp(e.to_string()))?;
+    Ok(revocation_payload(
         &rev.subject_user_id,
         &rev.subject_domain,
         &rev.application_id,
         &rev.instance_id,
         &rev.target_key_id,
         &rev.target_fingerprint,
-        &rev.revoked_at,
-    )
+        revoked_at,
+    ))
 }
 
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
 
+#[cfg(test)]
 fn parse_time(s: &str) -> Result<OffsetDateTime, ApplicationKeyError> {
     crate::timestamp::parse_rfc3339(s).map_err(|e| ApplicationKeyError::BadTimestamp(e.to_string()))
 }
 
 /// The algorithm a key use requires. Ed25519 keys sign; X25519 keys do key
 /// agreement and can do nothing else.
-fn expected_algorithm(key_usage: &str) -> Option<&'static str> {
+fn expected_algorithm(key_usage: &KeyUsage) -> Option<KeyAlgorithm> {
     match key_usage {
-        KEY_USAGE_SIGN => Some(ALG_ED25519),
-        KEY_USAGE_AGREE => Some(ALG_X25519),
-        _ => None,
+        KeyUsage::Sign => Some(ALG_ED25519),
+        KeyUsage::Agree => Some(ALG_X25519),
+        KeyUsage::Encrypt => None,
+    }
+}
+
+/// The text of a key use that an application key may not have.
+fn usage_mismatch(got: &KeyUsage) -> ApplicationKeyError {
+    ApplicationKeyError::UsageMismatch {
+        expected: format!(
+            "{} or {}",
+            KEY_USAGE_SIGN.as_str(),
+            KEY_USAGE_AGREE.as_str()
+        ),
+        got: got.as_str().to_string(),
     }
 }
 
 /// Check that a key's stated use, algorithm, and fingerprint are internally
 /// consistent before anything trusts them.
 pub fn check_key_shape(
-    key_usage: &str,
-    algorithm: &str,
+    key_usage: &KeyUsage,
+    algorithm: &KeyAlgorithm,
     public_key: &[u8],
     fingerprint: &str,
 ) -> Result<(), ApplicationKeyError> {
     let Some(expected) = expected_algorithm(key_usage) else {
-        return Err(ApplicationKeyError::UsageMismatch {
-            expected: format!("{KEY_USAGE_SIGN} or {KEY_USAGE_AGREE}"),
-            got: key_usage.to_string(),
-        });
+        return Err(usage_mismatch(key_usage));
     };
-    if algorithm != expected {
+    if *algorithm != expected {
         return Err(ApplicationKeyError::UsageMismatch {
-            expected: expected.to_string(),
-            got: algorithm.to_string(),
+            expected: expected.as_str().to_string(),
+            got: algorithm.as_str().to_string(),
         });
     }
     if public_key.len() != 32 {
         return Err(ApplicationKeyError::Crypto(format!(
-            "{algorithm} public key must be 32 bytes, got {}",
+            "{} public key must be 32 bytes, got {}",
+            algorithm.as_str(),
             public_key.len()
         )));
     }
@@ -491,13 +477,12 @@ fn check_identity(
 }
 
 fn check_window(
-    requested_at: &str,
-    expires_at: &str,
+    requested_at: &OffsetDateTime,
+    expires_at: &OffsetDateTime,
     now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<(), ApplicationKeyError> {
-    let start = parse_time(requested_at)?;
-    let end = parse_time(expires_at)?;
+    let (start, end) = (*requested_at, *expires_at);
     if end <= start {
         return Err(ApplicationKeyError::RequestExpired);
     }
@@ -565,15 +550,14 @@ pub fn build_attestation(
         application_id: instance.application_id.to_string(),
         instance_id: instance.instance_id.to_string(),
         key_id: key.key_id.clone(),
-        key_usage: key.key_usage.clone(),
-        algorithm: key.algorithm.clone(),
+        key_usage: key.key_usage,
+        algorithm: key.algorithm,
         public_key: key.public_key.clone(),
         fingerprint: key.fingerprint.clone(),
-        key_created_at: key.created_at.clone(),
-        key_expires_at: key.expires_at.clone(),
-        attested_at: attested_at.to_rfc3339(),
-        attestation_expires_at: (attested_at + Duration::seconds(attestation_lifetime_seconds))
-            .to_rfc3339(),
+        key_created_at: key.created_at,
+        key_expires_at: key.expires_at,
+        attested_at,
+        attestation_expires_at: attested_at + Duration::seconds(attestation_lifetime_seconds),
     }
 }
 
@@ -585,7 +569,7 @@ pub fn sign_attestation(
     attestation: &ApplicationKeyAttestation,
     signers: &[ClaimSigner<'_>],
 ) -> Result<SignedApplicationKeyAttestation, CryptoError> {
-    let bytes = crate::generated::encode_application_key_attestation(attestation);
+    let bytes = crate::generated::encode_application_key_attestation(attestation)?;
     let message = attestation_signature_input(&bytes);
     let mut signatures = Vec::with_capacity(signers.len());
     for signer in signers {
@@ -672,7 +656,7 @@ pub enum KeyStatus {
     /// The key's own lifetime has passed. Renewal cannot help.
     KeyExpired,
     /// Permanently revoked as of the recorded effective time.
-    Revoked { revoked_at: String },
+    Revoked { revoked_at: OffsetDateTime },
 }
 
 /// One attestation-verified key, with the reason it is or is not usable.
@@ -717,8 +701,8 @@ impl VerifiedApplicationKeySet {
     pub fn key_for_use(
         &self,
         key_id: &str,
-        key_usage: &str,
-        algorithm: &str,
+        key_usage: &KeyUsage,
+        algorithm: &KeyAlgorithm,
     ) -> Result<&ApplicationKeyAttestation, ApplicationKeyError> {
         if self.revoked_key_ids.contains(key_id) {
             return Err(ApplicationKeyError::KeyRevoked(key_id.to_string()));
@@ -736,16 +720,16 @@ impl VerifiedApplicationKeySet {
                 return Err(ApplicationKeyError::KeyRevoked(key_id.to_string()))
             }
         }
-        if found.attestation.key_usage != key_usage {
+        if found.attestation.key_usage != *key_usage {
             return Err(ApplicationKeyError::UsageMismatch {
-                expected: key_usage.to_string(),
-                got: found.attestation.key_usage.clone(),
+                expected: key_usage.as_str().to_string(),
+                got: found.attestation.key_usage.as_str().to_string(),
             });
         }
-        if found.attestation.algorithm != algorithm {
+        if found.attestation.algorithm != *algorithm {
             return Err(ApplicationKeyError::UsageMismatch {
-                expected: algorithm.to_string(),
-                got: found.attestation.algorithm.clone(),
+                expected: algorithm.as_str().to_string(),
+                got: found.attestation.algorithm.as_str().to_string(),
             });
         }
         Ok(&found.attestation)
@@ -753,10 +737,10 @@ impl VerifiedApplicationKeySet {
 
     /// Every currently usable key of one use. All such keys are equal: a
     /// caller may pick any of them, and the returned order carries no meaning.
-    pub fn usable_keys(&self, key_usage: &str) -> Vec<&ApplicationKeyAttestation> {
+    pub fn usable_keys(&self, key_usage: &KeyUsage) -> Vec<&ApplicationKeyAttestation> {
         self.keys
             .iter()
-            .filter(|k| k.is_usable() && k.attestation.key_usage == key_usage)
+            .filter(|k| k.is_usable() && k.attestation.key_usage == *key_usage)
             .map(|k| &k.attestation)
             .collect()
     }
@@ -765,23 +749,20 @@ impl VerifiedApplicationKeySet {
 /// Decide the status of one verified attestation at `now`.
 pub fn classify_key(
     attestation: &ApplicationKeyAttestation,
-    revoked_at: Option<&str>,
+    revoked_at: Option<&OffsetDateTime>,
     now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<KeyStatus, ApplicationKeyError> {
     if let Some(r) = revoked_at {
-        let effective = parse_time(r)?;
-        if effective <= now + Duration::seconds(skew_seconds) {
-            return Ok(KeyStatus::Revoked {
-                revoked_at: r.to_string(),
-            });
+        if *r <= now + Duration::seconds(skew_seconds) {
+            return Ok(KeyStatus::Revoked { revoked_at: *r });
         }
     }
     let skew = Duration::seconds(skew_seconds);
-    if parse_time(&attestation.key_expires_at)? + skew <= now {
+    if attestation.key_expires_at + skew <= now {
         return Ok(KeyStatus::KeyExpired);
     }
-    if parse_time(&attestation.attestation_expires_at)? + skew <= now {
+    if attestation.attestation_expires_at + skew <= now {
         return Ok(KeyStatus::AttestationExpired);
     }
     Ok(KeyStatus::Usable)
@@ -849,7 +830,8 @@ pub fn verify_application_key_set(
     // on, so this set is built first and used as-is below.
     let key_refs: Vec<ApplicationKeyRef> = attested.iter().map(attested_key_ref).collect();
 
-    let mut revoked: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    let mut revoked: std::collections::BTreeMap<String, OffsetDateTime> =
+        std::collections::BTreeMap::new();
     for rev in revocations {
         match verify_revocation(rev, &key_refs, instance) {
             Ok(()) => {
@@ -859,10 +841,10 @@ pub fn verify_application_key_set(
                     .entry(rev.target_key_id.clone())
                     .and_modify(|existing| {
                         if rev.revoked_at < *existing {
-                            *existing = rev.revoked_at.clone();
+                            *existing = rev.revoked_at;
                         }
                     })
-                    .or_insert_with(|| rev.revoked_at.clone());
+                    .or_insert(rev.revoked_at);
             }
             Err(e) => set.rejected.push(RejectedRecord {
                 what: format!("revocation of {}", rev.target_key_id),
@@ -873,7 +855,7 @@ pub fn verify_application_key_set(
 
     for a in attested {
         let revoked_at = revoked.get(&a.key_id).cloned();
-        match classify_key(&a, revoked_at.as_deref(), now, skew_seconds) {
+        match classify_key(&a, revoked_at.as_ref(), now, skew_seconds) {
             Ok(status) => {
                 if let KeyStatus::Revoked { .. } = status {
                     set.revoked_key_ids.insert(a.key_id.clone());
@@ -896,12 +878,12 @@ pub fn verify_application_key_set(
 fn attested_key_ref(a: &ApplicationKeyAttestation) -> ApplicationKeyRef {
     ApplicationKeyRef {
         key_id: a.key_id.clone(),
-        key_usage: a.key_usage.clone(),
-        algorithm: a.algorithm.clone(),
+        key_usage: a.key_usage,
+        algorithm: a.algorithm,
         public_key: a.public_key.clone(),
         fingerprint: a.fingerprint.clone(),
-        created_at: a.key_created_at.clone(),
-        expires_at: a.key_expires_at.clone(),
+        created_at: a.key_created_at,
+        expires_at: a.key_expires_at,
         revoked_at: None,
     }
 }
@@ -920,7 +902,7 @@ pub fn sign_addition(
     quorum_signers: &[ApplicationSigner<'_>],
     new_key_signer: Option<&ApplicationSigner<'_>>,
 ) -> Result<SignedApplicationKeyAddition, CryptoError> {
-    let bytes = crate::generated::encode_application_key_addition(addition);
+    let bytes = crate::generated::encode_application_key_addition(addition)?;
     let quorum_message = addition_signature_input(&bytes);
     let mut signatures = Vec::with_capacity(quorum_signers.len());
     for signer in quorum_signers {
@@ -1056,8 +1038,8 @@ fn check_addition_possession(
     signed: &SignedApplicationKeyAddition,
     addition: &ApplicationKeyAddition,
 ) -> Result<(), ApplicationKeyError> {
-    match addition.key_usage.as_str() {
-        KEY_USAGE_SIGN => {
+    match &addition.key_usage {
+        KeyUsage::Sign => {
             let Some(proof) = &signed.possession_proof else {
                 return Err(ApplicationKeyError::MissingPossessionProof);
             };
@@ -1065,7 +1047,7 @@ fn check_addition_possession(
             crypto::resolve_and_verify(&addition.algorithm, &message, proof, &addition.public_key)
                 .map_err(|_| ApplicationKeyError::BadPossessionProof)
         }
-        KEY_USAGE_AGREE => {
+        KeyUsage::Agree => {
             // An X25519 key cannot sign, so a signature here proves nothing
             // about it and must not be accepted as if it did. Possession is
             // proven by the sealed-challenge plaintext the server checks.
@@ -1074,10 +1056,7 @@ fn check_addition_possession(
             }
             Ok(())
         }
-        other => Err(ApplicationKeyError::UsageMismatch {
-            expected: format!("{KEY_USAGE_SIGN} or {KEY_USAGE_AGREE}"),
-            got: other.to_string(),
-        }),
+        other => Err(usage_mismatch(other)),
     }
 }
 
@@ -1093,7 +1072,7 @@ pub fn sign_renewal(
     signers: &[ApplicationSigner<'_>],
     target_signer: Option<&ApplicationSigner<'_>>,
 ) -> Result<SignedApplicationKeyRenewal, CryptoError> {
-    let bytes = crate::generated::encode_application_key_renewal(renewal);
+    let bytes = crate::generated::encode_application_key_renewal(renewal)?;
     let message = renewal_signature_input(&bytes);
     let mut signatures = Vec::with_capacity(signers.len());
     for signer in signers {
@@ -1163,8 +1142,8 @@ pub fn verify_renewal(
         return Err(ApplicationKeyError::KeyExpired(target.key_id.clone()));
     }
 
-    match target.key_usage.as_str() {
-        KEY_USAGE_SIGN => {
+    match &target.key_usage {
+        KeyUsage::Sign => {
             let Some(proof) = &signed.possession_proof else {
                 return Err(ApplicationKeyError::MissingPossessionProof);
             };
@@ -1176,7 +1155,7 @@ pub fn verify_renewal(
             )
             .map_err(|_| ApplicationKeyError::BadPossessionProof)?;
         }
-        KEY_USAGE_AGREE => {
+        KeyUsage::Agree => {
             if signed.possession_proof.is_some() {
                 return Err(ApplicationKeyError::BadPossessionProof);
             }
@@ -1198,12 +1177,7 @@ pub fn verify_renewal(
                 });
             }
         }
-        other => {
-            return Err(ApplicationKeyError::UsageMismatch {
-                expected: format!("{KEY_USAGE_SIGN} or {KEY_USAGE_AGREE}"),
-                got: other.to_string(),
-            })
-        }
+        other => return Err(usage_mismatch(other)),
     }
     Ok(renewal)
 }
@@ -1221,12 +1195,11 @@ pub fn verify_renewal(
 /// Applications renew when less than half of the lifetime remains, so the
 /// honest client and this rule agree.
 pub fn needs_new_attestation(
-    attested_at: &str,
-    attestation_expires_at: &str,
+    attested_at: &OffsetDateTime,
+    attestation_expires_at: &OffsetDateTime,
     now: OffsetDateTime,
 ) -> Result<bool, ApplicationKeyError> {
-    let start = parse_time(attested_at)?;
-    let end = parse_time(attestation_expires_at)?;
+    let (start, end) = (*attested_at, *attestation_expires_at);
     if end <= start {
         return Ok(true);
     }
@@ -1244,9 +1217,11 @@ pub fn sign_revocation(
     instance: &InstanceRef<'_>,
     target_key_id: &str,
     target_fingerprint: &str,
-    revoked_at: &str,
+    revoked_at: &OffsetDateTime,
     signers: &[ApplicationSigner<'_>],
 ) -> Result<ApplicationKeyRevocation, CryptoError> {
+    let signed_revoked_at =
+        SignedTime::new(revoked_at).map_err(|e| CryptoError::SigningFailed(e.to_string()))?;
     let message = revocation_payload(
         instance.subject_user_id,
         instance.subject_domain,
@@ -1254,7 +1229,7 @@ pub fn sign_revocation(
         instance.instance_id,
         target_key_id,
         target_fingerprint,
-        revoked_at,
+        signed_revoked_at,
     );
     let mut signatures = Vec::with_capacity(signers.len());
     for signer in signers {
@@ -1274,7 +1249,7 @@ pub fn sign_revocation(
         instance_id: instance.instance_id.to_string(),
         target_key_id: target_key_id.to_string(),
         target_fingerprint: target_fingerprint.to_string(),
-        revoked_at: revoked_at.to_string(),
+        revoked_at: *revoked_at,
         signatures,
     })
 }
@@ -1303,7 +1278,7 @@ pub fn verify_revocation(
         &rev.application_id,
         &rev.instance_id,
     )?;
-    let effective = parse_time(&rev.revoked_at)?;
+    let effective = rev.revoked_at;
 
     let Some(target) = keys.iter().find(|k| k.key_id == rev.target_key_id) else {
         return Err(ApplicationKeyError::UnknownKey(rev.target_key_id.clone()));
@@ -1312,7 +1287,7 @@ pub fn verify_revocation(
         return Err(ApplicationKeyError::FingerprintMismatch);
     }
 
-    let message = revocation_payload_of(rev);
+    let message = revocation_payload_of(rev)?;
     let accepted = count_distinct_signers(
         &rev.signatures,
         keys,
@@ -1333,12 +1308,11 @@ pub fn verify_revocation(
 /// [`verify_revocation`]: a domain must not accept a revocation dated in the
 /// future beyond the permitted skew.
 pub fn check_revocation_effective_time(
-    revoked_at: &str,
+    revoked_at: &OffsetDateTime,
     now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<(), ApplicationKeyError> {
-    let effective = parse_time(revoked_at)?;
-    if effective > now + Duration::seconds(skew_seconds) {
+    if *revoked_at > now + Duration::seconds(skew_seconds) {
         return Err(ApplicationKeyError::BadConfiguration(
             "revocation effective time is in the future".to_string(),
         ));
@@ -1355,7 +1329,7 @@ pub fn check_revocation_effective_time(
 /// handshake in which to agree anything. The id still travels inside the
 /// encoding so a future change is detectable rather than silent.
 pub const CHALLENGE_SEAL_SUITE: crate::crypto::AeadSuite =
-    crate::crypto::AeadSuite::ChaCha20Poly1305;
+    crate::crypto::AeadSuite::Chacha20Poly1305;
 
 /// Seal a challenge nonce to a claimed X25519 public key.
 ///
@@ -1378,7 +1352,7 @@ pub fn seal_challenge(
     nonce: &[u8],
     recipient_x25519_public: &[u8; 32],
 ) -> Result<Vec<u8>, ApplicationKeyError> {
-    let sealed = crypto::sealed_box_encrypt(nonce, recipient_x25519_public, CHALLENGE_SEAL_SUITE)?;
+    let sealed = crypto::sealed_box_encrypt(nonce, recipient_x25519_public, &CHALLENGE_SEAL_SUITE)?;
     encode_sealed_challenge(&sealed)
 }
 
@@ -1399,7 +1373,7 @@ pub fn seal_challenge_with_randomness(
     let sealed = crypto::sealed_box_encrypt_with_randomness(
         nonce,
         recipient_x25519_public,
-        CHALLENGE_SEAL_SUITE,
+        &CHALLENGE_SEAL_SUITE,
         ephemeral_secret,
         *aead_nonce,
     )?;
@@ -1409,10 +1383,11 @@ pub fn seal_challenge_with_randomness(
 /// A four-element CBOR array, not a bare concatenation: CBOR framing removes
 /// any question about where each field ends, and needs no canonical
 /// re-serialization in any target language. Shared by [`seal_challenge`] and
-/// [`seal_challenge_with_randomness`].
+/// [`seal_challenge_with_randomness`]. The first element is the `AeadSuite`
+/// number (1 = aes-256-gcm).
 fn encode_sealed_challenge(sealed: &crypto::SealedBox) -> Result<Vec<u8>, ApplicationKeyError> {
     let tuple = (
-        CHALLENGE_SEAL_SUITE.as_str(),
+        CHALLENGE_SEAL_SUITE.to_number(),
         serde_bytes::Bytes::new(&sealed.ephemeral_public_key),
         serde_bytes::Bytes::new(&sealed.nonce),
         serde_bytes::Bytes::new(&sealed.ciphertext),
@@ -1433,13 +1408,13 @@ pub fn open_challenge(
     recipient_x25519_private: &[u8; 32],
 ) -> Result<zeroize::Zeroizing<Vec<u8>>, ApplicationKeyError> {
     let (suite_id, ephemeral, nonce, ciphertext): (
-        String,
+        i64,
         serde_bytes::ByteBuf,
         serde_bytes::ByteBuf,
         serde_bytes::ByteBuf,
     ) = ciborium::de::from_reader(sealed)
         .map_err(|e| ApplicationKeyError::Decode(e.to_string()))?;
-    let suite = crypto::AeadSuite::parse_str(&suite_id).ok_or_else(|| {
+    let suite = crypto::AeadSuite::from_number(suite_id).ok_or_else(|| {
         ApplicationKeyError::Crypto(format!("unknown sealed challenge suite {suite_id}"))
     })?;
     Ok(crypto::sealed_box_decrypt(
@@ -1447,7 +1422,7 @@ pub fn open_challenge(
         &nonce,
         &ciphertext,
         recipient_x25519_private,
-        suite,
+        &suite,
     )?)
 }
 
@@ -1508,8 +1483,8 @@ mod tests {
         key_id: String,
         public_key: Vec<u8>,
         private_key: Vec<u8>,
-        usage: String,
-        algorithm: String,
+        usage: KeyUsage,
+        algorithm: KeyAlgorithm,
     }
 
     fn make_signing_key(id: &str) -> AppKey {
@@ -1518,8 +1493,8 @@ mod tests {
             key_id: id.to_string(),
             public_key: vk.as_bytes().to_vec(),
             private_key: sk.to_bytes().to_vec(),
-            usage: KEY_USAGE_SIGN.to_string(),
-            algorithm: ALG_ED25519.to_string(),
+            usage: KEY_USAGE_SIGN,
+            algorithm: ALG_ED25519,
         }
     }
 
@@ -1529,20 +1504,20 @@ mod tests {
             key_id: id.to_string(),
             public_key,
             private_key,
-            usage: KEY_USAGE_AGREE.to_string(),
-            algorithm: ALG_X25519.to_string(),
+            usage: KEY_USAGE_AGREE,
+            algorithm: ALG_X25519,
         }
     }
 
     fn key_ref(k: &AppKey) -> ApplicationKeyRef {
         ApplicationKeyRef {
             key_id: k.key_id.clone(),
-            key_usage: k.usage.clone(),
-            algorithm: k.algorithm.clone(),
+            key_usage: k.usage,
+            algorithm: k.algorithm,
             public_key: k.public_key.clone(),
             fingerprint: fingerprint(&k.public_key),
-            created_at: "2026-01-01T00:00:00Z".to_string(),
-            expires_at: "2027-01-01T00:00:00Z".to_string(),
+            created_at: at("2026-01-01T00:00:00Z"),
+            expires_at: at("2027-01-01T00:00:00Z"),
             revoked_at: None,
         }
     }
@@ -1553,6 +1528,10 @@ mod tests {
             algorithm: SigningAlgorithm::Ed25519,
             private_key_bytes: &k.private_key,
         }
+    }
+
+    fn at(s: &str) -> OffsetDateTime {
+        parse_time(s).unwrap()
     }
 
     fn now() -> OffsetDateTime {
@@ -1566,15 +1545,15 @@ mod tests {
             application_id: APP.to_string(),
             instance_id: INSTANCE.to_string(),
             key_id: k.key_id.clone(),
-            key_usage: k.usage.clone(),
-            algorithm: k.algorithm.clone(),
+            key_usage: k.usage,
+            algorithm: k.algorithm,
             public_key: k.public_key.clone(),
             fingerprint: fingerprint(&k.public_key),
             requested_key_lifetime_seconds: 31_536_000,
             challenge_id: "chal-1".to_string(),
             challenge: vec![7u8; 32],
-            requested_at: "2026-05-31T23:59:00Z".to_string(),
-            expires_at: "2026-06-01T00:05:00Z".to_string(),
+            requested_at: at("2026-05-31T23:59:00Z"),
+            expires_at: at("2026-06-01T00:05:00Z"),
         }
     }
 
@@ -1585,8 +1564,8 @@ mod tests {
         let sign = make_signing_key("k1");
         let agree = make_agree_key("k2");
         assert!(check_key_shape(
-            KEY_USAGE_SIGN,
-            ALG_ED25519,
+            &KEY_USAGE_SIGN,
+            &ALG_ED25519,
             &sign.public_key,
             &fingerprint(&sign.public_key)
         )
@@ -1595,8 +1574,8 @@ mod tests {
         // so accepting it would create a key that can never make a quorum.
         assert!(matches!(
             check_key_shape(
-                KEY_USAGE_SIGN,
-                ALG_X25519,
+                &KEY_USAGE_SIGN,
+                &ALG_X25519,
                 &agree.public_key,
                 &fingerprint(&agree.public_key)
             ),
@@ -1608,7 +1587,7 @@ mod tests {
     fn a_lying_fingerprint_is_refused() {
         let k = make_signing_key("k1");
         assert_eq!(
-            check_key_shape(KEY_USAGE_SIGN, ALG_ED25519, &k.public_key, "00"),
+            check_key_shape(&KEY_USAGE_SIGN, &ALG_ED25519, &k.public_key, "00"),
             Err(ApplicationKeyError::FingerprintMismatch)
         );
     }
@@ -1706,7 +1685,7 @@ mod tests {
             make_signing_key("c"),
         );
         let mut expired = key_ref(&b);
-        expired.expires_at = "2026-02-01T00:00:00Z".to_string();
+        expired.expires_at = at("2026-02-01T00:00:00Z");
         let existing = vec![key_ref(&a), expired];
         let signed = sign_addition(
             &addition_for(&new),
@@ -1720,7 +1699,7 @@ mod tests {
         );
 
         let mut revoked = key_ref(&b);
-        revoked.revoked_at = Some("2026-03-01T00:00:00Z".to_string());
+        revoked.revoked_at = Some(at("2026-03-01T00:00:00Z"));
         let existing = vec![key_ref(&a), revoked];
         assert_eq!(
             verify_addition(&signed, &existing, &instance(), now(), 300),
@@ -2010,8 +1989,8 @@ mod tests {
             key_id: key_id.to_string(),
             challenge_id: "chal-2".to_string(),
             challenge: vec![9u8; 32],
-            requested_at: "2026-05-31T23:59:00Z".to_string(),
-            expires_at: "2026-06-01T00:05:00Z".to_string(),
+            requested_at: at("2026-05-31T23:59:00Z"),
+            expires_at: at("2026-06-01T00:05:00Z"),
         }
     }
 
@@ -2038,7 +2017,7 @@ mod tests {
     fn a_revoked_key_can_never_be_renewed() {
         let a = make_signing_key("a");
         let mut target = key_ref(&a);
-        target.revoked_at = Some("2026-03-01T00:00:00Z".to_string());
+        target.revoked_at = Some(at("2026-03-01T00:00:00Z"));
         let signed = sign_renewal(&renewal_for("a"), &[], Some(&signer(&a))).unwrap();
         assert_eq!(
             verify_renewal(&signed, &target, &[], &instance(), now(), 300),
@@ -2093,41 +2072,34 @@ mod tests {
 
     #[test]
     fn renewal_above_the_half_life_returns_the_stored_bytes() {
-        let start = "2026-06-01T00:00:00Z";
-        let end = "2026-06-02T00:00:00Z";
+        let start = at("2026-06-01T00:00:00Z");
+        let end = at("2026-06-02T00:00:00Z");
         // Just after issue: more than half the lifetime remains, so no new
         // signature. This is what absorbs a retry or restart storm.
-        assert!(
-            !needs_new_attestation(start, end, parse_time("2026-06-01T01:00:00Z").unwrap())
-                .unwrap()
-        );
-        assert!(
-            !needs_new_attestation(start, end, parse_time("2026-06-01T11:59:59Z").unwrap())
-                .unwrap()
-        );
+        assert!(!needs_new_attestation(&start, &end, at("2026-06-01T01:00:00Z")).unwrap());
+        assert!(!needs_new_attestation(&start, &end, at("2026-06-01T11:59:59Z")).unwrap());
         // At and past the half-life, a new signature is made.
-        assert!(
-            needs_new_attestation(start, end, parse_time("2026-06-01T12:00:00Z").unwrap()).unwrap()
-        );
-        assert!(
-            needs_new_attestation(start, end, parse_time("2026-06-01T18:00:00Z").unwrap()).unwrap()
-        );
+        assert!(needs_new_attestation(&start, &end, at("2026-06-01T12:00:00Z")).unwrap());
+        assert!(needs_new_attestation(&start, &end, at("2026-06-01T18:00:00Z")).unwrap());
     }
 
     #[test]
     fn a_clock_skewed_client_asking_early_still_gets_a_cache_hit() {
         // A client whose clock runs hours fast asks immediately after issue.
         // The server judges by ITS clock, so it returns stored bytes.
-        let start = "2026-06-01T00:00:00Z";
-        let end = "2026-06-02T00:00:00Z";
-        assert!(!needs_new_attestation(start, end, parse_time(start).unwrap()).unwrap());
+        let start = at("2026-06-01T00:00:00Z");
+        let end = at("2026-06-02T00:00:00Z");
+        assert!(!needs_new_attestation(&start, &end, start).unwrap());
     }
 
     #[test]
     fn a_degenerate_attestation_window_always_re_signs() {
-        assert!(
-            needs_new_attestation("2026-06-02T00:00:00Z", "2026-06-01T00:00:00Z", now()).unwrap()
-        );
+        assert!(needs_new_attestation(
+            &at("2026-06-02T00:00:00Z"),
+            &at("2026-06-01T00:00:00Z"),
+            now()
+        )
+        .unwrap());
     }
 
     // --- revocation ------------------------------------------------------
@@ -2141,7 +2113,7 @@ mod tests {
             &instance(),
             &target.key_id,
             &fingerprint(&target.public_key),
-            at,
+            &parse_time(at).unwrap(),
             signers,
         )
         .unwrap()
@@ -2184,7 +2156,7 @@ mod tests {
         let rev = revoke(&t, &[signer(&a), signer(&b)], "2026-06-01T00:00:00Z");
         let mut keys = vec![key_ref(&a), key_ref(&b), key_ref(&t)];
         for k in keys.iter_mut() {
-            k.expires_at = "2026-07-01T00:00:00Z".to_string();
+            k.expires_at = at("2026-07-01T00:00:00Z");
         }
         assert!(verify_revocation(&rev, &keys, &instance()).is_ok());
     }
@@ -2198,7 +2170,7 @@ mod tests {
         );
         let rev = revoke(&t, &[signer(&a), signer(&b)], "2026-06-01T00:00:00Z");
         let mut keys = vec![key_ref(&a), key_ref(&b), key_ref(&t)];
-        keys[1].created_at = "2026-08-01T00:00:00Z".to_string();
+        keys[1].created_at = at("2026-08-01T00:00:00Z");
         assert_eq!(
             verify_revocation(&rev, &keys, &instance()),
             Err(ApplicationKeyError::InsufficientSignatures { got: 1, need: 2 })
@@ -2214,7 +2186,7 @@ mod tests {
         );
         let keys = vec![key_ref(&a), key_ref(&b), key_ref(&t)];
         let mut rev = revoke(&t, &[signer(&a), signer(&b)], "2026-06-01T00:00:00Z");
-        rev.revoked_at = "2026-05-01T00:00:00Z".to_string();
+        rev.revoked_at = at("2026-05-01T00:00:00Z");
         assert!(verify_revocation(&rev, &keys, &instance()).is_err());
     }
 
@@ -2250,8 +2222,8 @@ mod tests {
 
     #[test]
     fn a_future_dated_revocation_is_refused_at_submission() {
-        assert!(check_revocation_effective_time("2026-06-01T00:01:00Z", now(), 300).is_ok());
-        assert!(check_revocation_effective_time("2026-06-01T01:00:00Z", now(), 300).is_err());
+        assert!(check_revocation_effective_time(&at("2026-06-01T00:01:00Z"), now(), 300).is_ok());
+        assert!(check_revocation_effective_time(&at("2026-06-01T01:00:00Z"), now(), 300).is_err());
     }
 
     // --- attestations and the verifier's view ----------------------------
@@ -2276,10 +2248,10 @@ mod tests {
             key_id: d.key_id.clone(),
             public_key: d.public_key.clone(),
             fingerprint: fingerprint(&d.public_key),
-            algorithm: ALG_ED25519.to_string(),
-            key_usage: "sign".to_string(),
-            created_at: String::new(),
-            expires_at: "2030-01-01T00:00:00Z".to_string(),
+            algorithm: ALG_ED25519,
+            key_usage: crate::generated::types::KeyUsage::Sign,
+            created_at: at("2026-01-01T00:00:00Z"),
+            expires_at: at("2030-01-01T00:00:00Z"),
             revoked_at: None,
             signed_by_key_id: None,
             key_signature: None,
@@ -2297,14 +2269,14 @@ mod tests {
 
     fn attest(d: &DomainKey, k: &AppKey, expires: &str) -> SignedApplicationKeyAttestation {
         let mut key = key_ref(k);
-        key.expires_at = "2027-01-01T00:00:00Z".to_string();
+        key.expires_at = at("2027-01-01T00:00:00Z");
         let mut a = build_attestation(
             &instance(),
             &key,
             now(),
             DEFAULT_ATTESTATION_LIFETIME_SECONDS,
         );
-        a.attestation_expires_at = expires.to_string();
+        a.attestation_expires_at = at(expires);
         sign_attestation(&a, &[domain_signer(d)]).unwrap()
     }
 
@@ -2369,9 +2341,9 @@ mod tests {
         let signed = attest(&d, &k, "2026-06-02T00:00:00Z");
         let mut decoded =
             crate::generated::decode_application_key_attestation(&signed.attestation).unwrap();
-        decoded.key_expires_at = "2099-01-01T00:00:00Z".to_string();
+        decoded.key_expires_at = at("2099-01-01T00:00:00Z");
         let tampered = SignedApplicationKeyAttestation {
-            attestation: crate::generated::encode_application_key_attestation(&decoded),
+            attestation: crate::generated::encode_application_key_attestation(&decoded).unwrap(),
             signatures: signed.signatures.clone(),
         };
         assert_eq!(
@@ -2397,7 +2369,7 @@ mod tests {
         assert_eq!(set.keys[0].status, KeyStatus::AttestationExpired);
         assert!(set.revoked_key_ids.is_empty());
         assert_eq!(
-            set.key_for_use("a", KEY_USAGE_SIGN, ALG_ED25519),
+            set.key_for_use("a", &KEY_USAGE_SIGN, &ALG_ED25519),
             Err(ApplicationKeyError::AttestationExpired)
         );
 
@@ -2442,7 +2414,9 @@ mod tests {
             300,
         );
         assert!(before.rejected.is_empty(), "{:?}", before.rejected);
-        assert!(before.key_for_use("t", KEY_USAGE_SIGN, ALG_ED25519).is_ok());
+        assert!(before
+            .key_for_use("t", &KEY_USAGE_SIGN, &ALG_ED25519)
+            .is_ok());
 
         // After it, the key is refused and stays refused.
         let after = verify_application_key_set(
@@ -2455,11 +2429,13 @@ mod tests {
         );
         assert!(after.revoked_key_ids.contains("t"));
         assert_eq!(
-            after.key_for_use("t", KEY_USAGE_SIGN, ALG_ED25519),
+            after.key_for_use("t", &KEY_USAGE_SIGN, &ALG_ED25519),
             Err(ApplicationKeyError::KeyRevoked("t".to_string()))
         );
         // The siblings are unaffected.
-        assert!(after.key_for_use("a", KEY_USAGE_SIGN, ALG_ED25519).is_ok());
+        assert!(after
+            .key_for_use("a", &KEY_USAGE_SIGN, &ALG_ED25519)
+            .is_ok());
     }
 
     #[test]
@@ -2481,7 +2457,7 @@ mod tests {
         );
         assert!(set.revoked_key_ids.is_empty());
         assert_eq!(set.rejected.len(), 1);
-        assert!(set.key_for_use("t", KEY_USAGE_SIGN, ALG_ED25519).is_ok());
+        assert!(set.key_for_use("t", &KEY_USAGE_SIGN, &ALG_ED25519).is_ok());
     }
 
     #[test]
@@ -2497,15 +2473,15 @@ mod tests {
             300,
         );
         assert!(matches!(
-            set.key_for_use("a", KEY_USAGE_AGREE, ALG_X25519),
+            set.key_for_use("a", &KEY_USAGE_AGREE, &ALG_X25519),
             Err(ApplicationKeyError::UsageMismatch { .. })
         ));
         assert!(matches!(
-            set.key_for_use("a", KEY_USAGE_SIGN, ALG_X25519),
+            set.key_for_use("a", &KEY_USAGE_SIGN, &ALG_X25519),
             Err(ApplicationKeyError::UsageMismatch { .. })
         ));
         assert_eq!(
-            set.key_for_use("nope", KEY_USAGE_SIGN, ALG_ED25519),
+            set.key_for_use("nope", &KEY_USAGE_SIGN, &ALG_ED25519),
             Err(ApplicationKeyError::UnknownKey("nope".to_string()))
         );
     }
@@ -2522,7 +2498,7 @@ mod tests {
             ..instance()
         };
         let mut key = key_ref(&k);
-        key.expires_at = "2027-01-01T00:00:00Z".to_string();
+        key.expires_at = at("2027-01-01T00:00:00Z");
         let a = build_attestation(&other, &key, now(), DEFAULT_ATTESTATION_LIFETIME_SECONDS);
         let signed = sign_attestation(&a, &[domain_signer(&d)]).unwrap();
 
@@ -2554,10 +2530,14 @@ mod tests {
             300,
         );
         // Both are equal and both are usable. There is no preferred key.
-        let usable = set.usable_keys(KEY_USAGE_SIGN);
+        let usable = set.usable_keys(&KEY_USAGE_SIGN);
         assert_eq!(usable.len(), 2);
-        assert!(set.key_for_use("old", KEY_USAGE_SIGN, ALG_ED25519).is_ok());
-        assert!(set.key_for_use("new", KEY_USAGE_SIGN, ALG_ED25519).is_ok());
+        assert!(set
+            .key_for_use("old", &KEY_USAGE_SIGN, &ALG_ED25519)
+            .is_ok());
+        assert!(set
+            .key_for_use("new", &KEY_USAGE_SIGN, &ALG_ED25519)
+            .is_ok());
     }
 
     #[test]
@@ -2574,8 +2554,8 @@ mod tests {
         let one = verify_application_key_set(&forward, &[], &dk, &instance(), now(), 300);
         let two = verify_application_key_set(&reversed, &[], &dk, &instance(), now(), 300);
         assert_eq!(one.revoked_key_ids, two.revoked_key_ids);
-        assert_eq!(one.usable_keys(KEY_USAGE_SIGN).len(), 2);
-        assert_eq!(two.usable_keys(KEY_USAGE_SIGN).len(), 2);
+        assert_eq!(one.usable_keys(&KEY_USAGE_SIGN).len(), 2);
+        assert_eq!(two.usable_keys(&KEY_USAGE_SIGN).len(), 2);
     }
 
     #[test]

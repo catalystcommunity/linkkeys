@@ -126,6 +126,13 @@ API-key-authenticated via the envelope's `auth` field
    — redeems the claim ticket via your RP server, which is the only party
    holding the domain key needed to do so.
 
+Each of these four operations replies with status 0 and one of two arms. The
+envelope `variant` names the arm: the success type shown above, or `RpError`
+(`{code, message}`, where `code` is an `RpErrorCode` number). The request
+does not name an application. The RP server uses the application of the
+caller's API key, and the assertion carries it in its required `application`
+field.
+
 This sequencing, including the two application-level checks in step 5
 (assertion nonce matches what you issued, assertion domain matches what you
 expected) mirrors the reference integration at `demoappsite/src/main.rs`,
@@ -172,8 +179,9 @@ from this dependency; see the previous section for why the rest is inlined.
 ### `cbor.ts` — minimal CBOR
 
 Just the major types the `Rp` service's shapes use: unsigned integers, text,
-bytes, booleans, arrays, maps, and tag 24 (the envelope's opaque-payload
-wrapper). Structurally the same shape as this SDK's own
+bytes, booleans, arrays, maps, tag 0 (a CSIL `timestamp`: RFC 3339 text in
+UTC), and tag 24 (the envelope's opaque-payload wrapper). A CSIL enum, for
+example `RpErrorCode`, is an unsigned integer on the wire. Structurally the same shape as this SDK's own
 `src/generated/codec.gen.ts`, independently written.
 
 ```ts
@@ -183,8 +191,9 @@ wrapper). Structurally the same shape as this SDK's own
 // ("exports": {".": "./src/index.ts"} only), so a consuming app cannot
 // `import` it — this is a deliberately small reimplementation of just the
 // CBOR major types the Rp service's request/response shapes use: unsigned
-// integers, text strings, byte strings, booleans, arrays, maps, and tag 24
-// (RFC 8949 §3.4.5.1, used to wrap the opaque envelope `payload`).
+// integers, text strings, byte strings, booleans, arrays, maps, tag 0
+// (RFC 8949 §3.4.1, a CSIL `timestamp`), and tag 24 (RFC 8949 §3.4.5.1,
+// used to wrap the opaque envelope `payload`).
 
 export type CborTag = { readonly tag: number; readonly value: CborValue };
 
@@ -378,6 +387,14 @@ function isCborTag(value: CborValue): value is CborTag {
   );
 }
 
+/** Decode a CSIL `timestamp`: tag 0 wrapping RFC 3339 text in UTC. */
+export function asTimestamp(value: CborValue): Date {
+  if (!isCborTag(value) || value.tag !== 0) throw new Error("expected a tag-0 timestamp");
+  const d = new Date(asString(value.value));
+  if (Number.isNaN(d.getTime())) throw new Error("invalid RFC 3339 timestamp");
+  return d;
+}
+
 /** Wrap opaque payload bytes (themselves a CBOR item) in tag 24. */
 export function tag24(payload: Uint8Array): CborTag {
   return { tag: 24, value: payload };
@@ -509,7 +526,7 @@ import * as nodeCrypto from "node:crypto";
 import net from "node:net";
 import tls from "node:tls";
 import { NodeTransport, type Transport } from "@linkkeys/local-rp";
-import { decodeRpcResponse, encodeRpcRequest, RpcServerError, Status } from "./envelope.ts";
+import { decodeRpcResponse, encodeRpcRequest, RpcServerError, Status, type RpcResponse } from "./envelope.ts";
 
 const MAX_FRAME_SIZE = 1024 * 1024;
 
@@ -637,9 +654,11 @@ function readFrame(socket: tls.TLSSocket): Promise<Uint8Array> {
 /**
  * Call `Rp/<op>` on the app's own RP server over a fresh pinned-TLS
  * connection, authenticated with the API key. Throws `RpcServerError` for a
- * non-Ok transport status, `TlsPinError` for a pin/cert failure.
+ * non-Ok transport status, `TlsPinError` for a pin/cert failure. A status-0
+ * reply comes back with its `variant` (the reply arm) so that the caller can
+ * tell the success arm from the `RpError` arm.
  */
-export async function callRp(config: RpServerConfig, op: string, payload: Uint8Array, transport: Transport = new NodeTransport()): Promise<Uint8Array> {
+export async function callRp(config: RpServerConfig, op: string, payload: Uint8Array, transport: Transport = new NodeTransport()): Promise<RpcResponse> {
   const socket = await dialPinned(transport, config.tcpAddr, config.fingerprints);
   try {
     await sendFrame(socket, encodeRpcRequest("Rp", op, payload, config.apiKey));
@@ -648,7 +667,7 @@ export async function callRp(config: RpServerConfig, op: string, payload: Uint8A
     if (resp.status !== Status.Ok) {
       throw new RpcServerError(resp.status, resp.error ?? "unknown error");
     }
-    return resp.payload;
+    return resp;
   } finally {
     socket.destroy();
   }
@@ -665,9 +684,15 @@ IP literal as TLS SNI, matching `src/rpc.ts`'s `isIpAddressLiteral`.
 
 Field names and wire shapes mirror this SDK's generated
 `src/generated/types.gen.ts`/`codec.gen.ts` (also not exported), trimmed to
-the four ops this flow uses. `RpSignRequest` also has optional
-`requestedClaims`/`flowContext` fields in the full CSIL type; this example
-omits them (the RP server falls back to its own `RP_CLAIMS_CONFIG`) to keep
+the four ops this flow uses. Each of the four ops replies with status 0 and
+one of two arms, named in the envelope `variant`: the success type
+(`RpSignResponse`, `RpDecryptResponse`, `RpVerifyResponse`, or `UserInfo`),
+or `RpError { code: RpErrorCode, message }`. `expectArm` below turns the
+`RpError` arm into a typed `RpOperationError`. `RpSignRequest` has no
+`application_id`: the RP server uses the application of the caller's API
+key. `RpSignRequest` also has optional `requestedClaims`/
+`authenticationRequirements`/`flowContext` fields in the full CSIL type;
+this example omits them (the RP server falls back to its own `RP_CLAIMS_CONFIG`) to keep
 the codec short — extend it the same way `claims`/`signatures` arrays are
 handled below if you need to vary requested claims per call.
 
@@ -681,18 +706,61 @@ handled below if you need to vary requested claims per call.
 // module docs) — trimmed to only the four ops this flow uses:
 // sign-request, decrypt-token, verify-assertion, userinfo-fetch.
 //
-// `RpSignRequest` also has optional `requestedClaims` / `flowContext` fields
-// in the full CSIL type; this example omits them (the RP server falls back
-// to its own `RP_CLAIMS_CONFIG`) to keep the codec short. Add them the same
+// `RpSignRequest` also has optional `requestedClaims` /
+// `authenticationRequirements` / `flowContext` fields in the full CSIL
+// type; this example omits them (the RP server falls back to its own
+// `RP_CLAIMS_CONFIG`) to keep the codec short. Add them the same
 // way `signatures`/`claims` arrays are handled below if your app needs to
 // vary requested claims per call.
 
-import { type CborValue, asArray, asBool, asBytes, asString, decode, encodeValue, mapGet, requireKey } from "./cbor.ts";
+import { type CborValue, asArray, asBool, asBytes, asNumber, asString, asTimestamp, decode, encodeValue, mapGet, requireKey } from "./cbor.ts";
+import type { RpcResponse } from "./envelope.ts";
 import { callRp, type RpServerConfig } from "./rpcTransport.ts";
 import type { Transport } from "@linkkeys/local-rp";
 
 function optString(value: CborValue | undefined): string | undefined {
   return value === undefined ? undefined : asString(value);
+}
+
+function optTimestamp(value: CborValue | undefined): Date | undefined {
+  return value === undefined ? undefined : asTimestamp(value);
+}
+
+// -- the RpError reply arm --
+
+/** `RpErrorCode` labels by wire number (`csil/linkkeys.csil`). */
+const RP_ERROR_CODES = [
+  "not_application_account",
+  "application_mismatch",
+  "application_user_limit",
+  "bad_request",
+  "upstream_failed",
+  "internal",
+] as const;
+export type RpErrorCode = (typeof RP_ERROR_CODES)[number];
+
+/** The RP server answered with the `RpError` arm. */
+export class RpOperationError extends Error {
+  readonly code: RpErrorCode;
+  constructor(code: RpErrorCode, message: string) {
+    super(`RP operation failed (${code}): ${message}`);
+    this.name = "RpOperationError";
+    this.code = code;
+  }
+}
+
+/** Return the payload of the `expected` arm. Throws `RpOperationError` for the `RpError` arm. */
+function expectArm(resp: RpcResponse, expected: string): Uint8Array {
+  if (resp.variant === "RpError") {
+    const v = decode(resp.payload);
+    const code = RP_ERROR_CODES[asNumber(requireKey(v, "code")) - 1];
+    if (code === undefined) throw new Error("RpError carries an unknown code");
+    throw new RpOperationError(code, asString(requireKey(v, "message")));
+  }
+  if (resp.variant !== expected) {
+    throw new Error(`unexpected reply arm: ${resp.variant ?? "(none)"}`);
+  }
+  return resp.payload;
 }
 
 // -- sign-request --
@@ -753,15 +821,31 @@ function encodeRpVerifyRequest(v: RpVerifyRequest): Uint8Array {
   return encodeValue(m);
 }
 
+/** The application the assertion is for (required on every assertion). */
+export interface ApplicationRef {
+  subjectUserId: string;
+  subjectDomain: string;
+  applicationId: string;
+}
+
+function decodeApplicationRef(value: CborValue): ApplicationRef {
+  return {
+    subjectUserId: asString(requireKey(value, "subject_user_id")),
+    subjectDomain: asString(requireKey(value, "subject_domain")),
+    applicationId: asString(requireKey(value, "application_id")),
+  };
+}
+
 export interface IdentityAssertion {
   userId: string;
   domain: string;
   audience: string;
   nonce: string;
-  issuedAt: string;
-  expiresAt: string;
+  issuedAt: Date;
+  expiresAt: Date;
   authorizedClaims: string[];
   displayName?: string;
+  application: ApplicationRef;
 }
 
 function decodeIdentityAssertion(value: CborValue): IdentityAssertion {
@@ -770,10 +854,11 @@ function decodeIdentityAssertion(value: CborValue): IdentityAssertion {
     domain: asString(requireKey(value, "domain")),
     audience: asString(requireKey(value, "audience")),
     nonce: asString(requireKey(value, "nonce")),
-    issuedAt: asString(requireKey(value, "issued_at")),
-    expiresAt: asString(requireKey(value, "expires_at")),
+    issuedAt: asTimestamp(requireKey(value, "issued_at")),
+    expiresAt: asTimestamp(requireKey(value, "expires_at")),
     authorizedClaims: asArray(requireKey(value, "authorized_claims")).map(asString),
     displayName: optString(mapGet(value, "display_name")),
+    application: decodeApplicationRef(requireKey(value, "application")),
   };
 }
 
@@ -828,10 +913,10 @@ export interface Claim {
   claimType: string;
   claimValue: Uint8Array;
   signatures: ClaimSignature[];
-  attestedAt: string;
-  createdAt: string;
-  expiresAt?: string;
-  revokedAt?: string;
+  attestedAt: Date;
+  createdAt: Date;
+  expiresAt?: Date;
+  revokedAt?: Date;
 }
 
 function decodeClaim(value: CborValue): Claim {
@@ -841,10 +926,10 @@ function decodeClaim(value: CborValue): Claim {
     claimType: asString(requireKey(value, "claim_type")),
     claimValue: asBytes(requireKey(value, "claim_value")),
     signatures: asArray(requireKey(value, "signatures")).map(decodeClaimSignature),
-    attestedAt: asString(requireKey(value, "attested_at")),
-    createdAt: asString(requireKey(value, "created_at")),
-    expiresAt: optString(mapGet(value, "expires_at")),
-    revokedAt: optString(mapGet(value, "revoked_at")),
+    attestedAt: asTimestamp(requireKey(value, "attested_at")),
+    createdAt: asTimestamp(requireKey(value, "created_at")),
+    expiresAt: optTimestamp(mapGet(value, "expires_at")),
+    revokedAt: optTimestamp(mapGet(value, "revoked_at")),
   };
 }
 
@@ -868,23 +953,23 @@ function decodeUserInfo(bytes: Uint8Array): UserInfo {
 // -- wrappers: one call each, driven over callRp() --
 
 export async function signRequest(rp: RpServerConfig, req: RpSignRequest, transport?: Transport): Promise<RpSignResponse> {
-  const payload = await callRp(rp, "sign-request", encodeRpSignRequest(req), transport);
-  return decodeRpSignResponse(payload);
+  const resp = await callRp(rp, "sign-request", encodeRpSignRequest(req), transport);
+  return decodeRpSignResponse(expectArm(resp, "RpSignResponse"));
 }
 
 export async function decryptToken(rp: RpServerConfig, req: RpDecryptRequest, transport?: Transport): Promise<RpDecryptResponse> {
-  const payload = await callRp(rp, "decrypt-token", encodeRpDecryptRequest(req), transport);
-  return decodeRpDecryptResponse(payload);
+  const resp = await callRp(rp, "decrypt-token", encodeRpDecryptRequest(req), transport);
+  return decodeRpDecryptResponse(expectArm(resp, "RpDecryptResponse"));
 }
 
 export async function verifyAssertion(rp: RpServerConfig, req: RpVerifyRequest, transport?: Transport): Promise<RpVerifyResponse> {
-  const payload = await callRp(rp, "verify-assertion", encodeRpVerifyRequest(req), transport);
-  return decodeRpVerifyResponse(payload);
+  const resp = await callRp(rp, "verify-assertion", encodeRpVerifyRequest(req), transport);
+  return decodeRpVerifyResponse(expectArm(resp, "RpVerifyResponse"));
 }
 
 export async function fetchUserInfo(rp: RpServerConfig, req: RpUserInfoRequest, transport?: Transport): Promise<UserInfo> {
-  const payload = await callRp(rp, "userinfo-fetch", encodeRpUserInfoRequest(req), transport);
-  return decodeUserInfo(payload);
+  const resp = await callRp(rp, "userinfo-fetch", encodeRpUserInfoRequest(req), transport);
+  return decodeUserInfo(expectArm(resp, "UserInfo"));
 }
 ```
 

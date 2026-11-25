@@ -26,6 +26,8 @@ const int maxClaimSignerDomains = 8;
 /// user_id), so a claim about a user_id at one domain can't be replayed as
 /// the same user_id at another. `signingDomain` is bound per-signature so a
 /// signature from domain A cannot satisfy a claim presented as signed by B.
+/// `expiresAt` and `attestedAt` are signed as whole Unix seconds (CBOR
+/// integers); a fraction of a second throws [ClaimErrorKind.badTimestamp].
 Uint8List claimSignPayload(
   String claimId,
   String claimType,
@@ -33,9 +35,16 @@ Uint8List claimSignPayload(
   String userId,
   String subjectDomain,
   String signingDomain,
-  String? expiresAt,
-  String attestedAt,
+  DateTime? expiresAt,
+  DateTime attestedAt,
 ) {
+  final expiresSecs =
+      expiresAt == null ? null : Rfc3339.signedSeconds(expiresAt);
+  final attestedSecs = Rfc3339.signedSeconds(attestedAt);
+  if ((expiresAt != null && expiresSecs == null) || attestedSecs == null) {
+    throw ClaimError(ClaimErrorKind.badTimestamp,
+        'a signed timestamp must be a whole number of seconds');
+  }
   final subject = '$userId@$subjectDomain';
   return Cbor.encode(Cbor.tuple([
     Cbor.vtext(_claimPayloadTag),
@@ -44,8 +53,8 @@ Uint8List claimSignPayload(
     Cbor.vbytes(claimValue),
     Cbor.vtext(subject),
     Cbor.vtext(signingDomain),
-    Cbor.optTextItem(expiresAt),
-    Cbor.vtext(attestedAt),
+    expiresSecs == null ? Cbor.vnull() : Cbor.vint(expiresSecs),
+    Cbor.vint(attestedSecs),
   ]));
 }
 
@@ -57,8 +66,8 @@ class ClaimSpec {
   final Uint8List claimValue;
   final String userId;
   final String subjectDomain;
-  final String? expiresAt;
-  final String attestedAt;
+  final DateTime? expiresAt;
+  final DateTime attestedAt;
 
   const ClaimSpec({
     required this.claimId,
@@ -109,7 +118,7 @@ Future<Claim> signClaim(ClaimSpec spec, List<ClaimSigner> signers) async {
     claimValue: spec.claimValue,
     signatures: signatures,
     attestedAt: spec.attestedAt,
-    createdAt: Rfc3339.format(DateTime.now().toUtc()),
+    createdAt: Rfc3339.wholeSeconds(DateTime.now()),
     expiresAt: spec.expiresAt,
     revokedAt: null,
   );
@@ -136,24 +145,18 @@ Future<void> _verifyOneClaimSignature(
     throw ClaimError(ClaimErrorKind.keyNotFound, sig.signedByKeyId);
   }
 
-  if (key.keyUsage != 'sign') {
+  if (key.keyUsage != KeyUsage.sign) {
     throw ClaimError(
         ClaimErrorKind.signatureInvalid, 'key is not a signing key');
   }
   if (key.revokedAt != null) {
     throw ClaimError(ClaimErrorKind.keyRevoked, key.keyId);
   }
-  final DateTime expires;
-  try {
-    expires = Rfc3339.parse('expires_at', key.expiresAt);
-  } on LocalRpError {
+  if (DateTime.now().toUtc().isAfter(key.expiresAt)) {
     throw ClaimError(ClaimErrorKind.keyExpired, key.keyId);
   }
-  if (DateTime.now().toUtc().isAfter(expires)) {
-    throw ClaimError(ClaimErrorKind.keyExpired, key.keyId);
-  }
-  if (key.algorithm != 'ed25519') {
-    throw ClaimError(ClaimErrorKind.unsupportedAlgorithm, key.algorithm);
+  if (key.algorithm != KeyAlgorithm.ed25519) {
+    throw ClaimError(ClaimErrorKind.unsupportedAlgorithm, key.algorithm.label);
   }
   if (!await Crypto.verifyEd25519(payload, sig.signature, key.publicKey)) {
     throw ClaimError(ClaimErrorKind.signatureInvalid, null);
@@ -240,13 +243,8 @@ Future<void> verifyClaim(
   if (claim.revokedAt != null) {
     throw ClaimError(ClaimErrorKind.revoked, null);
   }
-  if (claim.expiresAt != null) {
-    final DateTime expires;
-    try {
-      expires = Rfc3339.parse('expires_at', claim.expiresAt!);
-    } on LocalRpError {
-      throw ClaimError(ClaimErrorKind.badExpiry, null);
-    }
+  final expires = claim.expiresAt;
+  if (expires != null) {
     if (DateTime.now().toUtc().isAfter(expires)) {
       throw ClaimError(ClaimErrorKind.expired, null);
     }

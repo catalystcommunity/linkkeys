@@ -7,7 +7,7 @@ import java.util.List;
 public record AppAccessPolicy(
     String id /* wire: "id" */,
     String name /* wire: "name" */,
-    String mode /* wire: "mode" */,
+    AppAccessMode mode /* wire: "mode" */,
     List<String> patterns /* wire: "patterns" */,
     String message /* wire: "message" */,
     List<AppAccessTarget> targets /* wire: "targets" */

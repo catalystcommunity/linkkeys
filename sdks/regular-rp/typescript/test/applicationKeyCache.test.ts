@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 
-import type { ClaimSignature, DomainPublicKey, RpResolveApplicationKeysResponse } from "../generated/types.gen.ts";
+import type { ClaimSignature, DomainPublicKey, RpCacheStatus, RpResolveApplicationKeysResponse } from "../generated/types.gen.ts";
 import {
   ApplicationKeyClientCache,
   resolveApplicationKeys,
@@ -35,9 +35,9 @@ function domainKeyFrom(v: any): DomainPublicKey {
     fingerprint: v.fingerprint,
     algorithm: v.algorithm,
     keyUsage: v.key_usage,
-    createdAt: v.created_at,
-    expiresAt: v.expires_at,
-    revokedAt: v.revoked_at ?? undefined,
+    createdAt: new Date(v.created_at),
+    expiresAt: new Date(v.expires_at),
+    revokedAt: v.revoked_at ? new Date(v.revoked_at) : undefined,
   };
 }
 
@@ -56,7 +56,7 @@ const instance: InstanceIdentity = {
   instanceId: vectors.instance.instance_id,
 };
 
-function cannedResponse(cacheStatus: string): RpResolveApplicationKeysResponse {
+function cannedResponse(cacheStatus: RpCacheStatus): RpResolveApplicationKeysResponse {
   const signatures: ClaimSignature[] = positiveCase.signed.signatures.map(
     (sig: any): ClaimSignature => ({
       domain: sig.domain,
@@ -73,8 +73,8 @@ function cannedResponse(cacheStatus: string): RpResolveApplicationKeysResponse {
     applicationKeyRevocations: [],
     homeDomainKeys: positiveCase.domain_keys.map(domainKeyFrom),
     homeDomainKeyRevocations: [],
-    fetchedAt: new Date().toISOString(),
-    revocationsCheckedAt: new Date().toISOString(),
+    fetchedAt: new Date(),
+    revocationsCheckedAt: new Date(),
     cacheStatus,
   };
 }

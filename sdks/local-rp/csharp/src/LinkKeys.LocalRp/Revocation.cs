@@ -21,14 +21,14 @@ public static class Revocation
 
     /// <summary>
     /// The canonical signed bytes: the tag, the target key id + fingerprint, the
-    /// revocation instant, and the signing sibling's domain (bound per-signature to stop
+    /// revocation instant (whole Unix seconds as a CBOR integer), and the signing sibling's domain (bound per-signature to stop
     /// cross-domain reuse of a signature). This is the OLDER house tuple pattern — a
     /// five-element array with the domain-separation tag first — NOT the two-element
     /// <c>CBOR([context, payload])</c> envelope framing the four local-RP structures use.
     /// </summary>
-    internal static byte[] RevocationPayload(string targetKeyId, string targetFingerprint, string revokedAt, string signingDomain) =>
+    internal static byte[] RevocationPayload(string targetKeyId, string targetFingerprint, long revokedAtUnixSeconds, string signingDomain) =>
         Cbor.Encode(Cbor.Tuple(
-            Cbor.VTextOf(Tag), Cbor.VTextOf(targetKeyId), Cbor.VTextOf(targetFingerprint), Cbor.VTextOf(revokedAt),
+            Cbor.VTextOf(Tag), Cbor.VTextOf(targetKeyId), Cbor.VTextOf(targetFingerprint), Cbor.VInteger(revokedAtUnixSeconds),
             Cbor.VTextOf(signingDomain)));
 
     /// <summary>
@@ -55,6 +55,14 @@ public static class Revocation
     /// </summary>
     internal static int CountValidSigners(RevocationCertificate cert, IReadOnlyList<DomainPublicKey> domainKeys, string domain)
     {
+        // revoked_at is signed as whole Unix seconds. A fraction of a second cannot be
+        // signed, so no signature over it can count.
+        if (cert.RevokedAt.UtcTicks % TimeSpan.TicksPerSecond != 0)
+        {
+            return 0;
+        }
+
+        long revokedAt = cert.RevokedAt.ToUnixTimeSeconds();
         var validSigners = new HashSet<string>();
 
         foreach (var sig in cert.Signatures)
@@ -87,7 +95,7 @@ public static class Revocation
                 continue;
             }
 
-            var payload = RevocationPayload(cert.TargetKeyId, cert.TargetFingerprint, cert.RevokedAt, sig.Domain);
+            var payload = RevocationPayload(cert.TargetKeyId, cert.TargetFingerprint, revokedAt, sig.Domain);
             if (key.Algorithm == "ed25519" && key.PublicKey.Length == 32 && Crypto.Crypto.VerifyEd25519(payload, sig.Signature, key.PublicKey))
             {
                 validSigners.Add(sig.SignedByKeyId);

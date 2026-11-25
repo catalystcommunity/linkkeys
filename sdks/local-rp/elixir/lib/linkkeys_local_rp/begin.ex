@@ -182,8 +182,8 @@ defmodule LinkkeysLocalRp.Begin do
     required_claims = Map.get(config, :required_claims) || @default_required_claims
     lifetime = Map.get(config, :request_lifetime_seconds) || @default_login_request_lifetime_seconds
 
-    issued_at = Timeutil.to_rfc3339(now)
-    expires_at = Timeutil.to_rfc3339(DateTime.add(now, lifetime, :second))
+    issued_at = Timeutil.whole_seconds(now)
+    expires_at = Timeutil.whole_seconds(DateTime.add(now, lifetime, :second))
 
     %LocalRpKeyMaterial{} = key_material
 

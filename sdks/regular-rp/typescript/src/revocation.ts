@@ -3,8 +3,9 @@
 // `fetchDomainKeys` (src/rpc.ts) uses this to drop keys a quorum-verified
 // revocation certificate targets.
 
-import { encodeCborTuple, text } from "./cborTuple.ts";
+import { encodeCborTuple, int, text } from "./cborTuple.ts";
 import { verifyEd25519 } from "./crypto.ts";
+import { signedSeconds, SignedTimeError } from "./signedTime.ts";
 import type { DomainPublicKey, RevocationCertificate } from "../generated/types.gen.ts";
 
 /** Minimum number of distinct sibling signatures required to revoke a key. */
@@ -18,7 +19,9 @@ export const REVOCATION_TAG = "linkkeys-key-revocation-v1alpha";
  * `CBOR([tag, target_key_id, target_fingerprint, revoked_at,
  * signing_domain])` — a FIVE-element CBOR array with the domain-separation
  * tag first (the older house tuple pattern; NOT the local-RP envelopes'
- * two-element `CBOR([context, payload])` framing). The signing domain is
+ * two-element `CBOR([context, payload])` framing). `revoked_at` is a CBOR
+ * integer of whole Unix seconds; a time with a fraction of a second throws
+ * `SignedTimeError`, because it was never signed. The signing domain is
  * bound per-signature so a signature can never be replayed for another
  * domain. Exported so conformance tests can byte-compare against
  * `revocations.json`'s `signed_payload_cbor_hex`.
@@ -26,21 +29,21 @@ export const REVOCATION_TAG = "linkkeys-key-revocation-v1alpha";
 export function revocationPayload(
   targetKeyId: string,
   targetFingerprint: string,
-  revokedAt: string,
+  revokedAt: Date,
   signingDomain: string,
 ): Uint8Array {
   return encodeCborTuple([
     text(REVOCATION_TAG),
     text(targetKeyId),
     text(targetFingerprint),
-    text(revokedAt),
+    int(signedSeconds(revokedAt)),
     text(signingDomain),
   ]);
 }
 
 function signingKeyValidity(key: DomainPublicKey, now: Date): "valid" | "revoked" | "expired" {
   if (key.revokedAt !== undefined) return "revoked";
-  const expires = new Date(key.expiresAt);
+  const expires = key.expiresAt;
   if (Number.isNaN(expires.getTime())) return "expired";
   return now.getTime() > expires.getTime() ? "expired" : "valid";
 }
@@ -68,6 +71,13 @@ export function countRevocationCertificateSigners(
   now: Date = new Date(),
 ): number {
   const validSigners = new Set<string>();
+  // A revocation time with a fraction of a second was never signed.
+  try {
+    signedSeconds(cert.revokedAt);
+  } catch (e) {
+    if (e instanceof SignedTimeError) return 0;
+    throw e;
+  }
 
   for (const sig of cert.signatures) {
     // A key can never authorize its own revocation.

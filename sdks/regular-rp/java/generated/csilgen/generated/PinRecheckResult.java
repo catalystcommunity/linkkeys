@@ -4,6 +4,7 @@ package csilgen.generated;
 
 public record PinRecheckResult(
     String domain /* wire: "domain" */,
-    String outcome /* wire: "outcome" */
+    PinRecheckOutcome outcome /* wire: "outcome" */,
+    String message /* wire: "message" */
 ) {
 }

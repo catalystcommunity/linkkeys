@@ -5,7 +5,7 @@ package csilgen.generated;
 import java.util.List;
 
 public record AlgorithmSupport(
-    List<String> signing /* wire: "signing" */,
-    List<String> encryption /* wire: "encryption" */
+    List<KeyAlgorithm> signing /* wire: "signing" */,
+    List<AeadSuite> encryption /* wire: "encryption" */
 ) {
 }

@@ -18,7 +18,7 @@ from . import crypto
 from .generated import codec as _codec  # noqa: F401  (side effect: attaches to_cbor/from_cbor)
 from .generated.codec import cbor_encode
 from .generated.types import Claim, ClaimSignature, LocalRpTicketRedemptionResponse
-from .timeutil import parse_rfc3339
+from .timeutil import signed_time
 
 CLAIM_PAYLOAD_TAG = "linkkeys-claim-v1alpha"
 
@@ -69,6 +69,11 @@ class BadExpiry(ClaimError):
     pass
 
 
+class BadTimestamp(ClaimError):
+    """A claim timestamp cannot be a signed time (for example it has a
+    fraction of a second), so no signature can cover it."""
+
+
 class Unsigned(ClaimError):
     pass
 
@@ -98,8 +103,8 @@ class ClaimSpec:
     claim_value: bytes
     user_id: str
     subject_domain: str
-    attested_at: str
-    expires_at: Optional[str] = None
+    attested_at: datetime
+    expires_at: Optional[datetime] = None
 
 
 @dataclass
@@ -117,10 +122,13 @@ def claim_sign_payload(
     user_id: str,
     subject_domain: str,
     signing_domain: str,
-    expires_at: Optional[str],
-    attested_at: str,
+    expires_at: Optional[int],
+    attested_at: int,
 ) -> bytes:
-    """The subject is bound as the single full identity
+    """`expires_at` and `attested_at` are signed times: whole Unix seconds
+    (see `timeutil.signed_time`), encoded as CBOR integers.
+
+    The subject is bound as the single full identity
     `user_id@subject_domain` (not the bare user_id), so a claim about a
     user_id at one domain can't be replayed as the same user_id at another.
     `signing_domain` — the attestor for *this* signature — is bound
@@ -139,9 +147,21 @@ def claim_sign_payload(
     return cbor_encode(payload)
 
 
+def _signed_claim_times(expires_at: Optional[datetime], attested_at: datetime):
+    """The signed forms of a claim's times. A time with a fraction of a
+    second was never signed, so it fails here rather than being rounded."""
+    try:
+        signed_expires = signed_time(expires_at) if expires_at is not None else None
+        return signed_expires, signed_time(attested_at)
+    except (ValueError, AttributeError, TypeError) as e:
+        raise BadTimestamp("claim timestamp is not a whole-second signed time") from e
+
+
 def sign_claim(spec: ClaimSpec, signers: List[ClaimSigner]) -> Claim:
     """Sign a claim with one or more keys, producing a `Claim` carrying one
-    `ClaimSignature` per signer. IDP-side operation; see module docs."""
+    `ClaimSignature` per signer. IDP-side operation; see module docs.
+    `attested_at` and `expires_at` must be whole seconds."""
+    signed_expires, signed_attested = _signed_claim_times(spec.expires_at, spec.attested_at)
     signatures = []
     for signer in signers:
         payload = claim_sign_payload(
@@ -151,8 +171,8 @@ def sign_claim(spec: ClaimSpec, signers: List[ClaimSigner]) -> Claim:
             spec.user_id,
             spec.subject_domain,
             signer.domain,
-            spec.expires_at,
-            spec.attested_at,
+            signed_expires,
+            signed_attested,
         )
         signature = crypto.sign_with_algorithm(signer.algorithm, payload, signer.private_key_bytes)
         signatures.append(
@@ -176,7 +196,7 @@ def _verify_one_signature(sig: ClaimSignature, payload: bytes, keys: list, now: 
     key = next((k for k in keys if k.key_id == sig.signed_by_key_id), None)
     if key is None:
         raise KeyNotFound(sig.signed_by_key_id)
-    if key.key_usage != "sign":
+    if not crypto.is_signing_key(key.key_usage):
         raise SignatureInvalid("key is not a signing key")
 
     # This gates the SIGNING KEY's own revocation/expiry (not the claim's,
@@ -207,6 +227,8 @@ def verify_claim_signatures(claim: Claim, subject_domain: str, domain_keys: List
     if not claim.signatures:
         raise Unsigned("claim has no signatures")
 
+    signed_expires, signed_attested = _signed_claim_times(claim.expires_at, claim.attested_at)
+
     domains = sorted({sig.domain for sig in claim.signatures})
     for signing_domain in domains:
         key_set = next((s for s in domain_keys if s.domain == signing_domain), None)
@@ -220,8 +242,8 @@ def verify_claim_signatures(claim: Claim, subject_domain: str, domain_keys: List
             claim.user_id,
             subject_domain,
             signing_domain,
-            claim.expires_at,
-            claim.attested_at,
+            signed_expires,
+            signed_attested,
         )
 
         last_err: ClaimError = DomainUnverified(signing_domain)
@@ -247,11 +269,9 @@ def verify_claim(claim: Claim, subject_domain: str, domain_keys: List[DomainKeyS
     if claim.revoked_at is not None:
         raise Revoked("claim has been revoked")
     if claim.expires_at is not None:
-        try:
-            expires = parse_rfc3339(claim.expires_at)
-        except ValueError as e:
-            raise BadExpiry("claim has an invalid expires_at") from e
-        if now > expires:
+        if claim.expires_at.tzinfo is None:
+            raise BadExpiry("claim has an invalid expires_at")
+        if now > claim.expires_at:
             raise Expired("claim has expired")
 
 

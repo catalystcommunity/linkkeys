@@ -11,7 +11,6 @@ use liblinkkeys::auth_request::{build_auth_request, sign_auth_request};
 use liblinkkeys::crypto::{self, SigningAlgorithm};
 use liblinkkeys::encoding::signed_auth_request_to_url_param;
 use liblinkkeys::generated::types::AuthRequest;
-use liblinkkeys::timestamp::Rfc3339 as _;
 use linkkeys::web::{validate_signed_request, ValidateAuthRequestError};
 use time::{Duration, OffsetDateTime};
 
@@ -45,6 +44,18 @@ fn mint_signed_request(request: &AuthRequest, key_id: &str, sk_bytes: &[u8]) -> 
     signed_auth_request_to_url_param(&signed).unwrap()
 }
 
+/// An application principal of the test relying party.
+fn rp_app() -> liblinkkeys::generated::types::RelyingPartyApplication {
+    liblinkkeys::generated::types::RelyingPartyApplication {
+        application: liblinkkeys::generated::types::ApplicationRef {
+            subject_user_id: "00000000-0000-0000-0000-0000000000ab".to_string(),
+            subject_domain: TEST_DOMAIN.to_string(),
+            application_id: "app".to_string(),
+        },
+        display_name: "App".to_string(),
+    }
+}
+
 #[rocket::async_test]
 async fn validates_self_rp_subdomain_callback() {
     // The longhouse regression: IDP/RP are todandlorna.com, app is at
@@ -58,6 +69,7 @@ async fn validates_self_rp_subdomain_callback() {
         &key_id,
         None,
         None,
+        rp_app(),
     );
     let param = mint_signed_request(&request, &key_id, &sk_bytes);
 
@@ -87,6 +99,7 @@ async fn returns_trusted_cbor_values_only() {
         &key_id,
         None,
         None,
+        rp_app(),
     );
     let param = mint_signed_request(&request, &key_id, &sk_bytes);
 
@@ -108,6 +121,7 @@ async fn rejects_tampered_signature() {
         &key_id,
         None,
         None,
+        rp_app(),
     );
     // Tamper the signature bytes (not the request bytes): keeps the CBOR
     // valid so the unverified preview decode succeeds, but breaks the
@@ -138,6 +152,7 @@ async fn rejects_request_with_tampered_payload_bytes() {
         &key_id,
         None,
         None,
+        rp_app(),
     );
     let mut signed =
         sign_auth_request(&request, &key_id, SigningAlgorithm::Ed25519, &sk_bytes).unwrap();
@@ -164,13 +179,13 @@ async fn rejects_expired_request() {
         relying_party: TEST_DOMAIN.to_string(),
         callback_url: "https://todandlorna.com/cb".to_string(),
         nonce: "n".to_string(),
-        timestamp: (OffsetDateTime::now_utc() - Duration::seconds(600)).to_rfc3339(),
+        timestamp: OffsetDateTime::now_utc() - Duration::seconds(600),
         signing_key_id: key_id.clone(),
         requested_claims: None,
         authentication_requirements: None,
         flow_context: None,
         relying_party_claims: None,
-        application: None,
+        application: rp_app(),
     };
     let param = mint_signed_request(&request, &key_id, &sk_bytes);
 
@@ -192,15 +207,16 @@ async fn accepts_signed_callback_outside_rp_domain() {
         &key_id,
         None,
         None,
+        rp_app(),
     );
-    request.application = Some(liblinkkeys::generated::types::RelyingPartyApplication {
+    request.application = liblinkkeys::generated::types::RelyingPartyApplication {
         application: liblinkkeys::generated::types::ApplicationRef {
             subject_user_id: "00000000-0000-0000-0000-0000000000aa".to_string(),
             subject_domain: TEST_DOMAIN.to_string(),
             application_id: "homegrafana".to_string(),
         },
         display_name: "Home Grafana".to_string(),
-    });
+    };
     let param = mint_signed_request(&request, &key_id, &sk_bytes);
 
     let validated = validate_signed_request(&pool, &common::net::offline_net(), &param)
@@ -208,8 +224,8 @@ async fn accepts_signed_callback_outside_rp_domain() {
         .expect("a signed off-domain https callback is accepted");
     assert_eq!(validated.relying_party, TEST_DOMAIN);
     assert_eq!(
-        validated.application.map(|a| a.application.application_id),
-        Some("homegrafana".to_string())
+        validated.application.application.application_id,
+        "homegrafana"
     );
 }
 
@@ -224,15 +240,16 @@ async fn rejects_application_of_another_domain() {
         &key_id,
         None,
         None,
+        rp_app(),
     );
-    request.application = Some(liblinkkeys::generated::types::RelyingPartyApplication {
+    request.application = liblinkkeys::generated::types::RelyingPartyApplication {
         application: liblinkkeys::generated::types::ApplicationRef {
             subject_user_id: "00000000-0000-0000-0000-0000000000aa".to_string(),
             subject_domain: "other.example".to_string(),
             application_id: "app".to_string(),
         },
         display_name: "App".to_string(),
-    });
+    };
     let param = mint_signed_request(&request, &key_id, &sk_bytes);
 
     let err = validate_signed_request(&pool, &common::net::offline_net(), &param)
@@ -251,6 +268,7 @@ async fn rejects_callback_with_userinfo() {
         &key_id,
         None,
         None,
+        rp_app(),
     );
     let param = mint_signed_request(&request, &key_id, &sk_bytes);
 
@@ -270,6 +288,7 @@ async fn rejects_non_https_callback() {
         &key_id,
         None,
         None,
+        rp_app(),
     );
     let param = mint_signed_request(&request, &key_id, &sk_bytes);
 

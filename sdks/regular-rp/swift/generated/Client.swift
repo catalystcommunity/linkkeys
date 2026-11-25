@@ -3,13 +3,13 @@
 
 /// A structured error from a generated client call: a service-returned error
 /// (code/message), or a transport-level failure.
-public struct CsilClientError: Error, Equatable {
-    public let code: Int64
-    public let message: String
-    public init(code: Int64, message: String) {
-        self.code = code
-        self.message = message
-    }
+public struct CsilClientError: Swift.Error, Equatable {
+  public let code: Int64
+  public let message: String
+  public init(code: Int64, message: String) {
+    self.code = code
+    self.message = message
+  }
 }
 
 /// The caller-supplied byte carrier: it performs the call named by (service, op)
@@ -17,826 +17,1490 @@ public struct CsilClientError: Error, Equatable {
 /// throws. Synchronous and blocking — the host owns the I/O loop. The generated
 /// client owns (de)serialization; the carrier only moves bytes.
 public protocol CsilTransport {
-    func call(service: String, op: String, request: [UInt8]) throws -> [UInt8]
+  func call(service: String, op: String, request: [UInt8]) throws -> [UInt8]
+  /// Performs a call for an operation with more than one reply arm and returns
+  /// the reply variant (nil when absent) with the payload bytes.
+  func callReply(
+    service: String,
+    op: String,
+    request: [UInt8]
+  ) throws -> (variant: String?, payload: [UInt8])
 }
 
 /// OpsClient is a typed client for the Ops service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct OpsClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func healthcheck(_ request: EmptyRequest) throws -> CheckResult {
-        let csilResp = try transport.call(service: "Ops", op: "healthcheck", request: request.toCbor())
-        return try CheckResult.fromCbor(csilResp)
-    }
+  public func healthcheck(_ request: EmptyRequest) throws -> CheckResult {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Ops", op: "healthcheck", request: csilRequest)
+    return try CheckResult.fromCbor(csilResp)
+  }
 
-    public func readiness(_ request: EmptyRequest) throws -> CheckResult {
-        let csilResp = try transport.call(service: "Ops", op: "readiness", request: request.toCbor())
-        return try CheckResult.fromCbor(csilResp)
-    }
+  public func readiness(_ request: EmptyRequest) throws -> CheckResult {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Ops", op: "readiness", request: csilRequest)
+    return try CheckResult.fromCbor(csilResp)
+  }
 
 }
 
 /// HelloClient is a typed client for the Hello service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct HelloClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func hello(_ request: HelloRequest) throws -> HelloResponse {
-        let csilResp = try transport.call(service: "Hello", op: "hello", request: request.toCbor())
-        return try HelloResponse.fromCbor(csilResp)
-    }
+  public func hello(_ request: HelloRequest) throws -> HelloResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Hello", op: "hello", request: csilRequest)
+    return try HelloResponse.fromCbor(csilResp)
+  }
 
 }
 
 /// GuestbookClient is a typed client for the Guestbook service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct GuestbookClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func createEntry(_ request: CreateGuestbookRequest) throws -> GuestbookEntry {
-        let csilResp = try transport.call(service: "Guestbook", op: "create-entry", request: request.toCbor())
-        return try GuestbookEntry.fromCbor(csilResp)
-    }
+  public func createEntry(_ request: CreateGuestbookRequest) throws -> GuestbookEntry {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Guestbook",
+      op: "create-entry",
+      request: csilRequest
+    )
+    return try GuestbookEntry.fromCbor(csilResp)
+  }
 
-    public func listEntries(_ request: GuestbookListRequest) throws -> GuestbookListResponse {
-        let csilResp = try transport.call(service: "Guestbook", op: "list-entries", request: request.toCbor())
-        return try GuestbookListResponse.fromCbor(csilResp)
-    }
+  public func listEntries(_ request: GuestbookListRequest) throws -> GuestbookListResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Guestbook",
+      op: "list-entries",
+      request: csilRequest
+    )
+    return try GuestbookListResponse.fromCbor(csilResp)
+  }
 
-    public func updateEntry(_ request: UpdateGuestbookRequest) throws -> GuestbookEntry {
-        let csilResp = try transport.call(service: "Guestbook", op: "update-entry", request: request.toCbor())
-        return try GuestbookEntry.fromCbor(csilResp)
-    }
+  public func updateEntry(_ request: UpdateGuestbookRequest) throws -> GuestbookEntry {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Guestbook",
+      op: "update-entry",
+      request: csilRequest
+    )
+    return try GuestbookEntry.fromCbor(csilResp)
+  }
 
-    public func deleteEntry(_ request: DeleteGuestbookRequest) throws -> DeleteGuestbookResponse {
-        let csilResp = try transport.call(service: "Guestbook", op: "delete-entry", request: request.toCbor())
-        return try DeleteGuestbookResponse.fromCbor(csilResp)
-    }
+  public func deleteEntry(_ request: DeleteGuestbookRequest) throws -> DeleteGuestbookResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Guestbook",
+      op: "delete-entry",
+      request: csilRequest
+    )
+    return try DeleteGuestbookResponse.fromCbor(csilResp)
+  }
 
 }
 
 /// DomainKeysClient is a typed client for the DomainKeys service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct DomainKeysClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func getDomainKeys(_ request: EmptyRequest) throws -> GetDomainKeysResponse {
-        let csilResp = try transport.call(service: "DomainKeys", op: "get-domain-keys", request: request.toCbor())
-        return try GetDomainKeysResponse.fromCbor(csilResp)
-    }
+  public func getDomainKeys(_ request: EmptyRequest) throws -> GetDomainKeysResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "DomainKeys",
+      op: "get-domain-keys",
+      request: csilRequest
+    )
+    return try GetDomainKeysResponse.fromCbor(csilResp)
+  }
 
-    public func getRevocations(_ request: GetRevocationsRequest) throws -> GetRevocationsResponse {
-        let csilResp = try transport.call(service: "DomainKeys", op: "get-revocations", request: request.toCbor())
-        return try GetRevocationsResponse.fromCbor(csilResp)
-    }
+  public func getRevocations(_ request: GetRevocationsRequest) throws -> GetRevocationsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "DomainKeys",
+      op: "get-revocations",
+      request: csilRequest
+    )
+    return try GetRevocationsResponse.fromCbor(csilResp)
+  }
 
 }
 
 /// UserKeysClient is a typed client for the UserKeys service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct UserKeysClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func getUserKeys(_ request: GetUserKeysRequest) throws -> GetUserKeysResponse {
-        let csilResp = try transport.call(service: "UserKeys", op: "get-user-keys", request: request.toCbor())
-        return try GetUserKeysResponse.fromCbor(csilResp)
-    }
+  public func getUserKeys(_ request: GetUserKeysRequest) throws -> GetUserKeysResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "UserKeys",
+      op: "get-user-keys",
+      request: csilRequest
+    )
+    return try GetUserKeysResponse.fromCbor(csilResp)
+  }
 
 }
 
 /// ApplicationKeysClient is a typed client for the ApplicationKeys service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct ApplicationKeysClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func getApplicationKeys(_ request: GetApplicationKeysRequest) throws -> GetApplicationKeysResponse {
-        let csilResp = try transport.call(service: "ApplicationKeys", op: "get-application-keys", request: request.toCbor())
-        return try GetApplicationKeysResponse.fromCbor(csilResp)
-    }
+  public func getApplicationKeys(
+    _ request: GetApplicationKeysRequest
+  ) throws -> GetApplicationKeysResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "ApplicationKeys",
+      op: "get-application-keys",
+      request: csilRequest
+    )
+    return try GetApplicationKeysResponse.fromCbor(csilResp)
+  }
 
-    public func startKeyChallenge(_ request: StartApplicationKeyChallengeRequest) throws -> StartApplicationKeyChallengeResponse {
-        let csilResp = try transport.call(service: "ApplicationKeys", op: "start-key-challenge", request: request.toCbor())
-        return try StartApplicationKeyChallengeResponse.fromCbor(csilResp)
-    }
+  public func startKeyChallenge(
+    _ request: StartApplicationKeyChallengeRequest
+  ) throws -> StartApplicationKeyChallengeResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "ApplicationKeys",
+      op: "start-key-challenge",
+      request: csilRequest
+    )
+    return try StartApplicationKeyChallengeResponse.fromCbor(csilResp)
+  }
 
-    public func addKey(_ request: AddApplicationKeyRequest) throws -> AddApplicationKeyResponse {
-        let csilResp = try transport.call(service: "ApplicationKeys", op: "add-key", request: request.toCbor())
-        return try AddApplicationKeyResponse.fromCbor(csilResp)
-    }
+  public func addKey(_ request: AddApplicationKeyRequest) throws -> AddApplicationKeyResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "ApplicationKeys",
+      op: "add-key",
+      request: csilRequest
+    )
+    return try AddApplicationKeyResponse.fromCbor(csilResp)
+  }
 
-    public func renewAttestation(_ request: RenewApplicationKeyAttestationRequest) throws -> RenewApplicationKeyAttestationResponse {
-        let csilResp = try transport.call(service: "ApplicationKeys", op: "renew-attestation", request: request.toCbor())
-        return try RenewApplicationKeyAttestationResponse.fromCbor(csilResp)
-    }
+  public func renewAttestation(
+    _ request: RenewApplicationKeyAttestationRequest
+  ) throws -> RenewApplicationKeyAttestationResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "ApplicationKeys",
+      op: "renew-attestation",
+      request: csilRequest
+    )
+    return try RenewApplicationKeyAttestationResponse.fromCbor(csilResp)
+  }
 
-    public func revokeKey(_ request: RevokeApplicationKeyRequest) throws -> RevokeApplicationKeyResponse {
-        let csilResp = try transport.call(service: "ApplicationKeys", op: "revoke-key", request: request.toCbor())
-        return try RevokeApplicationKeyResponse.fromCbor(csilResp)
-    }
+  public func revokeKey(
+    _ request: RevokeApplicationKeyRequest
+  ) throws -> RevokeApplicationKeyResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "ApplicationKeys",
+      op: "revoke-key",
+      request: csilRequest
+    )
+    return try RevokeApplicationKeyResponse.fromCbor(csilResp)
+  }
 
 }
 
 /// IdentityClient is a typed client for the Identity service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct IdentityClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func getUserInfo(_ request: SignedUserInfoRequest) throws -> UserInfo {
-        let csilResp = try transport.call(service: "Identity", op: "get-user-info", request: request.toCbor())
-        return try UserInfo.fromCbor(csilResp)
-    }
+  public func getUserInfo(_ request: SignedUserInfoRequest) throws -> UserInfo {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Identity",
+      op: "get-user-info",
+      request: csilRequest
+    )
+    return try UserInfo.fromCbor(csilResp)
+  }
 
 }
 
 /// HandshakeClient is a typed client for the Handshake service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct HandshakeClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func handshake(_ request: HandshakeRequest) throws -> HandshakeResponse {
-        let csilResp = try transport.call(service: "Handshake", op: "handshake", request: request.toCbor())
-        return try HandshakeResponse.fromCbor(csilResp)
-    }
+  public func handshake(_ request: HandshakeRequest) throws -> HandshakeResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Handshake", op: "handshake", request: csilRequest)
+    return try HandshakeResponse.fromCbor(csilResp)
+  }
 
 }
 
 /// I18NClient is a typed client for the I18n service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct I18NClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func getTranslations(_ request: TranslationsRequest) throws -> TranslationsResponse {
-        let csilResp = try transport.call(service: "I18n", op: "get-translations", request: request.toCbor())
-        return try TranslationsResponse.fromCbor(csilResp)
-    }
+  public func getTranslations(_ request: TranslationsRequest) throws -> TranslationsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "I18n", op: "get-translations", request: csilRequest)
+    return try TranslationsResponse.fromCbor(csilResp)
+  }
 
-    public func listLocales(_ request: EmptyRequest) throws -> ListLocalesResponse {
-        let csilResp = try transport.call(service: "I18n", op: "list-locales", request: request.toCbor())
-        return try ListLocalesResponse.fromCbor(csilResp)
-    }
+  public func listLocales(_ request: EmptyRequest) throws -> ListLocalesResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "I18n", op: "list-locales", request: csilRequest)
+    return try ListLocalesResponse.fromCbor(csilResp)
+  }
 
 }
 
 /// UiClient is a typed client for the Ui service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct UiClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func getConfiguration(_ request: EmptyRequest) throws -> GetUiConfigurationResponse {
-        let csilResp = try transport.call(service: "Ui", op: "get-configuration", request: request.toCbor())
-        return try GetUiConfigurationResponse.fromCbor(csilResp)
-    }
+  public func getConfiguration(_ request: EmptyRequest) throws -> GetUiConfigurationResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Ui", op: "get-configuration", request: csilRequest)
+    return try GetUiConfigurationResponse.fromCbor(csilResp)
+  }
 
 }
 
 /// NotificationClient is a typed client for the Notification service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct NotificationClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func getCapabilities(_ request: EmptyRequest) throws -> GetNotificationCapabilitiesResponse {
-        let csilResp = try transport.call(service: "Notification", op: "get-capabilities", request: request.toCbor())
-        return try GetNotificationCapabilitiesResponse.fromCbor(csilResp)
-    }
+  public func getCapabilities(
+    _ request: EmptyRequest
+  ) throws -> GetNotificationCapabilitiesResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Notification",
+      op: "get-capabilities",
+      request: csilRequest
+    )
+    return try GetNotificationCapabilitiesResponse.fromCbor(csilResp)
+  }
 
 }
 
 /// SessionClient is a typed client for the Session service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct SessionClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func loginPassword(_ request: SessionPasswordLoginRequest) throws -> SessionPasswordLoginResponse {
-        let csilResp = try transport.call(service: "Session", op: "login-password", request: request.toCbor())
-        return try SessionPasswordLoginResponse.fromCbor(csilResp)
-    }
+  public func loginPassword(
+    _ request: SessionPasswordLoginRequest
+  ) throws -> SessionPasswordLoginResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Session",
+      op: "login-password",
+      request: csilRequest
+    )
+    return try SessionPasswordLoginResponse.fromCbor(csilResp)
+  }
 
-    public func getCurrent(_ request: EmptyRequest) throws -> SessionCurrentResponse {
-        let csilResp = try transport.call(service: "Session", op: "get-current", request: request.toCbor())
-        return try SessionCurrentResponse.fromCbor(csilResp)
-    }
+  public func getCurrent(_ request: EmptyRequest) throws -> SessionCurrentResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Session", op: "get-current", request: csilRequest)
+    return try SessionCurrentResponse.fromCbor(csilResp)
+  }
 
-    public func logout(_ request: EmptyRequest) throws -> SessionLogoutResponse {
-        let csilResp = try transport.call(service: "Session", op: "logout", request: request.toCbor())
-        return try SessionLogoutResponse.fromCbor(csilResp)
-    }
+  public func logout(_ request: EmptyRequest) throws -> SessionLogoutResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Session", op: "logout", request: csilRequest)
+    return try SessionLogoutResponse.fromCbor(csilResp)
+  }
 
-    public func introspect(_ request: IntrospectBrowserSessionRequest) throws -> IntrospectBrowserSessionResponse {
-        let csilResp = try transport.call(service: "Session", op: "introspect", request: request.toCbor())
-        return try IntrospectBrowserSessionResponse.fromCbor(csilResp)
-    }
+  public func introspect(
+    _ request: IntrospectBrowserSessionRequest
+  ) throws -> IntrospectBrowserSessionResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Session", op: "introspect", request: csilRequest)
+    return try IntrospectBrowserSessionResponse.fromCbor(csilResp)
+  }
 
 }
 
 /// RecoveryClient is a typed client for the Recovery service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct RecoveryClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func requestPasswordRecovery(_ request: RequestPasswordRecoveryRequest) throws -> RequestPasswordRecoveryResponse {
-        let csilResp = try transport.call(service: "Recovery", op: "request-password-recovery", request: request.toCbor())
-        return try RequestPasswordRecoveryResponse.fromCbor(csilResp)
-    }
+  public func requestPasswordRecovery(
+    _ request: RequestPasswordRecoveryRequest
+  ) throws -> RequestPasswordRecoveryResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Recovery",
+      op: "request-password-recovery",
+      request: csilRequest
+    )
+    return try RequestPasswordRecoveryResponse.fromCbor(csilResp)
+  }
 
-    public func validatePasswordRecovery(_ request: ValidatePasswordRecoveryRequest) throws -> ValidatePasswordRecoveryResponse {
-        let csilResp = try transport.call(service: "Recovery", op: "validate-password-recovery", request: request.toCbor())
-        return try ValidatePasswordRecoveryResponse.fromCbor(csilResp)
-    }
+  public func validatePasswordRecovery(
+    _ request: ValidatePasswordRecoveryRequest
+  ) throws -> ValidatePasswordRecoveryResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Recovery",
+      op: "validate-password-recovery",
+      request: csilRequest
+    )
+    return try ValidatePasswordRecoveryResponse.fromCbor(csilResp)
+  }
 
-    public func completePasswordRecovery(_ request: CompletePasswordRecoveryRequest) throws -> CompletePasswordRecoveryResponse {
-        let csilResp = try transport.call(service: "Recovery", op: "complete-password-recovery", request: request.toCbor())
-        return try CompletePasswordRecoveryResponse.fromCbor(csilResp)
-    }
+  public func completePasswordRecovery(
+    _ request: CompletePasswordRecoveryRequest
+  ) throws -> CompletePasswordRecoveryResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Recovery",
+      op: "complete-password-recovery",
+      request: csilRequest
+    )
+    return try CompletePasswordRecoveryResponse.fromCbor(csilResp)
+  }
 
 }
 
 /// BrowserAuthorizationClient is a typed client for the BrowserAuthorization service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct BrowserAuthorizationClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func inspect(_ request: BrowserAuthorizationInspectRequest) throws -> BrowserAuthorizationInspectResponse {
-        let csilResp = try transport.call(service: "BrowserAuthorization", op: "inspect", request: request.toCbor())
-        return try BrowserAuthorizationInspectResponse.fromCbor(csilResp)
-    }
+  public func inspect(
+    _ request: BrowserAuthorizationInspectRequest
+  ) throws -> BrowserAuthorizationInspectResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "BrowserAuthorization",
+      op: "inspect",
+      request: csilRequest
+    )
+    return try BrowserAuthorizationInspectResponse.fromCbor(csilResp)
+  }
 
-    public func complete(_ request: BrowserAuthorizationCompleteRequest) throws -> BrowserAuthorizationCompleteResponse {
-        let csilResp = try transport.call(service: "BrowserAuthorization", op: "complete", request: request.toCbor())
-        return try BrowserAuthorizationCompleteResponse.fromCbor(csilResp)
-    }
+  public func complete(
+    _ request: BrowserAuthorizationCompleteRequest
+  ) throws -> BrowserAuthorizationCompleteResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "BrowserAuthorization",
+      op: "complete",
+      request: csilRequest
+    )
+    return try BrowserAuthorizationCompleteResponse.fromCbor(csilResp)
+  }
 
-    public func inspectActAs(_ request: BrowserActAsInspectRequest) throws -> BrowserActAsInspectResponse {
-        let csilResp = try transport.call(service: "BrowserAuthorization", op: "inspect-act-as", request: request.toCbor())
-        return try BrowserActAsInspectResponse.fromCbor(csilResp)
-    }
+  public func inspectActAs(
+    _ request: BrowserActAsInspectRequest
+  ) throws -> BrowserActAsInspectResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "BrowserAuthorization",
+      op: "inspect-act-as",
+      request: csilRequest
+    )
+    return try BrowserActAsInspectResponse.fromCbor(csilResp)
+  }
 
-    public func completeActAs(_ request: BrowserActAsCompleteRequest) throws -> BrowserActAsCompleteResponse {
-        let csilResp = try transport.call(service: "BrowserAuthorization", op: "complete-act-as", request: request.toCbor())
-        return try BrowserActAsCompleteResponse.fromCbor(csilResp)
-    }
+  public func completeActAs(
+    _ request: BrowserActAsCompleteRequest
+  ) throws -> BrowserActAsCompleteResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "BrowserAuthorization",
+      op: "complete-act-as",
+      request: csilRequest
+    )
+    return try BrowserActAsCompleteResponse.fromCbor(csilResp)
+  }
 
-    public func inspectLocalRp(_ request: BrowserLocalRpInspectRequest) throws -> BrowserLocalRpInspectResponse {
-        let csilResp = try transport.call(service: "BrowserAuthorization", op: "inspect-local-rp", request: request.toCbor())
-        return try BrowserLocalRpInspectResponse.fromCbor(csilResp)
-    }
+  public func inspectLocalRp(
+    _ request: BrowserLocalRpInspectRequest
+  ) throws -> BrowserLocalRpInspectResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "BrowserAuthorization",
+      op: "inspect-local-rp",
+      request: csilRequest
+    )
+    return try BrowserLocalRpInspectResponse.fromCbor(csilResp)
+  }
 
-    public func completeLocalRp(_ request: BrowserLocalRpCompleteRequest) throws -> BrowserLocalRpCompleteResponse {
-        let csilResp = try transport.call(service: "BrowserAuthorization", op: "complete-local-rp", request: request.toCbor())
-        return try BrowserLocalRpCompleteResponse.fromCbor(csilResp)
-    }
+  public func completeLocalRp(
+    _ request: BrowserLocalRpCompleteRequest
+  ) throws -> BrowserLocalRpCompleteResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "BrowserAuthorization",
+      op: "complete-local-rp",
+      request: csilRequest
+    )
+    return try BrowserLocalRpCompleteResponse.fromCbor(csilResp)
+  }
 
 }
 
 /// BrowserIssuerClient is a typed client for the BrowserIssuer service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct BrowserIssuerClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func inspectSigningRequest(_ request: InspectSigningRequestRequest) throws -> InspectSigningRequestResponse {
-        let csilResp = try transport.call(service: "BrowserIssuer", op: "inspect-signing-request", request: request.toCbor())
-        return try InspectSigningRequestResponse.fromCbor(csilResp)
-    }
+  public func inspectSigningRequest(
+    _ request: InspectSigningRequestRequest
+  ) throws -> InspectSigningRequestResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "BrowserIssuer",
+      op: "inspect-signing-request",
+      request: csilRequest
+    )
+    return try InspectSigningRequestResponse.fromCbor(csilResp)
+  }
 
-    public func issueForSigningRequest(_ request: IssueForSigningRequestRequest) throws -> IssueForSigningRequestResponse {
-        let csilResp = try transport.call(service: "BrowserIssuer", op: "issue-for-signing-request", request: request.toCbor())
-        return try IssueForSigningRequestResponse.fromCbor(csilResp)
-    }
+  public func issueForSigningRequest(
+    _ request: IssueForSigningRequestRequest
+  ) throws -> IssueForSigningRequestResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "BrowserIssuer",
+      op: "issue-for-signing-request",
+      request: csilRequest
+    )
+    return try IssueForSigningRequestResponse.fromCbor(csilResp)
+  }
 
 }
 
 /// AdminClient is a typed client for the Admin service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct AdminClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func listUsers(_ request: ListUsersRequest) throws -> ListUsersResponse {
-        let csilResp = try transport.call(service: "Admin", op: "list-users", request: request.toCbor())
-        return try ListUsersResponse.fromCbor(csilResp)
-    }
+  public func listUsers(_ request: ListUsersRequest) throws -> ListUsersResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "list-users", request: csilRequest)
+    return try ListUsersResponse.fromCbor(csilResp)
+  }
 
-    public func getUser(_ request: GetUserRequest) throws -> GetUserResponse {
-        let csilResp = try transport.call(service: "Admin", op: "get-user", request: request.toCbor())
-        return try GetUserResponse.fromCbor(csilResp)
-    }
+  public func getUser(_ request: GetUserRequest) throws -> GetUserResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "get-user", request: csilRequest)
+    return try GetUserResponse.fromCbor(csilResp)
+  }
 
-    public func getUserAuthenticationActivity(_ request: GetUserAuthenticationActivityRequest) throws -> GetUserAuthenticationActivityResponse {
-        let csilResp = try transport.call(service: "Admin", op: "get-user-authentication-activity", request: request.toCbor())
-        return try GetUserAuthenticationActivityResponse.fromCbor(csilResp)
-    }
+  public func getUserAuthenticationActivity(
+    _ request: GetUserAuthenticationActivityRequest
+  ) throws -> GetUserAuthenticationActivityResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "get-user-authentication-activity",
+      request: csilRequest
+    )
+    return try GetUserAuthenticationActivityResponse.fromCbor(csilResp)
+  }
 
-    public func createUser(_ request: CreateUserRequest) throws -> CreateUserResponse {
-        let csilResp = try transport.call(service: "Admin", op: "create-user", request: request.toCbor())
-        return try CreateUserResponse.fromCbor(csilResp)
-    }
+  public func createUser(_ request: CreateUserRequest) throws -> CreateUserResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "create-user", request: csilRequest)
+    return try CreateUserResponse.fromCbor(csilResp)
+  }
 
-    public func updateUser(_ request: UpdateUserRequest) throws -> UpdateUserResponse {
-        let csilResp = try transport.call(service: "Admin", op: "update-user", request: request.toCbor())
-        return try UpdateUserResponse.fromCbor(csilResp)
-    }
+  public func updateUser(_ request: UpdateUserRequest) throws -> UpdateUserResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "update-user", request: csilRequest)
+    return try UpdateUserResponse.fromCbor(csilResp)
+  }
 
-    public func deactivateUser(_ request: DeactivateUserRequest) throws -> DeactivateUserResponse {
-        let csilResp = try transport.call(service: "Admin", op: "deactivate-user", request: request.toCbor())
-        return try DeactivateUserResponse.fromCbor(csilResp)
-    }
+  public func deactivateUser(_ request: DeactivateUserRequest) throws -> DeactivateUserResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "deactivate-user", request: csilRequest)
+    return try DeactivateUserResponse.fromCbor(csilResp)
+  }
 
-    public func activateUser(_ request: ActivateUserRequest) throws -> ActivateUserResponse {
-        let csilResp = try transport.call(service: "Admin", op: "activate-user", request: request.toCbor())
-        return try ActivateUserResponse.fromCbor(csilResp)
-    }
+  public func activateUser(_ request: ActivateUserRequest) throws -> ActivateUserResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "activate-user", request: csilRequest)
+    return try ActivateUserResponse.fromCbor(csilResp)
+  }
 
-    public func purgeUser(_ request: PurgeUserRequest) throws -> PurgeUserResponse {
-        let csilResp = try transport.call(service: "Admin", op: "purge-user", request: request.toCbor())
-        return try PurgeUserResponse.fromCbor(csilResp)
-    }
+  public func purgeUser(_ request: PurgeUserRequest) throws -> PurgeUserResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "purge-user", request: csilRequest)
+    return try PurgeUserResponse.fromCbor(csilResp)
+  }
 
-    public func revokeDomainKey(_ request: RevokeDomainKeyRequest) throws -> RevokeDomainKeyResponse {
-        let csilResp = try transport.call(service: "Admin", op: "revoke-domain-key", request: request.toCbor())
-        return try RevokeDomainKeyResponse.fromCbor(csilResp)
-    }
+  public func revokeDomainKey(_ request: RevokeDomainKeyRequest) throws -> RevokeDomainKeyResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "revoke-domain-key",
+      request: csilRequest
+    )
+    return try RevokeDomainKeyResponse.fromCbor(csilResp)
+  }
 
-    public func resetPassword(_ request: ResetPasswordRequest) throws -> ResetPasswordResponse {
-        let csilResp = try transport.call(service: "Admin", op: "reset-password", request: request.toCbor())
-        return try ResetPasswordResponse.fromCbor(csilResp)
-    }
+  public func resetPassword(_ request: ResetPasswordRequest) throws -> ResetPasswordResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "reset-password", request: csilRequest)
+    return try ResetPasswordResponse.fromCbor(csilResp)
+  }
 
-    public func authenticate(_ request: AuthenticateRequest) throws -> AuthenticateResponse {
-        let csilResp = try transport.call(service: "Admin", op: "authenticate", request: request.toCbor())
-        return try AuthenticateResponse.fromCbor(csilResp)
-    }
+  public func authenticate(_ request: AuthenticateRequest) throws -> AuthenticateResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "authenticate", request: csilRequest)
+    return try AuthenticateResponse.fromCbor(csilResp)
+  }
 
-    public func removeCredential(_ request: RemoveCredentialRequest) throws -> RemoveCredentialResponse {
-        let csilResp = try transport.call(service: "Admin", op: "remove-credential", request: request.toCbor())
-        return try RemoveCredentialResponse.fromCbor(csilResp)
-    }
+  public func removeCredential(
+    _ request: RemoveCredentialRequest
+  ) throws -> RemoveCredentialResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "remove-credential",
+      request: csilRequest
+    )
+    return try RemoveCredentialResponse.fromCbor(csilResp)
+  }
 
-    public func setClaim(_ request: SetClaimRequest) throws -> SetClaimResponse {
-        let csilResp = try transport.call(service: "Admin", op: "set-claim", request: request.toCbor())
-        return try SetClaimResponse.fromCbor(csilResp)
-    }
+  public func setClaim(_ request: SetClaimRequest) throws -> SetClaimResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "set-claim", request: csilRequest)
+    return try SetClaimResponse.fromCbor(csilResp)
+  }
 
-    public func removeClaim(_ request: RemoveClaimRequest) throws -> RemoveClaimResponse {
-        let csilResp = try transport.call(service: "Admin", op: "remove-claim", request: request.toCbor())
-        return try RemoveClaimResponse.fromCbor(csilResp)
-    }
+  public func removeClaim(_ request: RemoveClaimRequest) throws -> RemoveClaimResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "remove-claim", request: csilRequest)
+    return try RemoveClaimResponse.fromCbor(csilResp)
+  }
 
-    public func listUserClaims(_ request: ListUserClaimsRequest) throws -> ListUserClaimsResponse {
-        let csilResp = try transport.call(service: "Admin", op: "list-user-claims", request: request.toCbor())
-        return try ListUserClaimsResponse.fromCbor(csilResp)
-    }
+  public func listUserClaims(_ request: ListUserClaimsRequest) throws -> ListUserClaimsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "list-user-claims",
+      request: csilRequest
+    )
+    return try ListUserClaimsResponse.fromCbor(csilResp)
+  }
 
-    public func getUserClaims(_ request: AdminUserClaimsRequest) throws -> AdminUserClaimsResponse {
-        let csilResp = try transport.call(service: "Admin", op: "get-user-claims", request: request.toCbor())
-        return try AdminUserClaimsResponse.fromCbor(csilResp)
-    }
+  public func getUserClaims(_ request: AdminUserClaimsRequest) throws -> AdminUserClaimsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "get-user-claims", request: csilRequest)
+    return try AdminUserClaimsResponse.fromCbor(csilResp)
+  }
 
-    public func setUserClaim(_ request: SetUserClaimRequest) throws -> SetUserClaimResponse {
-        let csilResp = try transport.call(service: "Admin", op: "set-user-claim", request: request.toCbor())
-        return try SetUserClaimResponse.fromCbor(csilResp)
-    }
+  public func setUserClaim(_ request: SetUserClaimRequest) throws -> SetUserClaimResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "set-user-claim", request: csilRequest)
+    return try SetUserClaimResponse.fromCbor(csilResp)
+  }
 
-    public func listSettablePolicies(_ request: EmptyRequest) throws -> ListSettablePoliciesResponse {
-        let csilResp = try transport.call(service: "Admin", op: "list-settable-policies", request: request.toCbor())
-        return try ListSettablePoliciesResponse.fromCbor(csilResp)
-    }
+  public func listSettablePolicies(_ request: EmptyRequest) throws -> ListSettablePoliciesResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "list-settable-policies",
+      request: csilRequest
+    )
+    return try ListSettablePoliciesResponse.fromCbor(csilResp)
+  }
 
-    public func listClaimTypes(_ request: EmptyRequest) throws -> ListClaimTypesResponse {
-        let csilResp = try transport.call(service: "Admin", op: "list-claim-types", request: request.toCbor())
-        return try ListClaimTypesResponse.fromCbor(csilResp)
-    }
+  public func listClaimTypes(_ request: EmptyRequest) throws -> ListClaimTypesResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "list-claim-types",
+      request: csilRequest
+    )
+    return try ListClaimTypesResponse.fromCbor(csilResp)
+  }
 
-    public func setClaimType(_ request: SetClaimTypeRequest) throws -> SetClaimTypeResponse {
-        let csilResp = try transport.call(service: "Admin", op: "set-claim-type", request: request.toCbor())
-        return try SetClaimTypeResponse.fromCbor(csilResp)
-    }
+  public func setClaimType(_ request: SetClaimTypeRequest) throws -> SetClaimTypeResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "set-claim-type", request: csilRequest)
+    return try SetClaimTypeResponse.fromCbor(csilResp)
+  }
 
-    public func removeClaimType(_ request: RemoveClaimTypeRequest) throws -> RemoveClaimTypeResponse {
-        let csilResp = try transport.call(service: "Admin", op: "remove-claim-type", request: request.toCbor())
-        return try RemoveClaimTypeResponse.fromCbor(csilResp)
-    }
+  public func removeClaimType(_ request: RemoveClaimTypeRequest) throws -> RemoveClaimTypeResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "remove-claim-type",
+      request: csilRequest
+    )
+    return try RemoveClaimTypeResponse.fromCbor(csilResp)
+  }
 
-    public func listClaimTypeLabels(_ request: EmptyRequest) throws -> ListClaimTypeLabelsResponse {
-        let csilResp = try transport.call(service: "Admin", op: "list-claim-type-labels", request: request.toCbor())
-        return try ListClaimTypeLabelsResponse.fromCbor(csilResp)
-    }
+  public func listClaimTypeLabels(_ request: EmptyRequest) throws -> ListClaimTypeLabelsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "list-claim-type-labels",
+      request: csilRequest
+    )
+    return try ListClaimTypeLabelsResponse.fromCbor(csilResp)
+  }
 
-    public func setClaimTypeLabel(_ request: SetClaimTypeLabelRequest) throws -> SetClaimTypeLabelResponse {
-        let csilResp = try transport.call(service: "Admin", op: "set-claim-type-label", request: request.toCbor())
-        return try SetClaimTypeLabelResponse.fromCbor(csilResp)
-    }
+  public func setClaimTypeLabel(
+    _ request: SetClaimTypeLabelRequest
+  ) throws -> SetClaimTypeLabelResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "set-claim-type-label",
+      request: csilRequest
+    )
+    return try SetClaimTypeLabelResponse.fromCbor(csilResp)
+  }
 
-    public func removeClaimTypeLabel(_ request: RemoveClaimTypeLabelRequest) throws -> RemoveClaimTypeLabelResponse {
-        let csilResp = try transport.call(service: "Admin", op: "remove-claim-type-label", request: request.toCbor())
-        return try RemoveClaimTypeLabelResponse.fromCbor(csilResp)
-    }
+  public func removeClaimTypeLabel(
+    _ request: RemoveClaimTypeLabelRequest
+  ) throws -> RemoveClaimTypeLabelResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "remove-claim-type-label",
+      request: csilRequest
+    )
+    return try RemoveClaimTypeLabelResponse.fromCbor(csilResp)
+  }
 
-    public func listTrustedIssuers(_ request: EmptyRequest) throws -> ListTrustedIssuersResponse {
-        let csilResp = try transport.call(service: "Admin", op: "list-trusted-issuers", request: request.toCbor())
-        return try ListTrustedIssuersResponse.fromCbor(csilResp)
-    }
+  public func listTrustedIssuers(_ request: EmptyRequest) throws -> ListTrustedIssuersResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "list-trusted-issuers",
+      request: csilRequest
+    )
+    return try ListTrustedIssuersResponse.fromCbor(csilResp)
+  }
 
-    public func addTrustedIssuer(_ request: AddTrustedIssuerRequest) throws -> AddTrustedIssuerResponse {
-        let csilResp = try transport.call(service: "Admin", op: "add-trusted-issuer", request: request.toCbor())
-        return try AddTrustedIssuerResponse.fromCbor(csilResp)
-    }
+  public func addTrustedIssuer(
+    _ request: AddTrustedIssuerRequest
+  ) throws -> AddTrustedIssuerResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "add-trusted-issuer",
+      request: csilRequest
+    )
+    return try AddTrustedIssuerResponse.fromCbor(csilResp)
+  }
 
-    public func removeTrustedIssuer(_ request: RemoveTrustedIssuerRequest) throws -> RemoveTrustedIssuerResponse {
-        let csilResp = try transport.call(service: "Admin", op: "remove-trusted-issuer", request: request.toCbor())
-        return try RemoveTrustedIssuerResponse.fromCbor(csilResp)
-    }
+  public func removeTrustedIssuer(
+    _ request: RemoveTrustedIssuerRequest
+  ) throws -> RemoveTrustedIssuerResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "remove-trusted-issuer",
+      request: csilRequest
+    )
+    return try RemoveTrustedIssuerResponse.fromCbor(csilResp)
+  }
 
-    public func listReleaseRules(_ request: EmptyRequest) throws -> ListReleaseRulesResponse {
-        let csilResp = try transport.call(service: "Admin", op: "list-release-rules", request: request.toCbor())
-        return try ListReleaseRulesResponse.fromCbor(csilResp)
-    }
+  public func listReleaseRules(_ request: EmptyRequest) throws -> ListReleaseRulesResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "list-release-rules",
+      request: csilRequest
+    )
+    return try ListReleaseRulesResponse.fromCbor(csilResp)
+  }
 
-    public func setReleaseRule(_ request: SetReleaseRuleRequest) throws -> SetReleaseRuleResponse {
-        let csilResp = try transport.call(service: "Admin", op: "set-release-rule", request: request.toCbor())
-        return try SetReleaseRuleResponse.fromCbor(csilResp)
-    }
+  public func setReleaseRule(_ request: SetReleaseRuleRequest) throws -> SetReleaseRuleResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "set-release-rule",
+      request: csilRequest
+    )
+    return try SetReleaseRuleResponse.fromCbor(csilResp)
+  }
 
-    public func removeReleaseRule(_ request: RemoveReleaseRuleRequest) throws -> RemoveReleaseRuleResponse {
-        let csilResp = try transport.call(service: "Admin", op: "remove-release-rule", request: request.toCbor())
-        return try RemoveReleaseRuleResponse.fromCbor(csilResp)
-    }
+  public func removeReleaseRule(
+    _ request: RemoveReleaseRuleRequest
+  ) throws -> RemoveReleaseRuleResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "remove-release-rule",
+      request: csilRequest
+    )
+    return try RemoveReleaseRuleResponse.fromCbor(csilResp)
+  }
 
-    public func listPendingClaimApprovals(_ request: EmptyRequest) throws -> ListPendingClaimApprovalsResponse {
-        let csilResp = try transport.call(service: "Admin", op: "list-pending-claim-approvals", request: request.toCbor())
-        return try ListPendingClaimApprovalsResponse.fromCbor(csilResp)
-    }
+  public func listPendingClaimApprovals(
+    _ request: EmptyRequest
+  ) throws -> ListPendingClaimApprovalsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "list-pending-claim-approvals",
+      request: csilRequest
+    )
+    return try ListPendingClaimApprovalsResponse.fromCbor(csilResp)
+  }
 
-    public func approveClaim(_ request: ApproveClaimRequest) throws -> ApproveClaimResponse {
-        let csilResp = try transport.call(service: "Admin", op: "approve-claim", request: request.toCbor())
-        return try ApproveClaimResponse.fromCbor(csilResp)
-    }
+  public func approveClaim(_ request: ApproveClaimRequest) throws -> ApproveClaimResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "approve-claim", request: csilRequest)
+    return try ApproveClaimResponse.fromCbor(csilResp)
+  }
 
-    public func rejectClaim(_ request: RejectClaimRequest) throws -> RejectClaimResponse {
-        let csilResp = try transport.call(service: "Admin", op: "reject-claim", request: request.toCbor())
-        return try RejectClaimResponse.fromCbor(csilResp)
-    }
+  public func rejectClaim(_ request: RejectClaimRequest) throws -> RejectClaimResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "reject-claim", request: csilRequest)
+    return try RejectClaimResponse.fromCbor(csilResp)
+  }
 
-    public func adminIssueAttestation(_ request: AdminIssueAttestationRequest) throws -> AdminIssueAttestationResponse {
-        let csilResp = try transport.call(service: "Admin", op: "admin-issue-attestation", request: request.toCbor())
-        return try AdminIssueAttestationResponse.fromCbor(csilResp)
-    }
+  public func adminIssueAttestation(
+    _ request: AdminIssueAttestationRequest
+  ) throws -> AdminIssueAttestationResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "admin-issue-attestation",
+      request: csilRequest
+    )
+    return try AdminIssueAttestationResponse.fromCbor(csilResp)
+  }
 
-    public func previewReleasePolicy(_ request: PreviewReleasePolicyRequest) throws -> PreviewReleasePolicyResponse {
-        let csilResp = try transport.call(service: "Admin", op: "preview-release-policy", request: request.toCbor())
-        return try PreviewReleasePolicyResponse.fromCbor(csilResp)
-    }
+  public func previewReleasePolicy(
+    _ request: PreviewReleasePolicyRequest
+  ) throws -> PreviewReleasePolicyResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "preview-release-policy",
+      request: csilRequest
+    )
+    return try PreviewReleasePolicyResponse.fromCbor(csilResp)
+  }
 
-    public func previewIssuerPolicy(_ request: PreviewIssuerPolicyRequest) throws -> PreviewIssuerPolicyResponse {
-        let csilResp = try transport.call(service: "Admin", op: "preview-issuer-policy", request: request.toCbor())
-        return try PreviewIssuerPolicyResponse.fromCbor(csilResp)
-    }
+  public func previewIssuerPolicy(
+    _ request: PreviewIssuerPolicyRequest
+  ) throws -> PreviewIssuerPolicyResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "preview-issuer-policy",
+      request: csilRequest
+    )
+    return try PreviewIssuerPolicyResponse.fromCbor(csilResp)
+  }
 
-    public func grantRelation(_ request: GrantRelationRequest) throws -> GrantRelationResponse {
-        let csilResp = try transport.call(service: "Admin", op: "grant-relation", request: request.toCbor())
-        return try GrantRelationResponse.fromCbor(csilResp)
-    }
+  public func grantRelation(_ request: GrantRelationRequest) throws -> GrantRelationResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "grant-relation", request: csilRequest)
+    return try GrantRelationResponse.fromCbor(csilResp)
+  }
 
-    public func removeRelation(_ request: RemoveRelationRequest) throws -> RemoveRelationResponse {
-        let csilResp = try transport.call(service: "Admin", op: "remove-relation", request: request.toCbor())
-        return try RemoveRelationResponse.fromCbor(csilResp)
-    }
+  public func removeRelation(_ request: RemoveRelationRequest) throws -> RemoveRelationResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "remove-relation", request: csilRequest)
+    return try RemoveRelationResponse.fromCbor(csilResp)
+  }
 
-    public func listRelations(_ request: ListRelationsRequest) throws -> ListRelationsResponse {
-        let csilResp = try transport.call(service: "Admin", op: "list-relations", request: request.toCbor())
-        return try ListRelationsResponse.fromCbor(csilResp)
-    }
+  public func listRelations(_ request: ListRelationsRequest) throws -> ListRelationsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "list-relations", request: csilRequest)
+    return try ListRelationsResponse.fromCbor(csilResp)
+  }
 
-    public func checkPermission(_ request: CheckPermissionRequest) throws -> CheckPermissionResponse {
-        let csilResp = try transport.call(service: "Admin", op: "check-permission", request: request.toCbor())
-        return try CheckPermissionResponse.fromCbor(csilResp)
-    }
+  public func checkPermission(_ request: CheckPermissionRequest) throws -> CheckPermissionResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "check-permission",
+      request: csilRequest
+    )
+    return try CheckPermissionResponse.fromCbor(csilResp)
+  }
 
-    public func recheckPins(_ request: RecheckPinsRequest) throws -> RecheckPinsResponse {
-        let csilResp = try transport.call(service: "Admin", op: "recheck-pins", request: request.toCbor())
-        return try RecheckPinsResponse.fromCbor(csilResp)
-    }
+  public func recheckPins(_ request: RecheckPinsRequest) throws -> RecheckPinsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "recheck-pins", request: csilRequest)
+    return try RecheckPinsResponse.fromCbor(csilResp)
+  }
 
-    public func listLocalRps(_ request: ListLocalRpsRequest) throws -> ListLocalRpsResponse {
-        let csilResp = try transport.call(service: "Admin", op: "list-local-rps", request: request.toCbor())
-        return try ListLocalRpsResponse.fromCbor(csilResp)
-    }
+  public func listLocalRps(_ request: ListLocalRpsRequest) throws -> ListLocalRpsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "list-local-rps", request: csilRequest)
+    return try ListLocalRpsResponse.fromCbor(csilResp)
+  }
 
-    public func getLocalRp(_ request: GetLocalRpRequest) throws -> GetLocalRpResponse {
-        let csilResp = try transport.call(service: "Admin", op: "get-local-rp", request: request.toCbor())
-        return try GetLocalRpResponse.fromCbor(csilResp)
-    }
+  public func getLocalRp(_ request: GetLocalRpRequest) throws -> GetLocalRpResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "get-local-rp", request: csilRequest)
+    return try GetLocalRpResponse.fromCbor(csilResp)
+  }
 
-    public func approveLocalRp(_ request: ApproveLocalRpRequest) throws -> ApproveLocalRpResponse {
-        let csilResp = try transport.call(service: "Admin", op: "approve-local-rp", request: request.toCbor())
-        return try ApproveLocalRpResponse.fromCbor(csilResp)
-    }
+  public func approveLocalRp(_ request: ApproveLocalRpRequest) throws -> ApproveLocalRpResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "approve-local-rp",
+      request: csilRequest
+    )
+    return try ApproveLocalRpResponse.fromCbor(csilResp)
+  }
 
-    public func denyLocalRp(_ request: DenyLocalRpRequest) throws -> DenyLocalRpResponse {
-        let csilResp = try transport.call(service: "Admin", op: "deny-local-rp", request: request.toCbor())
-        return try DenyLocalRpResponse.fromCbor(csilResp)
-    }
+  public func denyLocalRp(_ request: DenyLocalRpRequest) throws -> DenyLocalRpResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "deny-local-rp", request: csilRequest)
+    return try DenyLocalRpResponse.fromCbor(csilResp)
+  }
 
-    public func revokeLocalRp(_ request: RevokeLocalRpRequest) throws -> RevokeLocalRpResponse {
-        let csilResp = try transport.call(service: "Admin", op: "revoke-local-rp", request: request.toCbor())
-        return try RevokeLocalRpResponse.fromCbor(csilResp)
-    }
+  public func revokeLocalRp(_ request: RevokeLocalRpRequest) throws -> RevokeLocalRpResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "revoke-local-rp", request: csilRequest)
+    return try RevokeLocalRpResponse.fromCbor(csilResp)
+  }
 
-    public func getLocalRpPolicy(_ request: GetLocalRpPolicyRequest) throws -> GetLocalRpPolicyResponse {
-        let csilResp = try transport.call(service: "Admin", op: "get-local-rp-policy", request: request.toCbor())
-        return try GetLocalRpPolicyResponse.fromCbor(csilResp)
-    }
+  public func getLocalRpPolicy(
+    _ request: GetLocalRpPolicyRequest
+  ) throws -> GetLocalRpPolicyResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "get-local-rp-policy",
+      request: csilRequest
+    )
+    return try GetLocalRpPolicyResponse.fromCbor(csilResp)
+  }
 
-    public func setLocalRpPolicy(_ request: SetLocalRpPolicyRequest) throws -> SetLocalRpPolicyResponse {
-        let csilResp = try transport.call(service: "Admin", op: "set-local-rp-policy", request: request.toCbor())
-        return try SetLocalRpPolicyResponse.fromCbor(csilResp)
-    }
+  public func setLocalRpPolicy(
+    _ request: SetLocalRpPolicyRequest
+  ) throws -> SetLocalRpPolicyResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "set-local-rp-policy",
+      request: csilRequest
+    )
+    return try SetLocalRpPolicyResponse.fromCbor(csilResp)
+  }
 
-    public func purgeLocalRpTickets(_ request: PurgeLocalRpTicketsRequest) throws -> PurgeLocalRpTicketsResponse {
-        let csilResp = try transport.call(service: "Admin", op: "purge-local-rp-tickets", request: request.toCbor())
-        return try PurgeLocalRpTicketsResponse.fromCbor(csilResp)
-    }
+  public func purgeLocalRpTickets(
+    _ request: PurgeLocalRpTicketsRequest
+  ) throws -> PurgeLocalRpTicketsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "purge-local-rp-tickets",
+      request: csilRequest
+    )
+    return try PurgeLocalRpTicketsResponse.fromCbor(csilResp)
+  }
 
-    public func getSignInPolicy(_ request: EmptyRequest) throws -> SignInPolicy {
-        let csilResp = try transport.call(service: "Admin", op: "get-sign-in-policy", request: request.toCbor())
-        return try SignInPolicy.fromCbor(csilResp)
-    }
+  public func getSignInPolicy(_ request: EmptyRequest) throws -> SignInPolicy {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "get-sign-in-policy",
+      request: csilRequest
+    )
+    return try SignInPolicy.fromCbor(csilResp)
+  }
 
-    public func setSignInPolicy(_ request: SetSignInPolicyRequest) throws -> SignInPolicy {
-        let csilResp = try transport.call(service: "Admin", op: "set-sign-in-policy", request: request.toCbor())
-        return try SignInPolicy.fromCbor(csilResp)
-    }
+  public func setSignInPolicy(_ request: SetSignInPolicyRequest) throws -> SignInPolicy {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "set-sign-in-policy",
+      request: csilRequest
+    )
+    return try SignInPolicy.fromCbor(csilResp)
+  }
 
-    public func setUserPasswordLock(_ request: SetUserPasswordLockRequest) throws -> SetUserPasswordLockResponse {
-        let csilResp = try transport.call(service: "Admin", op: "set-user-password-lock", request: request.toCbor())
-        return try SetUserPasswordLockResponse.fromCbor(csilResp)
-    }
+  public func setUserPasswordLock(
+    _ request: SetUserPasswordLockRequest
+  ) throws -> SetUserPasswordLockResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "set-user-password-lock",
+      request: csilRequest
+    )
+    return try SetUserPasswordLockResponse.fromCbor(csilResp)
+  }
 
-    public func listAppAccessPolicies(_ request: EmptyRequest) throws -> ListAppAccessPoliciesResponse {
-        let csilResp = try transport.call(service: "Admin", op: "list-app-access-policies", request: request.toCbor())
-        return try ListAppAccessPoliciesResponse.fromCbor(csilResp)
-    }
+  public func listAppAccessPolicies(
+    _ request: EmptyRequest
+  ) throws -> ListAppAccessPoliciesResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "list-app-access-policies",
+      request: csilRequest
+    )
+    return try ListAppAccessPoliciesResponse.fromCbor(csilResp)
+  }
 
-    public func setAppAccessPolicy(_ request: SetAppAccessPolicyRequest) throws -> SetAppAccessPolicyResponse {
-        let csilResp = try transport.call(service: "Admin", op: "set-app-access-policy", request: request.toCbor())
-        return try SetAppAccessPolicyResponse.fromCbor(csilResp)
-    }
+  public func setAppAccessPolicy(
+    _ request: SetAppAccessPolicyRequest
+  ) throws -> SetAppAccessPolicyResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "set-app-access-policy",
+      request: csilRequest
+    )
+    return try SetAppAccessPolicyResponse.fromCbor(csilResp)
+  }
 
-    public func removeAppAccessPolicy(_ request: RemoveAppAccessPolicyRequest) throws -> RemoveAppAccessPolicyResponse {
-        let csilResp = try transport.call(service: "Admin", op: "remove-app-access-policy", request: request.toCbor())
-        return try RemoveAppAccessPolicyResponse.fromCbor(csilResp)
-    }
+  public func removeAppAccessPolicy(
+    _ request: RemoveAppAccessPolicyRequest
+  ) throws -> RemoveAppAccessPolicyResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "remove-app-access-policy",
+      request: csilRequest
+    )
+    return try RemoveAppAccessPolicyResponse.fromCbor(csilResp)
+  }
 
-    public func previewAppAccess(_ request: PreviewAppAccessRequest) throws -> PreviewAppAccessResponse {
-        let csilResp = try transport.call(service: "Admin", op: "preview-app-access", request: request.toCbor())
-        return try PreviewAppAccessResponse.fromCbor(csilResp)
-    }
+  public func previewAppAccess(
+    _ request: PreviewAppAccessRequest
+  ) throws -> PreviewAppAccessResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "preview-app-access",
+      request: csilRequest
+    )
+    return try PreviewAppAccessResponse.fromCbor(csilResp)
+  }
+
+  public func renameUser(_ request: RenameUserRequest) throws -> RenameUserResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "rename-user", request: csilRequest)
+    return try RenameUserResponse.fromCbor(csilResp)
+  }
+
+  public func setApplicationId(
+    _ request: SetApplicationIdRequest
+  ) throws -> SetApplicationIdResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "set-application-id",
+      request: csilRequest
+    )
+    return try SetApplicationIdResponse.fromCbor(csilResp)
+  }
+
+  public func createApiKey(_ request: CreateApiKeyRequest) throws -> CreateApiKeyResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "create-api-key", request: csilRequest)
+    return try CreateApiKeyResponse.fromCbor(csilResp)
+  }
+
+  public func listApiKeys(_ request: ListApiKeysRequest) throws -> ListApiKeysResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "list-api-keys", request: csilRequest)
+    return try ListApiKeysResponse.fromCbor(csilResp)
+  }
+
+  public func revokeApiKey(_ request: RevokeApiKeyRequest) throws -> RevokeApiKeyResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Admin", op: "revoke-api-key", request: csilRequest)
+    return try RevokeApiKeyResponse.fromCbor(csilResp)
+  }
+
+  public func getAccountLimits(
+    _ request: GetAccountLimitsRequest
+  ) throws -> GetAccountLimitsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "get-account-limits",
+      request: csilRequest
+    )
+    return try GetAccountLimitsResponse.fromCbor(csilResp)
+  }
+
+  public func setAccountLimits(
+    _ request: SetAccountLimitsRequest
+  ) throws -> SetAccountLimitsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "set-account-limits",
+      request: csilRequest
+    )
+    return try SetAccountLimitsResponse.fromCbor(csilResp)
+  }
+
+  public func getApplicationUsage(
+    _ request: GetApplicationUsageRequest
+  ) throws -> GetApplicationUsageResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Admin",
+      op: "get-application-usage",
+      request: csilRequest
+    )
+    return try GetApplicationUsageResponse.fromCbor(csilResp)
+  }
 
 }
 
 /// AccountClient is a typed client for the Account service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct AccountClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func changePassword(_ request: ChangePasswordRequest) throws -> ChangePasswordResponse {
-        let csilResp = try transport.call(service: "Account", op: "change-password", request: request.toCbor())
-        return try ChangePasswordResponse.fromCbor(csilResp)
-    }
+  public func changePassword(_ request: ChangePasswordRequest) throws -> ChangePasswordResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Account",
+      op: "change-password",
+      request: csilRequest
+    )
+    return try ChangePasswordResponse.fromCbor(csilResp)
+  }
 
-    public func getMyInfo(_ request: EmptyRequest) throws -> GetMyInfoResponse {
-        let csilResp = try transport.call(service: "Account", op: "get-my-info", request: request.toCbor())
-        return try GetMyInfoResponse.fromCbor(csilResp)
-    }
+  public func getMyInfo(_ request: EmptyRequest) throws -> GetMyInfoResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Account", op: "get-my-info", request: csilRequest)
+    return try GetMyInfoResponse.fromCbor(csilResp)
+  }
 
-    public func listSettablePolicies(_ request: EmptyRequest) throws -> ListSettablePoliciesResponse {
-        let csilResp = try transport.call(service: "Account", op: "list-settable-policies", request: request.toCbor())
-        return try ListSettablePoliciesResponse.fromCbor(csilResp)
-    }
+  public func listSettablePolicies(_ request: EmptyRequest) throws -> ListSettablePoliciesResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Account",
+      op: "list-settable-policies",
+      request: csilRequest
+    )
+    return try ListSettablePoliciesResponse.fromCbor(csilResp)
+  }
 
-    public func setMyClaim(_ request: SetMyClaimRequest) throws -> SetMyClaimResponse {
-        let csilResp = try transport.call(service: "Account", op: "set-my-claim", request: request.toCbor())
-        return try SetMyClaimResponse.fromCbor(csilResp)
-    }
+  public func setMyClaim(_ request: SetMyClaimRequest) throws -> SetMyClaimResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Account", op: "set-my-claim", request: csilRequest)
+    return try SetMyClaimResponse.fromCbor(csilResp)
+  }
 
-    public func removeMyClaim(_ request: RemoveMyClaimRequest) throws -> RemoveMyClaimResponse {
-        let csilResp = try transport.call(service: "Account", op: "remove-my-claim", request: request.toCbor())
-        return try RemoveMyClaimResponse.fromCbor(csilResp)
-    }
+  public func removeMyClaim(_ request: RemoveMyClaimRequest) throws -> RemoveMyClaimResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Account",
+      op: "remove-my-claim",
+      request: csilRequest
+    )
+    return try RemoveMyClaimResponse.fromCbor(csilResp)
+  }
 
-    public func setMyClaimSharing(_ request: SetMyClaimSharingRequest) throws -> SetMyClaimSharingResponse {
-        let csilResp = try transport.call(service: "Account", op: "set-my-claim-sharing", request: request.toCbor())
-        return try SetMyClaimSharingResponse.fromCbor(csilResp)
-    }
+  public func setMyClaimSharing(
+    _ request: SetMyClaimSharingRequest
+  ) throws -> SetMyClaimSharingResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Account",
+      op: "set-my-claim-sharing",
+      request: csilRequest
+    )
+    return try SetMyClaimSharingResponse.fromCbor(csilResp)
+  }
 
-    public func createProfile(_ request: CreateProfileRequest) throws -> CreateProfileResponse {
-        let csilResp = try transport.call(service: "Account", op: "create-profile", request: request.toCbor())
-        return try CreateProfileResponse.fromCbor(csilResp)
-    }
+  public func createProfile(_ request: CreateProfileRequest) throws -> CreateProfileResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Account",
+      op: "create-profile",
+      request: csilRequest
+    )
+    return try CreateProfileResponse.fromCbor(csilResp)
+  }
 
-    public func getMyClaimSettings(_ request: EmptyRequest) throws -> MyClaimSettingsResponse {
-        let csilResp = try transport.call(service: "Account", op: "get-my-claim-settings", request: request.toCbor())
-        return try MyClaimSettingsResponse.fromCbor(csilResp)
-    }
+  public func getMyClaimSettings(_ request: EmptyRequest) throws -> MyClaimSettingsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Account",
+      op: "get-my-claim-settings",
+      request: csilRequest
+    )
+    return try MyClaimSettingsResponse.fromCbor(csilResp)
+  }
 
-    public func setMyClaimKeepVerified(_ request: SetMyClaimKeepVerifiedRequest) throws -> SetMyClaimKeepVerifiedResponse {
-        let csilResp = try transport.call(service: "Account", op: "set-my-claim-keep-verified", request: request.toCbor())
-        return try SetMyClaimKeepVerifiedResponse.fromCbor(csilResp)
-    }
+  public func setMyClaimKeepVerified(
+    _ request: SetMyClaimKeepVerifiedRequest
+  ) throws -> SetMyClaimKeepVerifiedResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Account",
+      op: "set-my-claim-keep-verified",
+      request: csilRequest
+    )
+    return try SetMyClaimKeepVerifiedResponse.fromCbor(csilResp)
+  }
 
-    public func requestVerification(_ request: RequestVerificationRequest) throws -> RequestVerificationResponse {
-        let csilResp = try transport.call(service: "Account", op: "request-verification", request: request.toCbor())
-        return try RequestVerificationResponse.fromCbor(csilResp)
-    }
+  public func requestVerification(
+    _ request: RequestVerificationRequest
+  ) throws -> RequestVerificationResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Account",
+      op: "request-verification",
+      request: csilRequest
+    )
+    return try RequestVerificationResponse.fromCbor(csilResp)
+  }
 
-    public func listVerifiedContactMethods(_ request: EmptyRequest) throws -> ListVerifiedContactMethodsResponse {
-        let csilResp = try transport.call(service: "Account", op: "list-verified-contact-methods", request: request.toCbor())
-        return try ListVerifiedContactMethodsResponse.fromCbor(csilResp)
-    }
+  public func listVerifiedContactMethods(
+    _ request: EmptyRequest
+  ) throws -> ListVerifiedContactMethodsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Account",
+      op: "list-verified-contact-methods",
+      request: csilRequest
+    )
+    return try ListVerifiedContactMethodsResponse.fromCbor(csilResp)
+  }
 
-    public func revokeVerifiedContactMethod(_ request: RevokeVerifiedContactMethodRequest) throws -> RevokeVerifiedContactMethodResponse {
-        let csilResp = try transport.call(service: "Account", op: "revoke-verified-contact-method", request: request.toCbor())
-        return try RevokeVerifiedContactMethodResponse.fromCbor(csilResp)
-    }
+  public func revokeVerifiedContactMethod(
+    _ request: RevokeVerifiedContactMethodRequest
+  ) throws -> RevokeVerifiedContactMethodResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Account",
+      op: "revoke-verified-contact-method",
+      request: csilRequest
+    )
+    return try RevokeVerifiedContactMethodResponse.fromCbor(csilResp)
+  }
 
-    public func requestContactVerification(_ request: RequestContactVerificationRequest) throws -> RequestContactVerificationResponse {
-        let csilResp = try transport.call(service: "Account", op: "request-contact-verification", request: request.toCbor())
-        return try RequestContactVerificationResponse.fromCbor(csilResp)
-    }
+  public func requestContactVerification(
+    _ request: RequestContactVerificationRequest
+  ) throws -> RequestContactVerificationResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Account",
+      op: "request-contact-verification",
+      request: csilRequest
+    )
+    return try RequestContactVerificationResponse.fromCbor(csilResp)
+  }
 
-    public func confirmContactVerification(_ request: ConfirmContactVerificationRequest) throws -> ConfirmContactVerificationResponse {
-        let csilResp = try transport.call(service: "Account", op: "confirm-contact-verification", request: request.toCbor())
-        return try ConfirmContactVerificationResponse.fromCbor(csilResp)
-    }
+  public func confirmContactVerification(
+    _ request: ConfirmContactVerificationRequest
+  ) throws -> ConfirmContactVerificationResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Account",
+      op: "confirm-contact-verification",
+      request: csilRequest
+    )
+    return try ConfirmContactVerificationResponse.fromCbor(csilResp)
+  }
 
-    public func enrollApplicationInstance(_ request: EnrollApplicationInstanceRequest) throws -> EnrollApplicationInstanceResponse {
-        let csilResp = try transport.call(service: "Account", op: "enroll-application-instance", request: request.toCbor())
-        return try EnrollApplicationInstanceResponse.fromCbor(csilResp)
-    }
+  public func enrollApplicationInstance(
+    _ request: EnrollApplicationInstanceRequest
+  ) throws -> EnrollApplicationInstanceResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Account",
+      op: "enroll-application-instance",
+      request: csilRequest
+    )
+    return try EnrollApplicationInstanceResponse.fromCbor(csilResp)
+  }
 
-    public func listActAsGrants(_ request: EmptyRequest) throws -> ListActAsGrantsResponse {
-        let csilResp = try transport.call(service: "Account", op: "list-act-as-grants", request: request.toCbor())
-        return try ListActAsGrantsResponse.fromCbor(csilResp)
-    }
+  public func listActAsGrants(_ request: EmptyRequest) throws -> ListActAsGrantsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Account",
+      op: "list-act-as-grants",
+      request: csilRequest
+    )
+    return try ListActAsGrantsResponse.fromCbor(csilResp)
+  }
 
-    public func revokeActAsGrant(_ request: RevokeActAsGrantRequest) throws -> RevokeActAsGrantResponse {
-        let csilResp = try transport.call(service: "Account", op: "revoke-act-as-grant", request: request.toCbor())
-        return try RevokeActAsGrantResponse.fromCbor(csilResp)
-    }
+  public func revokeActAsGrant(
+    _ request: RevokeActAsGrantRequest
+  ) throws -> RevokeActAsGrantResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Account",
+      op: "revoke-act-as-grant",
+      request: csilRequest
+    )
+    return try RevokeActAsGrantResponse.fromCbor(csilResp)
+  }
 
 }
 
 /// AttestationClient is a typed client for the Attestation service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct AttestationClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func depositClaim(_ request: DepositClaimRequest) throws -> DepositClaimResponse {
-        let csilResp = try transport.call(service: "Attestation", op: "deposit-claim", request: request.toCbor())
-        return try DepositClaimResponse.fromCbor(csilResp)
-    }
+  public func depositClaim(_ request: DepositClaimRequest) throws -> DepositClaimResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Attestation",
+      op: "deposit-claim",
+      request: csilRequest
+    )
+    return try DepositClaimResponse.fromCbor(csilResp)
+  }
 
 }
 
 /// RpClient is a typed client for the Rp service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct RpClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func signRequest(_ request: RpSignRequest) throws -> RpSignResponse {
-        let csilResp = try transport.call(service: "Rp", op: "sign-request", request: request.toCbor())
-        return try RpSignResponse.fromCbor(csilResp)
-    }
+  public func signRequest(_ request: RpSignRequest) throws -> RpSignResponse {
+    let csilRequest = try request.toCbor()
+    let csilReply = try transport.callReply(service: "Rp", op: "sign-request", request: csilRequest)
+    let csilResp = try resolveRpcReply(
+      service: "Rp",
+      op: "sign-request",
+      variant: csilReply.variant,
+      payload: csilReply.payload
+    )
+    return try RpSignResponse.fromCbor(csilResp)
+  }
 
-    public func decryptToken(_ request: RpDecryptRequest) throws -> RpDecryptResponse {
-        let csilResp = try transport.call(service: "Rp", op: "decrypt-token", request: request.toCbor())
-        return try RpDecryptResponse.fromCbor(csilResp)
-    }
+  public func decryptToken(_ request: RpDecryptRequest) throws -> RpDecryptResponse {
+    let csilRequest = try request.toCbor()
+    let csilReply = try transport.callReply(
+      service: "Rp",
+      op: "decrypt-token",
+      request: csilRequest
+    )
+    let csilResp = try resolveRpcReply(
+      service: "Rp",
+      op: "decrypt-token",
+      variant: csilReply.variant,
+      payload: csilReply.payload
+    )
+    return try RpDecryptResponse.fromCbor(csilResp)
+  }
 
-    public func verifyAssertion(_ request: RpVerifyRequest) throws -> RpVerifyResponse {
-        let csilResp = try transport.call(service: "Rp", op: "verify-assertion", request: request.toCbor())
-        return try RpVerifyResponse.fromCbor(csilResp)
-    }
+  public func verifyAssertion(_ request: RpVerifyRequest) throws -> RpVerifyResponse {
+    let csilRequest = try request.toCbor()
+    let csilReply = try transport.callReply(
+      service: "Rp",
+      op: "verify-assertion",
+      request: csilRequest
+    )
+    let csilResp = try resolveRpcReply(
+      service: "Rp",
+      op: "verify-assertion",
+      variant: csilReply.variant,
+      payload: csilReply.payload
+    )
+    return try RpVerifyResponse.fromCbor(csilResp)
+  }
 
-    public func userinfoFetch(_ request: RpUserInfoRequest) throws -> UserInfo {
-        let csilResp = try transport.call(service: "Rp", op: "userinfo-fetch", request: request.toCbor())
-        return try UserInfo.fromCbor(csilResp)
-    }
+  public func userinfoFetch(_ request: RpUserInfoRequest) throws -> UserInfo {
+    let csilRequest = try request.toCbor()
+    let csilReply = try transport.callReply(
+      service: "Rp",
+      op: "userinfo-fetch",
+      request: csilRequest
+    )
+    let csilResp = try resolveRpcReply(
+      service: "Rp",
+      op: "userinfo-fetch",
+      variant: csilReply.variant,
+      payload: csilReply.payload
+    )
+    return try UserInfo.fromCbor(csilResp)
+  }
 
-    public func issueAttestation(_ request: RpIssueAttestationRequest) throws -> RpIssueAttestationResponse {
-        let csilResp = try transport.call(service: "Rp", op: "issue-attestation", request: request.toCbor())
-        return try RpIssueAttestationResponse.fromCbor(csilResp)
-    }
+  public func issueAttestation(
+    _ request: RpIssueAttestationRequest
+  ) throws -> RpIssueAttestationResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Rp", op: "issue-attestation", request: csilRequest)
+    return try RpIssueAttestationResponse.fromCbor(csilResp)
+  }
 
-    public func resolveDomainKeys(_ request: RpResolveDomainKeysRequest) throws -> RpResolveDomainKeysResponse {
-        let csilResp = try transport.call(service: "Rp", op: "resolve-domain-keys", request: request.toCbor())
-        return try RpResolveDomainKeysResponse.fromCbor(csilResp)
-    }
+  public func resolveDomainKeys(
+    _ request: RpResolveDomainKeysRequest
+  ) throws -> RpResolveDomainKeysResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Rp",
+      op: "resolve-domain-keys",
+      request: csilRequest
+    )
+    return try RpResolveDomainKeysResponse.fromCbor(csilResp)
+  }
 
-    public func resolveApplicationKeys(_ request: RpResolveApplicationKeysRequest) throws -> RpResolveApplicationKeysResponse {
-        let csilResp = try transport.call(service: "Rp", op: "resolve-application-keys", request: request.toCbor())
-        return try RpResolveApplicationKeysResponse.fromCbor(csilResp)
-    }
+  public func resolveApplicationKeys(
+    _ request: RpResolveApplicationKeysRequest
+  ) throws -> RpResolveApplicationKeysResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Rp",
+      op: "resolve-application-keys",
+      request: csilRequest
+    )
+    return try RpResolveApplicationKeysResponse.fromCbor(csilResp)
+  }
 
-    public func actAsRefreshGrant(_ request: RpActAsRefreshRequest) throws -> RefreshActAsGrantResponse {
-        let csilResp = try transport.call(service: "Rp", op: "act-as-refresh-grant", request: request.toCbor())
-        return try RefreshActAsGrantResponse.fromCbor(csilResp)
-    }
+  public func actAsRefreshGrant(
+    _ request: RpActAsRefreshRequest
+  ) throws -> RefreshActAsGrantResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Rp",
+      op: "act-as-refresh-grant",
+      request: csilRequest
+    )
+    return try RefreshActAsGrantResponse.fromCbor(csilResp)
+  }
 
-    public func resolveActAsRevocations(_ request: RpResolveActAsRevocationsRequest) throws -> GetActAsGrantRevocationsResponse {
-        let csilResp = try transport.call(service: "Rp", op: "resolve-act-as-revocations", request: request.toCbor())
-        return try GetActAsGrantRevocationsResponse.fromCbor(csilResp)
-    }
+  public func resolveActAsRevocations(
+    _ request: RpResolveActAsRevocationsRequest
+  ) throws -> GetActAsGrantRevocationsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "Rp",
+      op: "resolve-act-as-revocations",
+      request: csilRequest
+    )
+    return try GetActAsGrantRevocationsResponse.fromCbor(csilResp)
+  }
 
 }
 
 /// ActAsClient is a typed client for the ActAs service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct ActAsClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func refreshGrant(_ request: RefreshActAsGrantRequest) throws -> RefreshActAsGrantResponse {
-        let csilResp = try transport.call(service: "ActAs", op: "refresh-grant", request: request.toCbor())
-        return try RefreshActAsGrantResponse.fromCbor(csilResp)
-    }
+  public func refreshGrant(
+    _ request: RefreshActAsGrantRequest
+  ) throws -> RefreshActAsGrantResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "ActAs", op: "refresh-grant", request: csilRequest)
+    return try RefreshActAsGrantResponse.fromCbor(csilResp)
+  }
 
-    public func getGrantRevocations(_ request: GetActAsGrantRevocationsRequest) throws -> GetActAsGrantRevocationsResponse {
-        let csilResp = try transport.call(service: "ActAs", op: "get-grant-revocations", request: request.toCbor())
-        return try GetActAsGrantRevocationsResponse.fromCbor(csilResp)
-    }
+  public func getGrantRevocations(
+    _ request: GetActAsGrantRevocationsRequest
+  ) throws -> GetActAsGrantRevocationsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "ActAs",
+      op: "get-grant-revocations",
+      request: csilRequest
+    )
+    return try GetActAsGrantRevocationsResponse.fromCbor(csilResp)
+  }
 
 }
 
 /// LocalRpClient is a typed client for the LocalRp service. The client owns
 /// (de)serialization; the carrier only moves bytes.
 public struct LocalRpClient {
-    public let transport: CsilTransport
-    public init(transport: CsilTransport) {
-        self.transport = transport
-    }
+  public let transport: CsilTransport
+  public init(transport: CsilTransport) {
+    self.transport = transport
+  }
 
-    public func redeemClaimTicket(_ request: SignedLocalRpTicketRedemptionRequest) throws -> LocalRpTicketRedemptionResponse {
-        let csilResp = try transport.call(service: "LocalRp", op: "redeem-claim-ticket", request: request.toCbor())
-        return try LocalRpTicketRedemptionResponse.fromCbor(csilResp)
-    }
+  public func redeemClaimTicket(
+    _ request: SignedLocalRpTicketRedemptionRequest
+  ) throws -> LocalRpTicketRedemptionResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(
+      service: "LocalRp",
+      op: "redeem-claim-ticket",
+      request: csilRequest
+    )
+    return try LocalRpTicketRedemptionResponse.fromCbor(csilResp)
+  }
 
 }
-

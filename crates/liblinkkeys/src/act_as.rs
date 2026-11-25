@@ -29,7 +29,7 @@ use crate::generated::types::{
     SignedActAsScopeSet, SignedLocalRpDescriptor,
 };
 use crate::local_rp::envelope_signature_input;
-use crate::timestamp::Rfc3339 as _;
+use crate::timestamp::whole_seconds;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fmt;
@@ -82,6 +82,9 @@ pub const MAX_DESCRIPTION_BYTES: usize = 1_024;
 pub enum ActAsError {
     /// An embedded CBOR payload did not decode.
     Decode(String),
+    /// A value to sign has no CBOR wire form (for example, a timestamp
+    /// outside UTC years 0001 to 9999).
+    Encode(String),
     /// A timestamp field was not RFC3339.
     BadTimestamp(String),
     /// A GranteeRef or GranteeProof did not carry exactly one form.
@@ -125,6 +128,7 @@ impl fmt::Display for ActAsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Decode(e) => write!(f, "act-as payload did not decode: {e}"),
+            Self::Encode(e) => write!(f, "act-as payload did not encode: {e}"),
             Self::BadTimestamp(e) => write!(f, "act-as timestamp is not RFC3339: {e}"),
             Self::MalformedGrantee => write!(f, "grantee must name exactly one form"),
             Self::ProofDoesNotMatchGrantee => write!(f, "grantee proof does not match the grantee"),
@@ -150,6 +154,12 @@ impl fmt::Display for ActAsError {
 
 impl std::error::Error for ActAsError {}
 
+impl From<crate::generated::CsilCborError> for ActAsError {
+    fn from(e: crate::generated::CsilCborError) -> Self {
+        Self::Encode(e.to_string())
+    }
+}
+
 impl From<CryptoError> for ActAsError {
     fn from(e: CryptoError) -> Self {
         Self::Crypto(e.to_string())
@@ -160,23 +170,13 @@ impl From<CryptoError> for ActAsError {
 // Small helpers
 // ---------------------------------------------------------------------------
 
-fn parse_time(s: &str) -> Result<OffsetDateTime, ActAsError> {
-    crate::timestamp::parse_rfc3339(s).map_err(|e| ActAsError::BadTimestamp(e.to_string()))
-}
-
-/// Whole-second RFC3339 in UTC, so a timestamp survives storage unchanged.
-pub fn format_time(t: OffsetDateTime) -> String {
-    t.to_rfc3339_secs_z()
-}
-
 fn check_window(
-    starts_at: &str,
-    ends_at: &str,
+    starts_at: &OffsetDateTime,
+    ends_at: &OffsetDateTime,
     now: OffsetDateTime,
     skew_seconds: i64,
 ) -> Result<(), ActAsError> {
-    let start = parse_time(starts_at)?;
-    let end = parse_time(ends_at)?;
+    let (start, end) = (*starts_at, *ends_at);
     if end <= start {
         return Err(ActAsError::RequestExpired);
     }
@@ -409,9 +409,7 @@ fn valid_at_with_skew(key: &ApplicationKeyRef, signed_at: OffsetDateTime) -> boo
     if key.was_valid_at(signed_at) {
         return true;
     }
-    let Ok(created) = parse_time(&key.created_at) else {
-        return false;
-    };
+    let created = key.created_at;
     created > signed_at
         && created <= signed_at + Duration::seconds(KEY_CLOCK_SKEW_SECONDS)
         && key.was_valid_at(created)
@@ -477,8 +475,6 @@ pub fn check_scope_set_shape(set: &ActAsScopeSet) -> Result<(), ActAsError> {
     if let Some(claim) = &set.audience_handle_claim {
         check_handle_claim_subject(claim, &set.audience)?;
     }
-    parse_time(&set.issued_at)?;
-    parse_time(&set.expires_at)?;
     Ok(())
 }
 
@@ -498,7 +494,7 @@ pub fn sign_scope_set(
     if !signers.iter().all(|s| seen.insert(s.key_id)) {
         return Err(ActAsError::NoValidSignature("a key is listed twice".into()));
     }
-    let bytes = crate::generated::encode_act_as_scope_set(set);
+    let bytes = crate::generated::encode_act_as_scope_set(set)?;
     let message = envelope_signature_input(SCOPE_SET_TAG, &bytes);
     let mut signatures = Vec::with_capacity(signers.len());
     for signer in signers {
@@ -545,7 +541,7 @@ pub fn verify_scope_set(
             "the scope set is unsigned".into(),
         ));
     }
-    let issued_at = parse_time(&set.issued_at)?;
+    let issued_at = set.issued_at;
     let message = envelope_signature_input(SCOPE_SET_TAG, &signed.scope_set);
     let mut refusals = Vec::new();
     for sig in &signed.signatures {
@@ -671,7 +667,7 @@ pub fn sign_grant_request(
         };
         check_handle_claim_subject(claim, app)?;
     }
-    let bytes = crate::generated::encode_act_as_grant_request(request);
+    let bytes = crate::generated::encode_act_as_grant_request(request)?;
     let proof = signer.prove(&envelope_signature_input(GRANT_REQUEST_TAG, &bytes))?;
     Ok(SignedActAsGrantRequest {
         request: bytes,
@@ -875,7 +871,7 @@ pub fn build_grant(new: &NewGrant<'_>) -> Result<ActAsGrant, ActAsError> {
     if new.lifetime_seconds <= 0 || new.renewal_window_seconds < 0 {
         return Err(ActAsError::BadTerms("terms out of range".into()));
     }
-    let issued_at = format_time(new.now);
+    let issued_at = whole_seconds(new.now);
     let expires = new.now + Duration::seconds(new.lifetime_seconds);
     let renewable_until = expires + Duration::seconds(new.renewal_window_seconds);
     Ok(ActAsGrant {
@@ -886,10 +882,10 @@ pub fn build_grant(new: &NewGrant<'_>) -> Result<ActAsGrant, ActAsError> {
         audience: new.audience.clone(),
         scope_set: new.scope_set.clone(),
         approved_scope: new.approved_scope.to_vec(),
-        issued_at: issued_at.clone(),
-        expires_at: format_time(expires),
+        issued_at,
+        expires_at: whole_seconds(expires),
         series_issued_at: issued_at,
-        renewable_until: format_time(renewable_until),
+        renewable_until: whole_seconds(renewable_until),
         device_fingerprint: None,
     })
 }
@@ -899,7 +895,7 @@ pub fn sign_grant(
     grant: &ActAsGrant,
     signers: &[ClaimSigner<'_>],
 ) -> Result<SignedActAsGrant, ActAsError> {
-    let bytes = crate::generated::encode_act_as_grant(grant);
+    let bytes = crate::generated::encode_act_as_grant(grant)?;
     let message = envelope_signature_input(GRANT_TAG, &bytes);
     let mut signatures = Vec::with_capacity(signers.len());
     for signer in signers {
@@ -987,8 +983,8 @@ pub enum RefreshDecision {
     Stored,
     /// Sign a renewed grant with these times.
     Renew {
-        issued_at: String,
-        expires_at: String,
+        issued_at: OffsetDateTime,
+        expires_at: OffsetDateTime,
     },
 }
 
@@ -1005,9 +1001,9 @@ pub fn refresh_decision(
     lifetime_seconds: i64,
     now: OffsetDateTime,
 ) -> Result<RefreshDecision, ActAsError> {
-    let issued = parse_time(&grant.issued_at)?;
-    let expires = parse_time(&grant.expires_at)?;
-    let renewable_until = parse_time(&grant.renewable_until)?;
+    let issued = grant.issued_at;
+    let expires = grant.expires_at;
+    let renewable_until = grant.renewable_until;
     if now >= expires {
         return Err(ActAsError::GrantExpired);
     }
@@ -1023,13 +1019,17 @@ pub fn refresh_decision(
         return Ok(RefreshDecision::Stored);
     }
     Ok(RefreshDecision::Renew {
-        issued_at: format_time(now),
-        expires_at: format_time(new_expires),
+        issued_at: whole_seconds(now),
+        expires_at: whole_seconds(new_expires),
     })
 }
 
 /// A renewal changes only `issued_at` and `expires_at`.
-pub fn renewed_grant(grant: &ActAsGrant, issued_at: String, expires_at: String) -> ActAsGrant {
+pub fn renewed_grant(
+    grant: &ActAsGrant,
+    issued_at: OffsetDateTime,
+    expires_at: OffsetDateTime,
+) -> ActAsGrant {
     ActAsGrant {
         issued_at,
         expires_at,
@@ -1043,7 +1043,7 @@ pub fn sign_refresh_request(
     signer: &GranteeSigner<'_>,
 ) -> Result<SignedActAsRefreshRequest, ActAsError> {
     check_grantee(&request.grantee)?;
-    let bytes = crate::generated::encode_act_as_refresh_request(request);
+    let bytes = crate::generated::encode_act_as_refresh_request(request)?;
     let proof = signer.prove(&envelope_signature_input(REFRESH_REQUEST_TAG, &bytes))?;
     Ok(SignedActAsRefreshRequest {
         request: bytes,
@@ -1106,10 +1106,10 @@ pub fn present(
         grant_hash: grant_hash(&grant.grant),
         audience: audience.clone(),
         request_digest: request_digest.to_vec(),
-        presented_at: format_time(presented_at),
+        presented_at: whole_seconds(presented_at),
         nonce: nonce.to_vec(),
     };
-    let bytes = crate::generated::encode_act_as_presentation(&presentation);
+    let bytes = crate::generated::encode_act_as_presentation(&presentation)?;
     let proof = signer.prove(&envelope_signature_input(PRESENTATION_TAG, &bytes))?;
     Ok(ActAsCredential {
         grant: grant.clone(),
@@ -1158,7 +1158,7 @@ pub struct VerifiedActAs {
     pub signer: VerifiedGranteeSigner,
     /// The only scope the audience's policy may act on.
     pub approved_scope: Vec<String>,
-    pub expires_at: String,
+    pub expires_at: OffsetDateTime,
     /// The presentation nonce. The audience owns replay protection.
     pub nonce: Vec<u8>,
 }
@@ -1203,8 +1203,8 @@ pub fn verify_credential(
         return Err(ActAsError::Mismatch("audience"));
     }
     // 3
-    let issued = parse_time(&grant.issued_at)?;
-    let expires = parse_time(&grant.expires_at)?;
+    let issued = grant.issued_at;
+    let expires = grant.expires_at;
     let skew = Duration::seconds(ctx.skew_seconds);
     if ctx.now + skew < issued {
         return Err(ActAsError::RequestExpired);
@@ -1234,7 +1234,7 @@ pub fn verify_credential(
     if presentation.request_digest != ctx.expected_request_digest {
         return Err(ActAsError::Mismatch("request_digest"));
     }
-    let presented_at = parse_time(&presentation.presented_at)?;
+    let presented_at = presentation.presented_at;
     if presented_at > ctx.now + skew
         || presented_at + Duration::seconds(ctx.max_presentation_age_seconds) + skew < ctx.now
     {
@@ -1276,7 +1276,7 @@ pub fn sign_grant_revocation(
     revocation: &ActAsGrantRevocation,
     signers: &[ClaimSigner<'_>],
 ) -> Result<SignedActAsGrantRevocation, ActAsError> {
-    let bytes = crate::generated::encode_act_as_grant_revocation(revocation);
+    let bytes = crate::generated::encode_act_as_grant_revocation(revocation)?;
     let message = envelope_signature_input(GRANT_REVOCATION_TAG, &bytes);
     let mut signatures = Vec::with_capacity(signers.len());
     for signer in signers {
@@ -1307,7 +1307,6 @@ pub fn verify_grant_revocation(
     if revocation.subject_domain != expected_domain {
         return Err(ActAsError::Mismatch("subject_domain"));
     }
-    parse_time(&revocation.revoked_at)?;
     verify_domain_signature(
         &envelope_signature_input(GRANT_REVOCATION_TAG, &signed.revocation),
         &signed.signatures,

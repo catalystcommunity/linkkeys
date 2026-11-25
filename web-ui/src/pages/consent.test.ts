@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineControls } from "@catalystcommunity/controls";
-import type { BrowserActAsInspectResponse, BrowserConsentClaim, GetUiConfigurationResponse } from "../generated/types.gen";
+import { ClaimValueType, ConsentRowPolicy, type BrowserActAsInspectResponse, type BrowserConsentClaim, type GetUiConfigurationResponse } from "../generated/types.gen";
 import type { PageProps } from "../shared";
 import { t } from "../i18n";
 import { actAsConsentPage, authorizeGatewayPage, consentPage } from "./consent";
@@ -27,7 +27,7 @@ function mount(page: Element): Element {
 }
 
 function claim(overrides: Partial<BrowserConsentClaim>): BrowserConsentClaim {
-  return { claimType: "email", label: "Email", datatype: "string", required: false, available: true, defaultGranted: false, policy: "user", userSettable: false, maxBytes: 100, requiresApproval: false, ...overrides };
+  return { claimType: "email", label: "Email", datatype: ClaimValueType.TEXT, required: false, available: true, defaultGranted: false, policy: ConsentRowPolicy.USER, userSettable: false, maxBytes: 100, requiresApproval: false, ...overrides };
 }
 
 /** Select a check box as a person does: the click goes to its input. */
@@ -51,10 +51,10 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("consent page", () => {
   const claims = [
-    claim({ claimType: "name", label: "Name", policy: "forced_allow" }),
+    claim({ claimType: "name", label: "Name", policy: ConsentRowPolicy.FORCED_ALLOW }),
     claim({ claimType: "phone", label: "Phone", available: false, userSettable: true }),
-    claim({ claimType: "adult", label: "Adult", datatype: "bool", available: false, userSettable: true, defaultGranted: true }),
-    claim({ claimType: "secret", label: "Secret", policy: "forced_deny" }),
+    claim({ claimType: "adult", label: "Adult", datatype: ClaimValueType.BOOL, available: false, userSettable: true, defaultGranted: true }),
+    claim({ claimType: "secret", label: "Secret", policy: ConsentRowPolicy.FORCED_DENY }),
   ];
 
   it("follows the claim policies and releases the chosen claims", async () => {

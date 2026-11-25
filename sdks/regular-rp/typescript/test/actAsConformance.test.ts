@@ -85,9 +85,9 @@ function keyRefs(v: any[]): ApplicationKeyRef[] {
     algorithm: k.algorithm,
     publicKey: hex(k.public_key_hex),
     fingerprint: k.fingerprint,
-    createdAt: k.created_at,
-    expiresAt: k.expires_at,
-    revokedAt: k.revoked_at ?? undefined,
+    createdAt: new Date(k.created_at),
+    expiresAt: new Date(k.expires_at),
+    revokedAt: k.revoked_at ? new Date(k.revoked_at) : undefined,
   }));
 }
 
@@ -98,8 +98,8 @@ function domainKeys(v: any[]): DomainPublicKey[] {
     fingerprint: k.fingerprint,
     algorithm: k.algorithm,
     keyUsage: k.key_usage,
-    createdAt: k.created_at,
-    expiresAt: k.expires_at,
+    createdAt: new Date(k.created_at),
+    expiresAt: new Date(k.expires_at),
     revokedAt: undefined,
     signedByKeyId: undefined,
     keySignature: undefined,
@@ -303,9 +303,9 @@ test("act_as_terms.json: offered terms, issued terms, and refresh decisions", ()
 
   for (const c of v.refresh) {
     const grant = {
-      issuedAt: c.grant.issued_at,
-      expiresAt: c.grant.expires_at,
-      renewableUntil: c.grant.renewable_until,
+      issuedAt: new Date(c.grant.issued_at),
+      expiresAt: new Date(c.grant.expires_at),
+      renewableUntil: new Date(c.grant.renewable_until),
     };
     const e = c.expected;
     if (e.decision === "expired") {
@@ -316,7 +316,7 @@ test("act_as_terms.json: offered terms, issued terms, and refresh decisions", ()
     if (e.decision === "stored") {
       assert.deepEqual(d, { kind: "stored" }, c.name);
     } else {
-      assert.deepEqual(d, { kind: "renew", issuedAt: e.issued_at, expiresAt: e.expires_at }, c.name);
+      assert.deepEqual(d, { kind: "renew", issuedAt: new Date(e.issued_at), expiresAt: new Date(e.expires_at) }, c.name);
     }
   }
 });
@@ -352,8 +352,8 @@ test("act_as_grantee_signing.json: grantee bytes are identical for both grantee 
         requestedRenewalWindowSeconds: gi.requested_renewal_window_seconds ?? undefined,
         callbackUrl: gi.callback_url,
         nonce: gi.nonce,
-        requestedAt: gi.requested_at,
-        expiresAt: gi.expires_at,
+        requestedAt: new Date(gi.requested_at),
+        expiresAt: new Date(gi.expires_at),
       },
       signer,
     );
@@ -371,8 +371,8 @@ test("act_as_grantee_signing.json: grantee bytes are identical for both grantee 
       {
         grantId: ri.grant_id,
         grantee,
-        requestedAt: ri.requested_at,
-        expiresAt: ri.expires_at,
+        requestedAt: new Date(ri.requested_at),
+        expiresAt: new Date(ri.expires_at),
         nonce: ri.nonce,
       },
       signer,

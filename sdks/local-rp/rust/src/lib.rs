@@ -26,7 +26,7 @@
 //! let identity = generate_local_rp_identity(
 //!     GenerateLocalRpIdentityConfig::new("My LAN Jukebox", OffsetDateTime::now_utc()),
 //! ).unwrap();
-//! let stored_bytes = local_rp_identity_to_bytes(&identity);
+//! let stored_bytes = local_rp_identity_to_bytes(&identity).unwrap();
 //!
 //! // Later, per login attempt:
 //! let identity = local_rp_identity_from_bytes(&stored_bytes).unwrap();
@@ -188,7 +188,10 @@ pub fn check_expirations(
     let descriptor =
         liblinkkeys::generated::decode_local_rp_descriptor(&identity.descriptor.descriptor)
             .map_err(|e| Error::Decode(format!("identity descriptor: {e}")))?;
-    liblinkkeys::local_rp::check_expirations(&descriptor.expires_at, now).map_err(Error::from)
+    Ok(liblinkkeys::local_rp::check_expirations(
+        descriptor.expires_at,
+        now,
+    ))
 }
 
 #[cfg(test)]

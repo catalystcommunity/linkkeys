@@ -16,9 +16,10 @@
 //!   reclassification.
 
 use liblinkkeys::application_keys::{self as ak, ApplicationSigner, InstanceRef};
-use liblinkkeys::crypto::{self, SigningAlgorithm, ALGORITHM_ED25519};
-use liblinkkeys::generated::types::{DomainPublicKey, GetApplicationKeysResponse};
-use liblinkkeys::timestamp::Rfc3339 as _;
+use liblinkkeys::crypto::{self, SigningAlgorithm};
+use liblinkkeys::generated::types::{
+    DomainPublicKey, GetApplicationKeysResponse, KeyAlgorithm, KeyUsage,
+};
 use linkkeys_local_rp::application_key_cache::BoundedInMemoryApplicationKeyCache;
 use linkkeys_local_rp::application_key_resolver::{
     resolve_application_keys, CacheFreshness, ResolveApplicationKeysConfig,
@@ -137,12 +138,12 @@ fn domain_public_key(now: OffsetDateTime) -> DomainPublicKey {
         key_id: DOMAIN_KEY_ID.to_string(),
         public_key: pk.to_vec(),
         fingerprint: crypto::fingerprint(&pk),
-        algorithm: ALGORITHM_ED25519.to_string(),
-        key_usage: "sign".to_string(),
+        algorithm: KeyAlgorithm::Ed25519,
+        key_usage: KeyUsage::Sign,
         signed_by_key_id: None,
         key_signature: None,
-        created_at: (now - Duration::days(30)).to_rfc3339(),
-        expires_at: (now + Duration::days(365 * 100)).to_rfc3339(),
+        created_at: now - Duration::days(30),
+        expires_at: now + Duration::days(365 * 100),
         revoked_at: None,
     }
 }
@@ -152,12 +153,12 @@ fn app_key_ref(seed: [u8; 32], key_id: &str, now: OffsetDateTime) -> ak::Applica
     let pk = *sk.verifying_key().as_bytes();
     ak::ApplicationKeyRef {
         key_id: key_id.to_string(),
-        key_usage: ak::KEY_USAGE_SIGN.to_string(),
-        algorithm: ALGORITHM_ED25519.to_string(),
+        key_usage: KeyUsage::Sign,
+        algorithm: KeyAlgorithm::Ed25519,
         public_key: pk.to_vec(),
         fingerprint: crypto::fingerprint(&pk),
-        created_at: (now - Duration::days(1)).to_rfc3339(),
-        expires_at: (now + Duration::days(365)).to_rfc3339(),
+        created_at: now - Duration::days(1),
+        expires_at: now + Duration::days(365),
         revoked_at: None,
     }
 }
@@ -206,7 +207,7 @@ fn dispatch(
             };
             csilgen_transport::rpc::RpcResponse::ok(
                 "GetDomainKeysResponse",
-                liblinkkeys::generated::encode_get_domain_keys_response(&resp),
+                liblinkkeys::generated::encode_get_domain_keys_response(&resp).unwrap(),
             )
         }
         ("DomainKeys", "get-revocations") => {
@@ -215,7 +216,7 @@ fn dispatch(
             };
             csilgen_transport::rpc::RpcResponse::ok(
                 "GetRevocationsResponse",
-                liblinkkeys::generated::encode_get_revocations_response(&resp),
+                liblinkkeys::generated::encode_get_revocations_response(&resp).unwrap(),
             )
         }
         ("ApplicationKeys", "get-application-keys") => {
@@ -229,7 +230,7 @@ fn dispatch(
             };
             csilgen_transport::rpc::RpcResponse::ok(
                 "GetApplicationKeysResponse",
-                liblinkkeys::generated::encode_get_application_keys_response(&resp),
+                liblinkkeys::generated::encode_get_application_keys_response(&resp).unwrap(),
             )
         }
         _ => csilgen_transport::rpc::RpcResponse::transport_error(
@@ -255,7 +256,7 @@ fn dns_for(addr: std::net::SocketAddr) -> FakeDnsResolver {
 
 #[test]
 fn miss_then_fresh_hit_then_revocation_drops_the_key() {
-    let now = OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_seconds();
     let key_a = app_key_ref(APP_KEY_A_SEED, APP_KEY_A_ID, now);
     let key_b = app_key_ref(APP_KEY_B_SEED, APP_KEY_B_ID, now);
     let attestation_a = signed_attestation(&key_a, now);
@@ -290,7 +291,7 @@ fn miss_then_fresh_hit_then_revocation_drops_the_key() {
     };
     let result = resolve_application_keys(config).expect("first resolve must succeed");
     assert_eq!(result.freshness, CacheFreshness::Refreshed);
-    assert_eq!(result.keys.usable_keys(ak::KEY_USAGE_SIGN).len(), 2);
+    assert_eq!(result.keys.usable_keys(&KeyUsage::Sign).len(), 2);
     assert!(result.verified_by_domain_keys.contains_key(APP_KEY_A_ID));
     assert_eq!(
         result.verified_by_domain_keys[APP_KEY_A_ID],
@@ -343,7 +344,7 @@ fn miss_then_fresh_hit_then_revocation_drops_the_key() {
         },
         APP_KEY_B_ID,
         &key_b.fingerprint,
-        &now.to_rfc3339(),
+        &now,
         &[ApplicationSigner {
             key_id: APP_KEY_A_ID,
             algorithm: SigningAlgorithm::Ed25519,
@@ -377,6 +378,6 @@ fn miss_then_fresh_hit_then_revocation_drops_the_key() {
     let result3 = resolve_application_keys(config3).expect("third resolve must succeed");
     // Insufficient quorum (1 signer, need 2): the revocation is rejected, so
     // key B remains usable, and the rejection is visible rather than silent.
-    assert_eq!(result3.keys.usable_keys(ak::KEY_USAGE_SIGN).len(), 2);
+    assert_eq!(result3.keys.usable_keys(&KeyUsage::Sign).len(), 2);
     assert!(!result3.keys.rejected.is_empty());
 }

@@ -35,9 +35,9 @@ fn sample_request() -> String {
             },
         },
     };
-    Base64UrlUnpadded::encode_string(&liblinkkeys::generated::encode_signed_act_as_grant_request(
-        &signed,
-    ))
+    Base64UrlUnpadded::encode_string(
+        &liblinkkeys::generated::encode_signed_act_as_grant_request(&signed).unwrap(),
+    )
 }
 
 #[rocket::async_test]

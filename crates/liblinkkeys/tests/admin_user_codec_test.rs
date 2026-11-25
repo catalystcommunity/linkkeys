@@ -31,20 +31,24 @@ fn encode_map(entries: Vec<(&str, Value)>) -> Vec<u8> {
     buf
 }
 
+/// A CSIL `timestamp` on the wire: CBOR tag 0 around RFC 3339 text.
+fn ts(text: &str) -> Value {
+    Value::Tag(0, Box::new(Value::Text(text.to_string())))
+}
+
+fn at(text: &str) -> time::OffsetDateTime {
+    liblinkkeys::timestamp::parse_rfc3339(text).unwrap()
+}
+
 fn required_fields(id: &str) -> Vec<(&'static str, Value)> {
     vec![
         ("id", Value::Text(id.to_string())),
         ("username", Value::Text("alice".to_string())),
         ("display_name", Value::Text("Alice".to_string())),
+        ("kind", Value::Integer(1.into())),
         ("is_active", Value::Bool(true)),
-        (
-            "created_at",
-            Value::Text("2026-01-01T00:00:00Z".to_string()),
-        ),
-        (
-            "updated_at",
-            Value::Text("2026-01-01T00:00:00Z".to_string()),
-        ),
+        ("created_at", ts("2026-01-01T00:00:00Z")),
+        ("updated_at", ts("2026-01-01T00:00:00Z")),
     ]
 }
 
@@ -72,7 +76,7 @@ fn decode_admin_user_ignores_an_unknown_extra_key() {
     // Simulates a server newer than this client's CSIL subset: an extra key
     // ("future_field") this client's AdminUser type does not declare.
     let mut fields = required_fields("user-2");
-    fields.push(("purged_at", Value::Text("2026-02-01T00:00:00Z".to_string())));
+    fields.push(("purged_at", ts("2026-02-01T00:00:00Z")));
     fields.push(("purge_reason", Value::Text("policy violation".to_string())));
     fields.push(("future_field", Value::Text("unexpected".to_string())));
     let bytes = encode_map(fields);
@@ -81,7 +85,7 @@ fn decode_admin_user_ignores_an_unknown_extra_key() {
         .expect("decode must ignore an unrecognized extra key rather than fail");
 
     assert_eq!(user.id, "user-2");
-    assert_eq!(user.purged_at.as_deref(), Some("2026-02-01T00:00:00Z"));
+    assert_eq!(user.purged_at, Some(at("2026-02-01T00:00:00Z")));
     assert_eq!(user.purge_reason.as_deref(), Some("policy violation"));
 }
 
@@ -93,14 +97,16 @@ fn decode_admin_user_round_trips_through_encode() {
         id: "user-3".to_string(),
         username: "bob".to_string(),
         display_name: "Bob".to_string(),
+        kind: liblinkkeys::generated::types::AccountKind::Application,
+        application_id: Some("bobs-app".to_string()),
         is_active: false,
-        created_at: "2026-01-01T00:00:00Z".to_string(),
-        updated_at: "2026-01-02T00:00:00Z".to_string(),
-        purged_at: Some("2026-01-02T00:00:00Z".to_string()),
+        created_at: at("2026-01-01T00:00:00Z"),
+        updated_at: at("2026-01-02T00:00:00Z"),
+        purged_at: Some(at("2026-01-02T00:00:00Z")),
         purge_reason: Some("requested".to_string()),
         password_locked: Some(true),
     };
-    let encoded = generated::encode_admin_user(&with_purge);
+    let encoded = generated::encode_admin_user(&with_purge).unwrap();
     let decoded = generated::decode_admin_user(&encoded).expect("round-trip decode");
     assert_eq!(decoded.purged_at, with_purge.purged_at);
     assert_eq!(decoded.purge_reason, with_purge.purge_reason);
@@ -112,7 +118,7 @@ fn decode_admin_user_round_trips_through_encode() {
         password_locked: None,
         ..with_purge
     };
-    let encoded = generated::encode_admin_user(&without_purge);
+    let encoded = generated::encode_admin_user(&without_purge).unwrap();
     let decoded = generated::decode_admin_user(&encoded).expect("round-trip decode");
     assert!(decoded.purged_at.is_none());
     assert!(decoded.purge_reason.is_none());

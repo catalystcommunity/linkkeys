@@ -34,12 +34,13 @@ void main() {
         final opened =
             await LocalRp.openLocalRpCallback(encrypted, decryptKey, allowed);
 
-        expect(opened.header.suite, equals(c['suite']));
+        expect(opened.header.suite.wireId, equals(c['suite']));
+        expect(opened.header.suite.number, equals(c['suite_number']));
         expect(opened.header.fingerprint, equals(c['fingerprint']));
         expect(opened.header.nonce, equals(hex(c['nonce_hex'] as String)));
         expect(opened.header.state, equals(hex(c['state_hex'] as String)));
-        expect(opened.header.issuedAt, equals(c['issued_at']));
-        expect(opened.header.expiresAt, equals(c['expires_at']));
+        expect(opened.header.issuedAt, equals(ts(c['issued_at'] as String)));
+        expect(opened.header.expiresAt, equals(ts(c['expires_at'] as String)));
 
         final plaintext =
             Codec.encodeSignedLocalRpCallbackPayload(opened.signedPayload);

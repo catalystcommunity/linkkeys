@@ -16,7 +16,6 @@ import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.time.Duration
 import java.time.Instant
-import java.time.ZoneOffset
 import java.util.Base64
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
@@ -197,7 +196,8 @@ class FlowTest {
     // Scenario construction
     // -----------------------------------------------------------------
 
-    private fun rfc3339(instant: Instant): String = instant.atOffset(ZoneOffset.UTC).toString()
+    /** Whole seconds: a signed time (claim, revocation) must not carry a fraction. */
+    private fun secs(instant: Instant): Instant = instant.truncatedTo(java.time.temporal.ChronoUnit.SECONDS)
 
     private fun fixedIdentity(now: Instant): LocalRpIdentity =
         generateLocalRpIdentity(appName = "Flow Test App", now = now.minus(Duration.ofDays(1)), lifetime = Duration.ofDays(3651))
@@ -244,8 +244,8 @@ class FlowTest {
             JCrypto.fingerprint(domainSigning.publicKey()),
             "ed25519",
             "sign",
-            rfc3339(now.minus(Duration.ofDays(30))),
-            rfc3339(now.plus(Duration.ofDays(365))),
+            secs(now.minus(Duration.ofDays(30))),
+            secs(now.plus(Duration.ofDays(365))),
             null,
             null,
             null,
@@ -261,8 +261,8 @@ class FlowTest {
             CALLBACK_URL,
             pending.nonce,
             pending.state,
-            rfc3339(now),
-            rfc3339(now.plus(Duration.ofMinutes(5))),
+            secs(now),
+            secs(now.plus(Duration.ofMinutes(5))),
         )
         payload = scenario.mutatePayload(payload)
 
@@ -282,14 +282,14 @@ class FlowTest {
         val arrivedUrl = "$CALLBACK_URL?encrypted_token=$encryptedToken"
 
         val claimSpec = JClaims.ClaimSpec(
-            "claim-1", "handle", "flowtestuser".toByteArray(StandardCharsets.UTF_8), "user-1", USER_DOMAIN, null, rfc3339(now),
+            "claim-1", "handle", "flowtestuser".toByteArray(StandardCharsets.UTF_8), "user-1", USER_DOMAIN, null, secs(now),
         )
         var claim = JClaims.signClaim(claimSpec, listOf(JClaims.ClaimSigner(USER_DOMAIN, DOMAIN_KEY_ID, domainSigning.privateKeySeed())))
         claim = scenario.mutateClaim(claim)
         val claims = scenario.claimsOverride ?: listOf(claim)
 
         var redemptionResponse = JTypes.LocalRpTicketRedemptionResponse(
-            "user-1", USER_DOMAIN, claims, rfc3339(now.plus(Duration.ofHours(1))),
+            "user-1", USER_DOMAIN, claims, secs(now.plus(Duration.ofHours(1))),
         )
         redemptionResponse = scenario.mutateRedemption(redemptionResponse)
 
@@ -386,7 +386,7 @@ class FlowTest {
             val n = Instant.now()
             JTypes.LocalRpCallbackPayload(
                 p.userId(), p.userDomain(), p.claimTicket(), p.audienceFingerprint(), p.callbackUrl(), p.nonce(), p.state(),
-                rfc3339(n.minus(Duration.ofHours(2))), rfc3339(n.minus(Duration.ofHours(1))),
+                secs(n.minus(Duration.ofHours(2))), secs(n.minus(Duration.ofHours(1))),
             )
         }
         s.expectedRequests = 2
@@ -408,7 +408,7 @@ class FlowTest {
     fun revokedSigningKeyIsRejected() {
         val s = Scenario()
         s.mutateDomainKey = { k ->
-            JTypes.DomainPublicKey(k.keyId(), k.publicKey(), k.fingerprint(), k.algorithm(), k.keyUsage(), k.createdAt(), k.expiresAt(), rfc3339(Instant.now()), k.signedByKeyId(), k.keySignature())
+            JTypes.DomainPublicKey(k.keyId(), k.publicKey(), k.fingerprint(), k.algorithm(), k.keyUsage(), k.createdAt(), k.expiresAt(), secs(Instant.now()), k.signedByKeyId(), k.keySignature())
         }
         s.expectedRequests = 2
         assertThrows(LocalRpException.Protocol::class.java) { runScenario(s) }
@@ -514,11 +514,11 @@ class FlowTest {
         val sibling2KeyId = "sibling-key-2"
         val sibling1Key = JTypes.DomainPublicKey(
             sibling1KeyId, sibling1.publicKey(), JCrypto.fingerprint(sibling1.publicKey()), "ed25519", "sign",
-            rfc3339(now.minus(Duration.ofDays(30))), rfc3339(now.plus(Duration.ofDays(365))), null, null, null,
+            secs(now.minus(Duration.ofDays(30))), secs(now.plus(Duration.ofDays(365))), null, null, null,
         )
         val sibling2Key = JTypes.DomainPublicKey(
             sibling2KeyId, sibling2.publicKey(), JCrypto.fingerprint(sibling2.publicKey()), "ed25519", "sign",
-            rfc3339(now.minus(Duration.ofDays(30))), rfc3339(now.plus(Duration.ofDays(365))), null, null, null,
+            secs(now.minus(Duration.ofDays(30))), secs(now.plus(Duration.ofDays(365))), null, null, null,
         )
 
         val s = Scenario()
@@ -539,13 +539,13 @@ class FlowTest {
         // builder is a package-private white-box hook, not part of this
         // SDK's (or the Java SDK's) public surface.
         s.mutateDomainKey = { k ->
-            val revokedAt = rfc3339(now)
+            val revokedAt = secs(now)
             val payload = JCbor.encode(
                 JCbor.tuple(
                     JCbor.vtext("linkkeys-key-revocation-v1alpha"),
                     JCbor.vtext(k.keyId()),
                     JCbor.vtext(k.fingerprint()),
-                    JCbor.vtext(revokedAt),
+                    JCbor.signedTime(revokedAt),
                     JCbor.vtext(USER_DOMAIN),
                 ),
             )

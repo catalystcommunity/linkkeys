@@ -2,12 +2,13 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.List;
 
 public record LocalRpTicketRedemptionResponse(
     String userId /* wire: "user_id" */,
     String userDomain /* wire: "user_domain" */,
     List<Claim> claims /* wire: "claims" */,
-    String ticketExpiresAt /* wire: "ticket_expires_at" */
+    Instant ticketExpiresAt /* wire: "ticket_expires_at" */
 ) {
 }

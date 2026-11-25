@@ -45,11 +45,10 @@ pub fn recent_revocations_available(pool: &DbPool) -> bool {
 
 /// Serve issued revocation certs for get-revocations. `since` (RFC3339) bounds
 /// the result; when absent, defaults to the last `fetch_default_days()`.
-pub fn serve(pool: &DbPool, since: Option<&str>) -> Vec<RevocationCertificate> {
-    let cutoff = match since {
-        Some(s) => liblinkkeys::timestamp::parse_rfc3339(s).ok(),
-        None => Some(time::OffsetDateTime::now_utc() - time::Duration::days(fetch_default_days())),
-    };
+pub fn serve(pool: &DbPool, since: Option<&time::OffsetDateTime>) -> Vec<RevocationCertificate> {
+    let cutoff = Some(since.copied().unwrap_or_else(|| {
+        time::OffsetDateTime::now_utc() - time::Duration::days(fetch_default_days())
+    }));
     let rows = pool
         .list_issued_revocations_since(cutoff)
         .unwrap_or_default();

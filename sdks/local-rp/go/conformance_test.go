@@ -54,6 +54,19 @@ func mustHex(t *testing.T, s string) []byte {
 	return b
 }
 
+// must returns a function that unwraps a (value, error) pair and fails the
+// test on error. Use it as must[[]byte](t)(api.EncodeX(v)). Call it only on
+// the test goroutine (never inside a fake-IDP handler).
+func must[T any](t *testing.T) func(T, error) T {
+	return func(v T, err error) T {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		return v
+	}
+}
+
 func mustHex32(t *testing.T, s string) [32]byte {
 	t.Helper()
 	b := mustHex(t, s)
@@ -256,8 +269,8 @@ func TestCallbackBoxPositiveCasesOpen(t *testing.T) {
 			t.Fatalf("positive case suite=%v failed to open: %v", c.Suite, err)
 		}
 
-		if string(header.Suite) != *c.Suite {
-			t.Errorf("suite mismatch: got %s want %s", header.Suite, *c.Suite)
+		if label, _ := localrp.AeadSuiteKDFLabel(header.Suite); label != *c.Suite {
+			t.Errorf("suite mismatch: got %s want %s", label, *c.Suite)
 		}
 		if header.Fingerprint != *c.Fingerprint {
 			t.Errorf("fingerprint mismatch")
@@ -268,14 +281,14 @@ func TestCallbackBoxPositiveCasesOpen(t *testing.T) {
 		if hex.EncodeToString(header.State) != *c.StateHex {
 			t.Errorf("state mismatch")
 		}
-		if header.IssuedAt != *c.IssuedAt {
+		if !header.IssuedAt.Equal(parseRFC3339(t, *c.IssuedAt)) {
 			t.Errorf("issued_at mismatch")
 		}
-		if header.ExpiresAt != *c.ExpiresAt {
+		if !header.ExpiresAt.Equal(parseRFC3339(t, *c.ExpiresAt)) {
 			t.Errorf("expires_at mismatch")
 		}
 
-		plaintext := api.EncodeSignedLocalRpCallbackPayload(*signedPayload)
+		plaintext := must[[]byte](t)(api.EncodeSignedLocalRpCallbackPayload(*signedPayload))
 		if hex.EncodeToString(plaintext) != *c.PlaintextCborHex {
 			t.Errorf("re-encoded plaintext does not match plaintext_cbor_hex")
 		}
@@ -339,7 +352,7 @@ func TestURLParamsCasesRoundTripBothDirections(t *testing.T) {
 			if err != nil {
 				t.Fatalf("decode signed login request: %v", err)
 			}
-			if got := localrp.SignedLocalRpLoginRequestToURLParam(typed); got != c.Base64URLUnpadded {
+			if got := must[string](t)(localrp.SignedLocalRpLoginRequestToURLParam(typed)); got != c.Base64URLUnpadded {
 				t.Errorf("encode mismatch for %s", c.Name)
 			}
 			roundTripped, err := localrp.SignedLocalRpLoginRequestFromURLParam(c.Base64URLUnpadded)
@@ -355,7 +368,7 @@ func TestURLParamsCasesRoundTripBothDirections(t *testing.T) {
 			if err != nil {
 				t.Fatalf("decode encrypted callback: %v", err)
 			}
-			if got := localrp.LocalRpEncryptedCallbackToURLParam(typed); got != c.Base64URLUnpadded {
+			if got := must[string](t)(localrp.LocalRpEncryptedCallbackToURLParam(typed)); got != c.Base64URLUnpadded {
 				t.Errorf("encode mismatch for %s", c.Name)
 			}
 			roundTripped, err := localrp.LocalRpEncryptedCallbackFromURLParam(c.Base64URLUnpadded)
@@ -487,6 +500,46 @@ func TestDNSLinkKeysApisTXTCases(t *testing.T) {
 	}
 }
 
+// parseOptRFC3339 parses an optional RFC 3339 vector field.
+func parseOptRFC3339(t *testing.T, s *string) *time.Time {
+	t.Helper()
+	if s == nil {
+		return nil
+	}
+	tm := parseRFC3339(t, *s)
+	return &tm
+}
+
+// timePtrEqual compares a decoded optional timestamp with an optional RFC
+// 3339 vector field.
+func timePtrEqual(t *testing.T, got *time.Time, want *string) bool {
+	t.Helper()
+	if got == nil || want == nil {
+		return got == nil && want == nil
+	}
+	return got.Equal(parseRFC3339(t, *want))
+}
+
+// parseKeyAlgorithm parses a vector's algorithm label ("ed25519").
+func parseKeyAlgorithm(t *testing.T, s string) api.KeyAlgorithm {
+	t.Helper()
+	var v api.KeyAlgorithm
+	if err := v.UnmarshalText([]byte(s)); err != nil {
+		t.Fatalf("bad algorithm %q: %v", s, err)
+	}
+	return v
+}
+
+// parseKeyUsage parses a vector's key_usage label ("sign", "encrypt").
+func parseKeyUsage(t *testing.T, s string) api.KeyUsage {
+	t.Helper()
+	var v api.KeyUsage
+	if err := v.UnmarshalText([]byte(s)); err != nil {
+		t.Fatalf("bad key_usage %q: %v", s, err)
+	}
+	return v
+}
+
 func strPtrEqual(a, b *string) bool {
 	if a == nil || b == nil {
 		return a == b
@@ -601,7 +654,7 @@ func TestExpirationsCheckTimestampsSkewBoundariesAreExact(t *testing.T) {
 
 	for _, c := range d.CheckTimestamps.Cases {
 		now := parseRFC3339(t, c.Now)
-		err := localrp.CheckTimestamps(d.CheckTimestamps.IssuedAt, d.CheckTimestamps.ExpiresAt, now, d.CheckTimestamps.SkewSeconds)
+		err := localrp.CheckTimestamps(parseRFC3339(t, d.CheckTimestamps.IssuedAt), parseRFC3339(t, d.CheckTimestamps.ExpiresAt), now, d.CheckTimestamps.SkewSeconds)
 		valid := err == nil
 		if valid != c.ExpectedValid {
 			t.Errorf("%s (now=%s): got valid=%v want %v", c.Description, now, valid, c.ExpectedValid)

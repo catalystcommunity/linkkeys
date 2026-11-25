@@ -30,7 +30,6 @@ import 'dart:typed_data';
 import 'crypto/aead_suite.dart';
 import 'crypto/crypto.dart';
 import 'errors.dart';
-import 'rfc3339.dart';
 import 'wire/cbor.dart';
 import 'wire/codec.dart';
 import 'wire/types.dart';
@@ -74,9 +73,7 @@ class LocalRp {
   // -----------------------------------------------------------------
 
   static void checkTimestamps(
-      String issuedAt, String expiresAt, DateTime now, int skewSeconds) {
-    final issued = Rfc3339.parse('issued_at', issuedAt);
-    final expires = Rfc3339.parse('expires_at', expiresAt);
+      DateTime issued, DateTime expires, DateTime now, int skewSeconds) {
     final skew = Duration(seconds: skewSeconds);
     if (now.add(skew).isBefore(issued)) {
       throw LocalRpError(LocalRpErrorKind.notYetValid, null);
@@ -86,8 +83,7 @@ class LocalRp {
     }
   }
 
-  static ExpirationStatus checkExpirations(String expiresAt, DateTime now) {
-    final expires = Rfc3339.parse('expires_at', expiresAt);
+  static ExpirationStatus checkExpirations(DateTime expires, DateTime now) {
     final remaining = expires.difference(now);
     final ExpirationLevel level;
     if (!now.isBefore(expires)) {
@@ -150,20 +146,14 @@ class LocalRp {
   /// Rejects a signing key that is not usable as a signer: wrong
   /// `key_usage`, revoked, or expired (wall clock).
   static void checkSigningKeyValid(DomainPublicKey key) {
-    if (key.keyUsage != 'sign') {
+    if (key.keyUsage != KeyUsage.sign) {
       throw LocalRpError(
           LocalRpErrorKind.signatureInvalid, "key_usage is not 'sign'");
     }
     if (key.revokedAt != null) {
       throw LocalRpError(LocalRpErrorKind.keyRevoked, key.keyId);
     }
-    final DateTime expires;
-    try {
-      expires = Rfc3339.parse('expires_at', key.expiresAt);
-    } on LocalRpError {
-      throw LocalRpError(LocalRpErrorKind.keyExpired, key.keyId);
-    }
-    if (DateTime.now().toUtc().isAfter(expires)) {
+    if (DateTime.now().toUtc().isAfter(key.expiresAt)) {
       throw LocalRpError(LocalRpErrorKind.keyExpired, key.keyId);
     }
   }
@@ -177,9 +167,9 @@ class LocalRp {
     String? localDomainHint,
     Uint8List signingPublicKey,
     Uint8List encryptionPublicKey,
-    List<String> supportedSuites,
-    String createdAt,
-    String expiresAt,
+    List<AeadSuite> supportedSuites,
+    DateTime createdAt,
+    DateTime expiresAt,
   ) async {
     final fp = await Crypto.fingerprint(signingPublicKey);
     return LocalRpDescriptor(
@@ -242,8 +232,8 @@ class LocalRp {
     Uint8List state,
     List<String> requestedClaims,
     List<String> requiredClaims,
-    String issuedAt,
-    String expiresAt,
+    DateTime issuedAt,
+    DateTime expiresAt,
   ) {
     return LocalRpLoginRequest(
       descriptor: descriptor,
@@ -293,7 +283,7 @@ class LocalRp {
   // -----------------------------------------------------------------
 
   static LocalRpTicketRedemptionRequest buildLocalRpTicketRedemptionRequest(
-      Uint8List claimTicket, String fingerprint, String issuedAt) {
+      Uint8List claimTicket, String fingerprint, DateTime issuedAt) {
     return LocalRpTicketRedemptionRequest(
       claimTicket: claimTicket,
       fingerprint: fingerprint,
@@ -354,8 +344,8 @@ class LocalRp {
     String callbackUrl,
     Uint8List nonce,
     Uint8List state,
-    String issuedAt,
-    String expiresAt,
+    DateTime issuedAt,
+    DateTime expiresAt,
   ) {
     return LocalRpCallbackPayload(
       userId: userId,
@@ -407,8 +397,9 @@ class LocalRp {
 
     checkSigningKeyValid(key);
 
-    if (key.algorithm != 'ed25519') {
-      throw LocalRpError(LocalRpErrorKind.unsupportedAlgorithm, key.algorithm);
+    if (key.algorithm != KeyAlgorithm.ed25519) {
+      throw LocalRpError(
+          LocalRpErrorKind.unsupportedAlgorithm, key.algorithm.label);
     }
     final sigInput = envelopeSignatureInput(ctxLocalRpCallback, signed.payload);
     if (!await Crypto.verifyEd25519(
@@ -442,10 +433,10 @@ class LocalRp {
     if (!Crypto.constantTimeEquals(header.state, payload.state)) {
       throw LocalRpError(LocalRpErrorKind.headerPayloadMismatch, 'state');
     }
-    if (header.issuedAt != payload.issuedAt) {
+    if (!header.issuedAt.isAtSameMomentAs(payload.issuedAt)) {
       throw LocalRpError(LocalRpErrorKind.headerPayloadMismatch, 'issued_at');
     }
-    if (header.expiresAt != payload.expiresAt) {
+    if (!header.expiresAt.isAtSameMomentAs(payload.expiresAt)) {
       throw LocalRpError(LocalRpErrorKind.headerPayloadMismatch, 'expires_at');
     }
   }
@@ -487,8 +478,8 @@ class LocalRp {
     String fingerprint,
     Uint8List nonce,
     Uint8List state,
-    String issuedAt,
-    String expiresAt,
+    DateTime issuedAt,
+    DateTime expiresAt,
   ) async {
     final ephemeral = await Crypto.generateX25519KeyPair();
     final aeadNonce = Crypto.randomBytes(12);
@@ -519,8 +510,8 @@ class LocalRp {
     String fingerprint,
     Uint8List nonce,
     Uint8List state,
-    String issuedAt,
-    String expiresAt,
+    DateTime issuedAt,
+    DateTime expiresAt,
     Uint8List ephemeralPrivateKey,
     Uint8List aeadNonce,
   ) async {
@@ -548,8 +539,8 @@ class LocalRp {
     String fingerprint,
     Uint8List nonce,
     Uint8List state,
-    String issuedAt,
-    String expiresAt,
+    DateTime issuedAt,
+    DateTime expiresAt,
     Uint8List ephemeralPrivateKey,
     Uint8List ephemeralPublicKey,
     Uint8List aeadNonce,
@@ -563,7 +554,7 @@ class LocalRp {
       fingerprint: fingerprint,
       nonce: nonce,
       state: state,
-      suite: suite.wireId,
+      suite: suite,
       ephemeralPublicKey: ephemeralPublicKey,
       aeadNonce: aeadNonce,
       issuedAt: issuedAt,
@@ -604,12 +595,10 @@ class LocalRp {
       throw LocalRpError(LocalRpErrorKind.decode, e.toString(), cause: e);
     }
 
-    final suite = AeadSuite.parse(header.suite);
-    if (suite == null) {
-      throw LocalRpError(LocalRpErrorKind.unsupportedSuite, header.suite);
-    }
+    // A suite number outside the registry already failed to decode above.
+    final suite = header.suite;
     if (!allowedSuites.contains(suite)) {
-      throw LocalRpError(LocalRpErrorKind.suiteNotAdvertised, header.suite);
+      throw LocalRpError(LocalRpErrorKind.suiteNotAdvertised, suite.wireId);
     }
 
     if (header.ephemeralPublicKey.length != 32) {

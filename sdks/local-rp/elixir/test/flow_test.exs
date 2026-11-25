@@ -242,8 +242,8 @@ defmodule LinkkeysLocalRp.FlowTest do
     signing_public_key = Crypto.ed25519_public_from_private(@local_rp_signing_seed)
     encryption_public_key = Crypto.x25519_public_from_private(@local_rp_encryption_private)
 
-    created_at = Timeutil.to_rfc3339(DateTime.add(now, -86_400, :second))
-    expires_at = Timeutil.to_rfc3339(DateTime.add(now, 3650 * 86_400, :second))
+    created_at = Timeutil.whole_seconds(DateTime.add(now, -86_400, :second))
+    expires_at = Timeutil.whole_seconds(DateTime.add(now, 3650 * 86_400, :second))
 
     descriptor =
       LocalRp.build_local_rp_descriptor(
@@ -280,8 +280,8 @@ defmodule LinkkeysLocalRp.FlowTest do
       key_usage: "sign",
       signed_by_key_id: nil,
       key_signature: nil,
-      created_at: Timeutil.to_rfc3339(DateTime.add(now, -30 * 86_400, :second)),
-      expires_at: Timeutil.to_rfc3339(DateTime.add(now, 365 * 86_400, :second)),
+      created_at: Timeutil.whole_seconds(DateTime.add(now, -30 * 86_400, :second)),
+      expires_at: Timeutil.whole_seconds(DateTime.add(now, 365 * 86_400, :second)),
       revoked_at: nil
     }
   end
@@ -334,8 +334,8 @@ defmodule LinkkeysLocalRp.FlowTest do
         @callback_url,
         pending.nonce,
         pending.state,
-        Timeutil.to_rfc3339(now),
-        Timeutil.to_rfc3339(DateTime.add(now, 300, :second))
+        Timeutil.whole_seconds(now),
+        Timeutil.whole_seconds(DateTime.add(now, 300, :second))
       )
       |> scenario.mutate_payload.()
 
@@ -364,13 +364,13 @@ defmodule LinkkeysLocalRp.FlowTest do
           claim_value: "flowtestuser",
           user_id: "user-1",
           subject_domain: @user_domain,
-          attested_at: Timeutil.to_rfc3339(now)
+          attested_at: Timeutil.whole_seconds(now)
         },
         [%ClaimSigner{domain: @user_domain, key_id: @domain_key_id, private_key: @domain_signing_seed}]
       )
       |> scenario.mutate_claim.()
 
-    ticket_expires_at = Timeutil.to_rfc3339(DateTime.add(now, 3600, :second))
+    ticket_expires_at = Timeutil.whole_seconds(DateTime.add(now, 3600, :second))
 
     redemption_response =
       %LocalRpTicketRedemptionResponse{
@@ -490,8 +490,8 @@ defmodule LinkkeysLocalRp.FlowTest do
 
       %{
         p
-        | issued_at: Timeutil.to_rfc3339(DateTime.add(n, -7200, :second)),
-          expires_at: Timeutil.to_rfc3339(DateTime.add(n, -3600, :second))
+        | issued_at: Timeutil.whole_seconds(DateTime.add(n, -7200, :second)),
+          expires_at: Timeutil.whole_seconds(DateTime.add(n, -3600, :second))
       }
     end
 
@@ -507,7 +507,7 @@ defmodule LinkkeysLocalRp.FlowTest do
   end
 
   test "revoked signing key is rejected" do
-    mutate = fn k -> %{k | revoked_at: Timeutil.to_rfc3339(DateTime.utc_now())} end
+    mutate = fn k -> %{k | revoked_at: Timeutil.whole_seconds(DateTime.utc_now())} end
     # The revoked key entry is still returned by get-domain-keys (trust_keys
     # doesn't itself filter revoked_at — that's checked later, during
     # envelope verification), so get-revocations is still fetched (SEC fix
@@ -640,12 +640,12 @@ defmodule LinkkeysLocalRp.FlowTest do
       |> Enum.map(fn {seed, i} -> sibling_key(seed, "sibling-key-#{i}", now) end)
 
     target = domain_public_key(now)
-    revoked_at = Timeutil.to_rfc3339(now)
+    revoked_at = Timeutil.whole_seconds(now)
 
     signatures =
       Enum.zip(sibling_seeds, siblings)
       |> Enum.map(fn {seed, key} ->
-        payload =
+        {:ok, payload} =
           LinkkeysLocalRp.Revocation.revocation_payload(target.key_id, target.fingerprint, revoked_at, @user_domain)
 
         sig = Crypto.ed25519_sign(payload, seed)
@@ -735,10 +735,10 @@ defmodule LinkkeysLocalRp.FlowTest do
           ]
         },
         "approved_scope" => ["read"],
-        "issued_at" => "2026-10-06T12:00:00Z",
-        "expires_at" => "2026-10-06T13:00:00Z",
-        "series_issued_at" => "2026-10-06T12:00:00Z",
-        "renewable_until" => "2026-10-06T13:00:00Z"
+        "issued_at" => Timeutil.to_wire(~U[2026-10-06 12:00:00Z]),
+        "expires_at" => Timeutil.to_wire(~U[2026-10-06 13:00:00Z]),
+        "series_issued_at" => Timeutil.to_wire(~U[2026-10-06 12:00:00Z]),
+        "renewable_until" => Timeutil.to_wire(~U[2026-10-06 13:00:00Z])
       })
 
     %Types.SignedActAsGrant{
@@ -789,8 +789,8 @@ defmodule LinkkeysLocalRp.FlowTest do
     request = Types.act_as_refresh_request_from_cbor(signed.request)
     assert request.grant_id == "grant-1"
     assert request.grantee.local_rp_descriptor_fingerprint == key_material.fingerprint
-    assert request.requested_at == Timeutil.to_rfc3339(now)
-    assert request.expires_at == Timeutil.to_rfc3339(DateTime.add(now, 300, :second))
+    assert request.requested_at == Timeutil.whole_seconds(now)
+    assert request.expires_at == Timeutil.whole_seconds(DateTime.add(now, 300, :second))
     assert byte_size(Encoding.b64url_decode(request.nonce)) == 32
     assert signed.proof.local_rp_descriptor == key_material.descriptor
     assert signed.proof.signature.signed_by_key_id == key_material.fingerprint

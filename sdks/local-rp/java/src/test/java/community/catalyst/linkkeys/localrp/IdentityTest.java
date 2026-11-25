@@ -49,6 +49,14 @@ class IdentityTest {
     }
 
     @Test
+    void generateIdentityRejectsUnknownSuite() {
+        Identity.GenerateLocalRpIdentityConfig config =
+                new Identity.GenerateLocalRpIdentityConfig("Test App", Instant.now());
+        config.supportedSuites = List.of("aes-256-gcm", "AES-256-GCM");
+        assertThrows(SdkException.class, () -> Identity.generateLocalRpIdentity(config));
+    }
+
+    @Test
     void signingAndEncryptionKeyByteRoundTrips() {
         byte[] key = new byte[32];
         java.util.Arrays.fill(key, (byte) 7);

@@ -52,6 +52,12 @@ test {
     // Act-as grantee vectors live with the regular-RP conformance set.
     systemProperty 'linkkeys.regularRpConformanceDir',
         layout.projectDirectory.dir('../../regular-rp/conformance').asFile.absolutePath
+    // Declare the vector directories as inputs, so a vector change re-runs
+    // the tests instead of leaving the task UP-TO-DATE.
+    inputs.dir(layout.projectDirectory.dir('../conformance'))
+        .withPropertyName('conformanceVectors').withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(layout.projectDirectory.dir('../../regular-rp/conformance'))
+        .withPropertyName('regularRpConformanceVectors').withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 tasks.withType(JavaCompile).configureEach {

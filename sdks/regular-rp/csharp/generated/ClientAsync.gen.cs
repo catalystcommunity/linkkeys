@@ -12,6 +12,11 @@ namespace Csilgen.Transport;
 public interface ICsilAsyncTransport
 {
     System.Threading.Tasks.Task<byte[]> Call(string service, string op, byte[] request);
+
+    /// <summary>Performs a call to an op with several reply arms and returns the reply
+    /// variant with the payload bytes. The client selects the arm from the variant, so
+    /// the carrier must not drop it.</summary>
+    System.Threading.Tasks.Task<CsilWireReply> CallReply(string service, string op, byte[] request);
 }
 
 /// <summary>Typed RPC client for the Ops service. The client owns
@@ -292,6 +297,22 @@ public sealed class AdminAsyncClient(ICsilAsyncTransport transport)
         Codec.Decode<RemoveAppAccessPolicyResponse>(await transport.Call("Admin", "remove-app-access-policy", Codec.Encode(removeAppAccessPolicyRequest)));
     public async System.Threading.Tasks.Task<PreviewAppAccessResponse> PreviewAppAccessAsync(PreviewAppAccessRequest previewAppAccessRequest) =>
         Codec.Decode<PreviewAppAccessResponse>(await transport.Call("Admin", "preview-app-access", Codec.Encode(previewAppAccessRequest)));
+    public async System.Threading.Tasks.Task<RenameUserResponse> RenameUserAsync(RenameUserRequest renameUserRequest) =>
+        Codec.Decode<RenameUserResponse>(await transport.Call("Admin", "rename-user", Codec.Encode(renameUserRequest)));
+    public async System.Threading.Tasks.Task<SetApplicationIdResponse> SetApplicationIdAsync(SetApplicationIdRequest setApplicationIdRequest) =>
+        Codec.Decode<SetApplicationIdResponse>(await transport.Call("Admin", "set-application-id", Codec.Encode(setApplicationIdRequest)));
+    public async System.Threading.Tasks.Task<CreateApiKeyResponse> CreateApiKeyAsync(CreateApiKeyRequest createApiKeyRequest) =>
+        Codec.Decode<CreateApiKeyResponse>(await transport.Call("Admin", "create-api-key", Codec.Encode(createApiKeyRequest)));
+    public async System.Threading.Tasks.Task<ListApiKeysResponse> ListApiKeysAsync(ListApiKeysRequest listApiKeysRequest) =>
+        Codec.Decode<ListApiKeysResponse>(await transport.Call("Admin", "list-api-keys", Codec.Encode(listApiKeysRequest)));
+    public async System.Threading.Tasks.Task<RevokeApiKeyResponse> RevokeApiKeyAsync(RevokeApiKeyRequest revokeApiKeyRequest) =>
+        Codec.Decode<RevokeApiKeyResponse>(await transport.Call("Admin", "revoke-api-key", Codec.Encode(revokeApiKeyRequest)));
+    public async System.Threading.Tasks.Task<GetAccountLimitsResponse> GetAccountLimitsAsync(GetAccountLimitsRequest getAccountLimitsRequest) =>
+        Codec.Decode<GetAccountLimitsResponse>(await transport.Call("Admin", "get-account-limits", Codec.Encode(getAccountLimitsRequest)));
+    public async System.Threading.Tasks.Task<SetAccountLimitsResponse> SetAccountLimitsAsync(SetAccountLimitsRequest setAccountLimitsRequest) =>
+        Codec.Decode<SetAccountLimitsResponse>(await transport.Call("Admin", "set-account-limits", Codec.Encode(setAccountLimitsRequest)));
+    public async System.Threading.Tasks.Task<GetApplicationUsageResponse> GetApplicationUsageAsync(GetApplicationUsageRequest getApplicationUsageRequest) =>
+        Codec.Decode<GetApplicationUsageResponse>(await transport.Call("Admin", "get-application-usage", Codec.Encode(getApplicationUsageRequest)));
 }
 
 /// <summary>Typed RPC client for the Account service. The client owns
@@ -346,14 +367,26 @@ public sealed class AttestationAsyncClient(ICsilAsyncTransport transport)
 /// (de)serialization via the generated codec; the transport only moves bytes.</summary>
 public sealed class RpAsyncClient(ICsilAsyncTransport transport)
 {
-    public async System.Threading.Tasks.Task<RpSignResponse> SignRequestAsync(RpSignRequest rpSignRequest) =>
-        Codec.Decode<RpSignResponse>(await transport.Call("Rp", "sign-request", Codec.Encode(rpSignRequest)));
-    public async System.Threading.Tasks.Task<RpDecryptResponse> DecryptTokenAsync(RpDecryptRequest rpDecryptRequest) =>
-        Codec.Decode<RpDecryptResponse>(await transport.Call("Rp", "decrypt-token", Codec.Encode(rpDecryptRequest)));
-    public async System.Threading.Tasks.Task<RpVerifyResponse> VerifyAssertionAsync(RpVerifyRequest rpVerifyRequest) =>
-        Codec.Decode<RpVerifyResponse>(await transport.Call("Rp", "verify-assertion", Codec.Encode(rpVerifyRequest)));
-    public async System.Threading.Tasks.Task<UserInfo> UserinfoFetchAsync(RpUserInfoRequest rpUserInfoRequest) =>
-        Codec.Decode<UserInfo>(await transport.Call("Rp", "userinfo-fetch", Codec.Encode(rpUserInfoRequest)));
+    public async System.Threading.Tasks.Task<RpSignResponse> SignRequestAsync(RpSignRequest rpSignRequest)
+    {
+        var reply = await transport.CallReply("Rp", "sign-request", Codec.Encode(rpSignRequest));
+        return Codec.Decode<RpSignResponse>(Codec.ResolveRpcReply("Rp", "sign-request", reply.Variant, reply.Payload));
+    }
+    public async System.Threading.Tasks.Task<RpDecryptResponse> DecryptTokenAsync(RpDecryptRequest rpDecryptRequest)
+    {
+        var reply = await transport.CallReply("Rp", "decrypt-token", Codec.Encode(rpDecryptRequest));
+        return Codec.Decode<RpDecryptResponse>(Codec.ResolveRpcReply("Rp", "decrypt-token", reply.Variant, reply.Payload));
+    }
+    public async System.Threading.Tasks.Task<RpVerifyResponse> VerifyAssertionAsync(RpVerifyRequest rpVerifyRequest)
+    {
+        var reply = await transport.CallReply("Rp", "verify-assertion", Codec.Encode(rpVerifyRequest));
+        return Codec.Decode<RpVerifyResponse>(Codec.ResolveRpcReply("Rp", "verify-assertion", reply.Variant, reply.Payload));
+    }
+    public async System.Threading.Tasks.Task<UserInfo> UserinfoFetchAsync(RpUserInfoRequest rpUserInfoRequest)
+    {
+        var reply = await transport.CallReply("Rp", "userinfo-fetch", Codec.Encode(rpUserInfoRequest));
+        return Codec.Decode<UserInfo>(Codec.ResolveRpcReply("Rp", "userinfo-fetch", reply.Variant, reply.Payload));
+    }
     public async System.Threading.Tasks.Task<RpIssueAttestationResponse> IssueAttestationAsync(RpIssueAttestationRequest rpIssueAttestationRequest) =>
         Codec.Decode<RpIssueAttestationResponse>(await transport.Call("Rp", "issue-attestation", Codec.Encode(rpIssueAttestationRequest)));
     public async System.Threading.Tasks.Task<RpResolveDomainKeysResponse> ResolveDomainKeysAsync(RpResolveDomainKeysRequest rpResolveDomainKeysRequest) =>

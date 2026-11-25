@@ -51,7 +51,7 @@ async fn browser_csil_login_current_and_account_dispatch_share_one_session() {
         .body(envelope(
             "Session",
             "login-password",
-            liblinkkeys::generated::encode_session_password_login_request(&foreign_login),
+            liblinkkeys::generated::encode_session_password_login_request(&foreign_login).unwrap(),
         ))
         .dispatch()
         .await;
@@ -71,7 +71,7 @@ async fn browser_csil_login_current_and_account_dispatch_share_one_session() {
         .body(envelope(
             "Session",
             "login-password",
-            liblinkkeys::generated::encode_session_password_login_request(&login),
+            liblinkkeys::generated::encode_session_password_login_request(&login).unwrap(),
         ))
         .dispatch()
         .await;
@@ -92,7 +92,8 @@ async fn browser_csil_login_current_and_account_dispatch_share_one_session() {
             "get-current",
             liblinkkeys::generated::encode_empty_request(
                 &liblinkkeys::generated::types::EmptyRequest {},
-            ),
+            )
+            .unwrap(),
         ))
         .dispatch()
         .await;
@@ -109,7 +110,8 @@ async fn browser_csil_login_current_and_account_dispatch_share_one_session() {
             "get-my-info",
             liblinkkeys::generated::encode_empty_request(
                 &liblinkkeys::generated::types::EmptyRequest {},
-            ),
+            )
+            .unwrap(),
         ))
         .dispatch()
         .await;
@@ -131,7 +133,8 @@ async fn browser_csil_login_current_and_account_dispatch_share_one_session() {
                     current_password: "wrong-password".to_string(),
                     new_password: "new-password-value".to_string(),
                 },
-            ),
+            )
+            .unwrap(),
         ))
         .dispatch()
         .await;
@@ -151,7 +154,8 @@ async fn browser_csil_login_current_and_account_dispatch_share_one_session() {
             "get-my-info",
             liblinkkeys::generated::encode_empty_request(
                 &liblinkkeys::generated::types::EmptyRequest {},
-            ),
+            )
+            .unwrap(),
         ))
         .dispatch()
         .await;
@@ -168,7 +172,8 @@ async fn browser_csil_login_current_and_account_dispatch_share_one_session() {
             "logout",
             liblinkkeys::generated::encode_empty_request(
                 &liblinkkeys::generated::types::EmptyRequest {},
-            ),
+            )
+            .unwrap(),
         ))
         .dispatch()
         .await;
@@ -185,7 +190,8 @@ async fn browser_csil_login_current_and_account_dispatch_share_one_session() {
             "get-current",
             liblinkkeys::generated::encode_empty_request(
                 &liblinkkeys::generated::types::EmptyRequest {},
-            ),
+            )
+            .unwrap(),
         ))
         .dispatch()
         .await;

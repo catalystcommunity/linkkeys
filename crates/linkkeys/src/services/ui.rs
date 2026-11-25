@@ -227,7 +227,7 @@ fn current_capabilities() -> Vec<String> {
         crate::services::notification::capabilities()
             .capabilities
             .into_iter()
-            .map(|value| value.purpose),
+            .map(|value| value.purpose.as_str().to_string()),
     );
     capabilities
 }

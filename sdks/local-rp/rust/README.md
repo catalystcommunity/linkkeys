@@ -57,7 +57,7 @@ use linkkeys_local_rp::{
 let identity = generate_local_rp_identity(
     GenerateLocalRpIdentityConfig::new("My LAN Jukebox", OffsetDateTime::now_utc()),
 )?;
-let stored_bytes = local_rp_identity_to_bytes(&identity);
+let stored_bytes = local_rp_identity_to_bytes(&identity)?;
 // ... write `stored_bytes` to your app's secret/config store ...
 
 // Later, per login attempt:

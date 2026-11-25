@@ -2,13 +2,14 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Objects;
 
 public record UserInfoRequest(
     byte[] token /* wire: "token" */,
     String relyingParty /* wire: "relying_party" */,
-    String timestamp /* wire: "timestamp" */,
+    Instant timestamp /* wire: "timestamp" */,
     String nonce /* wire: "nonce" */
 ) {
     @Override

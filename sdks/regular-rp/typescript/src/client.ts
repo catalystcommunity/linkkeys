@@ -99,13 +99,6 @@ export interface BeginLoginInput {
   identity: string;
   /** Any HTTPS URL. The RP domain signs it; it does not have to be in the RP domain. */
   callbackUrl: string;
-  /**
-   * The application under the API-key account (1-128 of A-Z a-z 0-9 - _ .).
-   * Use the same value as the application's act-as ApplicationRef. Absent:
-   * the RP server uses the account's username. Standing consent is per
-   * application.
-   */
-  applicationId?: string;
   /** A stable value from the application session that started this login. */
   sessionBinding: string;
   requestedClaims?: ClaimRequest;
@@ -162,6 +155,11 @@ function callbackForState(raw: string, state: string): URL {
 
 function parseTime(value: string): number | undefined {
   const time = Date.parse(value);
+  return Number.isFinite(time) ? time : undefined;
+}
+
+function dateTime(value: Date): number | undefined {
+  const time = value.getTime();
   return Number.isFinite(time) ? time : undefined;
 }
 
@@ -255,7 +253,6 @@ export class RegularRpClient {
     const signed = await this.rp.signRequest({
       callbackUrl: callbackUrl.href,
       nonce,
-      applicationId: input.applicationId,
       requestedClaims: input.requestedClaims,
       authenticationRequirements: input.authenticationRequirements,
       flowContext: input.flowContext,
@@ -312,8 +309,8 @@ export class RegularRpClient {
     if (assertion.audience !== this.rpDomain) throw new LoginError("audience-mismatch");
     if (assertion.nonce !== pending.nonce) throw new LoginError("nonce-mismatch");
 
-    const issuedAt = parseTime(assertion.issuedAt);
-    const expiresAt = parseTime(assertion.expiresAt);
+    const issuedAt = dateTime(assertion.issuedAt);
+    const expiresAt = dateTime(assertion.expiresAt);
     if (
       issuedAt === undefined ||
       expiresAt === undefined ||

@@ -79,8 +79,8 @@ public class ActAsTests
             OptLong(gi, "requested_renewal_window_seconds"),
             gi.Get("callback_url").AsString(),
             gi.Get("nonce").AsString(),
-            gi.Get("requested_at").AsString(),
-            gi.Get("expires_at").AsString());
+            gi.Get("requested_at").AsTime(),
+            gi.Get("expires_at").AsTime());
         var signed = ActAs.SignGrantRequest(request, km);
         Assert.Equal(g.Get("request_cbor_hex").AsString(), Hex.Encode(signed.Request));
         Assert.Equal(
@@ -94,8 +94,8 @@ public class ActAsTests
         var refresh = new ActAsRefreshRequest(
             ri.Get("grant_id").AsString(),
             grantee,
-            ri.Get("requested_at").AsString(),
-            ri.Get("expires_at").AsString(),
+            ri.Get("requested_at").AsTime(),
+            ri.Get("expires_at").AsTime(),
             ri.Get("nonce").AsString());
         var signedRefresh = ActAs.SignRefreshRequest(refresh, km);
         Assert.Equal(r.Get("request_cbor_hex").AsString(), Hex.Encode(signedRefresh.Request));
@@ -109,7 +109,7 @@ public class ActAsTests
             grant,
             new ApplicationRef(aud.Get("subject_user_id").AsString(), aud.Get("subject_domain").AsString(), aud.Get("application_id").AsString()),
             Fixtures.Hex(pi.Get("request_digest_hex").AsString()),
-            DateTimeOffset.Parse(pi.Get("presented_at").AsString(), System.Globalization.CultureInfo.InvariantCulture),
+            pi.Get("presented_at").AsTime(),
             Fixtures.Hex(pi.Get("nonce_hex").AsString()),
             km);
         Assert.Equal(p.Get("grant_hash_hex").AsString(), Hex.Encode(ActAs.GrantHash(grant.Grant)));
@@ -118,10 +118,13 @@ public class ActAsTests
     }
 
     [Fact]
-    public void FormatTimeIsWholeSecondUtc()
+    public void WholeSecondsIsWholeSecondUtc()
     {
         var t = new DateTimeOffset(2026, 10, 6, 14, 5, 0, TimeSpan.FromHours(2)).AddTicks(9_876_543);
-        Assert.Equal("2026-10-06T12:05:00Z", ActAs.FormatTime(t));
+        var whole = ActAs.WholeSeconds(t);
+        Assert.Equal(new DateTimeOffset(2026, 10, 6, 12, 5, 0, TimeSpan.Zero), whole);
+        Assert.Equal(TimeSpan.Zero, whole.Offset);
+        Assert.Equal("2026-10-06T12:05:00Z", Cbor.FormatTimestamp(whole));
     }
 
     [Fact]
@@ -156,8 +159,8 @@ public class ActAsTests
         Assert.Null(request.Grantee.Application);
         Assert.Equal(km.Fingerprint, request.Grantee.LocalRpDescriptorFingerprint);
         Assert.Equal(result.Pending.Nonce, request.Nonce);
-        Assert.Equal("2026-10-06T11:59:00Z", request.RequestedAt);
-        Assert.Equal("2026-10-06T12:04:00Z", request.ExpiresAt);
+        Assert.Equal(Fixtures.Time("2026-10-06T11:59:00Z"), request.RequestedAt);
+        Assert.Equal(Fixtures.Time("2026-10-06T12:04:00Z"), request.ExpiresAt);
         Assert.Equal(1800L, request.RequestedLifetimeSeconds);
         Assert.Null(request.RequestedRenewalWindowSeconds);
         Assert.Equal(ScopeSetCbor(), Codec.EncodeSignedActAsScopeSet(request.ScopeSet));
@@ -248,10 +251,10 @@ public class ActAsTests
                     ("signed_by_key_id", Cbor.VTextOf("audience-key")),
                     ("signature", Cbor.VBytesOf(new byte[64])))])))),
             ("approved_scope", Cbor.VArrayOf([Cbor.VTextOf("read")])),
-            ("issued_at", Cbor.VTextOf("2026-10-06T12:00:00Z")),
-            ("expires_at", Cbor.VTextOf("2026-10-06T13:00:00Z")),
-            ("series_issued_at", Cbor.VTextOf("2026-10-06T12:00:00Z")),
-            ("renewable_until", Cbor.VTextOf("2026-10-06T13:00:00Z")));
+            ("issued_at", Cbor.VTimestamp(Fixtures.Time("2026-10-06T12:00:00Z"))),
+            ("expires_at", Cbor.VTimestamp(Fixtures.Time("2026-10-06T13:00:00Z"))),
+            ("series_issued_at", Cbor.VTimestamp(Fixtures.Time("2026-10-06T12:00:00Z"))),
+            ("renewable_until", Cbor.VTimestamp(Fixtures.Time("2026-10-06T13:00:00Z"))));
         return new SignedActAsGrant(Cbor.Encode(grant), [new ClaimSignature(subjectDomain, "domain-key", new byte[64])]);
     }
 
@@ -309,8 +312,8 @@ public class ActAsTests
         var request = Codec.DecodeActAsRefreshRequest(signed.Request);
         Assert.Equal("grant-1", request.GrantId);
         Assert.Equal(km.Fingerprint, request.Grantee.LocalRpDescriptorFingerprint);
-        Assert.Equal("2026-10-06T12:40:00Z", request.RequestedAt);
-        Assert.Equal("2026-10-06T12:45:00Z", request.ExpiresAt);
+        Assert.Equal(Fixtures.Time("2026-10-06T12:40:00Z"), request.RequestedAt);
+        Assert.Equal(Fixtures.Time("2026-10-06T12:45:00Z"), request.ExpiresAt);
         Assert.Equal(43, request.Nonce.Length);
     }
 

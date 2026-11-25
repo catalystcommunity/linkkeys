@@ -236,4 +236,36 @@ public final class AdminClient {
     public PreviewAppAccessResponse previewAppAccess(PreviewAppAccessRequest req) throws ClientException {
         return CsilCbor.decodePreviewAppAccessResponse(transport.call("Admin", "preview-app-access", CsilCbor.encodePreviewAppAccessRequest(req)));
     }
+
+    public RenameUserResponse renameUser(RenameUserRequest req) throws ClientException {
+        return CsilCbor.decodeRenameUserResponse(transport.call("Admin", "rename-user", CsilCbor.encodeRenameUserRequest(req)));
+    }
+
+    public SetApplicationIdResponse setApplicationId(SetApplicationIdRequest req) throws ClientException {
+        return CsilCbor.decodeSetApplicationIdResponse(transport.call("Admin", "set-application-id", CsilCbor.encodeSetApplicationIdRequest(req)));
+    }
+
+    public CreateApiKeyResponse createApiKey(CreateApiKeyRequest req) throws ClientException {
+        return CsilCbor.decodeCreateApiKeyResponse(transport.call("Admin", "create-api-key", CsilCbor.encodeCreateApiKeyRequest(req)));
+    }
+
+    public ListApiKeysResponse listApiKeys(ListApiKeysRequest req) throws ClientException {
+        return CsilCbor.decodeListApiKeysResponse(transport.call("Admin", "list-api-keys", CsilCbor.encodeListApiKeysRequest(req)));
+    }
+
+    public RevokeApiKeyResponse revokeApiKey(RevokeApiKeyRequest req) throws ClientException {
+        return CsilCbor.decodeRevokeApiKeyResponse(transport.call("Admin", "revoke-api-key", CsilCbor.encodeRevokeApiKeyRequest(req)));
+    }
+
+    public GetAccountLimitsResponse getAccountLimits(GetAccountLimitsRequest req) throws ClientException {
+        return CsilCbor.decodeGetAccountLimitsResponse(transport.call("Admin", "get-account-limits", CsilCbor.encodeGetAccountLimitsRequest(req)));
+    }
+
+    public SetAccountLimitsResponse setAccountLimits(SetAccountLimitsRequest req) throws ClientException {
+        return CsilCbor.decodeSetAccountLimitsResponse(transport.call("Admin", "set-account-limits", CsilCbor.encodeSetAccountLimitsRequest(req)));
+    }
+
+    public GetApplicationUsageResponse getApplicationUsage(GetApplicationUsageRequest req) throws ClientException {
+        return CsilCbor.decodeGetApplicationUsageResponse(transport.call("Admin", "get-application-usage", CsilCbor.encodeGetApplicationUsageRequest(req)));
+    }
 }

@@ -25,7 +25,6 @@ use liblinkkeys::generated::types::{
     LocalRpTicketRedemptionResponse, RefreshActAsGrantRequest, RefreshActAsGrantResponse,
     SignedActAsRefreshRequest, SignedLocalRpTicketRedemptionRequest,
 };
-use liblinkkeys::timestamp::Rfc3339 as _;
 use std::io::{Read, Write};
 use std::sync::Arc;
 
@@ -199,7 +198,7 @@ pub fn fetch_domain_keys(
 ) -> Result<Vec<DomainPublicKey>, Error> {
     let endpoint = discover_domain_endpoint(dns, domain)?;
 
-    let payload = liblinkkeys::generated::encode_empty_request(&EmptyRequest {});
+    let payload = liblinkkeys::generated::encode_empty_request(&EmptyRequest {})?;
     let resp_bytes = call(
         transport,
         &endpoint,
@@ -219,11 +218,11 @@ pub fn fetch_domain_keys(
     // Always fetch revocations — never gated on `recent_revocations_available`
     // (see this function's doc comment). A failure here is propagated with
     // `?`, i.e. FATAL: it must never be swallowed to "just proceed unfiltered".
-    let since = (time::OffsetDateTime::now_utc() - time::Duration::days(30)).to_rfc3339();
+    let since = time::OffsetDateTime::now_utc() - time::Duration::days(30);
     let req_payload =
         liblinkkeys::generated::encode_get_revocations_request(&GetRevocationsRequest {
             since: Some(since),
-        });
+        })?;
     let resp_bytes = call(
         transport,
         &endpoint,
@@ -269,7 +268,7 @@ pub fn fetch_application_keys(
             subject_user_id: subject_user_id.to_string(),
             application_id: application_id.to_string(),
             instance_id: instance_id.to_string(),
-        });
+        })?;
     let resp_bytes = call(
         transport,
         &endpoint,
@@ -295,7 +294,7 @@ pub fn redeem_claim_ticket(
 ) -> Result<LocalRpTicketRedemptionResponse, Error> {
     let endpoint = discover_domain_endpoint(dns, domain)?;
     let payload =
-        liblinkkeys::generated::encode_signed_local_rp_ticket_redemption_request(signed_request);
+        liblinkkeys::generated::encode_signed_local_rp_ticket_redemption_request(signed_request)?;
     let resp_bytes = call(
         transport,
         &endpoint,
@@ -321,7 +320,7 @@ pub fn refresh_act_as_grant(
     let payload =
         liblinkkeys::generated::encode_refresh_act_as_grant_request(&RefreshActAsGrantRequest {
             request: signed_request,
-        });
+        })?;
     let resp_bytes = call(transport, &endpoint, "ActAs", "refresh-grant", payload)?;
     liblinkkeys::generated::decode_refresh_act_as_grant_response(&resp_bytes)
         .map_err(|e| Error::Decode(format!("refresh-grant response: {e}")))

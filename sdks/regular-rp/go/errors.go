@@ -24,7 +24,7 @@ const (
 	// ErrDecode: a CBOR payload (attestation, sealed challenge) did not
 	// decode.
 	ErrDecode ApplicationKeyErrorKind = "decode"
-	// ErrBadTimestamp: a timestamp field was not RFC3339.
+	// ErrBadTimestamp: a signed timestamp has a fraction of a second.
 	ErrBadTimestamp ApplicationKeyErrorKind = "bad_timestamp"
 	// ErrIdentityMismatch: a signed payload names a different subject,
 	// domain, application, or instance than the one being operated on.
@@ -130,6 +130,17 @@ type DecodeError struct{ Detail string }
 
 func (e *DecodeError) Error() string { return "decode error: " + e.Detail }
 
+// EncodeError: a value has no CBOR wire form, so the codec refused to encode
+// it (for example, a timestamp outside UTC years 0001-9999).
+type EncodeError struct{ Detail string }
+
+func (e *EncodeError) Error() string { return "encode error: " + e.Detail }
+
+// encodeFailed wraps a generated-codec encode error for the named structure.
+func encodeFailed(what string, err error) error {
+	return &EncodeError{Detail: what + ": " + err.Error()}
+}
+
 // NoCachedResultError: the resolver could not reach the RP and has nothing
 // previously verified for this instance to fall back to.
 type NoCachedResultError struct{ Detail string }
@@ -155,7 +166,7 @@ type ActAsErrorKind string
 const (
 	// ErrActAsDecode: an embedded CBOR payload did not decode.
 	ErrActAsDecode ActAsErrorKind = "decode"
-	// ErrActAsBadTimestamp: a timestamp field was not RFC3339.
+	// ErrActAsBadTimestamp: a timestamp could not be used.
 	ErrActAsBadTimestamp ActAsErrorKind = "bad_timestamp"
 	// ErrActAsMalformedGrantee: a GranteeRef or GranteeProof did not carry
 	// exactly one form.

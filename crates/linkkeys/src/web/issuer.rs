@@ -9,7 +9,8 @@ use base64ct::{Base64UrlUnpadded, Encoding as _};
 use liblinkkeys::generated::services::ServiceError;
 use liblinkkeys::generated::types::{
     InspectSigningRequestRequest, InspectSigningRequestResponse, IssueForSigningRequestRequest,
-    IssueForSigningRequestResponse, IssuedClaimResult, SignedSigningRequest, SigningRequest,
+    IssueForSigningRequestResponse, IssuedClaimOutcome, IssuedClaimResult, SignedSigningRequest,
+    SigningRequest,
 };
 
 use crate::conversions::get_domain_name;
@@ -142,11 +143,13 @@ pub(super) async fn issue(
     }
     // Verify again before signing: the request text comes from the client.
     let request = verified(pool, net, user_id, &req.signed_request).await?;
-    let result = |claim_type: &str, outcome: &str, message: Option<String>| IssuedClaimResult {
-        claim_type: claim_type.to_string(),
-        outcome: outcome.to_string(),
-        message,
-        claim_code: None,
+    let result = |claim_type: &str, outcome: IssuedClaimOutcome, message: Option<String>| {
+        IssuedClaimResult {
+            claim_type: claim_type.to_string(),
+            outcome,
+            message,
+            claim_code: None,
+        }
     };
     let mut results = Vec::new();
     for (claim_type, value) in req.claim_types.iter().zip(&req.claim_values) {
@@ -161,7 +164,7 @@ pub(super) async fn issue(
         {
             results.push(result(
                 claim_type,
-                "skipped",
+                IssuedClaimOutcome::Skipped,
                 Some("not requested".to_string()),
             ));
             continue;
@@ -169,7 +172,7 @@ pub(super) async fn issue(
         if !attestation::user_can_issue_claim(pool, user_id, claim_type) {
             results.push(result(
                 claim_type,
-                "skipped",
+                IssuedClaimOutcome::Skipped,
                 Some("not allowed".to_string()),
             ));
             continue;
@@ -183,17 +186,23 @@ pub(super) async fn issue(
         ) {
             Ok(claim) => claim,
             Err(e) => {
-                results.push(result(claim_type, "failed", Some(e.message)));
+                results.push(result(
+                    claim_type,
+                    IssuedClaimOutcome::Failed,
+                    Some(e.message),
+                ));
                 continue;
             }
         };
         match super::rp::deposit_claim_to_domain(net, &request.subject_domain, &claim).await {
-            Ok(()) => results.push(result(claim_type, "deposited", None)),
+            Ok(()) => results.push(result(claim_type, IssuedClaimOutcome::Deposited, None)),
             Err(e) => results.push(IssuedClaimResult {
-                claim_code: Some(Base64UrlUnpadded::encode_string(
-                    &liblinkkeys::generated::encode_claim(&claim),
-                )),
-                ..result(claim_type, "handoff", Some(e))
+                // A claim that cannot be encoded has no hand-off code; the
+                // outcome still says the deposit failed.
+                claim_code: liblinkkeys::generated::encode_claim(&claim)
+                    .ok()
+                    .map(|bytes| Base64UrlUnpadded::encode_string(&bytes)),
+                ..result(claim_type, IssuedClaimOutcome::Handoff, Some(e))
             }),
         }
     }

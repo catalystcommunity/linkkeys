@@ -89,7 +89,7 @@ export ENABLE_API_KEY_AUTH=true
 export ENABLE_PASSWORD_AUTH=false
 
 cargo run --bin linkkeys -- domain init
-cargo run --bin linkkeys -- user create demoapp "Demo App Service" --api-key --relation api_access
+cargo run --bin linkkeys -- user create demoapp "Demo App Service" --application-id demoapp --relation api_access
 # Save the printed API key! (api_access is required for the Rp service ops
 # and is not auto-provisioned.)
 

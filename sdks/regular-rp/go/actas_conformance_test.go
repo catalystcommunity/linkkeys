@@ -422,16 +422,16 @@ func TestConformanceActAsTerms(t *testing.T) {
 		Refresh []struct {
 			Name  string `json:"name"`
 			Grant struct {
-				IssuedAt       string `json:"issued_at"`
-				ExpiresAt      string `json:"expires_at"`
-				RenewableUntil string `json:"renewable_until"`
+				IssuedAt       time.Time `json:"issued_at"`
+				ExpiresAt      time.Time `json:"expires_at"`
+				RenewableUntil time.Time `json:"renewable_until"`
 			} `json:"grant"`
 			LifetimeSeconds int64  `json:"lifetime_seconds"`
 			Now             string `json:"now"`
 			Expected        struct {
-				Decision  string `json:"decision"`
-				IssuedAt  string `json:"issued_at"`
-				ExpiresAt string `json:"expires_at"`
+				Decision  string    `json:"decision"`
+				IssuedAt  time.Time `json:"issued_at"`
+				ExpiresAt time.Time `json:"expires_at"`
 			} `json:"expected"`
 		} `json:"refresh"`
 	}
@@ -473,7 +473,7 @@ func TestConformanceActAsTerms(t *testing.T) {
 				t.Errorf("refresh/%s: want stored, got %+v, %v", c.Name, got, err)
 			}
 		case "renew":
-			if err != nil || !got.Renew || got.IssuedAt != c.Expected.IssuedAt || got.ExpiresAt != c.Expected.ExpiresAt {
+			if err != nil || !got.Renew || !got.IssuedAt.Equal(c.Expected.IssuedAt) || !got.ExpiresAt.Equal(c.Expected.ExpiresAt) {
 				t.Errorf("refresh/%s: want renew %s..%s, got %+v, %v", c.Name, c.Expected.IssuedAt, c.Expected.ExpiresAt, got, err)
 			}
 		case "expired":
@@ -509,13 +509,13 @@ func TestConformanceActAsGranteeSigning(t *testing.T) {
 			Grantee      granteeVec `json:"grantee"`
 			GrantRequest struct {
 				Inputs struct {
-					ScopeSetSignedCborHex         string `json:"scope_set_signed_cbor_hex"`
-					RequestedLifetimeSeconds      *int64 `json:"requested_lifetime_seconds"`
-					RequestedRenewalWindowSeconds *int64 `json:"requested_renewal_window_seconds"`
-					CallbackURL                   string `json:"callback_url"`
-					Nonce                         string `json:"nonce"`
-					RequestedAt                   string `json:"requested_at"`
-					ExpiresAt                     string `json:"expires_at"`
+					ScopeSetSignedCborHex         string    `json:"scope_set_signed_cbor_hex"`
+					RequestedLifetimeSeconds      *int64    `json:"requested_lifetime_seconds"`
+					RequestedRenewalWindowSeconds *int64    `json:"requested_renewal_window_seconds"`
+					CallbackURL                   string    `json:"callback_url"`
+					Nonce                         string    `json:"nonce"`
+					RequestedAt                   time.Time `json:"requested_at"`
+					ExpiresAt                     time.Time `json:"expires_at"`
 				} `json:"inputs"`
 				RequestCborHex        string `json:"request_cbor_hex"`
 				SignatureInputCborHex string `json:"signature_input_cbor_hex"`
@@ -524,10 +524,10 @@ func TestConformanceActAsGranteeSigning(t *testing.T) {
 			} `json:"grant_request"`
 			RefreshRequest struct {
 				Inputs struct {
-					GrantID     string `json:"grant_id"`
-					RequestedAt string `json:"requested_at"`
-					ExpiresAt   string `json:"expires_at"`
-					Nonce       string `json:"nonce"`
+					GrantID     string    `json:"grant_id"`
+					RequestedAt time.Time `json:"requested_at"`
+					ExpiresAt   time.Time `json:"expires_at"`
+					Nonce       string    `json:"nonce"`
 				} `json:"inputs"`
 				RequestCborHex string `json:"request_cbor_hex"`
 				SignedCborHex  string `json:"signed_cbor_hex"`
@@ -550,7 +550,7 @@ func TestConformanceActAsGranteeSigning(t *testing.T) {
 
 	appSigner := NewApplicationGranteeSigner(v.ApplicationGrantee.InstanceID, ApplicationSigner{
 		KeyID:           v.ApplicationGrantee.Key.KeyID,
-		Algorithm:       "ed25519",
+		Algorithm:       AlgorithmEd25519,
 		PrivateKeyBytes: mustHex(t, v.ApplicationGrantee.Key.PrivateKeyHex),
 	})
 	descriptor, err := api.DecodeSignedLocalRpDescriptor(mustHex(t, v.LocalRpGrantee.SignedDescriptorCborHex))
@@ -593,7 +593,7 @@ func TestConformanceActAsGranteeSigning(t *testing.T) {
 		if !bytes.Equal(envelopeSignatureInput(GrantRequestTag, signedRequest.Request), mustHex(t, c.GrantRequest.SignatureInputCborHex)) {
 			t.Errorf("%s: grant request signature input differs", c.Name)
 		}
-		if !bytes.Equal(api.EncodeSignedActAsGrantRequest(signedRequest), mustHex(t, c.GrantRequest.SignedCborHex)) {
+		if !bytes.Equal(must[[]byte](t)(api.EncodeSignedActAsGrantRequest(signedRequest)), mustHex(t, c.GrantRequest.SignedCborHex)) {
 			t.Errorf("%s: signed grant request differs", c.Name)
 		}
 		link, err := GrantRequestURL("https://home.example/prefix/", signedRequest)
@@ -618,7 +618,7 @@ func TestConformanceActAsGranteeSigning(t *testing.T) {
 		if !bytes.Equal(signedRefresh.Request, mustHex(t, c.RefreshRequest.RequestCborHex)) {
 			t.Errorf("%s: refresh request bytes differ", c.Name)
 		}
-		if !bytes.Equal(api.EncodeSignedActAsRefreshRequest(signedRefresh), mustHex(t, c.RefreshRequest.SignedCborHex)) {
+		if !bytes.Equal(must[[]byte](t)(api.EncodeSignedActAsRefreshRequest(signedRefresh)), mustHex(t, c.RefreshRequest.SignedCborHex)) {
 			t.Errorf("%s: signed refresh request differs", c.Name)
 		}
 
@@ -637,7 +637,7 @@ func TestConformanceActAsGranteeSigning(t *testing.T) {
 		if !bytes.Equal(credential.Presentation.Presentation, mustHex(t, c.Presentation.PresentationCborHex)) {
 			t.Errorf("%s: presentation bytes differ", c.Name)
 		}
-		if !bytes.Equal(api.EncodeActAsCredential(credential), mustHex(t, c.Presentation.CredentialCborHex)) {
+		if !bytes.Equal(must[[]byte](t)(api.EncodeActAsCredential(credential)), mustHex(t, c.Presentation.CredentialCborHex)) {
 			t.Errorf("%s: credential differs", c.Name)
 		}
 	}

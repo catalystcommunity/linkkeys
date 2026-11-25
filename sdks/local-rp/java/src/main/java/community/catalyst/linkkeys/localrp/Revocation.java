@@ -1,5 +1,6 @@
 package community.catalyst.linkkeys.localrp;
 
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -30,19 +31,20 @@ public final class Revocation {
 
     /**
      * The canonical signed bytes: the tag, the target key id + fingerprint,
-     * the revocation instant, and the signing sibling's domain (bound
+     * the revocation instant (whole Unix seconds, a CBOR integer), and the signing sibling's domain (bound
      * per-signature to stop cross-domain reuse of a signature). This is the
      * OLDER house tuple pattern &mdash; a five-element array with the
      * domain-separation tag first &mdash; NOT the two-element
      * {@code CBOR([context, payload])} envelope framing the four local-RP
      * structures use.
      */
-    static byte[] revocationPayload(String targetKeyId, String targetFingerprint, String revokedAt, String signingDomain) {
+    static byte[] revocationPayload(
+            String targetKeyId, String targetFingerprint, Instant revokedAt, String signingDomain) {
         return Cbor.encode(Cbor.tuple(
                 Cbor.vtext(TAG),
                 Cbor.vtext(targetKeyId),
                 Cbor.vtext(targetFingerprint),
-                Cbor.vtext(revokedAt),
+                Cbor.signedTime(revokedAt),
                 Cbor.vtext(signingDomain)));
     }
 
@@ -71,6 +73,10 @@ public final class Revocation {
      */
     static int countValidSigners(RevocationCertificate cert, List<DomainPublicKey> domainKeys, String domain) {
         Set<String> validSigners = new HashSet<>();
+        // A revocation time with a fraction of a second was never signed.
+        if (cert.revokedAt().getNano() != 0) {
+            return 0;
+        }
 
         for (ClaimSignature sig : cert.signatures()) {
             // A key can never authorize its own revocation.

@@ -133,6 +133,28 @@ pub mod pg {
             .map(Into::into)
     }
 
+    /// Every stored attestation, for the start-up signature upgrade.
+    pub fn list_all_attestations(
+        conn: &mut diesel::PgConnection,
+    ) -> QueryResult<Vec<ApplicationKeyAttestationRecord>> {
+        application_key_attestations::table
+            .select(ApplicationKeyAttestationRow::as_select())
+            .load::<ApplicationKeyAttestationRow>(conn)
+            .map(|rows| rows.into_iter().map(Into::into).collect())
+    }
+
+    pub fn find_key_by_row_id(
+        conn: &mut diesel::PgConnection,
+        row_id: &str,
+    ) -> QueryResult<Option<ApplicationKey>> {
+        application_keys::table
+            .find(parse_uuid(row_id)?)
+            .select(ApplicationKeyRow::as_select())
+            .first::<ApplicationKeyRow>(conn)
+            .optional()
+            .map(|o| o.map(Into::into))
+    }
+
     pub fn find_key(
         conn: &mut diesel::PgConnection,
         instance_row_id: &str,
@@ -543,6 +565,28 @@ pub mod sqlite {
             .select(ApplicationKeyRow::as_select())
             .first::<ApplicationKeyRow>(conn)
             .map(Into::into)
+    }
+
+    /// Every stored attestation, for the start-up signature upgrade.
+    pub fn list_all_attestations(
+        conn: &mut diesel::SqliteConnection,
+    ) -> QueryResult<Vec<ApplicationKeyAttestationRecord>> {
+        application_key_attestations::table
+            .select(ApplicationKeyAttestationRow::as_select())
+            .load::<ApplicationKeyAttestationRow>(conn)
+            .map(|rows| rows.into_iter().map(Into::into).collect())
+    }
+
+    pub fn find_key_by_row_id(
+        conn: &mut diesel::SqliteConnection,
+        row_id: &str,
+    ) -> QueryResult<Option<ApplicationKey>> {
+        application_keys::table
+            .find(row_id)
+            .select(ApplicationKeyRow::as_select())
+            .first::<ApplicationKeyRow>(conn)
+            .optional()
+            .map(|o| o.map(Into::into))
     }
 
     pub fn find_key(

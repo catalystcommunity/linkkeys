@@ -2,13 +2,14 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.List;
 
 public record BrowserSessionInfo(
     AdminUser user /* wire: "user" */,
-    String issuedAt /* wire: "issued_at" */,
-    String authenticatedAt /* wire: "authenticated_at" */,
-    String expiresAt /* wire: "expires_at" */,
+    Instant issuedAt /* wire: "issued_at" */,
+    Instant authenticatedAt /* wire: "authenticated_at" */,
+    Instant expiresAt /* wire: "expires_at" */,
     List<String> authenticationMethods /* wire: "authentication_methods" */
 ) {
 }

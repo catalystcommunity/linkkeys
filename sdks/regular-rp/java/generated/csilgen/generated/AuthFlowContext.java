@@ -3,7 +3,7 @@
 package csilgen.generated;
 
 public record AuthFlowContext(
-    String flow /* wire: "flow" */,
+    AuthFlow flow /* wire: "flow" */,
     String priorSession /* wire: "prior_session" */,
     String requestReason /* wire: "request_reason" */
 ) {

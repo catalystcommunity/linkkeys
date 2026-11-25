@@ -92,11 +92,11 @@ func revocationFixtureKeys(t *testing.T, d *revocationsFile) []api.DomainPublicK
 			KeyId:       k.KeyID,
 			PublicKey:   mustHex(t, k.PublicKeyHex),
 			Fingerprint: k.Fingerprint,
-			Algorithm:   k.Algorithm,
-			KeyUsage:    k.KeyUsage,
-			CreatedAt:   k.CreatedAt,
-			ExpiresAt:   k.ExpiresAt,
-			RevokedAt:   k.RevokedAt,
+			Algorithm:   parseKeyAlgorithm(t, k.Algorithm),
+			KeyUsage:    parseKeyUsage(t, k.KeyUsage),
+			CreatedAt:   parseRFC3339(t, k.CreatedAt),
+			ExpiresAt:   parseRFC3339(t, k.ExpiresAt),
+			RevokedAt:   parseOptRFC3339(t, k.RevokedAt),
 		})
 	}
 	return keys
@@ -126,7 +126,7 @@ func TestRevocationsCertificateCases(t *testing.T) {
 			}
 			if cert.TargetKeyId != c.Certificate.TargetKeyID ||
 				cert.TargetFingerprint != c.Certificate.TargetFingerprint ||
-				cert.RevokedAt != c.Certificate.RevokedAt ||
+				!cert.RevokedAt.Equal(parseRFC3339(t, c.Certificate.RevokedAt)) ||
 				len(cert.Signatures) != len(c.Certificate.Signatures) {
 				t.Fatalf("decoded certificate does not match the case's expanded fields")
 			}

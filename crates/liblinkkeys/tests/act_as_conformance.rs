@@ -12,7 +12,7 @@ use liblinkkeys::act_as::{
 use liblinkkeys::application_keys::ApplicationKeyRef;
 use liblinkkeys::generated::{
     self,
-    types::{ApplicationRef, DomainPublicKey, GranteeRef},
+    types::{ApplicationRef, DomainPublicKey, GranteeRef, KeyAlgorithm, KeyUsage},
 };
 use serde_json::Value;
 use std::path::PathBuf;
@@ -67,13 +67,13 @@ fn key_refs(v: &Value) -> Vec<ApplicationKeyRef> {
         .iter()
         .map(|k| ApplicationKeyRef {
             key_id: s(&k["key_id"]),
-            key_usage: s(&k["key_usage"]),
-            algorithm: s(&k["algorithm"]),
+            key_usage: KeyUsage::from_label(k["key_usage"].as_str().unwrap()).unwrap(),
+            algorithm: KeyAlgorithm::from_label(k["algorithm"].as_str().unwrap()).unwrap(),
             public_key: unhex(k["public_key_hex"].as_str().unwrap()),
             fingerprint: s(&k["fingerprint"]),
-            created_at: s(&k["created_at"]),
-            expires_at: s(&k["expires_at"]),
-            revoked_at: k["revoked_at"].as_str().map(String::from),
+            created_at: time(&k["created_at"]),
+            expires_at: time(&k["expires_at"]),
+            revoked_at: k["revoked_at"].as_str().map(|_| time(&k["revoked_at"])),
         })
         .collect()
 }
@@ -86,10 +86,10 @@ fn domain_keys(v: &Value) -> Vec<DomainPublicKey> {
             key_id: s(&k["key_id"]),
             public_key: unhex(k["public_key_hex"].as_str().unwrap()),
             fingerprint: s(&k["fingerprint"]),
-            algorithm: s(&k["algorithm"]),
-            key_usage: s(&k["key_usage"]),
-            created_at: s(&k["created_at"]),
-            expires_at: s(&k["expires_at"]),
+            algorithm: KeyAlgorithm::from_label(k["algorithm"].as_str().unwrap()).unwrap(),
+            key_usage: KeyUsage::from_label(k["key_usage"].as_str().unwrap()).unwrap(),
+            created_at: time(&k["created_at"]),
+            expires_at: time(&k["expires_at"]),
             revoked_at: None,
             signed_by_key_id: None,
             key_signature: None,
@@ -383,10 +383,10 @@ fn terms_vectors() {
                 signatures: vec![],
             },
             approved_scope: vec!["read".into()],
-            issued_at: s(&g["issued_at"]),
-            expires_at: s(&g["expires_at"]),
-            series_issued_at: s(&g["issued_at"]),
-            renewable_until: s(&g["renewable_until"]),
+            issued_at: time(&g["issued_at"]),
+            expires_at: time(&g["expires_at"]),
+            series_issued_at: time(&g["issued_at"]),
+            renewable_until: time(&g["renewable_until"]),
             device_fingerprint: None,
         };
         let result = act_as::refresh_decision(
@@ -404,8 +404,8 @@ fn terms_vectors() {
                     expires_at,
                 }),
             ) => {
-                assert_eq!(issued_at, s(&e["issued_at"]));
-                assert_eq!(expires_at, s(&e["expires_at"]));
+                assert_eq!(issued_at, time(&e["issued_at"]));
+                assert_eq!(expires_at, time(&e["expires_at"]));
             }
             ("expired", Err(_)) => {}
             (want, got) => panic!("refresh case {}: want {want}, got {got:?}", case["name"]),
@@ -466,8 +466,8 @@ fn grantee_signing_vectors() {
             grantee_handle_claim: None,
             callback_url: s(&i["callback_url"]),
             nonce: s(&i["nonce"]),
-            requested_at: s(&i["requested_at"]),
-            expires_at: s(&i["expires_at"]),
+            requested_at: time(&i["requested_at"]),
+            expires_at: time(&i["expires_at"]),
         };
         let signed = act_as::sign_grant_request(&request, &signer).unwrap();
         assert_eq!(
@@ -476,7 +476,7 @@ fn grantee_signing_vectors() {
             "{name}: grant request bytes"
         );
         assert_eq!(
-            generated::encode_signed_act_as_grant_request(&signed),
+            generated::encode_signed_act_as_grant_request(&signed).unwrap(),
             unhex(g["signed_cbor_hex"].as_str().unwrap()),
             "{name}: signed grant request"
         );
@@ -486,13 +486,13 @@ fn grantee_signing_vectors() {
         let refresh = ActAsRefreshRequest {
             grant_id: s(&i["grant_id"]),
             grantee: grantee.clone(),
-            requested_at: s(&i["requested_at"]),
-            expires_at: s(&i["expires_at"]),
+            requested_at: time(&i["requested_at"]),
+            expires_at: time(&i["expires_at"]),
             nonce: s(&i["nonce"]),
         };
         let signed = act_as::sign_refresh_request(&refresh, &signer).unwrap();
         assert_eq!(
-            generated::encode_signed_act_as_refresh_request(&signed),
+            generated::encode_signed_act_as_refresh_request(&signed).unwrap(),
             unhex(r["signed_cbor_hex"].as_str().unwrap()),
             "{name}: signed refresh request"
         );
@@ -518,7 +518,7 @@ fn grantee_signing_vectors() {
             "{name}: grant hash"
         );
         assert_eq!(
-            generated::encode_act_as_credential(&credential),
+            generated::encode_act_as_credential(&credential).unwrap(),
             unhex(p["credential_cbor_hex"].as_str().unwrap()),
             "{name}: credential"
         );

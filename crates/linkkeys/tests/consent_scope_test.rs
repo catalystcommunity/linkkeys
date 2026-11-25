@@ -29,6 +29,7 @@ fn make_token(
         Some("Test User"),
         300,
         authorized,
+        common::test_app_ref(),
     );
     let signed = assertions::sign_assertion(
         &assertion,

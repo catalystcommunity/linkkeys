@@ -42,10 +42,10 @@ func buildSignedResponse(t *testing.T, instance InstanceRef, keyID string, now t
 		KeyId:       "domain-key-1",
 		PublicKey:   domainPub,
 		Fingerprint: Fingerprint(domainPub),
-		Algorithm:   "ed25519",
-		KeyUsage:    "sign",
-		CreatedAt:   now.Add(-24 * time.Hour).Format(time.RFC3339),
-		ExpiresAt:   now.Add(10 * 365 * 24 * time.Hour).Format(time.RFC3339),
+		Algorithm:   AlgorithmEd25519,
+		KeyUsage:    KeyUsageSign,
+		CreatedAt:   now.Add(-24 * time.Hour).Truncate(time.Second),
+		ExpiresAt:   now.Add(10 * 365 * 24 * time.Hour).Truncate(time.Second),
 	}
 
 	attestation := api.ApplicationKeyAttestation{
@@ -55,15 +55,15 @@ func buildSignedResponse(t *testing.T, instance InstanceRef, keyID string, now t
 		InstanceId:           instance.InstanceID,
 		KeyId:                keyID,
 		KeyUsage:             KeyUsageSign,
-		Algorithm:            "ed25519",
+		Algorithm:            AlgorithmEd25519,
 		PublicKey:            appPub,
 		Fingerprint:          Fingerprint(appPub),
-		KeyCreatedAt:         now.Add(-time.Hour).Format(time.RFC3339),
-		KeyExpiresAt:         now.Add(365 * 24 * time.Hour).Format(time.RFC3339),
-		AttestedAt:           now.Format(time.RFC3339),
-		AttestationExpiresAt: now.Add(24 * time.Hour).Format(time.RFC3339),
+		KeyCreatedAt:         now.Add(-time.Hour).Truncate(time.Second),
+		KeyExpiresAt:         now.Add(365 * 24 * time.Hour).Truncate(time.Second),
+		AttestedAt:           now.Truncate(time.Second),
+		AttestationExpiresAt: now.Add(24 * time.Hour).Truncate(time.Second),
 	}
-	attestationBytes := api.EncodeApplicationKeyAttestation(attestation)
+	attestationBytes := must[[]byte](t)(api.EncodeApplicationKeyAttestation(attestation))
 	sig := ed25519.Sign(domainPriv, AttestationSignatureInput(attestationBytes))
 
 	return api.RpResolveApplicationKeysResponse{
@@ -82,9 +82,9 @@ func buildSignedResponse(t *testing.T, instance InstanceRef, keyID string, now t
 		ApplicationKeyRevocations: nil,
 		HomeDomainKeys:            []api.DomainPublicKey{domainKey},
 		HomeDomainKeyRevocations:  nil,
-		FetchedAt:                 now.Format(time.RFC3339),
-		RevocationsCheckedAt:      now.Format(time.RFC3339),
-		CacheStatus:               "refreshed",
+		FetchedAt:                 now.Truncate(time.Second),
+		RevocationsCheckedAt:      now.Truncate(time.Second),
+		CacheStatus:               api.RpCacheStatusRefreshed,
 	}
 }
 
@@ -142,12 +142,18 @@ func (f *fakeTransport) Call(_ context.Context, service, op string, payload []by
 	if !ok {
 		return nil, fmt.Errorf("fake transport: no canned response for %+v", key)
 	}
-	return api.EncodeRpResolveApplicationKeysResponse(resp), nil
+	return api.EncodeRpResolveApplicationKeysResponse(resp)
+}
+
+// CallReply is not used: Rp/resolve-application-keys declares no error arm,
+// so the generated client calls it through Call.
+func (f *fakeTransport) CallReply(_ context.Context, service, op string, _ []byte) (api.WireReply, error) {
+	return api.WireReply{}, fmt.Errorf("unexpected CallReply %s/%s", service, op)
 }
 
 func mustUsableKey(t *testing.T, keys VerifiedApplicationKeySet, keyID string) {
 	t.Helper()
-	if _, err := keys.KeyForUse(keyID, KeyUsageSign, "ed25519"); err != nil {
+	if _, err := keys.KeyForUse(keyID, KeyUsageSign, AlgorithmEd25519); err != nil {
 		t.Errorf("expected key %s to be usable: %v", keyID, err)
 	}
 }
@@ -329,7 +335,7 @@ func TestCacheIsolatesDistinctInstances(t *testing.T) {
 				continue
 			}
 			otherKeyID := fmt.Sprintf("key-%d", j)
-			if _, err := res.Keys.KeyForUse(otherKeyID, KeyUsageSign, "ed25519"); err == nil {
+			if _, err := res.Keys.KeyForUse(otherKeyID, KeyUsageSign, AlgorithmEd25519); err == nil {
 				t.Errorf("%s: unexpectedly saw %s's key %s in its own result", v.name, other.name, otherKeyID)
 			}
 		}
@@ -351,7 +357,7 @@ func TestCacheCoalescesConcurrentRefreshes(t *testing.T) {
 		atomic.AddInt32(&calls, 1)
 		<-release
 		resp := buildSignedResponse(t, instance, "app-key-1", clock)
-		return api.EncodeRpResolveApplicationKeysResponse(resp), nil
+		return api.EncodeRpResolveApplicationKeysResponse(resp)
 	})
 
 	r := NewCachedResolver(blocking, CachedResolverOptions{Now: func() time.Time { return clock }})
@@ -395,4 +401,8 @@ type blockingCallFunc func() ([]byte, error)
 
 func (f blockingCallFunc) Call(_ context.Context, _, _ string, _ []byte) ([]byte, error) {
 	return f()
+}
+
+func (f blockingCallFunc) CallReply(_ context.Context, service, op string, _ []byte) (api.WireReply, error) {
+	return api.WireReply{}, fmt.Errorf("unexpected CallReply %s/%s", service, op)
 }

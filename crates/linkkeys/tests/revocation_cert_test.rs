@@ -43,12 +43,13 @@ fn siblings_produce_and_verify_a_revocation_certificate() {
         })
         .collect();
 
-    let revoked_at = revoked.revoked_at.clone().unwrap();
+    // Signed times are whole seconds, as the server signs them.
+    let revoked_at = liblinkkeys::timestamp::whole_seconds(revoked.revoked_at.unwrap());
     let cert = build_revocation_certificate(
         &RevocationSpec {
             target_key_id: &revoked.id,
             target_fingerprint: &revoked.fingerprint,
-            revoked_at: &revoked_at,
+            revoked_at,
         },
         &signers,
     )
@@ -68,7 +69,7 @@ fn siblings_produce_and_verify_a_revocation_certificate() {
         &RevocationSpec {
             target_key_id: &revoked.id,
             target_fingerprint: &revoked.fingerprint,
-            revoked_at: &revoked_at,
+            revoked_at,
         },
         &signers[..1],
     )

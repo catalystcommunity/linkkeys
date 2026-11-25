@@ -1,6 +1,8 @@
 package regularrp
 
 import (
+	"bytes"
+	"errors"
 	"testing"
 	"time"
 
@@ -24,13 +26,13 @@ func testSigner(t *testing.T, keyID string) (ApplicationSigner, ApplicationKeyRe
 	ref := ApplicationKeyRef{
 		KeyID:       keyID,
 		KeyUsage:    KeyUsageSign,
-		Algorithm:   "ed25519",
+		Algorithm:   AlgorithmEd25519,
 		PublicKey:   pub[:],
 		Fingerprint: fp,
-		CreatedAt:   now.Add(-time.Hour).Format(time.RFC3339),
-		ExpiresAt:   now.Add(24 * time.Hour).Format(time.RFC3339),
+		CreatedAt:   now.Add(-time.Hour).Truncate(time.Second),
+		ExpiresAt:   now.Add(24 * time.Hour).Truncate(time.Second),
 	}
-	signer := ApplicationSigner{KeyID: keyID, Algorithm: "ed25519", PrivateKeyBytes: seed[:]}
+	signer := ApplicationSigner{KeyID: keyID, Algorithm: AlgorithmEd25519, PrivateKeyBytes: seed[:]}
 	return signer, ref, now
 }
 
@@ -43,7 +45,7 @@ func TestKeyringAdditionRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate new key: %v", err)
 	}
-	newSigner := ApplicationSigner{KeyID: "app-key-new", Algorithm: "ed25519", PrivateKeyBytes: newSeed[:]}
+	newSigner := ApplicationSigner{KeyID: "app-key-new", Algorithm: AlgorithmEd25519, PrivateKeyBytes: newSeed[:]}
 
 	addition := api.ApplicationKeyAddition{
 		SubjectUserId:               instance.SubjectUserID,
@@ -52,14 +54,14 @@ func TestKeyringAdditionRoundTrip(t *testing.T) {
 		InstanceId:                  instance.InstanceID,
 		KeyId:                       "app-key-new",
 		KeyUsage:                    KeyUsageSign,
-		Algorithm:                   "ed25519",
+		Algorithm:                   AlgorithmEd25519,
 		PublicKey:                   newPub[:],
 		Fingerprint:                 newFp,
 		RequestedKeyLifetimeSeconds: 86400,
 		ChallengeId:                 "challenge-1",
 		Challenge:                   []byte("nonce-bytes-from-start-key-challenge"),
-		RequestedAt:                 now.Format(time.RFC3339),
-		ExpiresAt:                   now.Add(5 * time.Minute).Format(time.RFC3339),
+		RequestedAt:                 now.Truncate(time.Second),
+		ExpiresAt:                   now.Add(5 * time.Minute).Truncate(time.Second),
 	}
 
 	signed, err := SignAddition(addition, []ApplicationSigner{signerA, signerB}, &newSigner)
@@ -93,8 +95,8 @@ func TestKeyringRenewalRoundTrip(t *testing.T) {
 		KeyId:         "app-key-a",
 		ChallengeId:   "renew-challenge-1",
 		Challenge:     []byte("renew-nonce-bytes"),
-		RequestedAt:   now.Format(time.RFC3339),
-		ExpiresAt:     now.Add(5 * time.Minute).Format(time.RFC3339),
+		RequestedAt:   now.Truncate(time.Second),
+		ExpiresAt:     now.Add(5 * time.Minute).Truncate(time.Second),
 	}
 
 	// Ed25519 self-renewal: the key signs for itself, no siblings.
@@ -112,9 +114,9 @@ func TestKeyringRenewalRoundTrip(t *testing.T) {
 		t.Fatalf("generate agreement key: %v", err)
 	}
 	agreeRef := ApplicationKeyRef{
-		KeyID: "app-key-agree", KeyUsage: KeyUsageAgree, Algorithm: "x25519",
+		KeyID: "app-key-agree", KeyUsage: KeyUsageAgree, Algorithm: AlgorithmX25519,
 		PublicKey: agreePub[:], Fingerprint: agreeFp,
-		CreatedAt: now.Add(-time.Hour).Format(time.RFC3339), ExpiresAt: now.Add(24 * time.Hour).Format(time.RFC3339),
+		CreatedAt: now.Add(-time.Hour).Truncate(time.Second), ExpiresAt: now.Add(24 * time.Hour).Truncate(time.Second),
 	}
 	agreeRenewal := renewal
 	agreeRenewal.KeyId = "app-key-agree"
@@ -133,12 +135,52 @@ func TestKeyringRevocationRoundTrip(t *testing.T) {
 	signerB, refB, _ := testSigner(t, "app-key-b")
 	_, refC, _ := testSigner(t, "app-key-c")
 
-	rev, err := SignRevocation(instance, refC.KeyID, refC.Fingerprint, now.Format(time.RFC3339), []ApplicationSigner{signerA, signerB})
+	rev, err := SignRevocation(instance, refC.KeyID, refC.Fingerprint, now.Truncate(time.Second), []ApplicationSigner{signerA, signerB})
 	if err != nil {
 		t.Fatalf("SignRevocation: %v", err)
 	}
 
 	if err := VerifyRevocation(rev, []ApplicationKeyRef{refA, refB, refC}, instance); err != nil {
 		t.Fatalf("VerifyRevocation: %v", err)
+	}
+}
+
+// A signed revoked_at with a fraction of a second was never signed. The
+// verifier must refuse it, not round it.
+func TestRevocationFractionalRevokedAtRefused(t *testing.T) {
+	instance := InstanceRef{SubjectUserID: "018f0000-0000-7000-8000-000000000001", SubjectDomain: "app-conformance.example", ApplicationID: "tinku", InstanceID: "instance-a"}
+	signerA, refA, now := testSigner(t, "app-key-a")
+	signerB, refB, _ := testSigner(t, "app-key-b")
+	_, refC, _ := testSigner(t, "app-key-c")
+
+	if _, err := RevocationPayload(instance.SubjectUserID, instance.SubjectDomain, instance.ApplicationID, instance.InstanceID, refC.KeyID, refC.Fingerprint, now.Truncate(time.Second).Add(time.Millisecond)); err == nil {
+		t.Fatal("RevocationPayload accepted a fractional revoked_at")
+	}
+
+	if _, err := SignRevocation(instance, refC.KeyID, refC.Fingerprint, now.Truncate(time.Second).Add(time.Millisecond), []ApplicationSigner{signerA, signerB}); err == nil {
+		t.Fatal("SignRevocation signed a fractional revoked_at")
+	}
+	rev, err := SignRevocation(instance, refC.KeyID, refC.Fingerprint, now.Truncate(time.Second), []ApplicationSigner{signerA, signerB})
+	if err != nil {
+		t.Fatalf("SignRevocation: %v", err)
+	}
+	rev.RevokedAt = rev.RevokedAt.Add(500 * time.Millisecond)
+	err = VerifyRevocation(rev, []ApplicationKeyRef{refA, refB, refC}, instance)
+	var ake *ApplicationKeyError
+	if !errors.As(err, &ake) || ake.Kind != ErrBadTimestamp {
+		t.Fatalf("want ErrBadTimestamp, got %v", err)
+	}
+}
+
+func TestSignedTimeIsUnixSecondsInteger(t *testing.T) {
+	got, err := cborSignedTime(time.Unix(1_700_000_000, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []byte{0x1a, 0x65, 0x53, 0xf1, 0x00}; !bytes.Equal(got, want) {
+		t.Errorf("got %x, want %x", got, want)
+	}
+	if got, _ := cborSignedTime(time.Unix(-1, 0)); !bytes.Equal(got, []byte{0x20}) {
+		t.Errorf("negative: got %x", got)
 	}
 }

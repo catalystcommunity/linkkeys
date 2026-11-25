@@ -45,7 +45,7 @@ type GenerateLocalRpIdentityConfig struct {
 	// with, in preference order. Defaults to both registry suites
 	// (aes-256-gcm first, mandatory baseline; chacha20-poly1305 second,
 	// optional) when nil.
-	SupportedSuites []string
+	SupportedSuites []AeadSuite
 	// Lifetime is the key/descriptor lifetime from Now. Defaults to
 	// DefaultLifetime (10 years) when zero.
 	Lifetime time.Duration
@@ -104,12 +104,15 @@ func GenerateLocalRpIdentity(config GenerateLocalRpIdentityConfig) (*LocalRpKeyM
 	if lifetime == 0 {
 		lifetime = DefaultLifetime
 	}
-	createdAt := config.Now.UTC().Format(time.RFC3339Nano)
-	expiresAt := config.Now.Add(lifetime).UTC().Format(time.RFC3339Nano)
+	createdAt := config.Now.UTC()
+	expiresAt := config.Now.Add(lifetime).UTC()
 
 	descriptor := BuildLocalRpDescriptor(config.AppName, config.LocalDomainHint, signingPublicKey, encryptionPublicKey, suites, createdAt, expiresAt)
 	fingerprint := descriptor.Fingerprint
-	signedDescriptor := SignLocalRpDescriptor(descriptor, signingPrivateKey)
+	signedDescriptor, err := SignLocalRpDescriptor(descriptor, signingPrivateKey)
+	if err != nil {
+		return nil, err
+	}
 
 	return &LocalRpKeyMaterial{
 		SigningPrivateKey:    signingPrivateKey,
@@ -187,8 +190,11 @@ var identityBundleMagic = []byte("LKI1")
 // blob an app can store as a single secret/config value. Layout:
 // `MAGIC(4) || signing_private_key(32) || encryption_private_key(32) ||
 // descriptor_len(4, BE) || descriptor_cbor`.
-func LocalRpIdentityToBytes(identity *LocalRpKeyMaterial) []byte {
-	descriptorBytes := api.EncodeSignedLocalRpDescriptor(identity.Descriptor)
+func LocalRpIdentityToBytes(identity *LocalRpKeyMaterial) ([]byte, error) {
+	descriptorBytes, err := api.EncodeSignedLocalRpDescriptor(identity.Descriptor)
+	if err != nil {
+		return nil, encodeFailed("SignedLocalRpDescriptor", err)
+	}
 	out := make([]byte, 0, 4+32+32+4+len(descriptorBytes))
 	out = append(out, identityBundleMagic...)
 	out = append(out, identity.SigningPrivateKey[:]...)
@@ -197,7 +203,7 @@ func LocalRpIdentityToBytes(identity *LocalRpKeyMaterial) []byte {
 	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(descriptorBytes)))
 	out = append(out, lenBuf[:]...)
 	out = append(out, descriptorBytes...)
-	return out
+	return out, nil
 }
 
 // LocalRpIdentityFromBytes is the inverse of LocalRpIdentityToBytes. Public
@@ -263,5 +269,6 @@ func CheckExpirations(identity *LocalRpKeyMaterial, now time.Time) (*ExpirationS
 	if err != nil {
 		return nil, &DecodeError{Detail: "identity descriptor: " + err.Error()}
 	}
-	return CheckExpirationsAt(descriptor.ExpiresAt, now)
+	status := CheckExpirationsAt(descriptor.ExpiresAt, now)
+	return &status, nil
 }

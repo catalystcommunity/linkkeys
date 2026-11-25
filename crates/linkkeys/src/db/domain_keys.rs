@@ -21,7 +21,9 @@ pub mod pg {
             private_key_encrypted: private_key_encrypted.to_vec(),
             fingerprint: fingerprint.to_string(),
             algorithm: algorithm.to_string(),
-            key_usage: "sign".to_string(),
+            key_usage: liblinkkeys::generated::types::KeyUsage::Sign
+                .as_str()
+                .to_string(),
             expires_at,
             signed_by_key_id: None,
             key_signature: None,
@@ -49,8 +51,12 @@ pub mod pg {
             public_key: public_key.to_vec(),
             private_key_encrypted: private_key_encrypted.to_vec(),
             fingerprint: fingerprint.to_string(),
-            algorithm: "x25519".to_string(),
-            key_usage: "encrypt".to_string(),
+            algorithm: liblinkkeys::generated::types::KeyAlgorithm::X25519
+                .as_str()
+                .to_string(),
+            key_usage: liblinkkeys::generated::types::KeyUsage::Encrypt
+                .as_str()
+                .to_string(),
             expires_at,
             signed_by_key_id: Some(signed_by_key_id.to_string()),
             key_signature: Some(key_signature.to_vec()),
@@ -97,6 +103,7 @@ pub mod pg {
         key_id: &str,
         signed_by_key_id: &str,
         key_signature: &[u8],
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<DomainKey> {
         let id: uuid::Uuid = key_id
             .parse()
@@ -105,6 +112,7 @@ pub mod pg {
             .set((
                 domain_keys::signed_by_key_id.eq(signed_by_key_id.to_string()),
                 domain_keys::key_signature.eq(key_signature.to_vec()),
+                domain_keys::expires_at.eq(expires_at),
             ))
             .get_result::<DomainKeyRow>(conn)
             .map(Into::into)
@@ -152,7 +160,9 @@ pub mod sqlite {
             private_key_encrypted: private_key_encrypted.to_vec(),
             fingerprint: fingerprint.to_string(),
             algorithm: algorithm.to_string(),
-            key_usage: "sign".to_string(),
+            key_usage: liblinkkeys::generated::types::KeyUsage::Sign
+                .as_str()
+                .to_string(),
             expires_at: expires_at.to_string(),
             signed_by_key_id: None,
             key_signature: None,
@@ -185,8 +195,12 @@ pub mod sqlite {
             public_key: public_key.to_vec(),
             private_key_encrypted: private_key_encrypted.to_vec(),
             fingerprint: fingerprint.to_string(),
-            algorithm: "x25519".to_string(),
-            key_usage: "encrypt".to_string(),
+            algorithm: liblinkkeys::generated::types::KeyAlgorithm::X25519
+                .as_str()
+                .to_string(),
+            key_usage: liblinkkeys::generated::types::KeyUsage::Encrypt
+                .as_str()
+                .to_string(),
             expires_at: expires_at.to_string(),
             signed_by_key_id: Some(signed_by_key_id.to_string()),
             key_signature: Some(key_signature.to_vec()),
@@ -235,11 +249,13 @@ pub mod sqlite {
         key_id: &str,
         signed_by_key_id: &str,
         key_signature: &[u8],
+        expires_at: time::OffsetDateTime,
     ) -> QueryResult<DomainKey> {
         diesel::update(domain_keys::table.find(key_id))
             .set((
                 domain_keys::signed_by_key_id.eq(signed_by_key_id.to_string()),
                 domain_keys::key_signature.eq(key_signature.to_vec()),
+                domain_keys::expires_at.eq(crate::db::db_time::store(&expires_at)),
             ))
             .execute(conn)?;
         domain_keys::table

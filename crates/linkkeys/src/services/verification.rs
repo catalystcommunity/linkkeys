@@ -5,9 +5,9 @@ use liblinkkeys::claim_policy::ValueType;
 use liblinkkeys::generated::services::ServiceError;
 use liblinkkeys::generated::types::{
     Claim, ConfirmContactVerificationResponse, ListVerifiedContactMethodsResponse,
-    RequestContactVerificationResponse, RevokeVerifiedContactMethodResponse, VerifiedContactMethod,
+    NotificationChannel, NotificationPurpose, RequestContactVerificationResponse,
+    RevokeVerifiedContactMethodResponse, VerifiedContactMethod,
 };
-use liblinkkeys::timestamp::Rfc3339 as _;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 
@@ -59,14 +59,14 @@ pub fn revoke_verified_contact(
 pub fn request_contact_verification(
     pool: &DbPool,
     user_id: &str,
-    channel: &str,
+    channel: &NotificationChannel,
     destination: &str,
     current_password: &str,
 ) -> Result<RequestContactVerificationResponse, ServiceError> {
     if !crate::services::password::authentication_enabled() {
         return Err(svc_err(400, "Contact verification is not available"));
     }
-    if channel != "email" || !notification::email_available() {
+    if *channel != NotificationChannel::Email || !notification::email_available() {
         return Err(svc_err(400, "This notification channel is not available"));
     }
     let destination = normalize_email(destination)?;
@@ -104,7 +104,7 @@ pub fn request_contact_verification(
             svc_err(500, "Could not send the verification message")
         })?;
     Ok(RequestContactVerificationResponse {
-        expires_at: expires.to_rfc3339(),
+        expires_at: expires,
     })
 }
 
@@ -175,7 +175,14 @@ pub fn request_email_verification(
     email: &str,
     current_password: &str,
 ) -> Result<(), ServiceError> {
-    request_contact_verification(pool, user_id, "email", email, current_password).map(|_| ())
+    request_contact_verification(
+        pool,
+        user_id,
+        &NotificationChannel::Email,
+        email,
+        current_password,
+    )
+    .map(|_| ())
 }
 
 pub fn confirm_email_verification(
@@ -209,10 +216,21 @@ fn public_origin() -> String {
 fn contact_to_csil(value: crate::db::models::VerifiedContactMethod) -> VerifiedContactMethod {
     VerifiedContactMethod {
         id: value.id,
-        channel: value.channel,
+        channel: crate::conversions::stored_label(
+            "contact channel",
+            &value.channel,
+            NotificationChannel::from_label,
+            NotificationChannel::Email,
+        ),
         destination: value.destination,
         verified_at: value.verified_at,
-        purposes: value.purposes.split(',').map(str::to_string).collect(),
+        // A purpose this server does not know is dropped: it authorizes
+        // nothing.
+        purposes: value
+            .purposes
+            .split(',')
+            .filter_map(NotificationPurpose::from_label)
+            .collect(),
         revoked_at: value.revoked_at,
     }
 }

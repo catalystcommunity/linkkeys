@@ -30,8 +30,8 @@ pub fn claimSignPayload(allocator: std.mem.Allocator, claim_id: []const u8, clai
         cbor.bytesVal(claim_value),
         cbor.text(subject),
         cbor.text(signing_domain),
-        cbor.optText(expires_at),
-        cbor.text(attested_at),
+        if (expires_at) |e| try local_rp.signedTimeValue(e) else cbor.nullVal,
+        try local_rp.signedTimeValue(attested_at),
     };
     return cbor.encodeTuple(allocator, &items);
 }
@@ -211,4 +211,23 @@ test "claim sign/verify round trip" {
     sigs[0].signature = sig_bytes;
     tampered.signatures = sigs;
     try std.testing.expectError(error.ClaimSignatureInvalid, verifyClaim(a, tampered, "example.test", &key_sets));
+}
+
+test "signed claim payload carries integer Unix seconds and rejects a fraction of a second" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const payload = try claimSignPayload(a, "c1", "email", "v", "u1", "example.com", "example.com", null, "1970-01-01T00:01:40Z");
+    const items = try cbor.asArray(try cbor.decode(a, payload));
+    try std.testing.expectEqual(@as(usize, 8), items.len);
+    try std.testing.expect(items[6] == .null);
+    try std.testing.expectEqual(@as(u64, 100), try cbor.asU64(items[7]));
+
+    // A zero fraction is the same whole second.
+    const zero_fraction = try claimSignPayload(a, "c1", "email", "v", "u1", "example.com", "example.com", null, "1970-01-01T00:01:40.000Z");
+    try std.testing.expectEqualSlices(u8, payload, zero_fraction);
+
+    try std.testing.expectError(error.FractionalSignedTimestamp, claimSignPayload(a, "c1", "email", "v", "u1", "example.com", "example.com", null, "1970-01-01T00:01:40.5Z"));
+    try std.testing.expectError(error.FractionalSignedTimestamp, claimSignPayload(a, "c1", "email", "v", "u1", "example.com", "example.com", "2030-01-01T00:00:00.001Z", "1970-01-01T00:01:40Z"));
 }

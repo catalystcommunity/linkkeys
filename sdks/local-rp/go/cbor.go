@@ -1,6 +1,10 @@
 package localrp
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"errors"
+	"time"
+)
 
 // This file implements the minimal canonical CBOR encoding this SDK needs to
 // build signature-input and payload bytes for constructions that predate CSIL
@@ -82,3 +86,35 @@ func cborTuple(items ...cborItem) []byte {
 	}
 	return out
 }
+
+// cborInt encodes a CBOR integer: major type 0 for n >= 0, major type 1
+// (-1 - n) for n < 0 — the shortest-form encoding ciborium produces for an
+// i64.
+func cborInt(n int64) cborItem {
+	if n >= 0 {
+		return cborHead(0, uint64(n))
+	}
+	return cborHead(1, uint64(-1-n))
+}
+
+// signedTime is the form a timestamp takes inside a signed tuple payload:
+// whole Unix seconds as a CBOR integer (mirrors
+// `liblinkkeys::timestamp::SignedTime`). A time with a fraction of a second
+// cannot be signed: it is refused, never rounded, so the signer and every
+// verifier sign the same instant.
+func signedTime(t time.Time) (cborItem, error) {
+	if t.Nanosecond() != 0 {
+		return nil, errSignedTimeFraction
+	}
+	return cborInt(t.Unix()), nil
+}
+
+// signedOptTime encodes an optional signed timestamp; nil is CBOR null.
+func signedOptTime(t *time.Time) (cborItem, error) {
+	if t == nil {
+		return cborItem{0xf6}, nil
+	}
+	return signedTime(*t)
+}
+
+var errSignedTimeFraction = errors.New("a signed timestamp must be a whole number of seconds")

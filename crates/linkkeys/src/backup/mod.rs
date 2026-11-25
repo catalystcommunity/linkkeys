@@ -204,6 +204,9 @@ pub fn excluded_ephemeral_table_names() -> &'static [&'static str] {
         "account_challenges",
         "notification_outbox",
         "browser_sessions",
+        // Open RP logins live at most an hour; a restore ends them, and the
+        // application starts a new login.
+        "rp_login_nonces",
     ]
 }
 
@@ -266,6 +269,11 @@ const SNAPSHOT_TABLES: &[&str] = &[
     "app_access_policies",
     "app_access_policy_patterns",
     "app_access_policy_targets",
+    // Account limits and application usage: a restore without them would lift
+    // every application's limits and reset its user count.
+    "account_limits",
+    "application_users",
+    "rp_usage_days",
 ];
 
 #[cfg(feature = "sqlite")]
@@ -304,10 +312,23 @@ mod sqlite_backend {
         id: String, username: String, display_name: String, is_active: i32,
         created_at: String, updated_at: String, is_admin_account: i32,
         purged_at: Option<String>, purge_reason: Option<String>, password_locked: i32,
+        kind: String, application_id: Option<String>,
     });
     backup_row!(AuthCredentialRow => auth_credentials {
         id: String, user_id: String, credential_type: String, credential_hash: String,
         created_at: String, expires_at: Option<String>, revoked_at: Option<String>, updated_at: String,
+        name: Option<String>, hint: Option<String>, last_used_at: Option<String>,
+    });
+    backup_row!(AccountLimitsBackupRow => account_limits {
+        user_id: String, max_api_keys: Option<i32>, max_distinct_users: Option<i32>,
+        distinct_user_window_days: i32, requests_per_minute: Option<i32>,
+        request_burst: Option<i32>, updated_at: String,
+    });
+    backup_row!(ApplicationUserBackupRow => application_users {
+        account_id: String, user_hash: Vec<u8>, last_seen_at: String,
+    });
+    backup_row!(RpUsageDayBackupRow => rp_usage_days {
+        account_id: String, day: String, operation: String, succeeded: i64, failed: i64,
     });
     backup_row!(UserAuthenticationActivityRow => user_authentication_activity {
         user_id: String, last_authenticated_at: String, last_seen_at: String,
@@ -522,6 +543,9 @@ mod sqlite_backend {
             $op!("app_access_policies", app_access_policies, AppAccessPolicyBackupRow, $($arg)*);
             $op!("app_access_policy_patterns", app_access_policy_patterns, AppAccessPatternBackupRow, $($arg)*);
             $op!("app_access_policy_targets", app_access_policy_targets, AppAccessTargetBackupRow, $($arg)*);
+            $op!("account_limits", account_limits, AccountLimitsBackupRow, $($arg)*);
+            $op!("application_users", application_users, ApplicationUserBackupRow, $($arg)*);
+            $op!("rp_usage_days", rp_usage_days, RpUsageDayBackupRow, $($arg)*);
         };
     }
 
@@ -625,7 +649,7 @@ mod sqlite_backend {
         let row = BackupKeyRow {
             id: uuid::Uuid::now_v7().to_string(),
             key_encrypted: enc,
-            created_at: time::OffsetDateTime::now_utc().to_rfc3339(),
+            created_at: crate::db::db_time::store(&time::OffsetDateTime::now_utc()),
             rotated_at: None,
         };
         diesel::insert_into(backup_keys::table)
@@ -673,7 +697,7 @@ mod sqlite_backend {
             let bundle = BackupBundle {
                 format_version: FORMAT_VERSION,
                 domain_name: domain.clone(),
-                created_at: time::OffsetDateTime::now_utc().to_rfc3339(),
+                created_at: crate::db::db_time::store(&time::OffsetDateTime::now_utc()),
                 db_backend: "sqlite".to_string(),
                 domain_key_passphrase: if opts.include_passphrase {
                     Some(passphrase.to_string())

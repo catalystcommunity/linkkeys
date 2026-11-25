@@ -10,5 +10,7 @@ export * from "./dns.ts";
 export * from "./identityInput.ts";
 export * from "./pending.ts";
 export * from "./rpc.ts";
+export * from "./signedTime.ts";
 export * from "./socket.ts";
 export type * from "../generated/types.gen.ts";
+export { RpErrorRefusal } from "../generated/codec.gen.ts";

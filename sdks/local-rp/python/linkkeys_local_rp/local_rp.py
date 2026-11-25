@@ -58,7 +58,7 @@ from .generated.types import (
     SignedLocalRpTicketRedemptionRequest,
 )
 from .generated.codec import cbor_encode
-from .timeutil import parse_rfc3339
+from .timeutil import to_utc
 
 CTX_LOCAL_RP_DESCRIPTOR = "linkkeys-local-rp-descriptor-v1alpha"
 CTX_LOCAL_RP_LOGIN_REQUEST = "linkkeys-local-rp-login-request-v1alpha"
@@ -197,16 +197,20 @@ def envelope_signature_input(context: str, payload_bytes: bytes) -> bytes:
 # ---------------------------------------------------------------------
 
 
-def check_timestamps(issued_at: str, expires_at: str, now: datetime, skew_seconds: int) -> None:
+def _require_aware(t: datetime) -> datetime:
+    """A wire timestamp must name an instant: reject a naive `datetime`."""
+    if not isinstance(t, datetime) or t.tzinfo is None:
+        raise BadTimestamp("timestamp has no timezone offset")
+    return t
+
+
+def check_timestamps(issued_at: datetime, expires_at: datetime, now: datetime, skew_seconds: int) -> None:
     """Check an `(issued_at, expires_at)` pair against `now`, tolerant of
     `skew_seconds` of clock skew in either direction. Boundaries are
     inclusive: exactly `now - skew == expires_at` still passes, and exactly
     one second past either boundary fails. Raises on failure."""
-    try:
-        issued = parse_rfc3339(issued_at)
-        expires = parse_rfc3339(expires_at)
-    except ValueError as e:
-        raise BadTimestamp(str(e)) from e
+    issued = _require_aware(issued_at)
+    expires = _require_aware(expires_at)
 
     skew = timedelta(seconds=skew_seconds)
     if now + skew < issued:
@@ -233,16 +237,13 @@ class ExpirationStatus:
     now: datetime
 
 
-def check_expirations(expires_at: str, now: datetime) -> ExpirationStatus:
+def check_expirations(expires_at: datetime, now: datetime) -> ExpirationStatus:
     """`check_expirations(identity, now) -> ExpirationStatus` (design doc,
     "Expiration Helper"): `notice` at 180 days remaining, `warning` at 90,
     `critical` at 30, `expired` once `now >= expires_at`. No clock-skew
     tolerance (unlike `check_timestamps`) — expiry warnings are advisory,
     day-granularity facts, not a replay/freshness security boundary."""
-    try:
-        expires = parse_rfc3339(expires_at)
-    except ValueError as e:
-        raise BadTimestamp(str(e)) from e
+    expires = to_utc(_require_aware(expires_at))
 
     remaining = expires - now
     if now >= expires:
@@ -302,9 +303,9 @@ def build_local_rp_descriptor(
     local_domain_hint: Optional[str],
     signing_public_key: bytes,
     encryption_public_key: bytes,
-    supported_suites: List[str],
-    created_at: str,
-    expires_at: str,
+    supported_suites: List[crypto.AeadSuite],
+    created_at: datetime,
+    expires_at: datetime,
 ) -> LocalRpDescriptor:
     """`fingerprint` is always derived from `signing_public_key` — callers
     cannot set it directly, so it can never drift from the key it names."""
@@ -339,8 +340,8 @@ def build_local_rp_login_request(
     state: bytes,
     requested_claims: List[str],
     required_claims: List[str],
-    issued_at: str,
-    expires_at: str,
+    issued_at: datetime,
+    expires_at: datetime,
 ) -> LocalRpLoginRequest:
     return LocalRpLoginRequest(
         descriptor=descriptor,
@@ -369,7 +370,7 @@ def sign_local_rp_login_request(
 
 
 def build_local_rp_ticket_redemption_request(
-    claim_ticket: bytes, fingerprint: str, issued_at: str
+    claim_ticket: bytes, fingerprint: str, issued_at: datetime
 ) -> LocalRpTicketRedemptionRequest:
     return LocalRpTicketRedemptionRequest(claim_ticket=claim_ticket, fingerprint=fingerprint, issued_at=issued_at)
 
@@ -397,8 +398,8 @@ def build_local_rp_callback_payload(
     callback_url: str,
     nonce: bytes,
     state: bytes,
-    issued_at: str,
-    expires_at: str,
+    issued_at: datetime,
+    expires_at: datetime,
 ) -> LocalRpCallbackPayload:
     return LocalRpCallbackPayload(
         user_id=user_id,
@@ -429,7 +430,7 @@ def _check_signing_key_valid(key: DomainPublicKey, now: datetime) -> None:
     """Reject a signing key that is not currently a signing key, or is
     revoked/expired — shared by every verify path that resolves a key by
     id."""
-    if key.key_usage != "sign":
+    if not crypto.is_signing_key(key.key_usage):
         raise SignatureInvalid("key is not a signing key")
     validity = crypto.signing_key_validity(key.expires_at, key.revoked_at, now)
     if validity == crypto.KeyValidity.REVOKED:
@@ -480,9 +481,9 @@ def check_callback_header_matches_payload(header: LocalRpCallbackHeader, payload
         raise HeaderPayloadMismatch("nonce")
     if header.state != payload.state:
         raise HeaderPayloadMismatch("state")
-    if header.issued_at != payload.issued_at:
+    if _require_aware(header.issued_at) != _require_aware(payload.issued_at):
         raise HeaderPayloadMismatch("issued_at")
-    if header.expires_at != payload.expires_at:
+    if _require_aware(header.expires_at) != _require_aware(payload.expires_at):
         raise HeaderPayloadMismatch("expires_at")
 
 
@@ -497,7 +498,7 @@ def _local_rp_callback_kdf(
     """Derive the AEAD key and construct the KDF `info`/AAD-prefix context:
     `tag || suite_id_utf8 || ephemeral_public(32) || recipient_public(32)`,
     raw concatenation. Returns `(aead_key, context)`."""
-    suite_id = suite.as_str().encode("utf-8")
+    suite_id = crypto.aead_suite_kdf_label(suite).encode("utf-8")
     context = _LOCAL_RP_CALLBACK_BOX_TAG + suite_id + ephemeral_public + recipient_public
     key = crypto.hkdf_sha256_expand(shared_secret, context, 32)
     return key, context
@@ -510,8 +511,8 @@ def seal_local_rp_callback(
     fingerprint: str,
     nonce: bytes,
     state: bytes,
-    issued_at: str,
-    expires_at: str,
+    issued_at: datetime,
+    expires_at: datetime,
     *,
     ephemeral_private_key: Optional[bytes] = None,
     aead_nonce: Optional[bytes] = None,
@@ -539,7 +540,7 @@ def seal_local_rp_callback(
         fingerprint=fingerprint,
         nonce=nonce,
         state=state,
-        suite=suite.as_str(),
+        suite=suite,
         ephemeral_public_key=ephemeral_public,
         aead_nonce=nonce_bytes,
         issued_at=issued_at,
@@ -577,11 +578,13 @@ def open_local_rp_callback(
     except Exception as e:  # noqa: BLE001 - re-raise as our own decode error
         raise DecodeFailed(f"callback header: {e}") from e
 
-    suite = crypto.AeadSuite.parse_str(header.suite)
-    if suite is None:
-        raise UnsupportedSuite(header.suite)
+    # The generated decoder already rejects a suite number outside the
+    # registry; this re-check keeps the KDF label lookup total.
+    suite = header.suite
+    if crypto.select_supported_aead_suite([suite]) is None:
+        raise UnsupportedSuite(str(suite))
     if suite not in allowed_suites:
-        raise SuiteNotAdvertised(header.suite)
+        raise SuiteNotAdvertised(str(suite))
 
     if len(header.ephemeral_public_key) != 32:
         raise InvalidKeyLength("ephemeral_public_key must be 32 bytes")

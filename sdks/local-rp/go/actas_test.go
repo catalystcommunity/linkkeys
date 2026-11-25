@@ -141,8 +141,8 @@ func TestActAsGranteeSigningVectorsLocalRp(t *testing.T) {
 			RequestedRenewalWindowSeconds: g.Inputs.RequestedRenewalWindowSeconds,
 			CallbackUrl:                   g.Inputs.CallbackURL,
 			Nonce:                         g.Inputs.Nonce,
-			RequestedAt:                   g.Inputs.RequestedAt,
-			ExpiresAt:                     g.Inputs.ExpiresAt,
+			RequestedAt:                   parseRFC3339(t, g.Inputs.RequestedAt),
+			ExpiresAt:                     parseRFC3339(t, g.Inputs.ExpiresAt),
 		}, km)
 		if err != nil {
 			t.Fatalf("SignActAsGrantRequest: %v", err)
@@ -150,10 +150,10 @@ func TestActAsGranteeSigningVectorsLocalRp(t *testing.T) {
 		if !bytes.Equal(signed.Request, mustHex(t, g.RequestCborHex)) {
 			t.Errorf("grant request bytes differ")
 		}
-		if !bytes.Equal(api.EncodeSignedActAsGrantRequest(signed), mustHex(t, g.SignedCborHex)) {
+		if !bytes.Equal(must[[]byte](t)(api.EncodeSignedActAsGrantRequest(signed)), mustHex(t, g.SignedCborHex)) {
 			t.Errorf("signed grant request bytes differ")
 		}
-		if got := localrp.SignedActAsGrantRequestToURLParam(signed); got != g.URLParam {
+		if got := must[string](t)(localrp.SignedActAsGrantRequestToURLParam(signed)); got != g.URLParam {
 			t.Errorf("url_param differs")
 		}
 
@@ -161,8 +161,8 @@ func TestActAsGranteeSigningVectorsLocalRp(t *testing.T) {
 		refresh, err := localrp.SignActAsRefreshRequest(api.ActAsRefreshRequest{
 			GrantId:     r.Inputs.GrantID,
 			Grantee:     grantee,
-			RequestedAt: r.Inputs.RequestedAt,
-			ExpiresAt:   r.Inputs.ExpiresAt,
+			RequestedAt: parseRFC3339(t, r.Inputs.RequestedAt),
+			ExpiresAt:   parseRFC3339(t, r.Inputs.ExpiresAt),
 			Nonce:       r.Inputs.Nonce,
 		}, km)
 		if err != nil {
@@ -171,7 +171,7 @@ func TestActAsGranteeSigningVectorsLocalRp(t *testing.T) {
 		if !bytes.Equal(refresh.Request, mustHex(t, r.RequestCborHex)) {
 			t.Errorf("refresh request bytes differ")
 		}
-		if !bytes.Equal(api.EncodeSignedActAsRefreshRequest(refresh), mustHex(t, r.SignedCborHex)) {
+		if !bytes.Equal(must[[]byte](t)(api.EncodeSignedActAsRefreshRequest(refresh)), mustHex(t, r.SignedCborHex)) {
 			t.Errorf("signed refresh request bytes differ")
 		}
 
@@ -290,7 +290,7 @@ func TestBeginActAsUsesDiscoveredHostAndSignsRequest(t *testing.T) {
 	if request.Grantee.Application != nil || request.Grantee.LocalRpDescriptorFingerprint == nil || *request.Grantee.LocalRpDescriptorFingerprint != km.Fingerprint {
 		t.Fatal("grantee is not this local RP")
 	}
-	if !bytes.Equal(api.EncodeSignedActAsScopeSet(request.ScopeSet), scopeSet) {
+	if !bytes.Equal(must[[]byte](t)(api.EncodeSignedActAsScopeSet(request.ScopeSet)), scopeSet) {
 		t.Fatal("scope set is not embedded unchanged")
 	}
 	if request.Nonce != pending.Nonce || request.CallbackUrl != pending.CallbackURL {
@@ -302,9 +302,9 @@ func TestBeginActAsUsesDiscoveredHostAndSignsRequest(t *testing.T) {
 	if request.RequestedLifetimeSeconds == nil || *request.RequestedLifetimeSeconds != 1800 || request.RequestedRenewalWindowSeconds != nil {
 		t.Fatal("requested terms not carried as given")
 	}
-	start := parseRFC3339(t, request.RequestedAt)
-	end := parseRFC3339(t, request.ExpiresAt)
-	if end.Sub(start) != localrp.DefaultActAsRequestWindow || !strings.HasSuffix(request.RequestedAt, "Z") {
+	start := request.RequestedAt
+	end := request.ExpiresAt
+	if end.Sub(start) != localrp.DefaultActAsRequestWindow || start.Location() != time.UTC || start.Nanosecond() != 0 {
 		t.Fatalf("request window %s..%s", request.RequestedAt, request.ExpiresAt)
 	}
 }
@@ -441,9 +441,10 @@ func TestRefreshActAsGrantOverPinnedRPC(t *testing.T) {
 		payload     []byte
 	}
 	got := make(chan seen, 1)
+	respBytes := must[[]byte](t)(api.EncodeRefreshActAsGrantResponse(api.RefreshActAsGrantResponse{Grant: grant, Signed: true}))
 	addr := spawnFakeIDP(t, domainSigningSeedFlowTest, 1, nil, func(service, op string, payload []byte) rpctransport.RpcResponse {
 		got <- seen{service, op, payload}
-		return rpctransport.NewRpcResponseOk("RefreshActAsGrantResponse", api.EncodeRefreshActAsGrantResponse(api.RefreshActAsGrantResponse{Grant: grant, Signed: true}))
+		return rpctransport.NewRpcResponseOk("RefreshActAsGrantResponse", respBytes)
 	})
 
 	out, signedNow, err := localrp.RefreshActAsGrant(localrp.RefreshActAsGrantConfig{
@@ -457,7 +458,7 @@ func TestRefreshActAsGrantOverPinnedRPC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RefreshActAsGrant: %v", err)
 	}
-	if !signedNow || !bytes.Equal(api.EncodeSignedActAsGrant(*out), api.EncodeSignedActAsGrant(grant)) {
+	if !signedNow || !bytes.Equal(must[[]byte](t)(api.EncodeSignedActAsGrant(*out)), must[[]byte](t)(api.EncodeSignedActAsGrant(grant))) {
 		t.Fatal("response not returned as served")
 	}
 
@@ -477,7 +478,7 @@ func TestRefreshActAsGrantOverPinnedRPC(t *testing.T) {
 	if refresh.GrantId != "grant-1" || refresh.Grantee.Application != nil || refresh.Grantee.LocalRpDescriptorFingerprint == nil || *refresh.Grantee.LocalRpDescriptorFingerprint != km.Fingerprint {
 		t.Fatal("refresh request does not name this grant and grantee")
 	}
-	if refresh.RequestedAt != "2026-10-06T12:40:00Z" || refresh.ExpiresAt != "2026-10-06T12:45:00Z" {
+	if !refresh.RequestedAt.Equal(parseRFC3339(t, "2026-10-06T12:40:00Z")) || !refresh.ExpiresAt.Equal(parseRFC3339(t, "2026-10-06T12:45:00Z")) {
 		t.Fatalf("refresh window %s..%s", refresh.RequestedAt, refresh.ExpiresAt)
 	}
 	if n, err := base64.RawURLEncoding.DecodeString(refresh.Nonce); err != nil || len(n) != 32 {
@@ -489,8 +490,9 @@ func TestRefreshActAsGrantRejectsMismatchedGrant(t *testing.T) {
 	v := loadActAsVectors(t)
 	km := vectorKeyMaterial(t, v)
 	grant := vectorLocalRpGrant(t, v)
+	okBytes := must[[]byte](t)(api.EncodeRefreshActAsGrantResponse(api.RefreshActAsGrantResponse{Grant: grant}))
 	ok := func() rpctransport.RpcResponse {
-		return rpctransport.NewRpcResponseOk("RefreshActAsGrantResponse", api.EncodeRefreshActAsGrantResponse(api.RefreshActAsGrantResponse{Grant: grant}))
+		return rpctransport.NewRpcResponseOk("RefreshActAsGrantResponse", okBytes)
 	}
 	// Another grant id.
 	if _, _, err := refreshWith(t, km, "grant-2", vectorHomeDomain, ok); err == nil {
@@ -506,8 +508,9 @@ func TestRefreshActAsGrantRejectsMismatchedGrant(t *testing.T) {
 		t.Error("accepted a grant from another subject domain")
 	}
 	// Grant bytes that do not decode.
+	garbageBytes := must[[]byte](t)(api.EncodeRefreshActAsGrantResponse(api.RefreshActAsGrantResponse{Grant: api.SignedActAsGrant{Grant: []byte{0xff}, Signatures: []api.ClaimSignature{}}}))
 	garbage := func() rpctransport.RpcResponse {
-		return rpctransport.NewRpcResponseOk("RefreshActAsGrantResponse", api.EncodeRefreshActAsGrantResponse(api.RefreshActAsGrantResponse{Grant: api.SignedActAsGrant{Grant: []byte{0xff}, Signatures: []api.ClaimSignature{}}}))
+		return rpctransport.NewRpcResponseOk("RefreshActAsGrantResponse", garbageBytes)
 	}
 	var decodeErr *localrp.DecodeError
 	if _, _, err := refreshWith(t, km, "grant-1", vectorHomeDomain, garbage); !errors.As(err, &decodeErr) {

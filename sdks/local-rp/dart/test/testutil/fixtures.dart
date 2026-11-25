@@ -6,6 +6,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:linkkeys_local_rp/src/crypto/hex.dart';
+import 'package:linkkeys_local_rp/src/wire/cbor.dart';
+import 'package:linkkeys_local_rp/src/wire/types.dart';
 
 /// The conformance vector directory, resolved relative to this package
 /// directory (not the process cwd, so tests work regardless of how `dart
@@ -37,3 +39,14 @@ dynamic loadJson(String name) {
 }
 
 Uint8List hex(String s) => Hex.decode(s);
+
+/// A fixture's RFC 3339 text as a UTC [DateTime].
+DateTime ts(String s) => Cbor.parseTimestamp(s);
+
+DateTime? tsOpt(String? s) => s == null ? null : ts(s);
+
+/// A fixture's `algorithm` label as a [KeyAlgorithm].
+KeyAlgorithm alg(String s) => KeyAlgorithm.values.byName(s);
+
+/// A fixture's `key_usage` label as a [KeyUsage].
+KeyUsage usage(String s) => KeyUsage.values.byName(s);

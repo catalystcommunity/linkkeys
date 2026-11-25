@@ -15,6 +15,15 @@ func encodeURLParam(b []byte) string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
+// encodedToURLParam takes the result of a generated `api.EncodeX` call and
+// returns its URL-safe string form, or an *EncodeError when the encode failed.
+func encodedToURLParam(what string, b []byte, err error) (string, error) {
+	if err != nil {
+		return "", encodeFailed(what, err)
+	}
+	return encodeURLParam(b), nil
+}
+
 func decodeURLParam(s string) ([]byte, error) {
 	b, err := base64.RawURLEncoding.DecodeString(s)
 	if err != nil {
@@ -26,8 +35,9 @@ func decodeURLParam(s string) ([]byte, error) {
 // SignedLocalRpLoginRequestToURLParam encodes a SignedLocalRpLoginRequest
 // for the begin route's `?signed_request=<...>` query parameter (Wire
 // Precision: "URL and parameter conventions").
-func SignedLocalRpLoginRequestToURLParam(signed api.SignedLocalRpLoginRequest) string {
-	return encodeURLParam(api.EncodeSignedLocalRpLoginRequest(signed))
+func SignedLocalRpLoginRequestToURLParam(signed api.SignedLocalRpLoginRequest) (string, error) {
+	b, err := api.EncodeSignedLocalRpLoginRequest(signed)
+	return encodedToURLParam("SignedLocalRpLoginRequest", b, err)
 }
 
 // SignedLocalRpLoginRequestFromURLParam decodes a SignedLocalRpLoginRequest
@@ -48,8 +58,9 @@ func SignedLocalRpLoginRequestFromURLParam(param string) (*api.SignedLocalRpLogi
 // the callback redirect's `&encrypted_token=<...>` query parameter (same
 // name/mechanics as the existing DNS-pinned flow's `encrypted_token`
 // parameter).
-func LocalRpEncryptedCallbackToURLParam(cb api.LocalRpEncryptedCallback) string {
-	return encodeURLParam(api.EncodeLocalRpEncryptedCallback(cb))
+func LocalRpEncryptedCallbackToURLParam(cb api.LocalRpEncryptedCallback) (string, error) {
+	b, err := api.EncodeLocalRpEncryptedCallback(cb)
+	return encodedToURLParam("LocalRpEncryptedCallback", b, err)
 }
 
 // LocalRpEncryptedCallbackFromURLParam decodes a LocalRpEncryptedCallback

@@ -52,18 +52,39 @@ fn is_disallowed_target(ip: IpAddr) -> bool {
     }
 }
 
+/// True when `allowlist` (`LINKKEYS_PRIVATE_PEER_ALLOWLIST`: comma-separated
+/// `host=address` entries) names exactly this host with exactly this address.
+/// This lets an operator reach one known peer on a private network without
+/// opening every private address. A malformed entry matches nothing.
+fn private_peer_allowed(allowlist: &str, host: &str, ip: IpAddr) -> bool {
+    allowlist.split(',').any(|entry| {
+        let Some((h, a)) = entry.trim().split_once('=') else {
+            return false;
+        };
+        h.trim().eq_ignore_ascii_case(host.trim_end_matches('.'))
+            && a.trim()
+                .parse::<IpAddr>()
+                .is_ok_and(|allowed| allowed == ip)
+    })
+}
+
 /// Resolve `server` (`host:port`) and connect to a vetted address with a
 /// timeout. Resolving and connecting to the *same* `SocketAddr` (rather than
 /// re-resolving the hostname) closes the DNS-rebinding window: we never connect
 /// to an address we didn't just screen.
 fn connect_guarded(server: &str) -> Result<TcpStream, ClientError> {
     let allow_private = std::env::var("LINKKEYS_ALLOW_PRIVATE_PEERS").unwrap_or_default() == "true";
+    let allowlist = std::env::var("LINKKEYS_PRIVATE_PEER_ALLOWLIST").unwrap_or_default();
+    let host = extract_hostname(server);
     let addrs = server
         .to_socket_addrs()
         .map_err(|e| ClientError::Connection(format!("{}: resolve failed: {}", server, e)))?;
     let mut last_err: Option<ClientError> = None;
     for addr in addrs {
-        if !allow_private && is_disallowed_target(addr.ip()) {
+        if !allow_private
+            && is_disallowed_target(addr.ip())
+            && !private_peer_allowed(&allowlist, host, addr.ip())
+        {
             last_err = Some(ClientError::Connection(format!(
                 "{}: refusing to connect to non-public address {}",
                 server,
@@ -192,6 +213,29 @@ pub fn send_raw_with_config(
     payload: Vec<u8>,
     api_key: Option<&str>,
 ) -> Result<Vec<u8>, ClientError> {
+    send_reply_with_config(server, tls_config, hostname, service, op, payload, api_key)
+        .map(|reply| reply.payload)
+}
+
+/// A status-0 reply: the CSIL type name of the arm it carries (`None` for an
+/// operation with one output type) and the payload.
+#[derive(Debug, Clone)]
+pub struct TypedReply {
+    pub variant: Option<String>,
+    pub payload: Vec<u8>,
+}
+
+/// [`send_raw_with_config`] that keeps the reply `variant`, for an operation
+/// with several output arms (for example `RpSignResponse / RpError`).
+pub fn send_reply_with_config(
+    server: &str,
+    tls_config: Arc<rustls::ClientConfig>,
+    hostname: &str,
+    service: &str,
+    op: &str,
+    payload: Vec<u8>,
+    api_key: Option<&str>,
+) -> Result<TypedReply, ClientError> {
     let mut request = RpcRequest::new(service, op, payload);
     if let Some(key) = api_key {
         request = request.with_auth(key);
@@ -220,7 +264,10 @@ pub fn send_raw_with_config(
         });
     }
 
-    Ok(resp.payload)
+    Ok(TypedReply {
+        variant: resp.variant,
+        payload: resp.payload,
+    })
 }
 
 /// Send a pre-encoded CBOR `payload` to a LinkKeys server, pinning its
@@ -244,6 +291,23 @@ pub fn send_request(
     let tls_config = tls::client_config(fingerprints, client_cert)
         .map_err(|e| ClientError::Tls(format!("TLS config: {}", e)))?;
     send_raw_with_config(server, tls_config, &hostname, service, op, payload, api_key)
+}
+
+/// [`send_request`] that keeps the reply `variant`; see [`TypedReply`].
+#[allow(clippy::too_many_arguments)]
+pub fn send_request_reply(
+    server: &str,
+    fingerprints: Vec<String>,
+    client_cert: Option<(Vec<u8>, Vec<u8>)>,
+    service: &str,
+    op: &str,
+    payload: Vec<u8>,
+    api_key: Option<&str>,
+) -> Result<TypedReply, ClientError> {
+    let hostname = extract_hostname(server).to_string();
+    let tls_config = tls::client_config(fingerprints, client_cert)
+        .map_err(|e| ClientError::Tls(format!("TLS config: {}", e)))?;
+    send_reply_with_config(server, tls_config, &hostname, service, op, payload, api_key)
 }
 
 #[cfg(test)]
@@ -313,5 +377,32 @@ mod tests {
     fn test_extract_hostname_ipv6() {
         assert_eq!(extract_hostname("[::1]:4987"), "::1");
         assert_eq!(extract_hostname("[2001:db8::1]:4987"), "2001:db8::1");
+    }
+}
+
+#[cfg(test)]
+mod private_peer_tests {
+    use super::*;
+
+    #[test]
+    fn only_an_exact_host_and_address_pair_is_allowed() {
+        let list = "linkkeys.example.com=10.20.1.10, other.example=fd00::5";
+        let ip: IpAddr = "10.20.1.10".parse().unwrap();
+        assert!(private_peer_allowed(list, "linkkeys.example.com", ip));
+        assert!(private_peer_allowed(list, "LinkKeys.Example.com.", ip));
+        assert!(!private_peer_allowed(
+            list,
+            "linkkeys.example.com",
+            "10.20.1.11".parse().unwrap()
+        ));
+        assert!(!private_peer_allowed(list, "evil.example", ip));
+        assert!(private_peer_allowed(
+            list,
+            "other.example",
+            "fd00::5".parse().unwrap()
+        ));
+        assert!(!private_peer_allowed("", "linkkeys.example.com", ip));
+        assert!(!private_peer_allowed("nonsense", "nonsense", ip));
+        assert!(!private_peer_allowed("h=not-an-ip", "h", ip));
     }
 }

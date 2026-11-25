@@ -52,13 +52,17 @@ pub fn active_signers(
         // Only signing keys can sign claims. A domain's active key set also
         // includes encryption keys (e.g. x25519), which must be skipped — they
         // are not parseable as a SigningAlgorithm and cannot produce signatures.
-        if k.key_usage != "sign" {
+        if crate::conversions::stored_key_usage(&k.key_usage)
+            != liblinkkeys::generated::types::KeyUsage::Sign
+        {
             continue;
         }
         let private_key = decrypt_private_key(&k.private_key_encrypted, passphrase)
             .map_err(|e| SignerError::Decrypt(e.to_string()))?;
-        let algorithm = SigningAlgorithm::parse_str(&k.algorithm)
-            .ok_or_else(|| SignerError::UnsupportedAlgorithm(k.algorithm.clone()))?;
+        let algorithm = SigningAlgorithm::from_key_algorithm(
+            &crate::conversions::stored_key_algorithm(&k.algorithm),
+        )
+        .ok_or_else(|| SignerError::UnsupportedAlgorithm(k.algorithm.clone()))?;
         signers.push(ActiveSigner {
             key_id: k.id.clone(),
             algorithm,
@@ -110,10 +114,10 @@ mod tests {
             fingerprint: String::new(),
             algorithm: algorithm.to_string(),
             key_usage: usage.to_string(),
-            created_at: String::new(),
-            expires_at: String::new(),
+            created_at: time::OffsetDateTime::UNIX_EPOCH,
+            expires_at: time::OffsetDateTime::UNIX_EPOCH,
             revoked_at: None,
-            updated_at: String::new(),
+            updated_at: time::OffsetDateTime::UNIX_EPOCH,
             signed_by_key_id: None,
             key_signature: None,
         }

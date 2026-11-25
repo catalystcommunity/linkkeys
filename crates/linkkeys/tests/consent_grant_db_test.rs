@@ -9,7 +9,6 @@ use common::data_factory::{create_user, DataMap};
 use liblinkkeys::crypto::{generate_keypair, SigningAlgorithm};
 use liblinkkeys::domain_claims::{sign_domain_claim, DomainClaimSpec};
 use liblinkkeys::generated::types::{ApplicationRef, DomainClaim};
-use liblinkkeys::timestamp::Rfc3339 as _;
 
 const RP: &str = "rp.example";
 
@@ -26,7 +25,8 @@ fn consent_grant_records_offered_claims() {
             claim_value: b"GDPR-strict-v1",
             subject_domain: RP,
             expires_at: None,
-            attested_at: "2020-01-01T00:00:00+00:00",
+            attested_at: liblinkkeys::timestamp::parse_rfc3339("2020-01-01T00:00:00+00:00")
+                .unwrap(),
         },
         &[liblinkkeys::claims::ClaimSigner {
             domain: RP,
@@ -43,13 +43,14 @@ fn consent_grant_records_offered_claims() {
     let encoded: Vec<Vec<u8>> = offered
         .iter()
         .map(liblinkkeys::generated::encode_domain_claim)
-        .collect();
+        .collect::<Result<_, _>>()
+        .unwrap();
     let mut offered_cbor = Vec::new();
     ciborium::ser::into_writer(&encoded, &mut offered_cbor).unwrap();
 
     let now = time::OffsetDateTime::now_utc();
-    let issued = now.to_rfc3339();
-    let expires = (now + time::Duration::days(365)).to_rfc3339();
+    let issued = now;
+    let expires = now + time::Duration::days(365);
     pool.upsert_consent_grant(
         &uuid::Uuid::now_v7().to_string(),
         &user.id,
@@ -60,8 +61,8 @@ fn consent_grant_records_offered_claims() {
         &["email".to_string()],
         b"signed-grant-bytes",
         Some(&offered_cbor),
-        &issued,
-        &expires,
+        issued,
+        expires,
     )
     .expect("upsert grant");
 
@@ -98,8 +99,8 @@ fn consent_grant_without_offered_claims_is_null() {
         &["email".to_string()],
         b"signed-grant-bytes",
         None,
-        &now.to_rfc3339(),
-        &(now + time::Duration::days(365)).to_rfc3339(),
+        now,
+        now + time::Duration::days(365),
     )
     .expect("upsert grant");
 
@@ -122,8 +123,8 @@ fn upsert(pool: &linkkeys::db::DbPool, user_id: &str, app: Option<&ApplicationRe
         &[claim.to_string()],
         b"signed-grant-bytes",
         None,
-        &now.to_rfc3339(),
-        &(now + time::Duration::days(365)).to_rfc3339(),
+        now,
+        now + time::Duration::days(365),
     )
     .expect("upsert grant");
 }

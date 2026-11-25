@@ -2,14 +2,15 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.List;
 
 public record VerifiedContactMethod(
     String id /* wire: "id" */,
-    String channel /* wire: "channel" */,
+    NotificationChannel channel /* wire: "channel" */,
     String destination /* wire: "destination" */,
-    String verifiedAt /* wire: "verified_at" */,
-    List<String> purposes /* wire: "purposes" */,
-    String revokedAt /* wire: "revoked_at" */
+    Instant verifiedAt /* wire: "verified_at" */,
+    List<NotificationPurpose> purposes /* wire: "purposes" */,
+    Instant revokedAt /* wire: "revoked_at" */
 ) {
 }

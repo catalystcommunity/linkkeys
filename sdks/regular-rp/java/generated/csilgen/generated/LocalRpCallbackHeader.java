@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -12,8 +13,8 @@ public record LocalRpCallbackHeader(
     AeadSuite suite /* wire: "suite" */,
     byte[] ephemeralPublicKey /* wire: "ephemeral_public_key" */,
     byte[] aeadNonce /* wire: "aead_nonce" */,
-    String issuedAt /* wire: "issued_at" */,
-    String expiresAt /* wire: "expires_at" */
+    Instant issuedAt /* wire: "issued_at" */,
+    Instant expiresAt /* wire: "expires_at" */
 ) {
     public LocalRpCallbackHeader {
         if (ephemeralPublicKey.length != 32) {

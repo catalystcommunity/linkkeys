@@ -35,12 +35,14 @@ let revocation_tag = "linkkeys-key-revocation-v1alpha"
 
 (* The canonical signed bytes: CBOR([tag, target_key_id,
    target_fingerprint, revoked_at, signing_domain]) -- the signing
-   sibling's domain is bound per-signature to stop cross-domain reuse. *)
+   sibling's domain is bound per-signature to stop cross-domain reuse.
+   [revoked_at] is whole Unix seconds (a CBOR integer); a fraction raises
+   [Timeutil.Bad_timestamp]. *)
 let revocation_payload (target_key_id : string) (target_fingerprint : string) (revoked_at : string)
     (signing_domain : string) : string =
   Cbor.encode
     (Array
-       [ Text revocation_tag; Text target_key_id; Text target_fingerprint; Text revoked_at; Text signing_domain ])
+       [ Text revocation_tag; Text target_key_id; Text target_fingerprint; Cbor.signed_time revoked_at; Text signing_domain ])
 
 (* Count the DISTINCT signer key ids whose signature survives every
    filtering rule (not the target, wire domain equals [domain], signer key
@@ -51,6 +53,10 @@ let count_valid_signers ?now (cert : Types.Revocation_certificate.t) (domain_key
     (domain : string) : int =
   let now = match now with Some n -> n | None -> Unix.gettimeofday () in
   let module SS = Set.Make (String) in
+  (* A revocation time with a fraction of a second was never signed. *)
+  match Timeutil.whole_unix_seconds cert.revoked_at with
+  | exception Timeutil.Bad_timestamp _ -> 0
+  | _ ->
   let valid_signers =
     List.fold_left
       (fun acc (sig_ : Types.Claim_signature.t) ->

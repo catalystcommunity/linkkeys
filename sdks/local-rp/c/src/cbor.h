@@ -6,7 +6,8 @@
  *
  * This deliberately does NOT attempt to be a general-purpose CBOR library:
  * only definite-length arrays/maps, byte/text strings, unsigned/negative
- * integers, simple bool/null, and tag 24 (encoded-CBOR) are supported —
+ * integers, simple bool/null, tag 0 (CSIL timestamp), and tag 24
+ * (encoded-CBOR) are supported —
  * exactly what CSIL's generated codec and the CSIL-RPC transport envelope
  * use (see csilgen's `codec.gen.rs`/`csil-rpc-transport.md`). Encoding uses
  * RFC 8949's shortest-form (preferred) length encoding throughout, matching
@@ -49,6 +50,8 @@ lrp_bytes cbor_buf_release(cbor_buf *b);
 
 int cbor_write_raw(cbor_buf *b, const uint8_t *data, size_t len);
 int cbor_write_uint(cbor_buf *b, uint64_t v);
+/* Signed integer: major type 0 when v >= 0, else major type 1. */
+int cbor_write_int(cbor_buf *b, int64_t v);
 int cbor_write_text(cbor_buf *b, const char *s, size_t len);
 int cbor_write_text_cstr(cbor_buf *b, const char *s);
 /* Writes `s` as text if non-NULL, else CBOR null (mirrors an Option<&str>
@@ -65,6 +68,28 @@ int cbor_write_null(cbor_buf *b);
 int cbor_write_tag_head(cbor_buf *b, uint64_t tag);
 /* Tag 24 (encoded-CBOR item): tag head + byte string of `payload`. */
 int cbor_write_tag24(cbor_buf *b, const uint8_t *payload, size_t len);
+/* CSIL `timestamp`: tag 0 + RFC3339 text. `rfc3339` must be UTC text
+ * (this SDK writes "...Z", see lrp_format_rfc3339). */
+int cbor_write_timestamp(cbor_buf *b, const char *rfc3339);
+
+/* CSIL named-number enums. On the wire an enum value is a CBOR unsigned
+ * integer. This SDK keeps the label text internally (and in its public
+ * structs); these tables map label <-> number. labels[i] is number i + 1. */
+typedef struct cbor_enum {
+    const char *name; /* for error text */
+    const char *const *labels;
+    size_t count;
+} cbor_enum;
+extern const cbor_enum CBOR_ENUM_KEY_ALGORITHM; /* ed25519=1 x25519=2 */
+extern const cbor_enum CBOR_ENUM_KEY_USAGE;     /* sign=1 encrypt=2 agree=3 */
+/* aes_256_gcm=1 chacha20_poly1305=2. The labels here are the suite TEXT ids
+ * ("aes-256-gcm", "chacha20-poly1305") that the callback KDF context binds. */
+extern const cbor_enum CBOR_ENUM_AEAD_SUITE;
+
+/* Writes the number of `label`. Fails (-1) for a label not in `e`. */
+int cbor_write_enum(cbor_buf *b, const cbor_enum *e, const char *label);
+/* The number of `label` in `e`, or 0 if absent. */
+uint64_t cbor_enum_number(const cbor_enum *e, const char *label);
 
 /* One entry for `cbor_write_canon_map`: `key` and the ALREADY-ENCODED CBOR
  * bytes of the value (build with the writer functions above into a
@@ -130,6 +155,20 @@ int cbor_get_text(const cbor_value *map, const char *key, lrp_str *out, lrp_erro
 int cbor_get_bytes(const cbor_value *map, const char *key, lrp_bytes *out, lrp_error *err);
 int cbor_get_uint(const cbor_value *map, const char *key, uint64_t *out, lrp_error *err);
 int cbor_get_array(const cbor_value *map, const char *key, const cbor_value **out, lrp_error *err);
+
+/* CSIL `timestamp` accessors: the value must be tag 0 that wraps valid
+ * RFC3339 text; *out gets that text unchanged. The _opt form leaves
+ * out->data NULL when the key is absent or null, and fails for any other
+ * wrong shape (a present timestamp is never silently dropped). */
+int cbor_as_timestamp(const cbor_value *v, lrp_str *out, lrp_error *err);
+int cbor_get_timestamp(const cbor_value *map, const char *key, lrp_str *out, lrp_error *err);
+int cbor_get_timestamp_opt(const cbor_value *map, const char *key, lrp_str *out, lrp_error *err);
+
+/* CSIL enum accessors: the value must be an unsigned integer that `e`
+ * defines; *out gets its label text. */
+int cbor_as_enum(const cbor_value *v, const cbor_enum *e, lrp_str *out, lrp_error *err);
+int cbor_get_enum(const cbor_value *map, const char *key, const cbor_enum *e, lrp_str *out,
+                  lrp_error *err);
 
 /* Optional-field accessors: leave *out unset (NULL data / 0 len) and
  * return 0 when the key is absent OR present with the wrong type (mirrors

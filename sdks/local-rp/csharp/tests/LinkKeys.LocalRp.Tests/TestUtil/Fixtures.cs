@@ -66,6 +66,19 @@ public static class Fixtures
         return v is null || v.Value.ValueKind == JsonValueKind.Null ? null : v.Value.GetString();
     }
 
+    /// <summary>A fixture timestamp: RFC 3339 text in JSON, a UTC instant in memory.</summary>
+    public static DateTimeOffset AsTime(this JsonElement e) => Time(e.GetString()!);
+
+    public static DateTimeOffset? GetTimeOrNull(this JsonElement e, string key)
+    {
+        var s = e.GetStringOrNull(key);
+        return s is null ? null : Time(s);
+    }
+
+    /// <summary>Parse RFC 3339 text to a UTC instant (test fixtures only).</summary>
+    public static DateTimeOffset Time(string s) =>
+        LinkKeys.LocalRp.Wire.Cbor.ParseRfc3339(s) ?? throw new FormatException($"not RFC 3339: {s}");
+
     public static IEnumerable<JsonElement> AsArray(this JsonElement e) => e.EnumerateArray();
 
     public static string AsString(this JsonElement e) => e.GetString()!;

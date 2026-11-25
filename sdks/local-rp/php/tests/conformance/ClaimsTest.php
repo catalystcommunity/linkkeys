@@ -100,10 +100,10 @@ foreach ($vectors['cases'] as $case) {
         TestKit::assertEquals($expected->userId, $decoded->userId, 'user_id');
         TestKit::assertEquals($expected->claimType, $decoded->claimType, 'claim_type');
         TestKit::assertEquals($expected->claimValue, $decoded->claimValue, 'claim_value');
-        TestKit::assertEquals($expected->attestedAt, $decoded->attestedAt, 'attested_at');
-        TestKit::assertEquals($expected->createdAt, $decoded->createdAt, 'created_at');
-        TestKit::assertEquals($expected->expiresAt, $decoded->expiresAt, 'expires_at');
-        TestKit::assertEquals($expected->revokedAt, $decoded->revokedAt, 'revoked_at');
+        TestKit::assertSameInstant($expected->attestedAt, $decoded->attestedAt, 'attested_at');
+        TestKit::assertSameInstant($expected->createdAt, $decoded->createdAt, 'created_at');
+        TestKit::assertSameInstant($expected->expiresAt, $decoded->expiresAt, 'expires_at');
+        TestKit::assertSameInstant($expected->revokedAt, $decoded->revokedAt, 'revoked_at');
         TestKit::assertEquals(count($expected->signatures), count($decoded->signatures), 'signature count');
         foreach ($expected->signatures as $i => $sig) {
             TestKit::assertEquals($sig->domain, $decoded->signatures[$i]->domain, "signatures[{$i}].domain");
@@ -143,6 +143,31 @@ foreach ($vectors['cases'] as $case) {
         );
     });
 }
+
+// A signed timestamp is whole seconds. A claim whose attested_at has a
+// fraction of a second was never signed: verification must refuse it, not
+// round it to the signed value.
+TestKit::test('claims.fractional_signed_time_rejected', function () use ($vectors, $defaultDomainKeys, $now) {
+    $case = findClaimVectorCase($vectors, 'claim_utf8_text_value');
+    $claim = Wire::decodeClaim(hexToBytes($case['claim_cbor_hex']));
+    $claim->attestedAt = '2026-01-01T00:00:00.5Z';
+    try {
+        Claims::verifyClaim($claim, $case['subject_domain'], $defaultDomainKeys, $now);
+        throw new \RuntimeException('expected a ClaimError(bad_timestamp)');
+    } catch (ClaimError $e) {
+        TestKit::assertEquals(ClaimError::BAD_TIMESTAMP, $e->kind);
+    }
+});
+
+// A CSIL timestamp is CBOR tag 0 around RFC 3339 text. Bare text (no tag)
+// must not decode.
+TestKit::test('claims.untagged_timestamp_rejected', function () use ($vectors) {
+    $case = findClaimVectorCase($vectors, 'claim_utf8_text_value');
+    $bytes = hexToBytes($case['claim_cbor_hex']);
+    $untagged = str_replace("\xc0\x74", "\x74", $bytes);
+    TestKit::assertTrue($untagged !== $bytes);
+    TestKit::assertThrows(fn () => Wire::decodeClaim($untagged), 'untagged timestamp must not decode');
+});
 
 // ---------------------------------------------------------------------
 // decode_negative_cases[] — must FAIL to decode at all (the tstr
@@ -192,7 +217,7 @@ TestKit::test('claims.ticket_redemption_response', function () use ($vectors, $d
 
     TestKit::assertEquals($trr['user_id'], $decoded->userId, 'user_id');
     TestKit::assertEquals($trr['user_domain'], $decoded->userDomain, 'user_domain');
-    TestKit::assertEquals($trr['ticket_expires_at'], $decoded->ticketExpiresAt, 'ticket_expires_at');
+    TestKit::assertSameInstant($trr['ticket_expires_at'], $decoded->ticketExpiresAt, 'ticket_expires_at');
 
     $expectedOrder = ['claim_utf8_text_value', 'claim_non_utf8_binary_value', 'claim_multiple_signatures'];
     TestKit::assertEquals(count($expectedOrder), count($decoded->claims), 'claim count');

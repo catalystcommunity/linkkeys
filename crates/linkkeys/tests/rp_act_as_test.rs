@@ -68,7 +68,7 @@ fn refresh_is_forwarded_to_a_remote_home_domain() {
             REMOTE,
             "ActAs",
             "refresh-grant",
-            liblinkkeys::generated::encode_refresh_act_as_grant_response(&canned),
+            liblinkkeys::generated::encode_refresh_act_as_grant_response(&canned).unwrap(),
         ),
     );
     let rt = runtime();
@@ -97,7 +97,7 @@ fn revocations_are_fetched_from_a_remote_home_domain() {
             REMOTE,
             "ActAs",
             "get-grant-revocations",
-            liblinkkeys::generated::encode_get_act_as_grant_revocations_response(&canned),
+            liblinkkeys::generated::encode_get_act_as_grant_revocations_response(&canned).unwrap(),
         ),
     );
     let rt = runtime();

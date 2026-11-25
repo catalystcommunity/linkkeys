@@ -30,6 +30,7 @@ from typing import Callable, List, Optional
 import pytest
 
 from linkkeys_local_rp import claims as claims_mod
+from linkkeys_local_rp import crypto
 from linkkeys_local_rp import local_rp
 from linkkeys_local_rp.begin import BeginLocalLoginConfig, begin_local_login
 from linkkeys_local_rp.complete import IdentityMismatch, RequiredClaimsNotSatisfied, complete_local_login
@@ -37,6 +38,8 @@ from linkkeys_local_rp.crypto import AeadSuite, SigningAlgorithm
 from linkkeys_local_rp.encoding import local_rp_encrypted_callback_to_url_param
 from linkkeys_local_rp.generated.codec import CborTag, cbor_decode, cbor_encode
 from linkkeys_local_rp.generated.types import (
+    KeyAlgorithm,
+    KeyUsage,
     Claim,
     ClaimSignature,
     DomainPublicKey,
@@ -48,6 +51,7 @@ from linkkeys_local_rp.generated.types import (
 )
 from linkkeys_local_rp.identity import LocalRpKeyMaterial
 from linkkeys_local_rp.rpc import RpcError
+from linkkeys_local_rp.timeutil import signed_time
 from linkkeys_local_rp.transport import StdTransport
 
 
@@ -222,14 +226,14 @@ def _fixed_key_material(now: datetime.datetime) -> LocalRpKeyMaterial:
 
     encryption_public_key = x25519_public_from_private(LOCAL_RP_ENCRYPTION_PRIVATE)
 
-    created_at = (now - datetime.timedelta(days=1)).isoformat().replace("+00:00", "Z")
-    expires_at = (now + datetime.timedelta(days=3650)).isoformat().replace("+00:00", "Z")
+    created_at = (now - datetime.timedelta(days=1))
+    expires_at = (now + datetime.timedelta(days=3650))
     descriptor = local_rp.build_local_rp_descriptor(
         "Flow Test App",
         None,
         signing_public_key,
         encryption_public_key,
-        ["aes-256-gcm", "chacha20-poly1305"],
+        crypto.all_supported_aead_suites(),
         created_at,
         expires_at,
     )
@@ -258,12 +262,12 @@ def _domain_public_key(now: datetime.datetime) -> DomainPublicKey:
         key_id=DOMAIN_KEY_ID,
         public_key=pk,
         fingerprint=crypto.fingerprint(pk),
-        algorithm="ed25519",
-        key_usage="sign",
+        algorithm=KeyAlgorithm.ED_25519,
+        key_usage=KeyUsage.SIGN,
         signed_by_key_id=None,
         key_signature=None,
-        created_at=(now - datetime.timedelta(days=30)).isoformat().replace("+00:00", "Z"),
-        expires_at=(now + datetime.timedelta(days=365)).isoformat().replace("+00:00", "Z"),
+        created_at=(now - datetime.timedelta(days=30)),
+        expires_at=(now + datetime.timedelta(days=365)),
         revoked_at=None,
     )
 
@@ -339,8 +343,8 @@ def run_scenario(scenario: Scenario):
         CALLBACK_URL,
         pending.nonce,
         pending.state,
-        now.isoformat().replace("+00:00", "Z"),
-        (now + datetime.timedelta(minutes=5)).isoformat().replace("+00:00", "Z"),
+        now,
+        (now + datetime.timedelta(minutes=5)),
     )
     scenario.mutate_payload(payload)
 
@@ -368,7 +372,7 @@ def run_scenario(scenario: Scenario):
             claim_value=b"flowtestuser",
             user_id=scenario.claim_user_id or "user-1",
             subject_domain=USER_DOMAIN,
-            attested_at=now.isoformat().replace("+00:00", "Z"),
+            attested_at=now.replace(microsecond=0),
         ),
         [
             claims_mod.ClaimSigner(
@@ -381,7 +385,7 @@ def run_scenario(scenario: Scenario):
     )
     scenario.mutate_claim(claim)
 
-    ticket_expires_at = (now + datetime.timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+    ticket_expires_at = (now + datetime.timedelta(hours=1))
     redemption_response = LocalRpTicketRedemptionResponse(
         user_id="user-1", user_domain=USER_DOMAIN, claims=[claim], ticket_expires_at=ticket_expires_at
     )
@@ -468,8 +472,8 @@ def test_nonce_mismatch_is_rejected():
 def test_expired_callback_payload_is_rejected():
     def mutate(p: LocalRpCallbackPayload) -> None:
         n = datetime.datetime.now(datetime.timezone.utc)
-        p.issued_at = (n - datetime.timedelta(hours=2)).isoformat().replace("+00:00", "Z")
-        p.expires_at = (n - datetime.timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+        p.issued_at = (n - datetime.timedelta(hours=2))
+        p.expires_at = (n - datetime.timedelta(hours=1))
 
     with pytest.raises(local_rp.LocalRpError):
         run_scenario(Scenario(mutate_payload=mutate, expected_requests=2))
@@ -486,7 +490,7 @@ def test_dns_fingerprint_pin_mismatch_is_rejected():
 
 def test_revoked_signing_key_is_rejected():
     def mutate(k: DomainPublicKey) -> None:
-        k.revoked_at = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+        k.revoked_at = datetime.datetime.now(datetime.timezone.utc)
 
     with pytest.raises(local_rp.LocalRpError):
         run_scenario(Scenario(mutate_domain_key=mutate, expected_requests=2))
@@ -515,12 +519,12 @@ def _sibling_key(seed: bytes, key_id: str, now: datetime.datetime) -> DomainPubl
         key_id=key_id,
         public_key=pk,
         fingerprint=crypto.fingerprint(pk),
-        algorithm="ed25519",
-        key_usage="sign",
+        algorithm=KeyAlgorithm.ED_25519,
+        key_usage=KeyUsage.SIGN,
         signed_by_key_id=None,
         key_signature=None,
-        created_at=(now - datetime.timedelta(days=30)).isoformat().replace("+00:00", "Z"),
-        expires_at=(now + datetime.timedelta(days=365)).isoformat().replace("+00:00", "Z"),
+        created_at=(now - datetime.timedelta(days=30)),
+        expires_at=(now + datetime.timedelta(days=365)),
         revoked_at=None,
     )
 
@@ -542,10 +546,10 @@ def test_certificate_revoked_signing_key_fails_completion():
     # Build a quorum certificate targeting the callback-signing key, signed
     # by both siblings over the five-element revocation tuple.
     target = _domain_public_key(now)
-    revoked_at = now.isoformat().replace("+00:00", "Z")
+    revoked_at = now.replace(microsecond=0)
     signatures = []
     for seed, key in zip(sibling_seeds, siblings):
-        payload = revocation_payload(target.key_id, target.fingerprint, revoked_at, USER_DOMAIN)
+        payload = revocation_payload(target.key_id, target.fingerprint, signed_time(revoked_at), USER_DOMAIN)
         sig = crypto.sign_with_algorithm(SigningAlgorithm.ED25519, payload, seed)
         signatures.append(ClaimSignature(domain=USER_DOMAIN, signed_by_key_id=key.key_id, signature=sig))
     cert = RevocationCertificate(
@@ -688,10 +692,10 @@ def _served_act_as_grant(grant_id: str, fingerprint: str, subject_domain: str):
             signatures=[ApplicationKeySignature(signed_by_key_id="audience-key", signature=bytes(64))],
         ),
         approved_scope=["read"],
-        issued_at="2026-10-06T12:00:00Z",
-        expires_at="2026-10-06T13:00:00Z",
-        series_issued_at="2026-10-06T12:00:00Z",
-        renewable_until="2026-10-06T13:00:00Z",
+        issued_at=datetime.datetime(2026, 10, 6, 12, 0, tzinfo=datetime.timezone.utc),
+        expires_at=datetime.datetime(2026, 10, 6, 13, 0, tzinfo=datetime.timezone.utc),
+        series_issued_at=datetime.datetime(2026, 10, 6, 12, 0, tzinfo=datetime.timezone.utc),
+        renewable_until=datetime.datetime(2026, 10, 6, 13, 0, tzinfo=datetime.timezone.utc),
         device_fingerprint=None,
     )
     return SignedActAsGrant(
@@ -734,8 +738,8 @@ def test_refresh_act_as_grant_calls_refresh_grant_with_verifiable_request():
     request = ActAsRefreshRequest.from_cbor(signed.request)
     assert request.grant_id == "grant-1"
     assert request.grantee.local_rp_descriptor_fingerprint == key_material.fingerprint
-    assert request.requested_at == "2026-10-06T12:40:00Z"
-    assert request.expires_at == "2026-10-06T12:45:00Z"
+    assert request.requested_at == datetime.datetime(2026, 10, 6, 12, 40, tzinfo=datetime.timezone.utc)
+    assert request.expires_at == datetime.datetime(2026, 10, 6, 12, 45, tzinfo=datetime.timezone.utc)
     assert len(request.nonce) == 43
     assert signed.proof.signature.signed_by_key_id == key_material.fingerprint
     assert signed.proof.application_instance_id is None

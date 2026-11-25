@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.List;
 
 public record ActAsScopeSet(
@@ -10,7 +11,7 @@ public record ActAsScopeSet(
     List<ActAsScopeEntry> entries /* wire: "entries" */,
     String language /* wire: "language" */,
     Claim audienceHandleClaim /* wire: "audience_handle_claim" */,
-    String issuedAt /* wire: "issued_at" */,
-    String expiresAt /* wire: "expires_at" */
+    Instant issuedAt /* wire: "issued_at" */,
+    Instant expiresAt /* wire: "expires_at" */
 ) {
 }

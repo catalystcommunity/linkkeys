@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.List;
 
 public record ActAsGrant(
@@ -12,10 +13,10 @@ public record ActAsGrant(
     ApplicationRef audience /* wire: "audience" */,
     SignedActAsScopeSet scopeSet /* wire: "scope_set" */,
     List<String> approvedScope /* wire: "approved_scope" */,
-    String issuedAt /* wire: "issued_at" */,
-    String expiresAt /* wire: "expires_at" */,
-    String seriesIssuedAt /* wire: "series_issued_at" */,
-    String renewableUntil /* wire: "renewable_until" */,
+    Instant issuedAt /* wire: "issued_at" */,
+    Instant expiresAt /* wire: "expires_at" */,
+    Instant seriesIssuedAt /* wire: "series_issued_at" */,
+    Instant renewableUntil /* wire: "renewable_until" */,
     String deviceFingerprint /* wire: "device_fingerprint" */
 ) {
 }

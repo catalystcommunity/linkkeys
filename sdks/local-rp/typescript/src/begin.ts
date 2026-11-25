@@ -137,8 +137,8 @@ export async function beginLocalLogin(config: BeginLocalLoginConfig): Promise<{
   const requestedClaims = config.requestedClaims ?? DEFAULT_REQUESTED_CLAIMS;
   const requiredClaims = config.requiredClaims ?? DEFAULT_REQUIRED_CLAIMS;
   const lifetimeMs = config.requestLifetimeMs ?? DEFAULT_LOGIN_REQUEST_LIFETIME_MS;
-  const issuedAt = config.now.toISOString();
-  const expiresAt = new Date(config.now.getTime() + lifetimeMs).toISOString();
+  const issuedAt = new Date(config.now.getTime());
+  const expiresAt = new Date(config.now.getTime() + lifetimeMs);
 
   const request = buildLocalRpLoginRequest(
     config.keyMaterial.descriptor,

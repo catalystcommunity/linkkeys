@@ -21,6 +21,7 @@ from typing import List, Optional, Protocol
 
 from . import crypto
 from .generated.types import DomainPublicKey
+from .timeutil import signed_time
 
 DEFAULT_TCP_PORT = 4987
 
@@ -127,7 +128,9 @@ def pin_keys_to_fingerprints(keys: List[DomainPublicKey], pinned: List[str]) -> 
 _KEY_VOUCH_TAG = "linkkeys-key-vouch-v1alpha"
 
 
-def key_vouch_payload(enc_fingerprint: str, enc_expires_at: str) -> bytes:
+def key_vouch_payload(enc_fingerprint: str, enc_expires_at: int) -> bytes:
+    """`CBOR([tag, enc_fingerprint, enc_expires_at])`. `enc_expires_at` is a
+    signed time: whole Unix seconds as a CBOR integer."""
     from .generated.codec import cbor_encode
 
     return cbor_encode([_KEY_VOUCH_TAG, enc_fingerprint, enc_expires_at])
@@ -143,8 +146,13 @@ def verify_key_vouch(enc_key: DomainPublicKey, signing_key: DomainPublicKey, now
         return False
     if enc_key.key_signature is None:
         return False
+    # An expiry with a fraction of a second was never signed.
+    try:
+        enc_expires_at = signed_time(enc_key.expires_at)
+    except (ValueError, AttributeError, TypeError):
+        return False
     recomputed_fp = crypto.fingerprint(enc_key.public_key)
-    payload = key_vouch_payload(recomputed_fp, enc_key.expires_at)
+    payload = key_vouch_payload(recomputed_fp, enc_expires_at)
     try:
         crypto.resolve_and_verify(signing_key.algorithm, payload, enc_key.key_signature, signing_key.public_key)
         return True
@@ -158,12 +166,12 @@ def trust_keys(keys: List[DomainPublicKey], pinned: List[str], now) -> List[Doma
     keys are trusted only when a pinned signing key vouches for them.
     Callers MUST treat an empty result as "no trustworthy keys" and fail
     closed."""
-    signing = [k for k in keys if k.key_usage == "sign"]
+    signing = [k for k in keys if crypto.is_signing_key(k.key_usage)]
     pinned_signing = pin_keys_to_fingerprints(signing, pinned)
 
     trusted = list(pinned_signing)
     for k in keys:
-        if k.key_usage != "encrypt":
+        if not crypto.is_encryption_key(k.key_usage):
             continue
         if any(verify_key_vouch(k, sk, now) for sk in pinned_signing):
             trusted.append(k)

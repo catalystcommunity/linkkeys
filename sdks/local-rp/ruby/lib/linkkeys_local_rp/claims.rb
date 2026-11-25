@@ -93,10 +93,19 @@ module LinkkeysLocalRp
     # The subject is bound as the single full identity `user_id@subject_domain`
     # (not the bare user_id), so a claim about a user_id at one domain can't
     # be replayed as the same user_id at another. `signing_domain` -- the
-    # attestor for *this* signature -- is bound per-signature.
+    # attestor for *this* signature -- is bound per-signature. `expires_at`
+    # and `attested_at` are signed as whole Unix seconds (CBOR integers);
+    # `expires_at` is CBOR null when absent. A timestamp with a fraction of
+    # a second cannot be signed: this raises SignatureInvalid for one.
     def claim_sign_payload(claim_id, claim_type, claim_value, user_id, subject_domain, signing_domain, expires_at, attested_at)
       subject = "#{user_id}@#{subject_domain}"
-      payload = [CLAIM_PAYLOAD_TAG, claim_id, claim_type, claim_value, subject, signing_domain, expires_at, attested_at]
+      begin
+        expires = expires_at.nil? ? nil : Timeutil.signed_seconds(expires_at)
+        attested = Timeutil.signed_seconds(attested_at)
+      rescue ArgumentError => e
+        raise SignatureInvalid, "claim timestamp cannot be signed: #{e.message}"
+      end
+      payload = [CLAIM_PAYLOAD_TAG, claim_id, claim_type, claim_value, subject, signing_domain, expires, attested]
       Cbor.encode(payload)
     end
     private_class_method :claim_sign_payload

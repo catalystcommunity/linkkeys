@@ -5,11 +5,11 @@ package csilgen.generated;
 public record BrowserConsentClaim(
     String claimType /* wire: "claim_type" */,
     String label /* wire: "label" */,
-    String datatype /* wire: "datatype" */,
+    ClaimValueType datatype /* wire: "datatype" */,
     boolean required /* wire: "required" */,
     boolean available /* wire: "available" */,
     boolean defaultGranted /* wire: "default_granted" */,
-    String policy /* wire: "policy" */,
+    ConsentRowPolicy policy /* wire: "policy" */,
     boolean userSettable /* wire: "user_settable" */,
     long maxBytes /* wire: "max_bytes" */,
     boolean requiresApproval /* wire: "requires_approval" */,

@@ -168,9 +168,14 @@ const keyVouchTag = "linkkeys-key-vouch-v1alpha"
 
 // keyVouchPayload builds the canonical bytes a signing key signs to vouch
 // for an encryption key: `(tag, encrypt-key fingerprint, encrypt-key
-// expires_at)`.
-func keyVouchPayload(encFingerprint, encExpiresAt string) []byte {
-	return cborTuple(cborText(keyVouchTag), cborText(encFingerprint), cborText(encExpiresAt))
+// expires_at)`. The expiry is whole Unix seconds; an expiry with a fraction
+// of a second cannot be signed and yields an error.
+func keyVouchPayload(encFingerprint string, encExpiresAt time.Time) ([]byte, error) {
+	expires, err := signedTime(encExpiresAt)
+	if err != nil {
+		return nil, err
+	}
+	return cborTuple(cborText(keyVouchTag), cborText(encFingerprint), expires), nil
 }
 
 // VerifyKeyVouch verifies that signingKey vouches for encKey: the encryption
@@ -188,7 +193,10 @@ func VerifyKeyVouch(encKey, signingKey api.DomainPublicKey) bool {
 		return false
 	}
 	recomputedFp := Fingerprint(encKey.PublicKey)
-	payload := keyVouchPayload(recomputedFp, encKey.ExpiresAt)
+	payload, err := keyVouchPayload(recomputedFp, encKey.ExpiresAt)
+	if err != nil {
+		return false
+	}
 	return resolveAndVerify(signingKey.Algorithm, payload, *encKey.KeySignature, signingKey.PublicKey) == nil
 }
 
@@ -200,7 +208,7 @@ func VerifyKeyVouch(encKey, signingKey api.DomainPublicKey) bool {
 func TrustKeys(keys []api.DomainPublicKey, pinned []string) []api.DomainPublicKey {
 	var signing []api.DomainPublicKey
 	for _, k := range keys {
-		if k.KeyUsage == "sign" {
+		if k.KeyUsage == api.KeyUsageSign {
 			signing = append(signing, k)
 		}
 	}
@@ -208,7 +216,7 @@ func TrustKeys(keys []api.DomainPublicKey, pinned []string) []api.DomainPublicKe
 
 	trusted := append([]api.DomainPublicKey{}, pinnedSigning...)
 	for _, k := range keys {
-		if k.KeyUsage != "encrypt" {
+		if k.KeyUsage != api.KeyUsageEncrypt {
 			continue
 		}
 		for _, sk := range pinnedSigning {

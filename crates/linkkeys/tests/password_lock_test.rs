@@ -233,7 +233,8 @@ fn set_password_lock_requires_admin() {
             user_id: target.id.clone(),
             locked: true,
         },
-    );
+    )
+    .unwrap();
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "set-user-password-lock",

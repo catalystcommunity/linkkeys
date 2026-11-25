@@ -23,7 +23,7 @@ from linkkeys_local_rp.act_as import (
     act_as_grant_hash,
     begin_act_as,
     complete_act_as_callback,
-    format_act_as_time,
+    act_as_time,
     present_act_as,
     sign_act_as_grant_request,
     sign_act_as_refresh_request,
@@ -77,8 +77,8 @@ def test_vector_grant_request():
             requested_renewal_window_seconds=inputs["requested_renewal_window_seconds"],
             callback_url=inputs["callback_url"],
             nonce=inputs["nonce"],
-            requested_at=inputs["requested_at"],
-            expires_at=inputs["expires_at"],
+            requested_at=_parse_time(inputs["requested_at"]),
+            expires_at=_parse_time(inputs["expires_at"]),
         ),
         KEY_MATERIAL,
     )
@@ -97,8 +97,8 @@ def test_vector_refresh_request():
         ActAsRefreshRequest(
             grant_id=inputs["grant_id"],
             grantee=GranteeRef(local_rp_descriptor_fingerprint=KEY_MATERIAL.fingerprint),
-            requested_at=inputs["requested_at"],
-            expires_at=inputs["expires_at"],
+            requested_at=_parse_time(inputs["requested_at"]),
+            expires_at=_parse_time(inputs["expires_at"]),
             nonce=inputs["nonce"],
         ),
         KEY_MATERIAL,
@@ -123,9 +123,9 @@ def test_vector_presentation_and_credential():
     assert result.credential_cbor.hex() == CASE["presentation"]["credential_cbor_hex"]
 
 
-def test_format_act_as_time_drops_fraction():
+def test_act_as_time_drops_fraction():
     t = datetime(2026, 10, 6, 12, 5, 0, 987000, tzinfo=timezone.utc)
-    assert format_act_as_time(t) == "2026-10-06T12:05:00Z"
+    assert act_as_time(t) == datetime(2026, 10, 6, 12, 5, 0, tzinfo=timezone.utc)
 
 
 # ---------------------------------------------------------------------
@@ -178,8 +178,8 @@ def test_begin_uses_discovered_host_and_signs_verifiable_request():
     assert request.nonce == pending.nonce
     assert request.grantee.local_rp_descriptor_fingerprint == KEY_MATERIAL.fingerprint
     assert request.grantee.application is None
-    assert request.requested_at == inputs["requested_at"]
-    assert request.expires_at == inputs["expires_at"]
+    assert request.requested_at == _parse_time(inputs["requested_at"])
+    assert request.expires_at == _parse_time(inputs["expires_at"])
     assert request.requested_lifetime_seconds == 1800
     assert request.requested_renewal_window_seconds is None
     assert request.callback_url == CALLBACK

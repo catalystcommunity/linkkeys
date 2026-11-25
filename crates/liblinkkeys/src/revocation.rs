@@ -25,6 +25,7 @@ use std::fmt;
 
 /// The sibling-signed revocation certificate wire type (generated from CSIL).
 pub use crate::generated::types::RevocationCertificate;
+use crate::timestamp::SignedTime;
 
 /// Minimum number of distinct sibling signatures required to revoke a key.
 pub const REVOCATION_QUORUM: usize = 2;
@@ -57,7 +58,8 @@ impl std::error::Error for RevocationError {}
 pub struct RevocationSpec<'a> {
     pub target_key_id: &'a str,
     pub target_fingerprint: &'a str,
-    pub revoked_at: &'a str,
+    /// Whole seconds (see [`crate::timestamp::now_whole_seconds`]).
+    pub revoked_at: time::OffsetDateTime,
 }
 
 /// Canonical signed bytes: the tag, the target key id + fingerprint, the
@@ -75,7 +77,7 @@ pub struct RevocationSpec<'a> {
 pub fn revocation_payload(
     target_key_id: &str,
     target_fingerprint: &str,
-    revoked_at: &str,
+    revoked_at: SignedTime,
     signing_domain: &str,
 ) -> Vec<u8> {
     let payload = (
@@ -98,12 +100,14 @@ pub fn build_revocation_certificate(
     spec: &RevocationSpec<'_>,
     signers: &[ClaimSigner<'_>],
 ) -> Result<RevocationCertificate, CryptoError> {
+    let revoked_at =
+        SignedTime::new(&spec.revoked_at).map_err(|e| CryptoError::SigningFailed(e.to_string()))?;
     let mut signatures = Vec::with_capacity(signers.len());
     for signer in signers {
         let payload = revocation_payload(
             spec.target_key_id,
             spec.target_fingerprint,
-            spec.revoked_at,
+            revoked_at,
             signer.domain,
         );
         let signature =
@@ -117,7 +121,7 @@ pub fn build_revocation_certificate(
     Ok(RevocationCertificate {
         target_key_id: spec.target_key_id.to_string(),
         target_fingerprint: spec.target_fingerprint.to_string(),
-        revoked_at: spec.revoked_at.to_string(),
+        revoked_at: spec.revoked_at,
         signatures,
     })
 }
@@ -132,6 +136,13 @@ pub fn verify_revocation_certificate(
     domain: &str,
 ) -> Result<(), RevocationError> {
     let mut valid_signers: HashSet<&str> = HashSet::new();
+    // A revocation time with a fraction of a second was never signed.
+    let Ok(revoked_at) = SignedTime::new(&cert.revoked_at) else {
+        return Err(RevocationError::InsufficientSignatures {
+            got: 0,
+            need: REVOCATION_QUORUM,
+        });
+    };
 
     for sig in &cert.signatures {
         // A key can never authorize its own revocation.
@@ -155,7 +166,7 @@ pub fn verify_revocation_certificate(
         let payload = revocation_payload(
             &cert.target_key_id,
             &cert.target_fingerprint,
-            &cert.revoked_at,
+            revoked_at,
             &sig.domain,
         );
         if crypto::resolve_and_verify(&key.algorithm, &payload, &sig.signature, &key.public_key)
@@ -179,7 +190,6 @@ pub fn verify_revocation_certificate(
 mod tests {
     use super::*;
     use crate::crypto::{fingerprint, generate_ed25519_keypair, SigningAlgorithm};
-    use crate::timestamp::Rfc3339 as _;
     use time::OffsetDateTime;
 
     struct Sibling {
@@ -202,10 +212,10 @@ mod tests {
             key_id: domain_active.key_id.clone(),
             public_key: domain_active.public_key.clone(),
             fingerprint: fingerprint(&domain_active.public_key),
-            algorithm: "ed25519".to_string(),
-            key_usage: "sign".to_string(),
-            created_at: String::new(),
-            expires_at: (OffsetDateTime::now_utc() + time::Duration::days(365)).to_rfc3339(),
+            algorithm: crate::generated::types::KeyAlgorithm::Ed25519,
+            key_usage: crate::generated::types::KeyUsage::Sign,
+            created_at: OffsetDateTime::now_utc(),
+            expires_at: OffsetDateTime::now_utc() + time::Duration::days(365),
             revoked_at: None,
             signed_by_key_id: None,
             key_signature: None,
@@ -229,7 +239,7 @@ mod tests {
         let spec = RevocationSpec {
             target_key_id: "t",
             target_fingerprint: &fingerprint(&target.public_key),
-            revoked_at: &OffsetDateTime::now_utc().to_rfc3339(),
+            revoked_at: crate::timestamp::now_whole_seconds(),
         };
         let cert =
             build_revocation_certificate(&spec, &[signer(&a, domain), signer(&b, domain)]).unwrap();
@@ -244,12 +254,12 @@ mod tests {
         let spec = RevocationSpec {
             target_key_id: "t",
             target_fingerprint: &fingerprint(&target.public_key),
-            revoked_at: &OffsetDateTime::now_utc().to_rfc3339(),
+            revoked_at: crate::timestamp::now_whole_seconds(),
         };
         let cert =
             build_revocation_certificate(&spec, &[signer(&a, domain), signer(&b, domain)]).unwrap();
         // Round-trip through the generated CSIL CBOR codec, then verify.
-        let bytes = crate::generated::encode_revocation_certificate(&cert);
+        let bytes = crate::generated::encode_revocation_certificate(&cert).unwrap();
         let decoded = crate::generated::decode_revocation_certificate(&bytes).unwrap();
         assert_eq!(decoded, cert);
         assert!(verify_revocation_certificate(&decoded, &keys, domain).is_ok());
@@ -263,7 +273,7 @@ mod tests {
         let spec = RevocationSpec {
             target_key_id: "t",
             target_fingerprint: &fingerprint(&target.public_key),
-            revoked_at: &OffsetDateTime::now_utc().to_rfc3339(),
+            revoked_at: crate::timestamp::now_whole_seconds(),
         };
         let cert = build_revocation_certificate(&spec, &[signer(&a, domain)]).unwrap();
         assert!(verify_revocation_certificate(&cert, &keys, domain).is_err());
@@ -277,7 +287,7 @@ mod tests {
         let spec = RevocationSpec {
             target_key_id: "t",
             target_fingerprint: &fingerprint(&target.public_key),
-            revoked_at: &OffsetDateTime::now_utc().to_rfc3339(),
+            revoked_at: crate::timestamp::now_whole_seconds(),
         };
         // One real sibling + the target trying to self-authorize: still only 1
         // valid distinct signer -> insufficient.
@@ -295,11 +305,11 @@ mod tests {
         let spec = RevocationSpec {
             target_key_id: "t",
             target_fingerprint: &fingerprint(&target.public_key),
-            revoked_at: &OffsetDateTime::now_utc().to_rfc3339(),
+            revoked_at: crate::timestamp::now_whole_seconds(),
         };
         let mut cert =
             build_revocation_certificate(&spec, &[signer(&a, domain), signer(&b, domain)]).unwrap();
-        cert.revoked_at = (OffsetDateTime::now_utc() + time::Duration::days(1)).to_rfc3339();
+        cert.revoked_at += time::Duration::days(1);
         assert!(verify_revocation_certificate(&cert, &keys, domain).is_err());
     }
 
@@ -311,7 +321,7 @@ mod tests {
         let spec = RevocationSpec {
             target_key_id: "t",
             target_fingerprint: &fingerprint(&target.public_key),
-            revoked_at: &OffsetDateTime::now_utc().to_rfc3339(),
+            revoked_at: crate::timestamp::now_whole_seconds(),
         };
         let cert =
             build_revocation_certificate(&spec, &[signer(&a, domain), signer(&b, domain)]).unwrap();

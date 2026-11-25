@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -11,14 +12,14 @@ public record ApplicationKeyAttestation(
     String applicationId /* wire: "application_id" */,
     String instanceId /* wire: "instance_id" */,
     String keyId /* wire: "key_id" */,
-    String keyUsage /* wire: "key_usage" */,
-    String algorithm /* wire: "algorithm" */,
+    KeyUsage keyUsage /* wire: "key_usage" */,
+    KeyAlgorithm algorithm /* wire: "algorithm" */,
     byte[] publicKey /* wire: "public_key" */,
     String fingerprint /* wire: "fingerprint" */,
-    String keyCreatedAt /* wire: "key_created_at" */,
-    String keyExpiresAt /* wire: "key_expires_at" */,
-    String attestedAt /* wire: "attested_at" */,
-    String attestationExpiresAt /* wire: "attestation_expires_at" */
+    Instant keyCreatedAt /* wire: "key_created_at" */,
+    Instant keyExpiresAt /* wire: "key_expires_at" */,
+    Instant attestedAt /* wire: "attested_at" */,
+    Instant attestationExpiresAt /* wire: "attestation_expires_at" */
 ) {
     @Override
     public boolean equals(Object obj) {

@@ -241,7 +241,7 @@ struct SeenNonces(Mutex<HashSet<String>>);
 
 ### RP config and the blocking-client bridge
 
-`linkkeys-rpc-client::send_request` is a **blocking** call (plain
+`linkkeys-rpc-client::send_request_reply` is a **blocking** call (plain
 `std::net::TcpStream` + `rustls::StreamOwned`) — there is no async client.
 Inside an async framework like Rocket, run it on a blocking thread with
 `tokio::task::spawn_blocking`, mirroring how this same server's own Rocket
@@ -260,15 +260,17 @@ async fn rp_call<Req, Resp>(
     rp: &RpConfig,
     op: &'static str,
     req: Req,
-    encode: fn(&Req) -> Vec<u8>,
+    encode: fn(&Req) -> Result<Vec<u8>, liblinkkeys::generated::codec::CsilCborError>,
     decode: fn(&[u8]) -> Result<Resp, liblinkkeys::generated::codec::CsilCborError>,
 ) -> Result<Resp, String> {
     let addr = rp.tcp_addr.clone();
     let fingerprints = rp.fingerprints.clone();
     let api_key = rp.api_key.clone();
-    let payload = encode(&req);
-    let resp_bytes = tokio::task::spawn_blocking(move || {
-        linkkeys_rpc_client::send_request(
+    // An encoder returns an error when a value has no wire form (for
+    // example, a timestamp outside UTC years 0001 to 9999).
+    let payload = encode(&req).map_err(|e| format!("RP {} encode failed: {}", op, e))?;
+    let reply = tokio::task::spawn_blocking(move || {
+        linkkeys_rpc_client::send_request_reply(
             &addr,
             fingerprints,
             None, // no client cert: the app has no domain key, only an API key
@@ -281,14 +283,29 @@ async fn rp_call<Req, Resp>(
     .await
     .map_err(|e| format!("RP task join failed: {}", e))?
     .map_err(|e| format!("RP {} failed: {}", op, e))?;
-    decode(&resp_bytes).map_err(|e| format!("RP {} decode failed: {}", op, e))
+    // A refusal is a typed reply arm: variant `RpError`, payload
+    // `RpError { code, message }`. Check the variant before you decode.
+    if reply.variant.as_deref() == Some("RpError") {
+        let error = liblinkkeys::generated::decode_rp_error(&reply.payload)
+            .map_err(|e| format!("RP {} decode failed: {}", op, e))?;
+        return Err(format!(
+            "RP {} refused ({}): {}",
+            op,
+            error.code.as_str(),
+            error.message
+        ));
+    }
+    decode(&reply.payload).map_err(|e| format!("RP {} decode failed: {}", op, e))
 }
 ```
 
 `encode`/`decode` are the generated CSIL codec functions
 (`liblinkkeys::generated::encode_rp_sign_request`,
-`decode_rp_sign_response`, etc.) — no hand-rolled mirror structs, the same
-approach `demoappsite/src/main.rs` uses.
+`decode_rp_sign_response`, etc.). Each `Rp` op replies with status 0 and a
+`variant`: the success type (for example `RpSignResponse`) or `RpError`.
+`send_request_reply` keeps the variant so that you can make this check.
+There are no hand-rolled mirror structs. `demoappsite/src/main.rs` uses the
+same approach.
 
 ### `/login`: sign the request and redirect
 
@@ -318,10 +335,11 @@ async fn login(
             requested_claims: Some(lk::ClaimRequest {
                 required: vec![lk::RequestedClaim {
                     claim_type: "display_name".to_string(),
-                    datatype: "text".to_string(),
+                    datatype: lk::ClaimValueType::Text,
                 }],
                 optional: vec![],
             }),
+            authentication_requirements: None,
             flow_context: None,
         },
         liblinkkeys::generated::encode_rp_sign_request,

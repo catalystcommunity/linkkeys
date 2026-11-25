@@ -19,8 +19,8 @@ import (
 // package's only network surface. Mirrors
 // sdks/regular-rp/typescript/src/rpc.ts's `PinnedRpcTransport` /
 // sdks/local-rp/go/rpc.go's `dialTLS`/`call`, adapted to satisfy the
-// go-client-generated `api.Transport` interface
-// (`Call(ctx, service, op, payload) ([]byte, error)`) so this package can
+// go-client-generated `api.Transport` interface (`Call` and `CallReply`)
+// so this package can
 // use api.NewRpClient(transport) directly rather than hand-rolling per-op
 // request construction.
 //
@@ -93,6 +93,30 @@ var _ api.Transport = (*PinnedRpcTransport)(nil)
 // Call implements api.Transport: one CSIL-RPC request over a fresh
 // pinned-TLS connection. A non-Ok status becomes *ServerError.
 func (t *PinnedRpcTransport) Call(ctx context.Context, service, op string, payload []byte) ([]byte, error) {
+	resp, err := t.roundTrip(ctx, service, op, payload)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
+// CallReply implements api.Transport for operations that declare several
+// reply arms (for example the Rp operations with `/ RpError`). It returns
+// the reply variant (nil when the response has none) and the payload. The
+// generated client selects the arm: it decodes a declared error arm such as
+// RpError into *api.RPCApplicationError[api.RpError], and it rejects an
+// unknown variant. A non-Ok status becomes *ServerError, as for Call.
+func (t *PinnedRpcTransport) CallReply(ctx context.Context, service, op string, payload []byte) (api.WireReply, error) {
+	resp, err := t.roundTrip(ctx, service, op, payload)
+	if err != nil {
+		return api.WireReply{}, err
+	}
+	return api.WireReply{Variant: resp.Variant, Payload: resp.Payload}, nil
+}
+
+// roundTrip sends one request over a fresh pinned-TLS connection and reads
+// one Ok response.
+func (t *PinnedRpcTransport) roundTrip(ctx context.Context, service, op string, payload []byte) (*rpctransport.RpcResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, t.opts.RequestTimeout)
 	defer cancel()
 
@@ -139,7 +163,7 @@ func (t *PinnedRpcTransport) Call(ctx context.Context, service, op string, paylo
 		}
 		return nil, &ServerError{Status: resp.Status.Code(), Message: msg}
 	}
-	return resp.Payload, nil
+	return &resp, nil
 }
 
 func (t *PinnedRpcTransport) dialTLS(ctx context.Context) (*tls.Conn, error) {

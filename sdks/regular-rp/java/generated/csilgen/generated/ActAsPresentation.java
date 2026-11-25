@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -9,7 +10,7 @@ public record ActAsPresentation(
     byte[] grantHash /* wire: "grant_hash" */,
     ApplicationRef audience /* wire: "audience" */,
     byte[] requestDigest /* wire: "request_digest" */,
-    String presentedAt /* wire: "presented_at" */,
+    Instant presentedAt /* wire: "presented_at" */,
     byte[] nonce /* wire: "nonce" */
 ) {
     @Override

@@ -427,11 +427,32 @@ The chart no longer sets `ENABLE_RP_ENDPOINTS`. No code read it. The `Rp`
 service is available to each account with the `api_access` relation.
 `rp.enabled` now only applies `rp.apiKeyAuth` and `rp.passwordAuth`.
 
-### csilgen 0.2.15 and error code numbers
+### csilgen 0.3.3 and error code numbers
 
-The generated code in this repository comes from csilgen 0.2.15.
+The generated code in this repository comes from csilgen 0.3.3.
 `tools.sh` checks the version (`CSILGEN_VERSION`) before it generates.
 `./tools.sh csil-check` fails on a lint warning.
+
+csilgen 0.3.0 to 0.3.3 change these items:
+
+- Each generated Rust encoder returns a `Result`. A value with no wire form
+  (for example, a `timestamp` outside UTC years 0001 to 9999) gives an error,
+  not a panic. The server then replies with transport status 6 (internal).
+- A generated client of an operation with declared error arms (the `Rp`
+  operations with `RpError`) needs a transport with `call_reply`. This
+  method gives the reply `variant` with the payload. A hand-written transport
+  of an SDK must add this method.
+- Each generated Go client call gives the same error types for every
+  operation (csilgen 0.3.1):
+  - `*RPCEncodeError` when the request has no wire form.
+  - `*RPCDecodeError` when the reply does not decode, or when the reply
+    variant is missing or unknown.
+  - `*RPCApplicationError[RpError]` for a declared `RpError` refusal.
+  - The transport error, unchanged, for a transport failure.
+
+  Before, only the `Rp` operations wrapped a decode error, and an encode
+  error had no type. The generated `ClientError` type is removed. No call
+  returned it. Use `errors.As` with the types above.
 
 `ApiError.code` is now a CBOR unsigned integer, not a text label. The labels
 in the generated types do not change. The numbers are:
@@ -451,3 +472,157 @@ in the generated types do not change. The numbers are:
 
 A client that decodes `ApiError` with its own code, not with the generated
 types or an SDK of this release, must read the number.
+
+## Upgrading to the release with typed CSIL and application accounts
+
+This release changes the wire format and every signed structure. In alpha,
+old formats are not accepted: upgrade every LinkKeys server and every SDK
+together. Stored records are re-signed at start-up (see below).
+
+### Wire format: timestamps and enums (breaking)
+
+- Every time field is a CSIL `timestamp`: CBOR tag 0 with RFC 3339 text in
+  UTC. Before, these fields were untagged text.
+- Every field with a fixed set of values is a named-number enum and travels
+  as a CBOR unsigned integer. The labels in the generated types do not
+  change. A client that does not use the generated types or an SDK of this
+  release must read the numbers:
+
+| Enum | Numbers |
+| --- | --- |
+| `KeyAlgorithm` | ed25519=1, x25519=2 |
+| `KeyUsage` | sign=1, encrypt=2, agree=3 |
+| `AeadSuite` | aes_256_gcm=1, chacha20_poly1305=2 |
+| `ClaimValueType` | text=1, url=2, email=3, bool=4, int=5, float=6, decimal=7, date=8, timestamp=9, opaque=10 |
+| `SetRule` | user_self=1, idp_on_request=2, trusted_issuer_only=3, admin_only=4, deny=5 |
+| `SigningRule` | self_signed=1, verified=2, attested=3, unsigned=4 |
+| `SetClaimOutcome` | signed=1, stored_unsigned=2, verification_required=3, queued=4 |
+| `ReleaseDisposition` | forced_allow=1, forced_deny=2 |
+| `ConsentRowPolicy` | user=1, forced_allow=2, forced_deny=3 |
+| `ClaimApprovalStatus` | pending=1, approved=2, rejected=3 |
+| `PinRecheckOutcome` | first_seen=1, unchanged=2, rotated=3, mismatch=4, error=5 |
+| `NotificationPurpose` | verify_contact=1, reset_password=2 |
+| `NotificationChannel` | email=1 |
+| `DestinationKind` | email=1 |
+| `LocalRpPolicy` | disabled=1, admin_approval_required=2, allow_by_default=3 |
+| `LocalRpStatus` | pending=1, approved=2, denied=3, revoked=4 |
+| `LocalRpAdmission` | consent=1, pending=2, blocked=3 |
+| `AppAccessMode` | allow=1, deny=2 |
+| `AppAccessTargetKind` | everyone=1, user=2, group=3, claim=4 |
+| `ClaimOperator` | present=1, absent=2, equals=3, age_under=4, age_at_least=5 |
+| `ApplicationKeyChallengePurpose` | add=1, renew=2 |
+| `AuthFlow` | login=1, claims_update=2 |
+| `RpCacheStatus` | fresh=1, refreshed=2, stale=3 |
+| `AccountKind` | human=1, application=2 |
+| `RpErrorCode` | not_application_account=1, application_mismatch=2, application_user_limit=3, bad_request=4, upstream_failed=5, internal=6 |
+| `IssuedClaimOutcome` | deposited=1, handoff=2, skipped=3, failed=4 |
+
+- `PinRecheckResult` has a new optional `message` (set with `error`).
+- The local-RP callback box KDF still binds the suite text
+  (`aes-256-gcm`, `chacha20-poly1305`). Only the header field is a number.
+- The sealed application-key challenge array starts with the `AeadSuite`
+  number, not its text.
+
+### Signed payloads: timestamps are whole Unix seconds (breaking)
+
+The signed tuples of claims, consent grants, domain claims, key revocations,
+encryption-key vouches, signing requests, and application-key revocations
+now carry each timestamp as an integer of whole Unix seconds. A signed
+timestamp with a fraction of a second is refused. The byte envelopes
+(identity assertions, act-as records, application-key records, local-RP
+records) sign their encoded bytes and change with the encoding.
+
+### Servers: stored records are upgraded at start-up (automatic)
+
+`serve` re-signs, at start-up, every record this domain signed in the
+earlier format, after it proves the signature is its own:
+
+- claims, consent grants, issued key revocations, and encryption-key
+  vouches;
+- application-key attestations. The attestation of a revoked key is left
+  as it is; no verifier can read it, so the key stays unusable;
+- signed times with a fraction of a second are cut to whole seconds and
+  written back. A claim that changes this way gets a `claim.reattested`
+  audit entry.
+
+Act-as grants embed a scope set that the audience application signed, so
+this domain cannot re-sign them. Grants in the earlier encoding are removed
+(audit `act_as_grant.dropped`); users grant access again. Cached peer
+records on a relying party that do not decode are fetched again.
+
+`linkkeys domain verify-signatures` reports the same without changes.
+
+### Application accounts (breaking, migration)
+
+- An account is `human` or `application` (`AdminUser.kind`). An application
+  account has an administrator-set `application_id` and API keys only.
+- The migration makes every active account that has an API key and no
+  password an application account with `application_id` = its username.
+  That is the id that `Rp/sign-request` used, so consent is kept.
+- `Admin/create-user` takes an optional `application_id`; with it the
+  account is an application account and the response carries its first API
+  key. The CLI has `linkkeys user create NAME "Display" --application-id ID`.
+- `Rp/sign-request` lost `application_id`. Only an application account can
+  call it; the signed request names the account's own application.
+- `Account/enroll-application-instance` from an application account must
+  use the account's `application_id`.
+- New Admin operations: `rename-user`, `set-application-id`,
+  `create-api-key`, `revoke-api-key` (relation `admin`); `list-api-keys`,
+  `get-account-limits`, `set-account-limits`, `get-application-usage`
+  (relation `manage_users`). An older server answers them with
+  `UnknownServiceOrOp` (wire status 2).
+
+### Shared relying parties: application isolation (breaking)
+
+- `AuthRequest.application` is required, and the IDP copies it into the new
+  required `IdentityAssertion.application`.
+- `Rp/decrypt-token`, `Rp/verify-assertion`, and `Rp/userinfo-fetch` refuse
+  a token or assertion for another application of the RP with
+  `RpError { code: application_mismatch }`.
+- `Rp/decrypt-token` now verifies the assertion against the issuing
+  domain's keys, and accepts it only for an open login that the same
+  application started with `Rp/sign-request` (the assertion nonce must be
+  the nonce the application sent, at most one hour old). A login is finished
+  once; a replayed token gets `RpError { code: bad_request }`. It needs the
+  TCP carrier. An application must call `sign-request` and `decrypt-token`
+  with the same account.
+- These four operations now have typed replies: status 0 with `variant`
+  `RpSignResponse` / `RpDecryptResponse` / `RpVerifyResponse` / `UserInfo`,
+  or `RpError { code: RpErrorCode, message }`. A transport status still
+  means the server could not answer (authentication, throttling, malformed
+  envelope).
+- Keep `RP_ISSUE_CLAIMS` empty on a shared RP: `Rp/issue-attestation` signs
+  with the shared domain key for every tenant.
+
+### Shared relying parties: limits and usage (new)
+
+- `Admin/set-account-limits` sets, per account: `max_api_keys`,
+  `max_distinct_users` with `distinct_user_window_days` (default 30), and
+  `requests_per_minute` with `request_burst`. No limit is the default.
+- `decrypt-token` counts each verified user of an application as a keyed
+  hash of `user_id@domain` (key derived from `DOMAIN_KEY_PASSPHRASE`; a new
+  passphrase resets the counts). A new user over `max_distinct_users` gets
+  `RpError { code: application_user_limit }`; a user already in the window
+  continues to work.
+- An account over its request rate gets transport status Unavailable (6).
+- `Admin/get-application-usage` returns the distinct-user count, the limit,
+  and daily `Rp` operation counts. Counts are kept in memory and written
+  about once a minute.
+- API keys have a name, a four-character hint, a creation time, and a last
+  use time (updated at most once a minute). Existing keys are named
+  `default`.
+
+### Servers: new settings
+
+- `LINKKEYS_PRIVATE_PEER_ALLOWLIST`: comma-separated `host=address` entries.
+  A peer on a private address is reached only when its host and address are
+  both listed. Every other private address stays refused.
+  `LINKKEYS_ALLOW_PRIVATE_PEERS=true` still opens every private address
+  (development only).
+- `HEADLESS=true`: for a relying party that serves no person. The browser
+  UI, the browser carrier (`/csil/v1/rpc`), and password authentication are
+  off; HTTPS answers health checks only; Admin is served over TCP only.
+  Publish only `tcp=` in `_linkkeys_apis`.
+- Local-RP policy rows keep working with the old hyphenated text and are
+  written with the CSIL label (`admin_approval_required`). The CLI accepts
+  both spellings.

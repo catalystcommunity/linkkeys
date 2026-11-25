@@ -6,11 +6,932 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "csil_timestamp.gen.h"
 
 typedef struct CsilBytes {
     uint8_t *data;
     size_t len;
 } CsilBytes;
+
+/* KeyAlgorithm is an enumeration. */
+typedef enum KeyAlgorithm {
+    KEY_ALGORITHM_ED25519,
+    KEY_ALGORITHM_X25519,
+} KeyAlgorithm;
+
+static inline const char *csil_KeyAlgorithm_label(KeyAlgorithm value) {
+    switch (value) {
+    case KEY_ALGORITHM_ED25519: return "ed25519";
+    case KEY_ALGORITHM_X25519: return "x25519";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_KeyAlgorithm_to_number(KeyAlgorithm value, int64_t *out) {
+    switch (value) {
+    case KEY_ALGORITHM_ED25519: *out = 1; return true;
+    case KEY_ALGORITHM_X25519: *out = 2; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_KeyAlgorithm_from_number(int64_t number, KeyAlgorithm *out) {
+    switch (number) {
+    case 1: *out = KEY_ALGORITHM_ED25519; return true;
+    case 2: *out = KEY_ALGORITHM_X25519; return true;
+    default: return false;
+    }
+}
+
+/* KeyUsage is an enumeration. */
+typedef enum KeyUsage {
+    KEY_USAGE_SIGN,
+    KEY_USAGE_ENCRYPT,
+    KEY_USAGE_AGREE,
+} KeyUsage;
+
+static inline const char *csil_KeyUsage_label(KeyUsage value) {
+    switch (value) {
+    case KEY_USAGE_SIGN: return "sign";
+    case KEY_USAGE_ENCRYPT: return "encrypt";
+    case KEY_USAGE_AGREE: return "agree";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_KeyUsage_to_number(KeyUsage value, int64_t *out) {
+    switch (value) {
+    case KEY_USAGE_SIGN: *out = 1; return true;
+    case KEY_USAGE_ENCRYPT: *out = 2; return true;
+    case KEY_USAGE_AGREE: *out = 3; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_KeyUsage_from_number(int64_t number, KeyUsage *out) {
+    switch (number) {
+    case 1: *out = KEY_USAGE_SIGN; return true;
+    case 2: *out = KEY_USAGE_ENCRYPT; return true;
+    case 3: *out = KEY_USAGE_AGREE; return true;
+    default: return false;
+    }
+}
+
+/* AeadSuite is an enumeration. */
+typedef enum AeadSuite {
+    AEAD_SUITE_AES_256_GCM,
+    AEAD_SUITE_CHACHA20_POLY1305,
+} AeadSuite;
+
+static inline const char *csil_AeadSuite_label(AeadSuite value) {
+    switch (value) {
+    case AEAD_SUITE_AES_256_GCM: return "aes_256_gcm";
+    case AEAD_SUITE_CHACHA20_POLY1305: return "chacha20_poly1305";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_AeadSuite_to_number(AeadSuite value, int64_t *out) {
+    switch (value) {
+    case AEAD_SUITE_AES_256_GCM: *out = 1; return true;
+    case AEAD_SUITE_CHACHA20_POLY1305: *out = 2; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_AeadSuite_from_number(int64_t number, AeadSuite *out) {
+    switch (number) {
+    case 1: *out = AEAD_SUITE_AES_256_GCM; return true;
+    case 2: *out = AEAD_SUITE_CHACHA20_POLY1305; return true;
+    default: return false;
+    }
+}
+
+/* ClaimValueType is an enumeration. */
+typedef enum ClaimValueType {
+    CLAIM_VALUE_TYPE_TEXT,
+    CLAIM_VALUE_TYPE_URL,
+    CLAIM_VALUE_TYPE_EMAIL,
+    CLAIM_VALUE_TYPE_BOOL,
+    CLAIM_VALUE_TYPE_INT,
+    CLAIM_VALUE_TYPE_FLOAT,
+    CLAIM_VALUE_TYPE_DECIMAL,
+    CLAIM_VALUE_TYPE_DATE,
+    CLAIM_VALUE_TYPE_TIMESTAMP,
+    CLAIM_VALUE_TYPE_OPAQUE,
+} ClaimValueType;
+
+static inline const char *csil_ClaimValueType_label(ClaimValueType value) {
+    switch (value) {
+    case CLAIM_VALUE_TYPE_TEXT: return "text";
+    case CLAIM_VALUE_TYPE_URL: return "url";
+    case CLAIM_VALUE_TYPE_EMAIL: return "email";
+    case CLAIM_VALUE_TYPE_BOOL: return "bool";
+    case CLAIM_VALUE_TYPE_INT: return "int";
+    case CLAIM_VALUE_TYPE_FLOAT: return "float";
+    case CLAIM_VALUE_TYPE_DECIMAL: return "decimal";
+    case CLAIM_VALUE_TYPE_DATE: return "date";
+    case CLAIM_VALUE_TYPE_TIMESTAMP: return "timestamp";
+    case CLAIM_VALUE_TYPE_OPAQUE: return "opaque";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_ClaimValueType_to_number(ClaimValueType value, int64_t *out) {
+    switch (value) {
+    case CLAIM_VALUE_TYPE_TEXT: *out = 1; return true;
+    case CLAIM_VALUE_TYPE_URL: *out = 2; return true;
+    case CLAIM_VALUE_TYPE_EMAIL: *out = 3; return true;
+    case CLAIM_VALUE_TYPE_BOOL: *out = 4; return true;
+    case CLAIM_VALUE_TYPE_INT: *out = 5; return true;
+    case CLAIM_VALUE_TYPE_FLOAT: *out = 6; return true;
+    case CLAIM_VALUE_TYPE_DECIMAL: *out = 7; return true;
+    case CLAIM_VALUE_TYPE_DATE: *out = 8; return true;
+    case CLAIM_VALUE_TYPE_TIMESTAMP: *out = 9; return true;
+    case CLAIM_VALUE_TYPE_OPAQUE: *out = 10; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_ClaimValueType_from_number(int64_t number, ClaimValueType *out) {
+    switch (number) {
+    case 1: *out = CLAIM_VALUE_TYPE_TEXT; return true;
+    case 2: *out = CLAIM_VALUE_TYPE_URL; return true;
+    case 3: *out = CLAIM_VALUE_TYPE_EMAIL; return true;
+    case 4: *out = CLAIM_VALUE_TYPE_BOOL; return true;
+    case 5: *out = CLAIM_VALUE_TYPE_INT; return true;
+    case 6: *out = CLAIM_VALUE_TYPE_FLOAT; return true;
+    case 7: *out = CLAIM_VALUE_TYPE_DECIMAL; return true;
+    case 8: *out = CLAIM_VALUE_TYPE_DATE; return true;
+    case 9: *out = CLAIM_VALUE_TYPE_TIMESTAMP; return true;
+    case 10: *out = CLAIM_VALUE_TYPE_OPAQUE; return true;
+    default: return false;
+    }
+}
+
+/* SetRule is an enumeration. */
+typedef enum SetRule {
+    SET_RULE_USER_SELF,
+    SET_RULE_IDP_ON_REQUEST,
+    SET_RULE_TRUSTED_ISSUER_ONLY,
+    SET_RULE_ADMIN_ONLY,
+    SET_RULE_DENY,
+} SetRule;
+
+static inline const char *csil_SetRule_label(SetRule value) {
+    switch (value) {
+    case SET_RULE_USER_SELF: return "user_self";
+    case SET_RULE_IDP_ON_REQUEST: return "idp_on_request";
+    case SET_RULE_TRUSTED_ISSUER_ONLY: return "trusted_issuer_only";
+    case SET_RULE_ADMIN_ONLY: return "admin_only";
+    case SET_RULE_DENY: return "deny";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_SetRule_to_number(SetRule value, int64_t *out) {
+    switch (value) {
+    case SET_RULE_USER_SELF: *out = 1; return true;
+    case SET_RULE_IDP_ON_REQUEST: *out = 2; return true;
+    case SET_RULE_TRUSTED_ISSUER_ONLY: *out = 3; return true;
+    case SET_RULE_ADMIN_ONLY: *out = 4; return true;
+    case SET_RULE_DENY: *out = 5; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_SetRule_from_number(int64_t number, SetRule *out) {
+    switch (number) {
+    case 1: *out = SET_RULE_USER_SELF; return true;
+    case 2: *out = SET_RULE_IDP_ON_REQUEST; return true;
+    case 3: *out = SET_RULE_TRUSTED_ISSUER_ONLY; return true;
+    case 4: *out = SET_RULE_ADMIN_ONLY; return true;
+    case 5: *out = SET_RULE_DENY; return true;
+    default: return false;
+    }
+}
+
+/* SigningRule is an enumeration. */
+typedef enum SigningRule {
+    SIGNING_RULE_SELF_SIGNED,
+    SIGNING_RULE_VERIFIED,
+    SIGNING_RULE_ATTESTED,
+    SIGNING_RULE_UNSIGNED,
+} SigningRule;
+
+static inline const char *csil_SigningRule_label(SigningRule value) {
+    switch (value) {
+    case SIGNING_RULE_SELF_SIGNED: return "self_signed";
+    case SIGNING_RULE_VERIFIED: return "verified";
+    case SIGNING_RULE_ATTESTED: return "attested";
+    case SIGNING_RULE_UNSIGNED: return "unsigned";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_SigningRule_to_number(SigningRule value, int64_t *out) {
+    switch (value) {
+    case SIGNING_RULE_SELF_SIGNED: *out = 1; return true;
+    case SIGNING_RULE_VERIFIED: *out = 2; return true;
+    case SIGNING_RULE_ATTESTED: *out = 3; return true;
+    case SIGNING_RULE_UNSIGNED: *out = 4; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_SigningRule_from_number(int64_t number, SigningRule *out) {
+    switch (number) {
+    case 1: *out = SIGNING_RULE_SELF_SIGNED; return true;
+    case 2: *out = SIGNING_RULE_VERIFIED; return true;
+    case 3: *out = SIGNING_RULE_ATTESTED; return true;
+    case 4: *out = SIGNING_RULE_UNSIGNED; return true;
+    default: return false;
+    }
+}
+
+/* SetClaimOutcome is an enumeration. */
+typedef enum SetClaimOutcome {
+    SET_CLAIM_OUTCOME_SIGNED,
+    SET_CLAIM_OUTCOME_STORED_UNSIGNED,
+    SET_CLAIM_OUTCOME_VERIFICATION_REQUIRED,
+    SET_CLAIM_OUTCOME_QUEUED,
+} SetClaimOutcome;
+
+static inline const char *csil_SetClaimOutcome_label(SetClaimOutcome value) {
+    switch (value) {
+    case SET_CLAIM_OUTCOME_SIGNED: return "signed";
+    case SET_CLAIM_OUTCOME_STORED_UNSIGNED: return "stored_unsigned";
+    case SET_CLAIM_OUTCOME_VERIFICATION_REQUIRED: return "verification_required";
+    case SET_CLAIM_OUTCOME_QUEUED: return "queued";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_SetClaimOutcome_to_number(SetClaimOutcome value, int64_t *out) {
+    switch (value) {
+    case SET_CLAIM_OUTCOME_SIGNED: *out = 1; return true;
+    case SET_CLAIM_OUTCOME_STORED_UNSIGNED: *out = 2; return true;
+    case SET_CLAIM_OUTCOME_VERIFICATION_REQUIRED: *out = 3; return true;
+    case SET_CLAIM_OUTCOME_QUEUED: *out = 4; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_SetClaimOutcome_from_number(int64_t number, SetClaimOutcome *out) {
+    switch (number) {
+    case 1: *out = SET_CLAIM_OUTCOME_SIGNED; return true;
+    case 2: *out = SET_CLAIM_OUTCOME_STORED_UNSIGNED; return true;
+    case 3: *out = SET_CLAIM_OUTCOME_VERIFICATION_REQUIRED; return true;
+    case 4: *out = SET_CLAIM_OUTCOME_QUEUED; return true;
+    default: return false;
+    }
+}
+
+/* ReleaseDisposition is an enumeration. */
+typedef enum ReleaseDisposition {
+    RELEASE_DISPOSITION_FORCED_ALLOW,
+    RELEASE_DISPOSITION_FORCED_DENY,
+} ReleaseDisposition;
+
+static inline const char *csil_ReleaseDisposition_label(ReleaseDisposition value) {
+    switch (value) {
+    case RELEASE_DISPOSITION_FORCED_ALLOW: return "forced_allow";
+    case RELEASE_DISPOSITION_FORCED_DENY: return "forced_deny";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_ReleaseDisposition_to_number(ReleaseDisposition value, int64_t *out) {
+    switch (value) {
+    case RELEASE_DISPOSITION_FORCED_ALLOW: *out = 1; return true;
+    case RELEASE_DISPOSITION_FORCED_DENY: *out = 2; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_ReleaseDisposition_from_number(int64_t number, ReleaseDisposition *out) {
+    switch (number) {
+    case 1: *out = RELEASE_DISPOSITION_FORCED_ALLOW; return true;
+    case 2: *out = RELEASE_DISPOSITION_FORCED_DENY; return true;
+    default: return false;
+    }
+}
+
+/* ConsentRowPolicy is an enumeration. */
+typedef enum ConsentRowPolicy {
+    CONSENT_ROW_POLICY_USER,
+    CONSENT_ROW_POLICY_FORCED_ALLOW,
+    CONSENT_ROW_POLICY_FORCED_DENY,
+} ConsentRowPolicy;
+
+static inline const char *csil_ConsentRowPolicy_label(ConsentRowPolicy value) {
+    switch (value) {
+    case CONSENT_ROW_POLICY_USER: return "user";
+    case CONSENT_ROW_POLICY_FORCED_ALLOW: return "forced_allow";
+    case CONSENT_ROW_POLICY_FORCED_DENY: return "forced_deny";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_ConsentRowPolicy_to_number(ConsentRowPolicy value, int64_t *out) {
+    switch (value) {
+    case CONSENT_ROW_POLICY_USER: *out = 1; return true;
+    case CONSENT_ROW_POLICY_FORCED_ALLOW: *out = 2; return true;
+    case CONSENT_ROW_POLICY_FORCED_DENY: *out = 3; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_ConsentRowPolicy_from_number(int64_t number, ConsentRowPolicy *out) {
+    switch (number) {
+    case 1: *out = CONSENT_ROW_POLICY_USER; return true;
+    case 2: *out = CONSENT_ROW_POLICY_FORCED_ALLOW; return true;
+    case 3: *out = CONSENT_ROW_POLICY_FORCED_DENY; return true;
+    default: return false;
+    }
+}
+
+/* ClaimApprovalStatus is an enumeration. */
+typedef enum ClaimApprovalStatus {
+    CLAIM_APPROVAL_STATUS_PENDING,
+    CLAIM_APPROVAL_STATUS_APPROVED,
+    CLAIM_APPROVAL_STATUS_REJECTED,
+} ClaimApprovalStatus;
+
+static inline const char *csil_ClaimApprovalStatus_label(ClaimApprovalStatus value) {
+    switch (value) {
+    case CLAIM_APPROVAL_STATUS_PENDING: return "pending";
+    case CLAIM_APPROVAL_STATUS_APPROVED: return "approved";
+    case CLAIM_APPROVAL_STATUS_REJECTED: return "rejected";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_ClaimApprovalStatus_to_number(ClaimApprovalStatus value, int64_t *out) {
+    switch (value) {
+    case CLAIM_APPROVAL_STATUS_PENDING: *out = 1; return true;
+    case CLAIM_APPROVAL_STATUS_APPROVED: *out = 2; return true;
+    case CLAIM_APPROVAL_STATUS_REJECTED: *out = 3; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_ClaimApprovalStatus_from_number(int64_t number, ClaimApprovalStatus *out) {
+    switch (number) {
+    case 1: *out = CLAIM_APPROVAL_STATUS_PENDING; return true;
+    case 2: *out = CLAIM_APPROVAL_STATUS_APPROVED; return true;
+    case 3: *out = CLAIM_APPROVAL_STATUS_REJECTED; return true;
+    default: return false;
+    }
+}
+
+/* PinRecheckOutcome is an enumeration. */
+typedef enum PinRecheckOutcome {
+    PIN_RECHECK_OUTCOME_FIRST_SEEN,
+    PIN_RECHECK_OUTCOME_UNCHANGED,
+    PIN_RECHECK_OUTCOME_ROTATED,
+    PIN_RECHECK_OUTCOME_MISMATCH,
+    PIN_RECHECK_OUTCOME_ERROR,
+} PinRecheckOutcome;
+
+static inline const char *csil_PinRecheckOutcome_label(PinRecheckOutcome value) {
+    switch (value) {
+    case PIN_RECHECK_OUTCOME_FIRST_SEEN: return "first_seen";
+    case PIN_RECHECK_OUTCOME_UNCHANGED: return "unchanged";
+    case PIN_RECHECK_OUTCOME_ROTATED: return "rotated";
+    case PIN_RECHECK_OUTCOME_MISMATCH: return "mismatch";
+    case PIN_RECHECK_OUTCOME_ERROR: return "error";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_PinRecheckOutcome_to_number(PinRecheckOutcome value, int64_t *out) {
+    switch (value) {
+    case PIN_RECHECK_OUTCOME_FIRST_SEEN: *out = 1; return true;
+    case PIN_RECHECK_OUTCOME_UNCHANGED: *out = 2; return true;
+    case PIN_RECHECK_OUTCOME_ROTATED: *out = 3; return true;
+    case PIN_RECHECK_OUTCOME_MISMATCH: *out = 4; return true;
+    case PIN_RECHECK_OUTCOME_ERROR: *out = 5; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_PinRecheckOutcome_from_number(int64_t number, PinRecheckOutcome *out) {
+    switch (number) {
+    case 1: *out = PIN_RECHECK_OUTCOME_FIRST_SEEN; return true;
+    case 2: *out = PIN_RECHECK_OUTCOME_UNCHANGED; return true;
+    case 3: *out = PIN_RECHECK_OUTCOME_ROTATED; return true;
+    case 4: *out = PIN_RECHECK_OUTCOME_MISMATCH; return true;
+    case 5: *out = PIN_RECHECK_OUTCOME_ERROR; return true;
+    default: return false;
+    }
+}
+
+/* NotificationPurpose is an enumeration. */
+typedef enum NotificationPurpose {
+    NOTIFICATION_PURPOSE_VERIFY_CONTACT,
+    NOTIFICATION_PURPOSE_RESET_PASSWORD,
+} NotificationPurpose;
+
+static inline const char *csil_NotificationPurpose_label(NotificationPurpose value) {
+    switch (value) {
+    case NOTIFICATION_PURPOSE_VERIFY_CONTACT: return "verify_contact";
+    case NOTIFICATION_PURPOSE_RESET_PASSWORD: return "reset_password";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_NotificationPurpose_to_number(NotificationPurpose value, int64_t *out) {
+    switch (value) {
+    case NOTIFICATION_PURPOSE_VERIFY_CONTACT: *out = 1; return true;
+    case NOTIFICATION_PURPOSE_RESET_PASSWORD: *out = 2; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_NotificationPurpose_from_number(int64_t number, NotificationPurpose *out) {
+    switch (number) {
+    case 1: *out = NOTIFICATION_PURPOSE_VERIFY_CONTACT; return true;
+    case 2: *out = NOTIFICATION_PURPOSE_RESET_PASSWORD; return true;
+    default: return false;
+    }
+}
+
+/* NotificationChannel is an enumeration. */
+typedef enum NotificationChannel {
+    NOTIFICATION_CHANNEL_EMAIL,
+} NotificationChannel;
+
+static inline const char *csil_NotificationChannel_label(NotificationChannel value) {
+    switch (value) {
+    case NOTIFICATION_CHANNEL_EMAIL: return "email";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_NotificationChannel_to_number(NotificationChannel value, int64_t *out) {
+    switch (value) {
+    case NOTIFICATION_CHANNEL_EMAIL: *out = 1; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_NotificationChannel_from_number(int64_t number, NotificationChannel *out) {
+    switch (number) {
+    case 1: *out = NOTIFICATION_CHANNEL_EMAIL; return true;
+    default: return false;
+    }
+}
+
+/* DestinationKind is an enumeration. */
+typedef enum DestinationKind {
+    DESTINATION_KIND_EMAIL,
+} DestinationKind;
+
+static inline const char *csil_DestinationKind_label(DestinationKind value) {
+    switch (value) {
+    case DESTINATION_KIND_EMAIL: return "email";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_DestinationKind_to_number(DestinationKind value, int64_t *out) {
+    switch (value) {
+    case DESTINATION_KIND_EMAIL: *out = 1; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_DestinationKind_from_number(int64_t number, DestinationKind *out) {
+    switch (number) {
+    case 1: *out = DESTINATION_KIND_EMAIL; return true;
+    default: return false;
+    }
+}
+
+/* LocalRpPolicy is an enumeration. */
+typedef enum LocalRpPolicy {
+    LOCAL_RP_POLICY_DISABLED,
+    LOCAL_RP_POLICY_ADMIN_APPROVAL_REQUIRED,
+    LOCAL_RP_POLICY_ALLOW_BY_DEFAULT,
+} LocalRpPolicy;
+
+static inline const char *csil_LocalRpPolicy_label(LocalRpPolicy value) {
+    switch (value) {
+    case LOCAL_RP_POLICY_DISABLED: return "disabled";
+    case LOCAL_RP_POLICY_ADMIN_APPROVAL_REQUIRED: return "admin_approval_required";
+    case LOCAL_RP_POLICY_ALLOW_BY_DEFAULT: return "allow_by_default";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_LocalRpPolicy_to_number(LocalRpPolicy value, int64_t *out) {
+    switch (value) {
+    case LOCAL_RP_POLICY_DISABLED: *out = 1; return true;
+    case LOCAL_RP_POLICY_ADMIN_APPROVAL_REQUIRED: *out = 2; return true;
+    case LOCAL_RP_POLICY_ALLOW_BY_DEFAULT: *out = 3; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_LocalRpPolicy_from_number(int64_t number, LocalRpPolicy *out) {
+    switch (number) {
+    case 1: *out = LOCAL_RP_POLICY_DISABLED; return true;
+    case 2: *out = LOCAL_RP_POLICY_ADMIN_APPROVAL_REQUIRED; return true;
+    case 3: *out = LOCAL_RP_POLICY_ALLOW_BY_DEFAULT; return true;
+    default: return false;
+    }
+}
+
+/* LocalRpStatus is an enumeration. */
+typedef enum LocalRpStatus {
+    LOCAL_RP_STATUS_PENDING,
+    LOCAL_RP_STATUS_APPROVED,
+    LOCAL_RP_STATUS_DENIED,
+    LOCAL_RP_STATUS_REVOKED,
+} LocalRpStatus;
+
+static inline const char *csil_LocalRpStatus_label(LocalRpStatus value) {
+    switch (value) {
+    case LOCAL_RP_STATUS_PENDING: return "pending";
+    case LOCAL_RP_STATUS_APPROVED: return "approved";
+    case LOCAL_RP_STATUS_DENIED: return "denied";
+    case LOCAL_RP_STATUS_REVOKED: return "revoked";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_LocalRpStatus_to_number(LocalRpStatus value, int64_t *out) {
+    switch (value) {
+    case LOCAL_RP_STATUS_PENDING: *out = 1; return true;
+    case LOCAL_RP_STATUS_APPROVED: *out = 2; return true;
+    case LOCAL_RP_STATUS_DENIED: *out = 3; return true;
+    case LOCAL_RP_STATUS_REVOKED: *out = 4; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_LocalRpStatus_from_number(int64_t number, LocalRpStatus *out) {
+    switch (number) {
+    case 1: *out = LOCAL_RP_STATUS_PENDING; return true;
+    case 2: *out = LOCAL_RP_STATUS_APPROVED; return true;
+    case 3: *out = LOCAL_RP_STATUS_DENIED; return true;
+    case 4: *out = LOCAL_RP_STATUS_REVOKED; return true;
+    default: return false;
+    }
+}
+
+/* LocalRpAdmission is an enumeration. */
+typedef enum LocalRpAdmission {
+    LOCAL_RP_ADMISSION_CONSENT,
+    LOCAL_RP_ADMISSION_PENDING,
+    LOCAL_RP_ADMISSION_BLOCKED,
+} LocalRpAdmission;
+
+static inline const char *csil_LocalRpAdmission_label(LocalRpAdmission value) {
+    switch (value) {
+    case LOCAL_RP_ADMISSION_CONSENT: return "consent";
+    case LOCAL_RP_ADMISSION_PENDING: return "pending";
+    case LOCAL_RP_ADMISSION_BLOCKED: return "blocked";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_LocalRpAdmission_to_number(LocalRpAdmission value, int64_t *out) {
+    switch (value) {
+    case LOCAL_RP_ADMISSION_CONSENT: *out = 1; return true;
+    case LOCAL_RP_ADMISSION_PENDING: *out = 2; return true;
+    case LOCAL_RP_ADMISSION_BLOCKED: *out = 3; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_LocalRpAdmission_from_number(int64_t number, LocalRpAdmission *out) {
+    switch (number) {
+    case 1: *out = LOCAL_RP_ADMISSION_CONSENT; return true;
+    case 2: *out = LOCAL_RP_ADMISSION_PENDING; return true;
+    case 3: *out = LOCAL_RP_ADMISSION_BLOCKED; return true;
+    default: return false;
+    }
+}
+
+/* AppAccessMode is an enumeration. */
+typedef enum AppAccessMode {
+    APP_ACCESS_MODE_ALLOW,
+    APP_ACCESS_MODE_DENY,
+} AppAccessMode;
+
+static inline const char *csil_AppAccessMode_label(AppAccessMode value) {
+    switch (value) {
+    case APP_ACCESS_MODE_ALLOW: return "allow";
+    case APP_ACCESS_MODE_DENY: return "deny";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_AppAccessMode_to_number(AppAccessMode value, int64_t *out) {
+    switch (value) {
+    case APP_ACCESS_MODE_ALLOW: *out = 1; return true;
+    case APP_ACCESS_MODE_DENY: *out = 2; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_AppAccessMode_from_number(int64_t number, AppAccessMode *out) {
+    switch (number) {
+    case 1: *out = APP_ACCESS_MODE_ALLOW; return true;
+    case 2: *out = APP_ACCESS_MODE_DENY; return true;
+    default: return false;
+    }
+}
+
+/* AppAccessTargetKind is an enumeration. */
+typedef enum AppAccessTargetKind {
+    APP_ACCESS_TARGET_KIND_EVERYONE,
+    APP_ACCESS_TARGET_KIND_USER,
+    APP_ACCESS_TARGET_KIND_GROUP,
+    APP_ACCESS_TARGET_KIND_CLAIM,
+} AppAccessTargetKind;
+
+static inline const char *csil_AppAccessTargetKind_label(AppAccessTargetKind value) {
+    switch (value) {
+    case APP_ACCESS_TARGET_KIND_EVERYONE: return "everyone";
+    case APP_ACCESS_TARGET_KIND_USER: return "user";
+    case APP_ACCESS_TARGET_KIND_GROUP: return "group";
+    case APP_ACCESS_TARGET_KIND_CLAIM: return "claim";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_AppAccessTargetKind_to_number(AppAccessTargetKind value, int64_t *out) {
+    switch (value) {
+    case APP_ACCESS_TARGET_KIND_EVERYONE: *out = 1; return true;
+    case APP_ACCESS_TARGET_KIND_USER: *out = 2; return true;
+    case APP_ACCESS_TARGET_KIND_GROUP: *out = 3; return true;
+    case APP_ACCESS_TARGET_KIND_CLAIM: *out = 4; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_AppAccessTargetKind_from_number(int64_t number, AppAccessTargetKind *out) {
+    switch (number) {
+    case 1: *out = APP_ACCESS_TARGET_KIND_EVERYONE; return true;
+    case 2: *out = APP_ACCESS_TARGET_KIND_USER; return true;
+    case 3: *out = APP_ACCESS_TARGET_KIND_GROUP; return true;
+    case 4: *out = APP_ACCESS_TARGET_KIND_CLAIM; return true;
+    default: return false;
+    }
+}
+
+/* ClaimOperator is an enumeration. */
+typedef enum ClaimOperator {
+    CLAIM_OPERATOR_PRESENT,
+    CLAIM_OPERATOR_ABSENT,
+    CLAIM_OPERATOR_EQUALS,
+    CLAIM_OPERATOR_AGE_UNDER,
+    CLAIM_OPERATOR_AGE_AT_LEAST,
+} ClaimOperator;
+
+static inline const char *csil_ClaimOperator_label(ClaimOperator value) {
+    switch (value) {
+    case CLAIM_OPERATOR_PRESENT: return "present";
+    case CLAIM_OPERATOR_ABSENT: return "absent";
+    case CLAIM_OPERATOR_EQUALS: return "equals";
+    case CLAIM_OPERATOR_AGE_UNDER: return "age_under";
+    case CLAIM_OPERATOR_AGE_AT_LEAST: return "age_at_least";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_ClaimOperator_to_number(ClaimOperator value, int64_t *out) {
+    switch (value) {
+    case CLAIM_OPERATOR_PRESENT: *out = 1; return true;
+    case CLAIM_OPERATOR_ABSENT: *out = 2; return true;
+    case CLAIM_OPERATOR_EQUALS: *out = 3; return true;
+    case CLAIM_OPERATOR_AGE_UNDER: *out = 4; return true;
+    case CLAIM_OPERATOR_AGE_AT_LEAST: *out = 5; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_ClaimOperator_from_number(int64_t number, ClaimOperator *out) {
+    switch (number) {
+    case 1: *out = CLAIM_OPERATOR_PRESENT; return true;
+    case 2: *out = CLAIM_OPERATOR_ABSENT; return true;
+    case 3: *out = CLAIM_OPERATOR_EQUALS; return true;
+    case 4: *out = CLAIM_OPERATOR_AGE_UNDER; return true;
+    case 5: *out = CLAIM_OPERATOR_AGE_AT_LEAST; return true;
+    default: return false;
+    }
+}
+
+/* ApplicationKeyChallengePurpose is an enumeration. */
+typedef enum ApplicationKeyChallengePurpose {
+    APPLICATION_KEY_CHALLENGE_PURPOSE_ADD,
+    APPLICATION_KEY_CHALLENGE_PURPOSE_RENEW,
+} ApplicationKeyChallengePurpose;
+
+static inline const char *csil_ApplicationKeyChallengePurpose_label(ApplicationKeyChallengePurpose value) {
+    switch (value) {
+    case APPLICATION_KEY_CHALLENGE_PURPOSE_ADD: return "add";
+    case APPLICATION_KEY_CHALLENGE_PURPOSE_RENEW: return "renew";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_ApplicationKeyChallengePurpose_to_number(ApplicationKeyChallengePurpose value, int64_t *out) {
+    switch (value) {
+    case APPLICATION_KEY_CHALLENGE_PURPOSE_ADD: *out = 1; return true;
+    case APPLICATION_KEY_CHALLENGE_PURPOSE_RENEW: *out = 2; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_ApplicationKeyChallengePurpose_from_number(int64_t number, ApplicationKeyChallengePurpose *out) {
+    switch (number) {
+    case 1: *out = APPLICATION_KEY_CHALLENGE_PURPOSE_ADD; return true;
+    case 2: *out = APPLICATION_KEY_CHALLENGE_PURPOSE_RENEW; return true;
+    default: return false;
+    }
+}
+
+/* AuthFlow is an enumeration. */
+typedef enum AuthFlow {
+    AUTH_FLOW_LOGIN,
+    AUTH_FLOW_CLAIMS_UPDATE,
+} AuthFlow;
+
+static inline const char *csil_AuthFlow_label(AuthFlow value) {
+    switch (value) {
+    case AUTH_FLOW_LOGIN: return "login";
+    case AUTH_FLOW_CLAIMS_UPDATE: return "claims_update";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_AuthFlow_to_number(AuthFlow value, int64_t *out) {
+    switch (value) {
+    case AUTH_FLOW_LOGIN: *out = 1; return true;
+    case AUTH_FLOW_CLAIMS_UPDATE: *out = 2; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_AuthFlow_from_number(int64_t number, AuthFlow *out) {
+    switch (number) {
+    case 1: *out = AUTH_FLOW_LOGIN; return true;
+    case 2: *out = AUTH_FLOW_CLAIMS_UPDATE; return true;
+    default: return false;
+    }
+}
+
+/* RpCacheStatus is an enumeration. */
+typedef enum RpCacheStatus {
+    RP_CACHE_STATUS_FRESH,
+    RP_CACHE_STATUS_REFRESHED,
+    RP_CACHE_STATUS_STALE,
+} RpCacheStatus;
+
+static inline const char *csil_RpCacheStatus_label(RpCacheStatus value) {
+    switch (value) {
+    case RP_CACHE_STATUS_FRESH: return "fresh";
+    case RP_CACHE_STATUS_REFRESHED: return "refreshed";
+    case RP_CACHE_STATUS_STALE: return "stale";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_RpCacheStatus_to_number(RpCacheStatus value, int64_t *out) {
+    switch (value) {
+    case RP_CACHE_STATUS_FRESH: *out = 1; return true;
+    case RP_CACHE_STATUS_REFRESHED: *out = 2; return true;
+    case RP_CACHE_STATUS_STALE: *out = 3; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_RpCacheStatus_from_number(int64_t number, RpCacheStatus *out) {
+    switch (number) {
+    case 1: *out = RP_CACHE_STATUS_FRESH; return true;
+    case 2: *out = RP_CACHE_STATUS_REFRESHED; return true;
+    case 3: *out = RP_CACHE_STATUS_STALE; return true;
+    default: return false;
+    }
+}
+
+/* AccountKind is an enumeration. */
+typedef enum AccountKind {
+    ACCOUNT_KIND_HUMAN,
+    ACCOUNT_KIND_APPLICATION,
+} AccountKind;
+
+static inline const char *csil_AccountKind_label(AccountKind value) {
+    switch (value) {
+    case ACCOUNT_KIND_HUMAN: return "human";
+    case ACCOUNT_KIND_APPLICATION: return "application";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_AccountKind_to_number(AccountKind value, int64_t *out) {
+    switch (value) {
+    case ACCOUNT_KIND_HUMAN: *out = 1; return true;
+    case ACCOUNT_KIND_APPLICATION: *out = 2; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_AccountKind_from_number(int64_t number, AccountKind *out) {
+    switch (number) {
+    case 1: *out = ACCOUNT_KIND_HUMAN; return true;
+    case 2: *out = ACCOUNT_KIND_APPLICATION; return true;
+    default: return false;
+    }
+}
+
+/* RpErrorCode is an enumeration. */
+typedef enum RpErrorCode {
+    RP_ERROR_CODE_NOT_APPLICATION_ACCOUNT,
+    RP_ERROR_CODE_APPLICATION_MISMATCH,
+    RP_ERROR_CODE_APPLICATION_USER_LIMIT,
+    RP_ERROR_CODE_BAD_REQUEST,
+    RP_ERROR_CODE_UPSTREAM_FAILED,
+    RP_ERROR_CODE_INTERNAL,
+} RpErrorCode;
+
+static inline const char *csil_RpErrorCode_label(RpErrorCode value) {
+    switch (value) {
+    case RP_ERROR_CODE_NOT_APPLICATION_ACCOUNT: return "not_application_account";
+    case RP_ERROR_CODE_APPLICATION_MISMATCH: return "application_mismatch";
+    case RP_ERROR_CODE_APPLICATION_USER_LIMIT: return "application_user_limit";
+    case RP_ERROR_CODE_BAD_REQUEST: return "bad_request";
+    case RP_ERROR_CODE_UPSTREAM_FAILED: return "upstream_failed";
+    case RP_ERROR_CODE_INTERNAL: return "internal";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_RpErrorCode_to_number(RpErrorCode value, int64_t *out) {
+    switch (value) {
+    case RP_ERROR_CODE_NOT_APPLICATION_ACCOUNT: *out = 1; return true;
+    case RP_ERROR_CODE_APPLICATION_MISMATCH: *out = 2; return true;
+    case RP_ERROR_CODE_APPLICATION_USER_LIMIT: *out = 3; return true;
+    case RP_ERROR_CODE_BAD_REQUEST: *out = 4; return true;
+    case RP_ERROR_CODE_UPSTREAM_FAILED: *out = 5; return true;
+    case RP_ERROR_CODE_INTERNAL: *out = 6; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_RpErrorCode_from_number(int64_t number, RpErrorCode *out) {
+    switch (number) {
+    case 1: *out = RP_ERROR_CODE_NOT_APPLICATION_ACCOUNT; return true;
+    case 2: *out = RP_ERROR_CODE_APPLICATION_MISMATCH; return true;
+    case 3: *out = RP_ERROR_CODE_APPLICATION_USER_LIMIT; return true;
+    case 4: *out = RP_ERROR_CODE_BAD_REQUEST; return true;
+    case 5: *out = RP_ERROR_CODE_UPSTREAM_FAILED; return true;
+    case 6: *out = RP_ERROR_CODE_INTERNAL; return true;
+    default: return false;
+    }
+}
+
+/* IssuedClaimOutcome is an enumeration. */
+typedef enum IssuedClaimOutcome {
+    ISSUED_CLAIM_OUTCOME_DEPOSITED,
+    ISSUED_CLAIM_OUTCOME_HANDOFF,
+    ISSUED_CLAIM_OUTCOME_SKIPPED,
+    ISSUED_CLAIM_OUTCOME_FAILED,
+} IssuedClaimOutcome;
+
+static inline const char *csil_IssuedClaimOutcome_label(IssuedClaimOutcome value) {
+    switch (value) {
+    case ISSUED_CLAIM_OUTCOME_DEPOSITED: return "deposited";
+    case ISSUED_CLAIM_OUTCOME_HANDOFF: return "handoff";
+    case ISSUED_CLAIM_OUTCOME_SKIPPED: return "skipped";
+    case ISSUED_CLAIM_OUTCOME_FAILED: return "failed";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_IssuedClaimOutcome_to_number(IssuedClaimOutcome value, int64_t *out) {
+    switch (value) {
+    case ISSUED_CLAIM_OUTCOME_DEPOSITED: *out = 1; return true;
+    case ISSUED_CLAIM_OUTCOME_HANDOFF: *out = 2; return true;
+    case ISSUED_CLAIM_OUTCOME_SKIPPED: *out = 3; return true;
+    case ISSUED_CLAIM_OUTCOME_FAILED: *out = 4; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_IssuedClaimOutcome_from_number(int64_t number, IssuedClaimOutcome *out) {
+    switch (number) {
+    case 1: *out = ISSUED_CLAIM_OUTCOME_DEPOSITED; return true;
+    case 2: *out = ISSUED_CLAIM_OUTCOME_HANDOFF; return true;
+    case 3: *out = ISSUED_CLAIM_OUTCOME_SKIPPED; return true;
+    case 4: *out = ISSUED_CLAIM_OUTCOME_FAILED; return true;
+    default: return false;
+    }
+}
 
 /* ApiErrorCode is an enumeration. */
 typedef enum ApiErrorCode {
@@ -138,6 +1059,25 @@ typedef struct GetUserAuthenticationActivityRequest GetUserAuthenticationActivit
 typedef struct GetUserAuthenticationActivityResponse GetUserAuthenticationActivityResponse;
 typedef struct CreateUserRequest CreateUserRequest;
 typedef struct CreateUserResponse CreateUserResponse;
+typedef struct RenameUserRequest RenameUserRequest;
+typedef struct RenameUserResponse RenameUserResponse;
+typedef struct SetApplicationIdRequest SetApplicationIdRequest;
+typedef struct SetApplicationIdResponse SetApplicationIdResponse;
+typedef struct ApiKeyInfo ApiKeyInfo;
+typedef struct CreateApiKeyRequest CreateApiKeyRequest;
+typedef struct CreateApiKeyResponse CreateApiKeyResponse;
+typedef struct ListApiKeysRequest ListApiKeysRequest;
+typedef struct ListApiKeysResponse ListApiKeysResponse;
+typedef struct RevokeApiKeyRequest RevokeApiKeyRequest;
+typedef struct RevokeApiKeyResponse RevokeApiKeyResponse;
+typedef struct AccountLimits AccountLimits;
+typedef struct GetAccountLimitsRequest GetAccountLimitsRequest;
+typedef struct GetAccountLimitsResponse GetAccountLimitsResponse;
+typedef struct SetAccountLimitsRequest SetAccountLimitsRequest;
+typedef struct SetAccountLimitsResponse SetAccountLimitsResponse;
+typedef struct RpUsageDay RpUsageDay;
+typedef struct GetApplicationUsageRequest GetApplicationUsageRequest;
+typedef struct GetApplicationUsageResponse GetApplicationUsageResponse;
 typedef struct UpdateUserRequest UpdateUserRequest;
 typedef struct UpdateUserResponse UpdateUserResponse;
 typedef struct DeactivateUserRequest DeactivateUserRequest;
@@ -268,6 +1208,7 @@ typedef struct RpDecryptResponse RpDecryptResponse;
 typedef struct RpVerifyRequest RpVerifyRequest;
 typedef struct RpVerifyResponse RpVerifyResponse;
 typedef struct RpUserInfoRequest RpUserInfoRequest;
+typedef struct RpError RpError;
 typedef struct RpIssueAttestationRequest RpIssueAttestationRequest;
 typedef struct RpIssueAttestationResponse RpIssueAttestationResponse;
 typedef struct AuthorizeValidateRequest AuthorizeValidateRequest;
@@ -390,12 +1331,6 @@ typedef struct IssueForSigningRequestRequest IssueForSigningRequestRequest;
 typedef struct IssuedClaimResult IssuedClaimResult;
 typedef struct IssueForSigningRequestResponse IssueForSigningRequestResponse;
 
-/* AeadSuite is a type alias. */
-typedef char *AeadSuite;
-
-/* LocalRpPolicy is a type alias. */
-typedef char *LocalRpPolicy;
-
 /* CheckValue is a tagged union. */
 typedef enum CheckValueTag {
     CHECK_VALUE_TEXT,
@@ -439,8 +1374,8 @@ typedef struct HelloResponse {
 typedef struct GuestbookEntry {
     char *id;
     char *name;
-    char *created_at;
-    char *updated_at;
+    CsilTimestamp created_at;
+    CsilTimestamp updated_at;
 } GuestbookEntry;
 
 /* CreateGuestbookRequest is a structured data type. */
@@ -485,11 +1420,11 @@ typedef struct DomainPublicKey {
     char *key_id;
     CsilBytes public_key;
     char *fingerprint;
-    char *algorithm;
-    char *key_usage;
-    char *created_at;
-    char *expires_at;
-    char *revoked_at;
+    KeyAlgorithm algorithm;
+    KeyUsage key_usage;
+    CsilTimestamp created_at;
+    CsilTimestamp expires_at;
+    CsilTimestamp *revoked_at;
     char *signed_by_key_id;
     CsilBytes *key_signature;
 } DomainPublicKey;
@@ -504,7 +1439,7 @@ typedef struct GetDomainKeysResponse {
 
 /* GetRevocationsRequest is a structured data type. */
 typedef struct GetRevocationsRequest {
-    char *since;
+    CsilTimestamp *since;
 } GetRevocationsRequest;
 
 /* GetRevocationsResponse is a structured data type. */
@@ -521,7 +1456,8 @@ typedef struct RecheckPinsRequest {
 /* PinRecheckResult is a structured data type. */
 typedef struct PinRecheckResult {
     char *domain;
-    char *outcome;
+    PinRecheckOutcome outcome;
+    char *message;
 } PinRecheckResult;
 
 /* RecheckPinsResponse is a structured data type. */
@@ -536,11 +1472,11 @@ typedef struct UserPublicKey {
     char *user_id;
     CsilBytes public_key;
     char *fingerprint;
-    char *algorithm;
-    char *key_usage;
-    char *created_at;
-    char *expires_at;
-    char *revoked_at;
+    KeyAlgorithm algorithm;
+    KeyUsage key_usage;
+    CsilTimestamp created_at;
+    CsilTimestamp expires_at;
+    CsilTimestamp *revoked_at;
     char *signed_by_key_id;
     CsilBytes *key_signature;
 } UserPublicKey;
@@ -569,7 +1505,7 @@ typedef struct ClaimSignature {
 typedef struct RevocationCertificate {
     char *target_key_id;
     char *target_fingerprint;
-    char *revoked_at;
+    CsilTimestamp revoked_at;
     ClaimSignature *signatures;
     size_t signatures_count;
 } RevocationCertificate;
@@ -582,10 +1518,10 @@ typedef struct Claim {
     CsilBytes claim_value;
     ClaimSignature *signatures;
     size_t signatures_count;
-    char *attested_at;
-    char *created_at;
-    char *expires_at;
-    char *revoked_at;
+    CsilTimestamp attested_at;
+    CsilTimestamp created_at;
+    CsilTimestamp *expires_at;
+    CsilTimestamp *revoked_at;
 } Claim;
 
 /* GetUserClaimsRequest is a structured data type. */
@@ -605,7 +1541,7 @@ typedef struct GetUserClaimsResponse {
 /* RequestedClaim is a structured data type. */
 typedef struct RequestedClaim {
     char *claim_type;
-    char *datatype;
+    ClaimValueType datatype;
 } RequestedClaim;
 
 /* ClaimRequest is a structured data type. */
@@ -623,7 +1559,7 @@ typedef struct AuthenticationRequirements {
 
 /* AuthFlowContext is a structured data type. */
 typedef struct AuthFlowContext {
-    char *flow;
+    AuthFlow flow;
     char *prior_session;
     char *request_reason;
 } AuthFlowContext;
@@ -636,9 +1572,9 @@ typedef struct ConsentGrant {
     char *audience;
     char **claim_types;
     size_t claim_types_count;
-    char *issued_at;
-    char *expires_at;
-    char *revoked_at;
+    CsilTimestamp issued_at;
+    CsilTimestamp expires_at;
+    CsilTimestamp *revoked_at;
     ApplicationRef *application;
 } ConsentGrant;
 
@@ -655,8 +1591,8 @@ typedef struct DomainClaim {
     CsilBytes claim_value;
     ClaimSignature *signatures;
     size_t signatures_count;
-    char *attested_at;
-    char *expires_at;
+    CsilTimestamp attested_at;
+    CsilTimestamp *expires_at;
 } DomainClaim;
 
 /* SigningRequest is a structured data type. */
@@ -668,8 +1604,8 @@ typedef struct SigningRequest {
     char **requested_claim_types;
     size_t requested_claim_types_count;
     char *nonce;
-    char *issued_at;
-    char *expires_at;
+    CsilTimestamp issued_at;
+    CsilTimestamp expires_at;
     char *callback;
 } SigningRequest;
 
@@ -690,19 +1626,6 @@ typedef struct DepositClaimResponse {
     bool stored;
 } DepositClaimResponse;
 
-/* IdentityAssertion is a structured data type. */
-typedef struct IdentityAssertion {
-    char *user_id;
-    char *domain;
-    char *audience;
-    char *nonce;
-    char *issued_at;
-    char *expires_at;
-    char **authorized_claims;
-    size_t authorized_claims_count;
-    char *display_name;
-} IdentityAssertion;
-
 /* SignedIdentityAssertion is a structured data type. */
 typedef struct SignedIdentityAssertion {
     CsilBytes assertion;
@@ -719,7 +1642,7 @@ typedef struct GetUserInfoRequest {
 typedef struct UserInfoRequest {
     CsilBytes token;
     char *relying_party;
-    char *timestamp;
+    CsilTimestamp timestamp;
     char *nonce;
 } UserInfoRequest;
 
@@ -741,21 +1664,6 @@ typedef struct UserInfo {
     size_t claims_count;
 } UserInfo;
 
-/* AuthRequest is a structured data type. */
-typedef struct AuthRequest {
-    char *relying_party;
-    char *callback_url;
-    char *nonce;
-    char *timestamp;
-    char *signing_key_id;
-    ClaimRequest *requested_claims;
-    AuthenticationRequirements *authentication_requirements;
-    AuthFlowContext *flow_context;
-    DomainClaim *relying_party_claims;
-    size_t relying_party_claims_count;
-    RelyingPartyApplication *application;
-} AuthRequest;
-
 /* SignedAuthRequest is a structured data type. */
 typedef struct SignedAuthRequest {
     CsilBytes request;
@@ -773,9 +1681,9 @@ typedef struct EncryptedToken {
 
 /* AlgorithmSupport is a structured data type. */
 typedef struct AlgorithmSupport {
-    char **signing;
+    KeyAlgorithm *signing;
     size_t signing_count;
-    char **encryption;
+    AeadSuite *encryption;
     size_t encryption_count;
 } AlgorithmSupport;
 
@@ -799,8 +1707,8 @@ typedef struct Relation {
     char *relation;
     char *object_type;
     char *object_id;
-    char *created_at;
-    char *removed_at;
+    CsilTimestamp created_at;
+    CsilTimestamp *removed_at;
 } Relation;
 
 /* AdminUser is a structured data type. */
@@ -808,10 +1716,12 @@ typedef struct AdminUser {
     char *id;
     char *username;
     char *display_name;
+    AccountKind kind;
+    char *application_id;
     bool is_active;
-    char *created_at;
-    char *updated_at;
-    char *purged_at;
+    CsilTimestamp created_at;
+    CsilTimestamp updated_at;
+    CsilTimestamp *purged_at;
     char *purge_reason;
     bool *password_locked;
 } AdminUser;
@@ -842,8 +1752,8 @@ typedef struct GetUserResponse {
 /* UserAuthenticationActivity is a structured data type. */
 typedef struct UserAuthenticationActivity {
     char *user_id;
-    char *last_authenticated_at;
-    char *last_seen_at;
+    CsilTimestamp *last_authenticated_at;
+    CsilTimestamp *last_seen_at;
     int64_t successful_authentication_count;
     int64_t active_browser_session_count;
 } UserAuthenticationActivity;
@@ -863,6 +1773,7 @@ typedef struct CreateUserRequest {
     char *username;
     char *display_name;
     char *password;
+    char *application_id;
 } CreateUserRequest;
 
 /* CreateUserResponse is a structured data type. */
@@ -870,6 +1781,125 @@ typedef struct CreateUserResponse {
     AdminUser user;
     char *api_key;
 } CreateUserResponse;
+
+/* RenameUserRequest is a structured data type. */
+typedef struct RenameUserRequest {
+    char *user_id;
+    char *username;
+} RenameUserRequest;
+
+/* RenameUserResponse is a structured data type. */
+typedef struct RenameUserResponse {
+    AdminUser user;
+} RenameUserResponse;
+
+/* SetApplicationIdRequest is a structured data type. */
+typedef struct SetApplicationIdRequest {
+    char *user_id;
+    char *application_id;
+} SetApplicationIdRequest;
+
+/* SetApplicationIdResponse is a structured data type. */
+typedef struct SetApplicationIdResponse {
+    AdminUser user;
+} SetApplicationIdResponse;
+
+/* ApiKeyInfo is a structured data type. */
+typedef struct ApiKeyInfo {
+    char *key_id;
+    char *name;
+    char *hint;
+    CsilTimestamp created_at;
+    CsilTimestamp *last_used_at;
+} ApiKeyInfo;
+
+/* CreateApiKeyRequest is a structured data type. */
+typedef struct CreateApiKeyRequest {
+    char *user_id;
+    char *name;
+} CreateApiKeyRequest;
+
+/* CreateApiKeyResponse is a structured data type. */
+typedef struct CreateApiKeyResponse {
+    ApiKeyInfo key;
+    char *api_key;
+} CreateApiKeyResponse;
+
+/* ListApiKeysRequest is a structured data type. */
+typedef struct ListApiKeysRequest {
+    char *user_id;
+} ListApiKeysRequest;
+
+/* ListApiKeysResponse is a structured data type. */
+typedef struct ListApiKeysResponse {
+    ApiKeyInfo *keys;
+    size_t keys_count;
+} ListApiKeysResponse;
+
+/* RevokeApiKeyRequest is a structured data type. */
+typedef struct RevokeApiKeyRequest {
+    char *user_id;
+    char *key_id;
+} RevokeApiKeyRequest;
+
+/* RevokeApiKeyResponse is a structured data type. */
+typedef struct RevokeApiKeyResponse {
+    bool revoked;
+} RevokeApiKeyResponse;
+
+/* AccountLimits is a structured data type. */
+typedef struct AccountLimits {
+    int64_t *max_api_keys;
+    int64_t *max_distinct_users;
+    int64_t distinct_user_window_days;
+    int64_t *requests_per_minute;
+    int64_t *request_burst;
+} AccountLimits;
+
+/* GetAccountLimitsRequest is a structured data type. */
+typedef struct GetAccountLimitsRequest {
+    char *user_id;
+} GetAccountLimitsRequest;
+
+/* GetAccountLimitsResponse is a structured data type. */
+typedef struct GetAccountLimitsResponse {
+    AccountLimits limits;
+} GetAccountLimitsResponse;
+
+/* SetAccountLimitsRequest is a structured data type. */
+typedef struct SetAccountLimitsRequest {
+    char *user_id;
+    AccountLimits limits;
+} SetAccountLimitsRequest;
+
+/* SetAccountLimitsResponse is a structured data type. */
+typedef struct SetAccountLimitsResponse {
+    AccountLimits limits;
+} SetAccountLimitsResponse;
+
+/* RpUsageDay is a structured data type. */
+typedef struct RpUsageDay {
+    const char *day;
+    char *operation;
+    int64_t succeeded;
+    int64_t failed;
+} RpUsageDay;
+
+/* GetApplicationUsageRequest is a structured data type. */
+typedef struct GetApplicationUsageRequest {
+    char *user_id;
+    const char *first_day;
+    const char *last_day;
+} GetApplicationUsageRequest;
+
+/* GetApplicationUsageResponse is a structured data type. */
+typedef struct GetApplicationUsageResponse {
+    int64_t distinct_users;
+    int64_t distinct_user_window_days;
+    int64_t *max_distinct_users;
+    RpUsageDay *days;
+    size_t days_count;
+} GetApplicationUsageResponse;
 
 /* UpdateUserRequest is a structured data type. */
 typedef struct UpdateUserRequest {
@@ -972,7 +2002,7 @@ typedef struct SetClaimRequest {
     char *user_id;
     char *claim_type;
     char *claim_value;
-    char *expires_at;
+    CsilTimestamp *expires_at;
 } SetClaimRequest;
 
 /* SetClaimResponse is a structured data type. */
@@ -1021,7 +2051,7 @@ typedef struct SetUserClaimRequest {
 
 /* SetUserClaimResponse is a structured data type. */
 typedef struct SetUserClaimResponse {
-    char *outcome;
+    SetClaimOutcome outcome;
     Claim *claim;
 } SetUserClaimResponse;
 
@@ -1030,11 +2060,11 @@ typedef struct SettableClaimPolicy {
     char *claim_type;
     char *label;
     char *description;
-    char *datatype;
+    ClaimValueType datatype;
     int64_t max_bytes;
-    char *set_rule;
+    SetRule set_rule;
     bool requires_approval;
-    char *signing_rule;
+    SigningRule signing_rule;
 } SettableClaimPolicy;
 
 /* ListSettablePoliciesResponse is a structured data type. */
@@ -1048,10 +2078,10 @@ typedef struct ClaimTypePolicy {
     char *claim_type;
     char *label;
     char *description;
-    char *value_type;
+    ClaimValueType value_type;
     int64_t max_bytes;
-    char *set_rule;
-    char *signing_rule;
+    SetRule set_rule;
+    SigningRule signing_rule;
     bool requires_approval;
     bool user_settable;
     bool default_auto_sign;
@@ -1069,10 +2099,10 @@ typedef struct SetClaimTypeRequest {
     char *claim_type;
     char *label;
     char *description;
-    char *value_type;
+    ClaimValueType value_type;
     int64_t max_bytes;
-    char *set_rule;
-    char *signing_rule;
+    SetRule set_rule;
+    SigningRule signing_rule;
     bool user_settable;
     bool default_auto_sign;
     bool requires_approval;
@@ -1170,7 +2200,7 @@ typedef struct RemoveTrustedIssuerResponse {
 typedef struct ReleaseRule {
     char *audience;
     char *claim_type;
-    char *disposition;
+    ReleaseDisposition disposition;
 } ReleaseRule;
 
 /* ListReleaseRulesResponse is a structured data type. */
@@ -1183,7 +2213,7 @@ typedef struct ListReleaseRulesResponse {
 typedef struct SetReleaseRuleRequest {
     char *audience;
     char *claim_type;
-    char *disposition;
+    ReleaseDisposition disposition;
 } SetReleaseRuleRequest;
 
 /* SetReleaseRuleResponse is a structured data type. */
@@ -1208,10 +2238,10 @@ typedef struct ClaimApproval {
     char *user_id;
     char *claim_type;
     CsilBytes claim_value;
-    char *status;
+    ClaimApprovalStatus status;
     char *resolved_by;
-    char *resolved_at;
-    char *created_at;
+    CsilTimestamp *resolved_at;
+    CsilTimestamp created_at;
 } ClaimApproval;
 
 /* ListPendingClaimApprovalsResponse is a structured data type. */
@@ -1331,7 +2361,7 @@ typedef struct SetMyClaimRequest {
 
 /* SetMyClaimResponse is a structured data type. */
 typedef struct SetMyClaimResponse {
-    char *outcome;
+    SetClaimOutcome outcome;
     Claim *claim;
 } SetMyClaimResponse;
 
@@ -1421,9 +2451,9 @@ typedef struct PasswordPolicy {
 /* BrowserSessionInfo is a structured data type. */
 typedef struct BrowserSessionInfo {
     AdminUser user;
-    char *issued_at;
-    char *authenticated_at;
-    char *expires_at;
+    CsilTimestamp issued_at;
+    CsilTimestamp authenticated_at;
+    CsilTimestamp expires_at;
     char **authentication_methods;
     size_t authentication_methods_count;
 } BrowserSessionInfo;
@@ -1458,17 +2488,17 @@ typedef struct IntrospectBrowserSessionRequest {
 typedef struct IntrospectBrowserSessionResponse {
     char *user_id;
     char *user_domain;
-    char *authenticated_at;
-    char *expires_at;
+    CsilTimestamp authenticated_at;
+    CsilTimestamp expires_at;
     char **authentication_methods;
     size_t authentication_methods_count;
 } IntrospectBrowserSessionResponse;
 
 /* NotificationCapability is a structured data type. */
 typedef struct NotificationCapability {
-    char *purpose;
-    char *channel;
-    char *destination_kind;
+    NotificationPurpose purpose;
+    NotificationChannel channel;
+    DestinationKind destination_kind;
 } NotificationCapability;
 
 /* GetNotificationCapabilitiesResponse is a structured data type. */
@@ -1480,12 +2510,12 @@ typedef struct GetNotificationCapabilitiesResponse {
 /* VerifiedContactMethod is a structured data type. */
 typedef struct VerifiedContactMethod {
     char *id;
-    char *channel;
+    NotificationChannel channel;
     char *destination;
-    char *verified_at;
-    char **purposes;
+    CsilTimestamp verified_at;
+    NotificationPurpose *purposes;
     size_t purposes_count;
-    char *revoked_at;
+    CsilTimestamp *revoked_at;
 } VerifiedContactMethod;
 
 /* ListVerifiedContactMethodsResponse is a structured data type. */
@@ -1507,14 +2537,14 @@ typedef struct RevokeVerifiedContactMethodResponse {
 
 /* RequestContactVerificationRequest is a structured data type. */
 typedef struct RequestContactVerificationRequest {
-    char *channel;
+    NotificationChannel channel;
     char *destination;
     char *current_password;
 } RequestContactVerificationRequest;
 
 /* RequestContactVerificationResponse is a structured data type. */
 typedef struct RequestContactVerificationResponse {
-    char *expires_at;
+    CsilTimestamp expires_at;
 } RequestContactVerificationResponse;
 
 /* ConfirmContactVerificationRequest is a structured data type. */
@@ -1545,7 +2575,7 @@ typedef struct ValidatePasswordRecoveryRequest {
 
 /* ValidatePasswordRecoveryResponse is a structured data type. */
 typedef struct ValidatePasswordRecoveryResponse {
-    char *expires_at;
+    CsilTimestamp expires_at;
     PasswordPolicy password_policy;
 } ValidatePasswordRecoveryResponse;
 
@@ -1569,11 +2599,11 @@ typedef struct BrowserAuthorizationInspectRequest {
 typedef struct BrowserConsentClaim {
     char *claim_type;
     char *label;
-    char *datatype;
+    ClaimValueType datatype;
     bool required;
     bool available;
     bool default_granted;
-    char *policy;
+    ConsentRowPolicy policy;
     bool user_settable;
     int64_t max_bytes;
     bool requires_approval;
@@ -1619,11 +2649,11 @@ typedef struct BrowserLocalRpInspectRequest {
 
 /* BrowserLocalRpInspectResponse is a structured data type. */
 typedef struct BrowserLocalRpInspectResponse {
-    char *admission;
+    LocalRpAdmission admission;
     char *app_name;
     char *fingerprint;
     char *callback_host;
-    char *first_seen_at;
+    CsilTimestamp *first_seen_at;
     BrowserConsentClaim *claims;
     size_t claims_count;
     char *request_reason;
@@ -1689,7 +2719,6 @@ typedef struct GetUiConfigurationResponse {
 typedef struct RpSignRequest {
     char *callback_url;
     char *nonce;
-    char *application_id;
     ClaimRequest *requested_claims;
     AuthenticationRequirements *authentication_requirements;
     AuthFlowContext *flow_context;
@@ -1716,18 +2745,18 @@ typedef struct RpVerifyRequest {
     char *expected_domain;
 } RpVerifyRequest;
 
-/* RpVerifyResponse is a structured data type. */
-typedef struct RpVerifyResponse {
-    IdentityAssertion assertion;
-    bool verified;
-} RpVerifyResponse;
-
 /* RpUserInfoRequest is a structured data type. */
 typedef struct RpUserInfoRequest {
     char *token;
     char *api_base;
     char *domain;
 } RpUserInfoRequest;
+
+/* RpError is a structured data type. */
+typedef struct RpError {
+    RpErrorCode code;
+    char *message;
+} RpError;
 
 /* RpIssueAttestationRequest is a structured data type. */
 typedef struct RpIssueAttestationRequest {
@@ -1791,8 +2820,8 @@ typedef struct LocalRpDescriptor {
     char *fingerprint;
     AeadSuite *supported_suites;
     size_t supported_suites_count;
-    char *created_at;
-    char *expires_at;
+    CsilTimestamp created_at;
+    CsilTimestamp expires_at;
 } LocalRpDescriptor;
 
 /* SignedLocalRpDescriptor is a structured data type. */
@@ -1813,8 +2842,8 @@ typedef struct LocalRpLoginRequest {
     size_t required_claims_count;
     AuthenticationRequirements *authentication_requirements;
     AuthFlowContext *flow_context;
-    char *issued_at;
-    char *expires_at;
+    CsilTimestamp issued_at;
+    CsilTimestamp expires_at;
 } LocalRpLoginRequest;
 
 /* SignedLocalRpLoginRequest is a structured data type. */
@@ -1831,8 +2860,8 @@ typedef struct LocalRpCallbackHeader {
     AeadSuite suite;
     CsilBytes ephemeral_public_key;
     CsilBytes aead_nonce;
-    char *issued_at;
-    char *expires_at;
+    CsilTimestamp issued_at;
+    CsilTimestamp expires_at;
 } LocalRpCallbackHeader;
 
 /* LocalRpEncryptedCallback is a structured data type. */
@@ -1850,8 +2879,8 @@ typedef struct LocalRpCallbackPayload {
     char *callback_url;
     CsilBytes nonce;
     CsilBytes state;
-    char *issued_at;
-    char *expires_at;
+    CsilTimestamp issued_at;
+    CsilTimestamp expires_at;
 } LocalRpCallbackPayload;
 
 /* SignedLocalRpCallbackPayload is a structured data type. */
@@ -1865,7 +2894,7 @@ typedef struct SignedLocalRpCallbackPayload {
 typedef struct LocalRpTicketRedemptionRequest {
     CsilBytes claim_ticket;
     char *fingerprint;
-    char *issued_at;
+    CsilTimestamp issued_at;
 } LocalRpTicketRedemptionRequest;
 
 /* SignedLocalRpTicketRedemptionRequest is a structured data type. */
@@ -1880,7 +2909,7 @@ typedef struct LocalRpTicketRedemptionResponse {
     char *user_domain;
     Claim *claims;
     size_t claims_count;
-    char *ticket_expires_at;
+    CsilTimestamp ticket_expires_at;
 } LocalRpTicketRedemptionResponse;
 
 /* AdminLocalRp is a structured data type. */
@@ -1890,11 +2919,11 @@ typedef struct AdminLocalRp {
     CsilBytes encryption_public_key;
     char *app_name;
     char *local_domain_hint;
-    char *status;
-    char *created_at;
-    char *updated_at;
-    char *expires_at;
-    char *last_seen_at;
+    LocalRpStatus status;
+    CsilTimestamp created_at;
+    CsilTimestamp updated_at;
+    CsilTimestamp *expires_at;
+    CsilTimestamp *last_seen_at;
     char *admin_notes;
 } AdminLocalRp;
 
@@ -1902,7 +2931,7 @@ typedef struct AdminLocalRp {
 typedef struct ListLocalRpsRequest {
     int64_t *offset;
     int64_t *limit;
-    char *status;
+    LocalRpStatus *status;
 } ListLocalRpsRequest;
 
 /* ListLocalRpsResponse is a structured data type. */
@@ -1999,11 +3028,11 @@ typedef struct SetUserPasswordLockResponse {
 
 /* AppAccessTarget is a structured data type. */
 typedef struct AppAccessTarget {
-    char *kind;
+    AppAccessTargetKind kind;
     char *user_id;
     char *group_name;
     char *claim_type;
-    char *claim_operator;
+    ClaimOperator *claim_operator;
     char *claim_value;
 } AppAccessTarget;
 
@@ -2011,7 +3040,7 @@ typedef struct AppAccessTarget {
 typedef struct AppAccessPolicy {
     char *id;
     char *name;
-    char *mode;
+    AppAccessMode mode;
     char **patterns;
     size_t patterns_count;
     char *message;
@@ -2029,7 +3058,7 @@ typedef struct ListAppAccessPoliciesResponse {
 typedef struct SetAppAccessPolicyRequest {
     char *id;
     char *name;
-    char *mode;
+    AppAccessMode mode;
     char **patterns;
     size_t patterns_count;
     char *message;
@@ -2125,14 +3154,14 @@ typedef struct ApplicationKeyAttestation {
     char *application_id;
     char *instance_id;
     char *key_id;
-    char *key_usage;
-    char *algorithm;
+    KeyUsage key_usage;
+    KeyAlgorithm algorithm;
     CsilBytes public_key;
     char *fingerprint;
-    char *key_created_at;
-    char *key_expires_at;
-    char *attested_at;
-    char *attestation_expires_at;
+    CsilTimestamp key_created_at;
+    CsilTimestamp key_expires_at;
+    CsilTimestamp attested_at;
+    CsilTimestamp attestation_expires_at;
 } ApplicationKeyAttestation;
 
 /* SignedApplicationKeyAttestation is a structured data type. */
@@ -2149,15 +3178,15 @@ typedef struct ApplicationKeyAddition {
     char *application_id;
     char *instance_id;
     char *key_id;
-    char *key_usage;
-    char *algorithm;
+    KeyUsage key_usage;
+    KeyAlgorithm algorithm;
     CsilBytes public_key;
     char *fingerprint;
     int64_t requested_key_lifetime_seconds;
     char *challenge_id;
     CsilBytes challenge;
-    char *requested_at;
-    char *expires_at;
+    CsilTimestamp requested_at;
+    CsilTimestamp expires_at;
 } ApplicationKeyAddition;
 
 /* SignedApplicationKeyAddition is a structured data type. */
@@ -2177,8 +3206,8 @@ typedef struct ApplicationKeyRenewal {
     char *key_id;
     char *challenge_id;
     CsilBytes challenge;
-    char *requested_at;
-    char *expires_at;
+    CsilTimestamp requested_at;
+    CsilTimestamp expires_at;
 } ApplicationKeyRenewal;
 
 /* SignedApplicationKeyRenewal is a structured data type. */
@@ -2197,7 +3226,7 @@ typedef struct ApplicationKeyRevocation {
     char *instance_id;
     char *target_key_id;
     char *target_fingerprint;
-    char *revoked_at;
+    CsilTimestamp revoked_at;
     ApplicationKeySignature *signatures;
     size_t signatures_count;
 } ApplicationKeyRevocation;
@@ -2207,9 +3236,9 @@ typedef struct StartApplicationKeyChallengeRequest {
     char *subject_user_id;
     char *application_id;
     char *instance_id;
-    char *purpose;
-    char *key_usage;
-    char *algorithm;
+    ApplicationKeyChallengePurpose purpose;
+    KeyUsage key_usage;
+    KeyAlgorithm algorithm;
     CsilBytes public_key;
 } StartApplicationKeyChallengeRequest;
 
@@ -2218,7 +3247,7 @@ typedef struct StartApplicationKeyChallengeResponse {
     char *challenge_id;
     CsilBytes *challenge;
     CsilBytes *sealed_challenge;
-    char *expires_at;
+    CsilTimestamp expires_at;
 } StartApplicationKeyChallengeResponse;
 
 /* AddApplicationKeyRequest is a structured data type. */
@@ -2249,7 +3278,7 @@ typedef struct RevokeApplicationKeyRequest {
 
 /* RevokeApplicationKeyResponse is a structured data type. */
 typedef struct RevokeApplicationKeyResponse {
-    char *revoked_at;
+    CsilTimestamp revoked_at;
 } RevokeApplicationKeyResponse;
 
 /* EnrollApplicationInstanceRequest is a structured data type. */
@@ -2302,9 +3331,9 @@ typedef struct RpResolveDomainKeysResponse {
     size_t keys_count;
     RevocationCertificate *revocations;
     size_t revocations_count;
-    char *fetched_at;
-    char *revocations_checked_at;
-    char *cache_status;
+    CsilTimestamp fetched_at;
+    CsilTimestamp revocations_checked_at;
+    RpCacheStatus cache_status;
 } RpResolveDomainKeysResponse;
 
 /* RpResolveApplicationKeysRequest is a structured data type. */
@@ -2330,9 +3359,9 @@ typedef struct RpResolveApplicationKeysResponse {
     size_t home_domain_keys_count;
     RevocationCertificate *home_domain_key_revocations;
     size_t home_domain_key_revocations_count;
-    char *fetched_at;
-    char *revocations_checked_at;
-    char *cache_status;
+    CsilTimestamp fetched_at;
+    CsilTimestamp revocations_checked_at;
+    RpCacheStatus cache_status;
 } RpResolveApplicationKeysResponse;
 
 /* ApplicationRef is a structured data type. */
@@ -2369,8 +3398,8 @@ typedef struct ActAsScopeSet {
     size_t entries_count;
     char *language;
     Claim *audience_handle_claim;
-    char *issued_at;
-    char *expires_at;
+    CsilTimestamp issued_at;
+    CsilTimestamp expires_at;
 } ActAsScopeSet;
 
 /* SignedActAsScopeSet is a structured data type. */
@@ -2400,10 +3429,10 @@ typedef struct ActAsGrant {
     SignedActAsScopeSet scope_set;
     char **approved_scope;
     size_t approved_scope_count;
-    char *issued_at;
-    char *expires_at;
-    char *series_issued_at;
-    char *renewable_until;
+    CsilTimestamp issued_at;
+    CsilTimestamp expires_at;
+    CsilTimestamp series_issued_at;
+    CsilTimestamp renewable_until;
     char *device_fingerprint;
 } ActAsGrant;
 
@@ -2423,8 +3452,8 @@ typedef struct ActAsGrantRequest {
     Claim *grantee_handle_claim;
     char *callback_url;
     char *nonce;
-    char *requested_at;
-    char *expires_at;
+    CsilTimestamp requested_at;
+    CsilTimestamp expires_at;
 } ActAsGrantRequest;
 
 /* SignedActAsGrantRequest is a structured data type. */
@@ -2437,8 +3466,8 @@ typedef struct SignedActAsGrantRequest {
 typedef struct ActAsRefreshRequest {
     char *grant_id;
     GranteeRef grantee;
-    char *requested_at;
-    char *expires_at;
+    CsilTimestamp requested_at;
+    CsilTimestamp expires_at;
     char *nonce;
 } ActAsRefreshRequest;
 
@@ -2464,7 +3493,7 @@ typedef struct ActAsPresentation {
     CsilBytes grant_hash;
     ApplicationRef audience;
     CsilBytes request_digest;
-    char *presented_at;
+    CsilTimestamp presented_at;
     CsilBytes nonce;
 } ActAsPresentation;
 
@@ -2485,7 +3514,7 @@ typedef struct ActAsGrantRevocation {
     char *grant_id;
     char *user_id;
     char *subject_domain;
-    char *revoked_at;
+    CsilTimestamp revoked_at;
 } ActAsGrantRevocation;
 
 /* SignedActAsGrantRevocation is a structured data type. */
@@ -2583,10 +3612,10 @@ typedef struct ActAsGrantSummary {
     ApplicationRef audience;
     char **approved_scope;
     size_t approved_scope_count;
-    char *issued_at;
-    char *expires_at;
-    char *renewable_until;
-    char *revoked_at;
+    CsilTimestamp issued_at;
+    CsilTimestamp expires_at;
+    CsilTimestamp renewable_until;
+    CsilTimestamp *revoked_at;
 } ActAsGrantSummary;
 
 /* ListActAsGrantsResponse is a structured data type. */
@@ -2602,7 +3631,7 @@ typedef struct RevokeActAsGrantRequest {
 
 /* RevokeActAsGrantResponse is a structured data type. */
 typedef struct RevokeActAsGrantResponse {
-    char *revoked_at;
+    CsilTimestamp revoked_at;
 } RevokeActAsGrantResponse;
 
 /* PreviewReleasePolicyRequest is a structured data type. */
@@ -2618,7 +3647,7 @@ typedef struct PreviewReleasePolicyRequest {
     size_t user_choices_count;
     char *temp_audience;
     char *temp_claim_type;
-    char *temp_disposition;
+    ReleaseDisposition *temp_disposition;
 } PreviewReleasePolicyRequest;
 
 /* PreviewReleaseRow is a structured data type. */
@@ -2627,7 +3656,7 @@ typedef struct PreviewReleaseRow {
     bool required;
     bool available;
     bool locked;
-    char *policy;
+    ConsentRowPolicy policy;
     bool default_granted;
 } PreviewReleaseRow;
 
@@ -2677,7 +3706,7 @@ typedef struct InspectSigningRequestResponse {
     char *subject_domain;
     char **requested_claim_types;
     size_t requested_claim_types_count;
-    char *expires_at;
+    CsilTimestamp expires_at;
     char **issuable_claim_types;
     size_t issuable_claim_types_count;
 } InspectSigningRequestResponse;
@@ -2694,7 +3723,7 @@ typedef struct IssueForSigningRequestRequest {
 /* IssuedClaimResult is a structured data type. */
 typedef struct IssuedClaimResult {
     char *claim_type;
-    char *outcome;
+    IssuedClaimOutcome outcome;
     char *message;
     char *claim_code;
 } IssuedClaimResult;
@@ -2705,10 +3734,89 @@ typedef struct IssueForSigningRequestResponse {
     size_t results_count;
 } IssueForSigningRequestResponse;
 
+/* IdentityAssertion is a structured data type. */
+typedef struct IdentityAssertion {
+    char *user_id;
+    char *domain;
+    char *audience;
+    char *nonce;
+    CsilTimestamp issued_at;
+    CsilTimestamp expires_at;
+    char **authorized_claims;
+    size_t authorized_claims_count;
+    char *display_name;
+    ApplicationRef application;
+} IdentityAssertion;
+
 /* RelyingPartyApplication is a structured data type. */
 typedef struct RelyingPartyApplication {
     ApplicationRef application;
     char *display_name;
 } RelyingPartyApplication;
+
+/* AuthRequest is a structured data type. */
+typedef struct AuthRequest {
+    char *relying_party;
+    char *callback_url;
+    char *nonce;
+    CsilTimestamp timestamp;
+    char *signing_key_id;
+    ClaimRequest *requested_claims;
+    AuthenticationRequirements *authentication_requirements;
+    AuthFlowContext *flow_context;
+    DomainClaim *relying_party_claims;
+    size_t relying_party_claims_count;
+    RelyingPartyApplication application;
+} AuthRequest;
+
+/* RpVerifyResponse is a structured data type. */
+typedef struct RpVerifyResponse {
+    IdentityAssertion assertion;
+    bool verified;
+} RpVerifyResponse;
+
+typedef struct RpSignRequestReply {
+    enum {
+        RpSignRequestReply_as_rp_sign_response,
+        RpSignRequestReply_as_rp_error,
+    } kind;
+    union {
+        RpSignResponse as_rp_sign_response;
+        RpError as_rp_error;
+    } value;
+} RpSignRequestReply;
+
+typedef struct RpDecryptTokenReply {
+    enum {
+        RpDecryptTokenReply_as_rp_decrypt_response,
+        RpDecryptTokenReply_as_rp_error,
+    } kind;
+    union {
+        RpDecryptResponse as_rp_decrypt_response;
+        RpError as_rp_error;
+    } value;
+} RpDecryptTokenReply;
+
+typedef struct RpVerifyAssertionReply {
+    enum {
+        RpVerifyAssertionReply_as_rp_verify_response,
+        RpVerifyAssertionReply_as_rp_error,
+    } kind;
+    union {
+        RpVerifyResponse as_rp_verify_response;
+        RpError as_rp_error;
+    } value;
+} RpVerifyAssertionReply;
+
+typedef struct RpUserinfoFetchReply {
+    enum {
+        RpUserinfoFetchReply_as_user_info,
+        RpUserinfoFetchReply_as_rp_error,
+    } kind;
+    union {
+        UserInfo as_user_info;
+        RpError as_rp_error;
+    } value;
+} RpUserinfoFetchReply;
 
 #endif /* CSILGEN_TYPES_GEN_H */

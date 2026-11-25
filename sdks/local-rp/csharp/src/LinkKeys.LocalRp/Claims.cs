@@ -32,10 +32,22 @@ public static class Claims
         string userId,
         string subjectDomain,
         string signingDomain,
-        string? expiresAt,
-        string attestedAt)
+        DateTimeOffset? expiresAt,
+        DateTimeOffset attestedAt)
     {
         var subject = $"{userId}@{subjectDomain}";
+        long? expiresSeconds;
+        long attestedSeconds;
+        try
+        {
+            expiresSeconds = expiresAt is null ? null : Cbor.UnixSecondsForSigning(expiresAt.Value);
+            attestedSeconds = Cbor.UnixSecondsForSigning(attestedAt);
+        }
+        catch (ArgumentException e)
+        {
+            throw new ClaimError(ClaimError.ErrorKind.BadTimestamp, e.Message);
+        }
+
         return Cbor.Encode(Cbor.Tuple(
             Cbor.VTextOf(ClaimPayloadTag),
             Cbor.VTextOf(claimId),
@@ -43,8 +55,8 @@ public static class Claims
             Cbor.VBytesOf(claimValue),
             Cbor.VTextOf(subject),
             Cbor.VTextOf(signingDomain),
-            Cbor.OptTextItem(expiresAt),
-            Cbor.VTextOf(attestedAt)));
+            expiresSeconds is long exp ? Cbor.VInteger(exp) : Cbor.VNullValue(),
+            Cbor.VInteger(attestedSeconds)));
     }
 
     /// <summary>What is being claimed, independent of who signs it. Mirrors <c>liblinkkeys::claims::ClaimSpec</c>.</summary>
@@ -54,8 +66,8 @@ public static class Claims
         byte[] ClaimValue,
         string UserId,
         string SubjectDomain,
-        string? ExpiresAt,
-        string AttestedAt);
+        DateTimeOffset? ExpiresAt,
+        DateTimeOffset AttestedAt);
 
     /// <summary>One signer of a claim: a single key, owned by <paramref name="Domain"/>.</summary>
     public sealed record ClaimSigner(string Domain, string KeyId, byte[] PrivateKeySeed);
@@ -78,7 +90,7 @@ public static class Claims
 
         return new Claim(
             spec.ClaimId, spec.UserId, spec.ClaimType, spec.ClaimValue, signatures, spec.AttestedAt,
-            Rfc3339.Format(DateTimeOffset.UtcNow), spec.ExpiresAt, null);
+            DateTimeOffset.UtcNow, spec.ExpiresAt, null);
     }
 
     /// <summary>A domain and the set of its currently-known public keys, resolved by the caller before verifying.</summary>
@@ -99,17 +111,7 @@ public static class Claims
             throw new ClaimError(ClaimError.ErrorKind.KeyRevoked, key.KeyId);
         }
 
-        DateTimeOffset expires;
-        try
-        {
-            expires = Rfc3339.Parse("expires_at", key.ExpiresAt);
-        }
-        catch (LocalRpError)
-        {
-            throw new ClaimError(ClaimError.ErrorKind.KeyExpired, key.KeyId);
-        }
-
-        if (DateTimeOffset.UtcNow > expires)
+        if (DateTimeOffset.UtcNow > key.ExpiresAt)
         {
             throw new ClaimError(ClaimError.ErrorKind.KeyExpired, key.KeyId);
         }
@@ -198,22 +200,9 @@ public static class Claims
             throw new ClaimError(ClaimError.ErrorKind.Revoked, null);
         }
 
-        if (claim.ExpiresAt is not null)
+        if (claim.ExpiresAt is DateTimeOffset expires && DateTimeOffset.UtcNow > expires)
         {
-            DateTimeOffset expires;
-            try
-            {
-                expires = Rfc3339.Parse("expires_at", claim.ExpiresAt);
-            }
-            catch (LocalRpError)
-            {
-                throw new ClaimError(ClaimError.ErrorKind.BadExpiry, null);
-            }
-
-            if (DateTimeOffset.UtcNow > expires)
-            {
-                throw new ClaimError(ClaimError.ErrorKind.Expired, null);
-            }
+            throw new ClaimError(ClaimError.ErrorKind.Expired, null);
         }
     }
 }

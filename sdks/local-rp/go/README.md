@@ -83,7 +83,7 @@ identity, err := localrp.GenerateLocalRpIdentity(localrp.GenerateLocalRpIdentity
 	AppName: "My LAN Jukebox",
 	Now:     time.Now(),
 })
-storedBytes := localrp.LocalRpIdentityToBytes(identity)
+storedBytes, err := localrp.LocalRpIdentityToBytes(identity)
 // ... write storedBytes to your app's secret/config store ...
 
 // Later, per login attempt:

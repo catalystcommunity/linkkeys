@@ -39,9 +39,7 @@ class RevocationsConformanceTest {
         return RevocationCertificate(
             certNode.get("target_key_id").asString(),
             certNode.get("target_fingerprint").asString(),
-            // Raw wire string, deliberately not parsed to Instant -- see
-            // RevocationCertificate's docs: it is exact signed-payload bytes.
-            certNode.get("revoked_at").asString(),
+            Fixtures.time(certNode.get("revoked_at").asString()),
             signatures,
         )
     }

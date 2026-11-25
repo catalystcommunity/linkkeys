@@ -631,8 +631,8 @@ final class ActAsWire
             'scope_set' => self::signedActAsScopeSetToMap($v->scopeSet),
             'callback_url' => $v->callbackUrl,
             'nonce' => $v->nonce,
-            'requested_at' => $v->requestedAt,
-            'expires_at' => $v->expiresAt,
+            'requested_at' => Time::toWire($v->requestedAt),
+            'expires_at' => Time::toWire($v->expiresAt),
         ];
         if ($v->requestedLifetimeSeconds !== null) {
             $out['requested_lifetime_seconds'] = $v->requestedLifetimeSeconds;
@@ -663,8 +663,8 @@ final class ActAsWire
             'requested_renewal_window_seconds' => self::int($m, 'requested_renewal_window_seconds', true),
             'callback_url' => self::text($m, 'callback_url'),
             'nonce' => self::text($m, 'nonce'),
-            'requested_at' => self::text($m, 'requested_at'),
-            'expires_at' => self::text($m, 'expires_at'),
+            'requested_at' => Time::fromWire($m['requested_at'] ?? null, 'requested_at'),
+            'expires_at' => Time::fromWire($m['expires_at'] ?? null, 'expires_at'),
         ]);
     }
 
@@ -692,8 +692,8 @@ final class ActAsWire
         return Cbor::encodeMap(self::canonical([
             'grant_id' => $v->grantId,
             'grantee' => self::granteeRefToMap($v->grantee),
-            'requested_at' => $v->requestedAt,
-            'expires_at' => $v->expiresAt,
+            'requested_at' => Time::toWire($v->requestedAt),
+            'expires_at' => Time::toWire($v->expiresAt),
             'nonce' => $v->nonce,
         ]));
     }
@@ -704,8 +704,8 @@ final class ActAsWire
         return new ActAsRefreshRequest([
             'grant_id' => self::text($m, 'grant_id'),
             'grantee' => self::granteeRefFromMap($m['grantee'] ?? null),
-            'requested_at' => self::text($m, 'requested_at'),
-            'expires_at' => self::text($m, 'expires_at'),
+            'requested_at' => Time::fromWire($m['requested_at'] ?? null, 'requested_at'),
+            'expires_at' => Time::fromWire($m['expires_at'] ?? null, 'expires_at'),
             'nonce' => self::text($m, 'nonce'),
         ]);
     }
@@ -802,7 +802,7 @@ final class ActAsWire
             'grant_hash' => Cbor::bytes($v->grantHash),
             'audience' => self::applicationRefToMap($v->audience),
             'request_digest' => Cbor::bytes($v->requestDigest),
-            'presented_at' => $v->presentedAt,
+            'presented_at' => Time::toWire($v->presentedAt),
             'nonce' => Cbor::bytes($v->nonce),
         ]);
     }

@@ -13,11 +13,20 @@
 static const char CLAIM_PAYLOAD_TAG[] = "linkkeys-claim-v1alpha";
 
 /* `(TAG, claim_id, claim_type, claim_value: bstr, "user_id@subject_domain",
- * signing_domain, expires_at: tstr/null, attested_at)` — an 8-element CBOR
- * array (Rust tuple encoding), matching
- * `liblinkkeys::claims::claim_sign_payload` exactly. */
+ * signing_domain, expires_at: int/null, attested_at: int)` — an 8-element
+ * CBOR array (Rust tuple encoding), matching
+ * `liblinkkeys::claims::claim_sign_payload` exactly. The two times are whole
+ * Unix seconds; a time with a fraction of a second cannot be signed, so it
+ * fails here (LRP_ERR_CLAIM). */
 static int claim_sign_payload(const lrp_claim *claim, const char *subject_domain,
                                const char *signing_domain, lrp_bytes *out, lrp_error *err) {
+    int64_t expires_secs = 0, attested_secs = 0;
+    if ((claim->expires_at.data != NULL &&
+         lrp_signed_seconds(claim->expires_at.data, &expires_secs, err) != 0) ||
+        claim->attested_at.data == NULL ||
+        lrp_signed_seconds(claim->attested_at.data, &attested_secs, err) != 0) {
+        return lrp_fail(err, LRP_ERR_CLAIM, "claim has a timestamp that cannot be signed");
+    }
     cbor_buf b;
     cbor_buf_init(&b);
     int rc = 0;
@@ -38,8 +47,12 @@ static int claim_sign_payload(const lrp_claim *claim, const char *subject_domain
         free(subject);
     }
     rc |= cbor_write_text_cstr(&b, signing_domain);
-    rc |= cbor_write_opt_text_cstr(&b, claim->expires_at.data);
-    rc |= cbor_write_text_cstr(&b, claim->attested_at.data);
+    if (claim->expires_at.data != NULL) {
+        rc |= cbor_write_int(&b, expires_secs);
+    } else {
+        rc |= cbor_write_null(&b);
+    }
+    rc |= cbor_write_int(&b, attested_secs);
     if (rc != 0) {
         cbor_buf_free(&b);
         return lrp_fail(err, LRP_ERR_OUT_OF_MEMORY, "claim sign payload: out of memory");

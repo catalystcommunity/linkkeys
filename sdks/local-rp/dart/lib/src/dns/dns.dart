@@ -9,6 +9,7 @@ library;
 import '../crypto/crypto.dart';
 import '../errors.dart';
 import '../local_rp.dart';
+import '../rfc3339.dart';
 import '../wire/cbor.dart';
 import '../wire/types.dart';
 
@@ -131,11 +132,13 @@ Future<List<DomainPublicKey>> pinKeysToFingerprints(
 
 const String _keyVouchTag = 'linkkeys-key-vouch-v1alpha';
 
-List<int> _keyVouchPayload(String encFingerprint, String encExpiresAt) {
+/// The key-vouch tuple. `encExpiresAtSeconds` is whole Unix seconds (a
+/// CBOR integer).
+List<int> _keyVouchPayload(String encFingerprint, int encExpiresAtSeconds) {
   return Cbor.encode(Cbor.tuple([
     Cbor.vtext(_keyVouchTag),
     Cbor.vtext(encFingerprint),
-    Cbor.vtext(encExpiresAt),
+    Cbor.vint(encExpiresAtSeconds),
   ]));
 }
 
@@ -154,9 +157,12 @@ Future<bool> verifyKeyVouch(
     return false;
   }
   if (encKey.keySignature == null) return false;
-  if (signingKey.algorithm != 'ed25519') return false;
+  if (signingKey.algorithm != KeyAlgorithm.ed25519) return false;
+  // An expiry with a fraction of a second was never signed.
+  final expiresSeconds = Rfc3339.signedSeconds(encKey.expiresAt);
+  if (expiresSeconds == null) return false;
   final recomputedFp = await Crypto.fingerprint(encKey.publicKey);
-  final payload = _keyVouchPayload(recomputedFp, encKey.expiresAt);
+  final payload = _keyVouchPayload(recomputedFp, expiresSeconds);
   return Crypto.verifyEd25519(
       payload, encKey.keySignature!, signingKey.publicKey);
 }
@@ -167,12 +173,12 @@ Future<bool> verifyKeyVouch(
 /// when a DNS-pinned signing key vouches for them.
 Future<List<DomainPublicKey>> trustKeys(
     List<DomainPublicKey> keys, List<String> pinned) async {
-  final signing = keys.where((k) => k.keyUsage == 'sign').toList();
+  final signing = keys.where((k) => k.keyUsage == KeyUsage.sign).toList();
   final pinnedSigning = await pinKeysToFingerprints(signing, pinned);
 
   final trusted = <DomainPublicKey>[...pinnedSigning];
   for (final k in keys) {
-    if (k.keyUsage != 'encrypt') continue;
+    if (k.keyUsage != KeyUsage.encrypt) continue;
     for (final sk in pinnedSigning) {
       if (await verifyKeyVouch(k, sk)) {
         trusted.add(k);

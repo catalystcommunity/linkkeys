@@ -21,11 +21,21 @@ const claimPayloadTag = "linkkeys-claim-v1alpha"
 // claimSignPayload builds the bytes that one claim signature covers. Mirrors
 // `liblinkkeys::claims::claim_sign_payload`: the CBOR array
 // [tag, claim_id, claim_type, claim_value (bstr), "user_id@subject_domain",
-// signing_domain, expires_at (text or null), attested_at].
-func claimSignPayload(claimID, claimType string, claimValue []byte, userID, subjectDomain, signingDomain string, expiresAt *string, attestedAt string) []byte {
+// signing_domain, expires_at (int or null), attested_at (int)]. Both times
+// are whole Unix seconds. A time with a fraction of a second was never
+// signed, so it is an error, not a rounded value.
+func claimSignPayload(claimID, claimType string, claimValue []byte, userID, subjectDomain, signingDomain string, expiresAt *time.Time, attestedAt time.Time) ([]byte, error) {
 	expires := cborNull
 	if expiresAt != nil {
-		expires = cborText(*expiresAt)
+		e, err := cborSignedTime(*expiresAt)
+		if err != nil {
+			return nil, errClaimBadTimestamp
+		}
+		expires = e
+	}
+	attested, err := cborSignedTime(attestedAt)
+	if err != nil {
+		return nil, errClaimBadTimestamp
 	}
 	return cborTuple(
 		cborText(claimPayloadTag),
@@ -35,26 +45,21 @@ func claimSignPayload(claimID, claimType string, claimValue []byte, userID, subj
 		cborText(userID+"@"+subjectDomain),
 		cborText(signingDomain),
 		expires,
-		cborText(attestedAt),
-	)
+		attested,
+	), nil
 }
+
+// errClaimBadTimestamp matches `liblinkkeys::claims::ClaimError::BadTimestamp`.
+var errClaimBadTimestamp = errors.New("claim has a timestamp that cannot be signed")
 
 // claimKeyValidAt mirrors `liblinkkeys::claims::key_valid_at`: the domain key
 // was not revoked and not expired at the claim's attestation time. Neither
 // revocation nor expiry is retroactive (invariant I-7).
-func claimKeyValidAt(key api.DomainPublicKey, at string) error {
-	atTime, err := time.Parse(time.RFC3339, at)
-	if err != nil {
-		return fmt.Errorf("signing key has expired: %s", key.KeyId)
+func claimKeyValidAt(key api.DomainPublicKey, at time.Time) error {
+	if key.RevokedAt != nil && !at.Before(*key.RevokedAt) {
+		return fmt.Errorf("signing key has been revoked: %s", key.KeyId)
 	}
-	if key.RevokedAt != nil {
-		revoked, err := time.Parse(time.RFC3339, *key.RevokedAt)
-		if err != nil || !atTime.Before(revoked) {
-			return fmt.Errorf("signing key has been revoked: %s", key.KeyId)
-		}
-	}
-	expires, err := time.Parse(time.RFC3339, key.ExpiresAt)
-	if err != nil || !atTime.Before(expires) {
+	if !at.Before(key.ExpiresAt) {
 		return fmt.Errorf("signing key has expired: %s", key.KeyId)
 	}
 	return nil
@@ -62,7 +67,7 @@ func claimKeyValidAt(key api.DomainPublicKey, at string) error {
 
 // verifyOneClaimSignature mirrors `liblinkkeys::claims::verify_one_signature`
 // for a stored attestation (attested_at given).
-func verifyOneClaimSignature(sig api.ClaimSignature, payload []byte, keys []api.DomainPublicKey, attestedAt string) error {
+func verifyOneClaimSignature(sig api.ClaimSignature, payload []byte, keys []api.DomainPublicKey, attestedAt time.Time) error {
 	var key *api.DomainPublicKey
 	for i := range keys {
 		if keys[i].KeyId == sig.SignedByKeyId {
@@ -80,7 +85,7 @@ func verifyOneClaimSignature(sig api.ClaimSignature, payload []byte, keys []api.
 		return err
 	}
 	if key.Algorithm != algorithmEd25519 {
-		return fmt.Errorf("unsupported signing algorithm: %s", key.Algorithm)
+		return fmt.Errorf("unsupported signing algorithm: %s", enumLabel(key.Algorithm))
 	}
 	if resolveAndVerify(key.Algorithm, payload, sig.Signature, key.PublicKey) != nil {
 		return errors.New("claim signature verification failed")
@@ -97,7 +102,10 @@ func verifySingleDomainClaim(claim api.Claim, signatures []api.ClaimSignature, d
 	if len(signatures) == 0 {
 		return errors.New("claim has no signatures")
 	}
-	payload := claimSignPayload(claim.ClaimId, claim.ClaimType, claim.ClaimValue, claim.UserId, domain, domain, claim.ExpiresAt, claim.AttestedAt)
+	payload, err := claimSignPayload(claim.ClaimId, claim.ClaimType, claim.ClaimValue, claim.UserId, domain, domain, claim.ExpiresAt, claim.AttestedAt)
+	if err != nil {
+		return err
+	}
 	lastErr := fmt.Errorf("no valid signature for signing domain: %s", domain)
 	verified := false
 	for _, sig := range signatures {
@@ -114,14 +122,8 @@ func verifySingleDomainClaim(claim api.Claim, signatures []api.ClaimSignature, d
 	if claim.RevokedAt != nil {
 		return errors.New("claim has been revoked")
 	}
-	if claim.ExpiresAt != nil {
-		expires, err := time.Parse(time.RFC3339, *claim.ExpiresAt)
-		if err != nil {
-			return errors.New("claim has an invalid expires_at")
-		}
-		if now.After(expires) {
-			return errors.New("claim has expired")
-		}
+	if claim.ExpiresAt != nil && now.After(*claim.ExpiresAt) {
+		return errors.New("claim has expired")
 	}
 	return nil
 }

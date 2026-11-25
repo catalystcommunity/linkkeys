@@ -6,7 +6,11 @@ import java.util.List;
  * The negotiated AEAD suite registry (design doc, Wire Precision "AEAD suite
  * registry"). Exact, case-sensitive strings from a closed registry &mdash;
  * never "close enough", never case-folded. Mirrors
- * {@code liblinkkeys::crypto::AeadSuite}.
+ * {@code liblinkkeys::crypto::AeadSuite}. The text id is what the callback-box
+ * KDF context binds; on the wire (descriptor {@code supported_suites},
+ * callback header {@code suite}) the suite is its CSIL number
+ * ({@code aes-256-gcm} = 1, {@code chacha20-poly1305} = 2), see
+ * {@code wire.Cbor#AEAD_SUITE}.
  */
 public enum AeadSuite {
     /** Mandatory-to-implement baseline. */

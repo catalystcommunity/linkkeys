@@ -117,6 +117,14 @@ pub fn display_name_max_chars() -> usize {
     *DISPLAY_NAME_MAX_CHARS
 }
 
+/// `HEADLESS=true`: a relying party that serves no person. The browser UI,
+/// the browser carrier (`/csil/v1/rpc`), and password authentication are off;
+/// the HTTPS server answers health checks only, and Admin is served over TCP
+/// only. Publish only `tcp=` in `_linkkeys_apis`.
+pub fn headless() -> bool {
+    std::env::var("HEADLESS").is_ok_and(|v| v == "true")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

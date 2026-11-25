@@ -1,4 +1,4 @@
-import type { BrowserAuthorizationInspectResponse, BrowserConsentClaim } from "./generated/types.gen";
+import { ClaimValueType, ConsentRowPolicy, type BrowserAuthorizationInspectResponse, type BrowserConsentClaim } from "./generated/types.gen";
 import { CsilStatus, CsilTransportError } from "./transport";
 import { has, plural, t } from "./i18n";
 
@@ -56,11 +56,11 @@ export function currentPasswordMessage(error: unknown, fallback: string): string
     : fallback;
 }
 
-export function inputType(datatype: string | undefined): "text" | "email" | "url" | "date" | "number" {
-  if (datatype === "email") return "email";
-  if (datatype === "url") return "url";
-  if (datatype === "date") return "date";
-  if (datatype === "int" || datatype === "integer" || datatype === "number") return "number";
+export function inputType(datatype: ClaimValueType | undefined): "text" | "email" | "url" | "date" | "number" {
+  if (datatype === ClaimValueType.EMAIL) return "email";
+  if (datatype === ClaimValueType.URL) return "url";
+  if (datatype === ClaimValueType.DATE) return "date";
+  if (datatype === ClaimValueType.INT) return "number";
   return "text";
 }
 
@@ -77,7 +77,7 @@ export function patternList(text: string): string[] {
 
 export function hasBlockedRequiredClaim(claims: BrowserConsentClaim[]): boolean {
   return claims.some((claim) => claim.required
-    && (claim.policy === "forced_deny" || (!claim.available && !claim.userSettable)));
+    && (claim.policy === ConsentRowPolicy.FORCED_DENY || (!claim.available && !claim.userSettable)));
 }
 
 export function standingAuthorization(context: BrowserAuthorizationInspectResponse): string[] | undefined {
@@ -204,9 +204,9 @@ export function applicationLabel(reference: { applicationId: string; subjectDoma
 /** The state of a grant in the user's list. The home domain cannot renew a
  * grant after its current expiry, so a renewal window that is still open
  * does not keep an expired grant active. */
-export function actAsGrantState(grant: { expiresAt: string; revokedAt?: string }, now: Date): "revoked" | "expired" | "active" {
+export function actAsGrantState(grant: { expiresAt: Date; revokedAt?: Date }, now: Date): "revoked" | "expired" | "active" {
   if (grant.revokedAt) return "revoked";
-  return Date.parse(grant.expiresAt) <= now.getTime() ? "expired" : "active";
+  return grant.expiresAt.getTime() <= now.getTime() ? "expired" : "active";
 }
 
 /** The short name a person reads first for one consent-screen party. */
@@ -260,7 +260,7 @@ export function base64UrlUnpadded(bytes: Uint8Array): string {
  * ones, and inline values for authorized claims the person has no value for.
  * `oversized` is the first inline value longer than its claim type allows. */
 export function consentDecision(claims: BrowserConsentClaim[], selected: Record<string, boolean>, values: Record<string, string>): { authorizedClaims: string[]; claimTypesToSet: string[]; claimValuesToSet: string[]; oversized?: BrowserConsentClaim } {
-  const authorizedClaims = claims.filter((claim) => claim.policy === "forced_allow" || (claim.policy === "user" && selected[claim.claimType])).map((claim) => claim.claimType);
+  const authorizedClaims = claims.filter((claim) => claim.policy === ConsentRowPolicy.FORCED_ALLOW || (claim.policy === ConsentRowPolicy.USER && selected[claim.claimType])).map((claim) => claim.claimType);
   const entries = claims.filter((claim) => authorizedClaims.includes(claim.claimType) && !claim.available && values[claim.claimType]?.trim());
   return {
     authorizedClaims,

@@ -11,12 +11,16 @@ pub mod pg {
         user_id: uuid::Uuid,
         credential_type: &str,
         credential_hash: &str,
+        name: Option<&str>,
+        hint: Option<&str>,
     ) -> QueryResult<AuthCredential> {
         let new_row = NewAuthCredentialRow {
             id: uuid::Uuid::now_v7(),
             user_id,
             credential_type: credential_type.to_string(),
             credential_hash: credential_hash.to_string(),
+            name: name.map(str::to_string),
+            hint: hint.map(str::to_string),
         };
 
         diesel::insert_into(auth_credentials::table)
@@ -173,12 +177,16 @@ pub mod sqlite {
         user_id: &str,
         credential_type: &str,
         credential_hash: &str,
+        name: Option<&str>,
+        hint: Option<&str>,
     ) -> QueryResult<AuthCredential> {
         let new_row = NewAuthCredentialRow {
             id: uuid::Uuid::now_v7().to_string(),
             user_id: user_id.to_string(),
             credential_type: credential_type.to_string(),
             credential_hash: credential_hash.to_string(),
+            name: name.map(str::to_string),
+            hint: hint.map(str::to_string),
         };
         let id = new_row.id.clone();
 

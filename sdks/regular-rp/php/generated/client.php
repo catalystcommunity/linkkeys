@@ -5,6 +5,23 @@ namespace Csilgen\Generated;
 class ClientError extends \RuntimeException {}
 
 /**
+ * Transport seam for clients whose service has an operation with more than one
+ * reply arm. callReply() performs the same RPC as call() and returns the CSIL-RPC
+ * response envelope's variant (null when absent) with the reply payload. The
+ * client picks the arm from the variant: the success arm returns its value, a
+ * declared error arm throws its <Arm>Refusal, and a missing or unknown variant
+ * throws CodecException.
+ */
+interface CsilReplyTransport
+{
+    /** @return string the reply payload bytes */
+    public function call($service, $op, $payload);
+
+    /** @return array{variant: ?string, payload: string} */
+    public function callReply($service, $op, $payload);
+}
+
+/**
  * The injected transport must expose call($service, $op, $payload) and return
  * the reply payload bytes. $service and $op are the CSIL names exactly as
  * written in the source and map verbatim onto the CSIL-RPC v1 envelope's
@@ -918,6 +935,62 @@ class AdminClient
         return Codec::decodePreviewAppAccessResponse($reply);
     }
 
+    public function renameUser($request)
+    {
+        $payload = Codec::encodeRenameUserRequest($request);
+        $reply = $this->transport->call('Admin', 'rename-user', $payload);
+        return Codec::decodeRenameUserResponse($reply);
+    }
+
+    public function setApplicationId($request)
+    {
+        $payload = Codec::encodeSetApplicationIdRequest($request);
+        $reply = $this->transport->call('Admin', 'set-application-id', $payload);
+        return Codec::decodeSetApplicationIdResponse($reply);
+    }
+
+    public function createApiKey($request)
+    {
+        $payload = Codec::encodeCreateApiKeyRequest($request);
+        $reply = $this->transport->call('Admin', 'create-api-key', $payload);
+        return Codec::decodeCreateApiKeyResponse($reply);
+    }
+
+    public function listApiKeys($request)
+    {
+        $payload = Codec::encodeListApiKeysRequest($request);
+        $reply = $this->transport->call('Admin', 'list-api-keys', $payload);
+        return Codec::decodeListApiKeysResponse($reply);
+    }
+
+    public function revokeApiKey($request)
+    {
+        $payload = Codec::encodeRevokeApiKeyRequest($request);
+        $reply = $this->transport->call('Admin', 'revoke-api-key', $payload);
+        return Codec::decodeRevokeApiKeyResponse($reply);
+    }
+
+    public function getAccountLimits($request)
+    {
+        $payload = Codec::encodeGetAccountLimitsRequest($request);
+        $reply = $this->transport->call('Admin', 'get-account-limits', $payload);
+        return Codec::decodeGetAccountLimitsResponse($reply);
+    }
+
+    public function setAccountLimits($request)
+    {
+        $payload = Codec::encodeSetAccountLimitsRequest($request);
+        $reply = $this->transport->call('Admin', 'set-account-limits', $payload);
+        return Codec::decodeSetAccountLimitsResponse($reply);
+    }
+
+    public function getApplicationUsage($request)
+    {
+        $payload = Codec::encodeGetApplicationUsageRequest($request);
+        $reply = $this->transport->call('Admin', 'get-application-usage', $payload);
+        return Codec::decodeGetApplicationUsageResponse($reply);
+    }
+
 }
 
 /**
@@ -1081,16 +1154,16 @@ class AttestationClient
 }
 
 /**
- * The injected transport must expose call($service, $op, $payload) and return
- * the reply payload bytes. $service and $op are the CSIL names exactly as
- * written in the source and map verbatim onto the CSIL-RPC v1 envelope's
- * service/op fields.
+ * The injected transport implements CsilReplyTransport: call() for single-arm
+ * operations and callReply() for operations with more than one reply arm.
+ * $service and $op are the CSIL names exactly as written in the source and map
+ * verbatim onto the CSIL-RPC v1 envelope's service/op fields.
  */
 class RpClient
 {
     private $transport;
 
-    public function __construct($transport)
+    public function __construct(CsilReplyTransport $transport)
     {
         $this->transport = $transport;
     }
@@ -1098,29 +1171,41 @@ class RpClient
     public function signRequest($request)
     {
         $payload = Codec::encodeRpSignRequest($request);
-        $reply = $this->transport->call('Rp', 'sign-request', $payload);
-        return Codec::decodeRpSignResponse($reply);
+        $reply = $this->transport->callReply('Rp', 'sign-request', $payload);
+        if (!is_array($reply) || !array_key_exists('variant', $reply) || !array_key_exists('payload', $reply)) {
+            throw new CodecException('callReply must return array(\'variant\' => ?string, \'payload\' => string)');
+        }
+        return Codec::decodeRpSignResponse(Codec::resolveRpcReply('Rp', 'sign-request', $reply['variant'], $reply['payload']));
     }
 
     public function decryptToken($request)
     {
         $payload = Codec::encodeRpDecryptRequest($request);
-        $reply = $this->transport->call('Rp', 'decrypt-token', $payload);
-        return Codec::decodeRpDecryptResponse($reply);
+        $reply = $this->transport->callReply('Rp', 'decrypt-token', $payload);
+        if (!is_array($reply) || !array_key_exists('variant', $reply) || !array_key_exists('payload', $reply)) {
+            throw new CodecException('callReply must return array(\'variant\' => ?string, \'payload\' => string)');
+        }
+        return Codec::decodeRpDecryptResponse(Codec::resolveRpcReply('Rp', 'decrypt-token', $reply['variant'], $reply['payload']));
     }
 
     public function verifyAssertion($request)
     {
         $payload = Codec::encodeRpVerifyRequest($request);
-        $reply = $this->transport->call('Rp', 'verify-assertion', $payload);
-        return Codec::decodeRpVerifyResponse($reply);
+        $reply = $this->transport->callReply('Rp', 'verify-assertion', $payload);
+        if (!is_array($reply) || !array_key_exists('variant', $reply) || !array_key_exists('payload', $reply)) {
+            throw new CodecException('callReply must return array(\'variant\' => ?string, \'payload\' => string)');
+        }
+        return Codec::decodeRpVerifyResponse(Codec::resolveRpcReply('Rp', 'verify-assertion', $reply['variant'], $reply['payload']));
     }
 
     public function userinfoFetch($request)
     {
         $payload = Codec::encodeRpUserInfoRequest($request);
-        $reply = $this->transport->call('Rp', 'userinfo-fetch', $payload);
-        return Codec::decodeUserInfo($reply);
+        $reply = $this->transport->callReply('Rp', 'userinfo-fetch', $payload);
+        if (!is_array($reply) || !array_key_exists('variant', $reply) || !array_key_exists('payload', $reply)) {
+            throw new CodecException('callReply must return array(\'variant\' => ?string, \'payload\' => string)');
+        }
+        return Codec::decodeUserInfo(Codec::resolveRpcReply('Rp', 'userinfo-fetch', $reply['variant'], $reply['payload']));
     }
 
     public function issueAttestation($request)

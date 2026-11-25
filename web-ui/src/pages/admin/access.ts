@@ -3,24 +3,28 @@
 import { api } from "../../transport";
 import { claimTypeLabel, t } from "../../i18n";
 import { button, comboBox, fill, form, h, textArea, textButton, type Child } from "../../dom";
-import type { AdminUser, AppAccessPolicy, AppAccessTarget, ClaimTypePolicy, PreviewAppAccessResponse } from "../../generated/types.gen";
+import { AppAccessMode, AppAccessTargetKind, ClaimOperator, type AdminUser, type AppAccessPolicy, type AppAccessTarget, type ClaimTypePolicy, type PreviewAppAccessResponse } from "../../generated/types.gen";
 import { patternList, serviceMessage as message } from "../../ui-logic";
-import { AdminPage, Slot, adminHeader, choices, claimTypeOptions, numberText, plainField, setOptions, suggestField, userOptions } from "./common";
+import { AdminPage, Slot, adminHeader, choices, chosen, claimTypeOptions, numberText, plainField, setOptions, suggestField, userOptions } from "./common";
 
-const ACCESS_MODES = ["deny", "allow"];
-const TARGET_KINDS = ["everyone", "user", "group", "claim"];
-const CLAIM_OPERATORS = ["present", "absent", "equals", "age_under", "age_at_least"];
+const ACCESS_MODES: AppAccessMode[] = [AppAccessMode.DENY, AppAccessMode.ALLOW];
+const TARGET_KINDS: AppAccessTargetKind[] = [AppAccessTargetKind.EVERYONE, AppAccessTargetKind.USER, AppAccessTargetKind.GROUP, AppAccessTargetKind.CLAIM];
+const CLAIM_OPERATORS: ClaimOperator[] = [ClaimOperator.PRESENT, ClaimOperator.ABSENT, ClaimOperator.EQUALS, ClaimOperator.AGE_UNDER, ClaimOperator.AGE_AT_LEAST];
 
 function accessModeLabel(mode: string): string {
-  return mode === "allow" ? t("app.access.mode_allow") : t("app.access.mode_deny");
+  return mode === AppAccessMode.ALLOW ? t("app.access.mode_allow") : t("app.access.mode_deny");
+}
+
+function ageOperator(operator: ClaimOperator): boolean {
+  return operator === ClaimOperator.AGE_UNDER || operator === ClaimOperator.AGE_AT_LEAST;
 }
 
 function operatorLabel(operator: string): string {
   return t(`app.access.operator_${operator}`);
 }
 
-function takesValue(operator: string): boolean {
-  return !["present", "absent"].includes(operator);
+function takesValue(operator: ClaimOperator): boolean {
+  return operator !== ClaimOperator.PRESENT && operator !== ClaimOperator.ABSENT;
 }
 
 export class AdminAccessPage extends AdminPage {
@@ -34,17 +38,17 @@ export class AdminAccessPage extends AdminPage {
   private targets: AppAccessTarget[] = [];
   private readonly formHeading = h("h2");
   private readonly name = plainField(t("app.access.col_name"), { required: true, on: { input: () => this.renderFormHeading() } });
-  private readonly mode = comboBox(t("app.access.col_mode"), choices(ACCESS_MODES, accessModeLabel), { value: "deny" });
+  private readonly mode = comboBox(t("app.access.col_mode"), choices(ACCESS_MODES, accessModeLabel), { value: AppAccessMode.DENY });
   private readonly patterns = textArea(t("app.access.col_patterns"), { rows: 4, placeholder: "*.ru\nshop.example", helper: t("app.access.patterns_help"), required: true });
   private readonly message = textArea(t("app.access.field_message"), { rows: 2, maxlength: 1000, helper: t("app.access.message_help") });
   private readonly targetList = new Slot();
 
   // The target builder. Its fields show by kind and by operator.
-  private readonly kind = comboBox(t("app.access.target_kind"), choices(TARGET_KINDS, (kind) => t(`app.access.kind_${kind}`)), { value: "user", on: { change: () => this.renderTargetFields() } });
+  private readonly kind = comboBox(t("app.access.target_kind"), choices(TARGET_KINDS, (kind) => t(`app.access.kind_${kind}`)), { value: AppAccessTargetKind.USER, on: { change: () => this.renderTargetFields() } });
   private readonly targetUser = suggestField(t("app.admin.col_username"));
   private readonly groupName = plainField(t("app.access.field_group"));
   private readonly claimType = suggestField(t("app.access.field_claim_type"));
-  private readonly operator = comboBox(t("app.access.field_condition"), choices(CLAIM_OPERATORS, operatorLabel), { value: "age_under", on: { change: () => this.renderTargetFields() } });
+  private readonly operator = comboBox(t("app.access.field_condition"), choices(CLAIM_OPERATORS, operatorLabel), { value: ClaimOperator.AGE_UNDER, on: { change: () => this.renderTargetFields() } });
   private readonly claimValue = plainField("");
   private readonly kindSlot = new Slot();
   private readonly valueSlot = new Slot();
@@ -107,9 +111,9 @@ export class AdminAccessPage extends AdminPage {
 
   private targetText(entry: AppAccessTarget): string {
     switch (entry.kind) {
-      case "everyone": return t("app.access.target_everyone");
-      case "user": return t("app.access.target_user", { user: this.userById(entry.userId)?.username ?? entry.userId ?? "" });
-      case "group": return t("app.access.target_group", { group: entry.groupName ?? "" });
+      case AppAccessTargetKind.EVERYONE: return t("app.access.target_everyone");
+      case AppAccessTargetKind.USER: return t("app.access.target_user", { user: this.userById(entry.userId)?.username ?? entry.userId ?? "" });
+      case AppAccessTargetKind.GROUP: return t("app.access.target_group", { group: entry.groupName ?? "" });
       default: return t("app.access.target_claim", { label: claimTypeLabel(entry.claimType ?? ""), condition: operatorLabel(entry.claimOperator ?? ""), value: entry.claimValue ?? "" }).trim();
     }
   }
@@ -144,18 +148,18 @@ export class AdminAccessPage extends AdminPage {
 
   /** Show the builder fields for the kind and the operator. Only this part of the form changes. */
   private renderTargetFields(): void {
-    const kind = this.kind.value;
-    const operator = this.operator.value;
-    const age = operator.startsWith("age_");
+    const kind = chosen(TARGET_KINDS, this.kind.value);
+    const operator = chosen(CLAIM_OPERATORS, this.operator.value);
+    const age = ageOperator(operator);
     this.claimValue.label = age ? t("app.access.field_age") : t("app.account.field_value");
     if (age) this.claimValue.setAttribute("inputmode", "numeric");
     else this.claimValue.removeAttribute("inputmode");
-    const fields: Child[] = kind === "user" ? [this.targetUser] : kind === "group" ? [this.groupName] : kind === "claim" ? [this.claimType, this.operator, this.valueSlot.anchor] : [];
+    const fields: Child[] = kind === AppAccessTargetKind.USER ? [this.targetUser] : kind === AppAccessTargetKind.GROUP ? [this.groupName] : kind === AppAccessTargetKind.CLAIM ? [this.claimType, this.operator, this.valueSlot.anchor] : [];
     // The value slot is inside the kind slot, so it empties first.
-    if (kind !== "claim") this.valueSlot.set();
+    if (kind !== AppAccessTargetKind.CLAIM) this.valueSlot.set();
     if (!this.sameFields(fields)) this.kindSlot.set(...fields);
-    if (kind === "claim") this.valueSlot.set(takesValue(operator) ? this.claimValue : null);
-    this.claimHelp.set(kind === "claim" ? h("small", null, t("app.access.claim_help")) : null);
+    if (kind === AppAccessTargetKind.CLAIM) this.valueSlot.set(takesValue(operator) ? this.claimValue : null);
+    this.claimHelp.set(kind === AppAccessTargetKind.CLAIM ? h("small", null, t("app.access.claim_help")) : null);
   }
 
   private shownFields: Child[] = [];
@@ -167,39 +171,39 @@ export class AdminAccessPage extends AdminPage {
     return same;
   }
 
-  private resetTarget(kind: string): void {
+  private resetTarget(kind: AppAccessTargetKind): void {
     this.kind.value = kind;
     this.targetUser.value = "";
     this.groupName.value = "";
     this.claimType.value = "";
-    this.operator.value = "age_under";
+    this.operator.value = ClaimOperator.AGE_UNDER;
     this.claimValue.value = "";
     this.renderTargetFields();
   }
 
   private addTarget(): void {
     this.messages.fail("");
-    const kind = this.kind.value;
+    const kind = chosen(TARGET_KINDS, this.kind.value);
     let next: AppAccessTarget;
-    if (kind === "user") {
+    if (kind === AppAccessTargetKind.USER) {
       const user = this.userByName(this.targetUser.value);
       if (!user) return this.messages.fail(t("app.access.user_unknown", { user: this.targetUser.value.trim() }));
-      next = { kind: "user", userId: user.id };
-    } else if (kind === "group") {
+      next = { kind: AppAccessTargetKind.USER, userId: user.id };
+    } else if (kind === AppAccessTargetKind.GROUP) {
       const groupName = this.groupName.value.trim();
       if (!groupName) return this.messages.fail(t("app.access.group_required"));
-      next = { kind: "group", groupName };
-    } else if (kind === "claim") {
+      next = { kind: AppAccessTargetKind.GROUP, groupName };
+    } else if (kind === AppAccessTargetKind.CLAIM) {
       const claimType = this.claimType.value.trim();
       if (!claimType) return this.messages.fail(t("app.access.claim_required"));
-      const operator = this.operator.value;
+      const operator = chosen(CLAIM_OPERATORS, this.operator.value);
       const value = this.claimValue.value.trim();
       const withValue = takesValue(operator);
       // An age field was a `type=number` input: text that is not a number had no value.
-      const valid = operator.startsWith("age_") ? numberText(value) : Boolean(value);
+      const valid = ageOperator(operator) ? numberText(value) : Boolean(value);
       if (withValue && !valid) return this.messages.fail(t("app.access.value_required"));
-      next = { kind: "claim", claimType, claimOperator: operator, claimValue: withValue ? value : undefined };
-    } else next = { kind: "everyone" };
+      next = { kind: AppAccessTargetKind.CLAIM, claimType, claimOperator: operator, claimValue: withValue ? value : undefined };
+    } else next = { kind: AppAccessTargetKind.EVERYONE };
     this.targets = [...this.targets, next];
     this.renderTargets();
     this.resetTarget(kind);
@@ -209,7 +213,7 @@ export class AdminAccessPage extends AdminPage {
   private fillForm(policy?: AppAccessPolicy): void {
     this.editing = policy?.id;
     this.name.value = policy?.name ?? "";
-    this.mode.value = policy?.mode ?? "deny";
+    this.mode.value = policy?.mode ?? AppAccessMode.DENY;
     this.patterns.value = policy?.patterns.join("\n") ?? "";
     this.message.value = policy?.message ?? "";
     this.targets = policy ? [...policy.targets] : [];
@@ -224,7 +228,7 @@ export class AdminAccessPage extends AdminPage {
 
   private async save(): Promise<void> {
     const name = this.name.value.trim();
-    const request = { id: this.editing, name, mode: this.mode.value, patterns: patternList(this.patterns.value), message: this.message.value.trim() || undefined, targets: this.targets };
+    const request = { id: this.editing, name, mode: chosen(ACCESS_MODES, this.mode.value), patterns: patternList(this.patterns.value), message: this.message.value.trim() || undefined, targets: this.targets };
     this.busy.set(true);
     this.messages.clear();
     try {

@@ -1,6 +1,5 @@
 mod common;
 
-use liblinkkeys::timestamp::Rfc3339 as _;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::{future::Future, pin::Pin};
@@ -107,7 +106,7 @@ fn worker_retries_temporary_failures_and_redacts_terminal_failures() {
     assert_eq!(retry.state, "pending");
     assert_eq!(retry.last_error.as_deref(), Some("smtp_timeout"));
     assert!(retry.encrypted_payload.is_some());
-    assert!(retry.next_attempt_at > time::OffsetDateTime::now_utc().to_rfc3339());
+    assert!(retry.next_attempt_at > time::OffsetDateTime::now_utc());
 
     enqueue(
         &pool,

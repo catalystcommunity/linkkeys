@@ -6,10 +6,10 @@ public record SettableClaimPolicy(
     String claimType /* wire: "claim_type" */,
     String label /* wire: "label" */,
     String description /* wire: "description" */,
-    String datatype /* wire: "datatype" */,
+    ClaimValueType datatype /* wire: "datatype" */,
     long maxBytes /* wire: "max_bytes" */,
-    String setRule /* wire: "set_rule" */,
+    SetRule setRule /* wire: "set_rule" */,
     boolean requiresApproval /* wire: "requires_approval" */,
-    String signingRule /* wire: "signing_rule" */
+    SigningRule signingRule /* wire: "signing_rule" */
 ) {
 }

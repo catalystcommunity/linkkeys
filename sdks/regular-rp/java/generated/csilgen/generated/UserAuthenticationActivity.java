@@ -2,10 +2,12 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
+
 public record UserAuthenticationActivity(
     String userId /* wire: "user_id" */,
-    String lastAuthenticatedAt /* wire: "last_authenticated_at" */,
-    String lastSeenAt /* wire: "last_seen_at" */,
+    Instant lastAuthenticatedAt /* wire: "last_authenticated_at" */,
+    Instant lastSeenAt /* wire: "last_seen_at" */,
     long successfulAuthenticationCount /* wire: "successful_authentication_count" */,
     long activeBrowserSessionCount /* wire: "active_browser_session_count" */
 ) {

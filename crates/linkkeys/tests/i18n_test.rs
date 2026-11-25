@@ -19,7 +19,8 @@ fn get_translations(
     let payload = liblinkkeys::generated::encode_translations_request(&TranslationsRequest {
         locale: locale.map(str::to_string),
         accept_language: accept_language.map(str::to_string),
-    });
+    })
+    .unwrap();
     let (status, body) =
         linkkeys::tcp::dispatch_for_test("I18n", "get-translations", payload, pool, None);
     let resp = if status == 0 {
@@ -33,7 +34,8 @@ fn get_translations(
 fn list_locales(pool: &linkkeys::db::DbPool) -> ListLocalesResponse {
     let payload = liblinkkeys::generated::encode_empty_request(
         &liblinkkeys::generated::types::EmptyRequest {},
-    );
+    )
+    .unwrap();
     let (status, body) =
         linkkeys::tcp::dispatch_for_test("I18n", "list-locales", payload, pool, None);
     assert_eq!(status, 0, "list-locales should succeed unauthenticated");

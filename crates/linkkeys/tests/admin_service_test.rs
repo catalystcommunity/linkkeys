@@ -279,7 +279,8 @@ fn test_rpc_user_authentication_activity_requires_manage_users() {
         &GetUserAuthenticationActivityRequest {
             user_id: target.id.clone(),
         },
-    );
+    )
+    .unwrap();
 
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
@@ -376,6 +377,7 @@ fn test_service_display_name_is_cleaned_and_limited() {
             username: "svc-display-clean".to_string(),
             display_name: " Home\u{202E}Grafana\u{0007} ".to_string(),
             password: None,
+            application_id: None,
         },
     )
     .unwrap();
@@ -388,6 +390,7 @@ fn test_service_display_name_is_cleaned_and_limited() {
             username: "svc-display-long".to_string(),
             display_name: too_long.clone(),
             password: None,
+            application_id: None,
         },
     )
     .unwrap_err();
@@ -424,6 +427,7 @@ fn test_service_create_user_with_password() {
         username: "svc-created".to_string(),
         display_name: "Service Created".to_string(),
         password: Some("password123".to_string()),
+        application_id: None,
     };
     let resp = admin::create_user(&pool, req).unwrap();
     assert_eq!(resp.user.username, "svc-created");
@@ -452,6 +456,7 @@ fn test_service_create_user_with_api_key() {
         username: "svc-apikey".to_string(),
         display_name: "API Key User".to_string(),
         password: None,
+        application_id: None,
     };
     let resp = admin::create_user(&pool, req).unwrap();
     assert!(
@@ -659,7 +664,9 @@ fn test_claim_signature_roundtrips_through_storage() {
         user_id: user.id.clone(),
         claim_type: "over-21".to_string(),
         claim_value: "true".to_string(),
-        expires_at: Some("2099-01-02T03:04:05.123456789Z".to_string()),
+        expires_at: Some(
+            liblinkkeys::timestamp::parse_rfc3339("2099-01-02T03:04:05.123456789Z").unwrap(),
+        ),
     };
     let resp = admin::set_claim(&pool, req).unwrap();
     // set_claim signs with all active domain keys; assert the quorum is recorded.
@@ -755,7 +762,7 @@ fn test_service_remove_claim() {
     let sk_bytes =
         liblinkkeys::crypto::decrypt_private_key(&dk.private_key_encrypted, b"test-passphrase")
             .unwrap();
-    let algorithm = liblinkkeys::crypto::SigningAlgorithm::parse_str(&dk.algorithm).unwrap();
+    let algorithm = linkkeys::conversions::stored_signing_algorithm(&dk.algorithm).unwrap();
     let claim_id = uuid::Uuid::now_v7().to_string();
     let signed = liblinkkeys::claims::sign_claim(
         &liblinkkeys::claims::ClaimSpec {
@@ -765,7 +772,8 @@ fn test_service_remove_claim() {
             user_id: &user.id,
             subject_domain: "test.com",
             expires_at: None,
-            attested_at: "2026-07-01T00:00:00+00:00",
+            attested_at: liblinkkeys::timestamp::parse_rfc3339("2026-07-01T00:00:00+00:00")
+                .unwrap(),
         },
         &[liblinkkeys::claims::ClaimSigner {
             domain: "test.com",
@@ -831,7 +839,9 @@ fn test_service_list_user_claims_returns_active_types_only() {
             user_id: user.id.clone(),
             claim_type: "expired_claim".to_string(),
             claim_value: "old".to_string(),
-            expires_at: Some("2000-01-01T00:00:00Z".to_string()),
+            expires_at: Some(
+                liblinkkeys::timestamp::parse_rfc3339("2000-01-01T00:00:00Z").unwrap(),
+            ),
         },
     )
     .unwrap();
@@ -873,7 +883,8 @@ fn test_rpc_list_user_claims_requires_manage_claims() {
     .unwrap();
     let payload = liblinkkeys::generated::encode_list_user_claims_request(&ListUserClaimsRequest {
         user_id: target.id.clone(),
-    });
+    })
+    .unwrap();
 
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
@@ -981,7 +992,8 @@ fn test_rpc_get_user_claims_requires_manage_claims() {
     let payload =
         liblinkkeys::generated::encode_admin_user_claims_request(&AdminUserClaimsRequest {
             user_id: target.id.clone(),
-        });
+        })
+        .unwrap();
 
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
@@ -1034,7 +1046,7 @@ fn test_service_set_user_claim_uses_user_policy() {
         },
     )
     .unwrap();
-    assert_eq!(signed.outcome, "signed");
+    assert_eq!(signed.outcome.as_str(), "signed");
     let claim = signed.claim.expect("signed outcome returns live claim");
     assert_eq!(claim.claim_type, "display_name");
     assert_eq!(claim.user_id, user.id);
@@ -1053,7 +1065,7 @@ fn test_service_set_user_claim_uses_user_policy() {
         },
     )
     .unwrap();
-    assert_eq!(verified.outcome, "verification_required");
+    assert_eq!(verified.outcome.as_str(), "verification_required");
     assert!(verified.claim.is_none());
     assert!(
         pool.list_active_claims(&user.id)
@@ -1082,7 +1094,7 @@ fn test_service_set_user_claim_returns_queued_for_approval_policy() {
         },
     )
     .unwrap();
-    assert_eq!(resp.outcome, "queued");
+    assert_eq!(resp.outcome.as_str(), "queued");
     assert!(resp.claim.is_none());
     assert!(
         pool.list_active_claims(&user.id).unwrap().is_empty(),
@@ -1117,8 +1129,8 @@ fn test_service_list_settable_policies_returns_user_fillable_rows() {
         .iter()
         .find(|p| p.claim_type == "email")
         .unwrap();
-    assert_eq!(email.datatype, "email");
-    assert_eq!(email.signing_rule, "verified");
+    assert_eq!(email.datatype.as_str(), "email");
+    assert_eq!(email.signing_rule.as_str(), "verified");
 }
 
 #[test]
@@ -1138,7 +1150,8 @@ fn test_rpc_set_user_claim_requires_manage_claims() {
         user_id: target.id.clone(),
         claim_type: "display_name".to_string(),
         claim_value: "Alice".to_string(),
-    });
+    })
+    .unwrap();
 
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
@@ -1168,7 +1181,7 @@ fn test_rpc_set_user_claim_requires_manage_claims() {
     );
     assert_eq!(status, 0);
     let resp = liblinkkeys::generated::decode_set_user_claim_response(&body).unwrap();
-    assert_eq!(resp.outcome, "signed");
+    assert_eq!(resp.outcome.as_str(), "signed");
     assert!(resp.claim.is_some());
 }
 
@@ -1181,7 +1194,7 @@ fn test_rpc_list_settable_policies_requires_manage_claims() {
     let service = create_user(&pool, &DataMap::new());
     let (api_key, hash) = auth::generate_api_key(&service.id);
     create_auth_credential(&pool, &service.id, auth::CREDENTIAL_TYPE_API_KEY, &hash);
-    let payload = liblinkkeys::generated::encode_empty_request(&EmptyRequest {});
+    let payload = liblinkkeys::generated::encode_empty_request(&EmptyRequest {}).unwrap();
 
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
@@ -1358,7 +1371,8 @@ fn recheck_pins_requires_admin_and_tcp_carrier() {
     let pool = common::create_test_pool();
     let domain = "test.com";
     let payload =
-        liblinkkeys::generated::encode_recheck_pins_request(&RecheckPinsRequest { domain: None });
+        liblinkkeys::generated::encode_recheck_pins_request(&RecheckPinsRequest { domain: None })
+            .unwrap();
 
     // Non-admin (manage_users only) -> forbidden.
     let nonadmin = create_user(&pool, &DataMap::new());
@@ -1462,7 +1476,8 @@ fn sec04_manage_users_cannot_reset_admin_account_password() {
     let payload = liblinkkeys::generated::encode_reset_password_request(&ResetPasswordRequest {
         user_id: target.id.clone(),
         new_password: "new-strong-password".to_string(),
-    });
+    })
+    .unwrap();
 
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
@@ -1511,7 +1526,8 @@ fn sec04_manage_users_cannot_reset_ordinary_user() {
     let payload = liblinkkeys::generated::encode_reset_password_request(&ResetPasswordRequest {
         user_id: target.id.clone(),
         new_password: "new-strong-password".to_string(),
-    });
+    })
+    .unwrap();
     let (status, _) = linkkeys::tcp::dispatch_for_test_authed(
         "Admin",
         "reset-password",

@@ -7,7 +7,7 @@ import { claimTypeLabel, t } from "../i18n";
 import { attribute, button, checkBox, comboBox, Feedback, fill, form, formatted, h, hiddenUsername, nodes, setBusy, setDisabled, textArea, textButton, textField, yesNoOptions, type Child } from "../dom";
 import { createPage, Page } from "../page";
 import { checkPassword, claimText, passwordRule, type PageProps } from "../shared";
-import type { ActAsGrantSummary, Claim, MyClaimSetting, Profile, SettableClaimPolicy, VerifiedContactMethod } from "../generated/types.gen";
+import { ClaimValueType, SetClaimOutcome, SigningRule, type ActAsGrantSummary, type Claim, type MyClaimSetting, type Profile, type SettableClaimPolicy, type VerifiedContactMethod } from "../generated/types.gen";
 import { fromSigningRequestCbor, toSignedSigningRequestCbor } from "../generated/codec.gen";
 import { actAsGrantState, applicationLabel, authenticationFailed, base64UrlUnpadded, claimValueTooLong, confirmationDetails, currentPasswordMessage, inputType, serviceMessage as message, siteDomain } from "../ui-logic";
 
@@ -41,7 +41,7 @@ function alertLine(slot: Slot, text: string | false): void {
 
 /** Settable policies, without the ones that only a verifier can sign. */
 function settablePolicies(policies: SettableClaimPolicy[]): SettableClaimPolicy[] {
-  return policies.filter((policy) => policy.signingRule !== "verified");
+  return policies.filter((policy) => policy.signingRule !== SigningRule.VERIFIED);
 }
 
 /** One account section. It belongs to a page, and it stops changing the
@@ -125,9 +125,9 @@ class ActAsGrantList extends Section {
 
   private item(grant: ActAsGrantSummary): HTMLLIElement {
     const grantee = h("strong", null, applicationLabel(grant.grantee.application, t("app.act_as_list.local_application")));
-    const until = grant.renewableUntil !== grant.expiresAt
-      ? t("app.act_as_list.until_renewable", { until: new Date(grant.expiresAt).toLocaleString(), renewable: new Date(grant.renewableUntil).toLocaleString() })
-      : t("app.act_as_list.until", { until: new Date(grant.expiresAt).toLocaleString() });
+    const until = grant.renewableUntil.getTime() !== grant.expiresAt.getTime()
+      ? t("app.act_as_list.until_renewable", { until: grant.expiresAt.toLocaleString(), renewable: grant.renewableUntil.toLocaleString() })
+      : t("app.act_as_list.until", { until: grant.expiresAt.toLocaleString() });
     const stopping = this.busy === grant.grantId;
     const stop = textButton(stopping ? t("app.act_as_list.stopping") : t("app.act_as_list.stop"), () => void this.revoke(grant.grantId), { disabled: stopping });
     this.stopButtons.set(grant.grantId, stop);
@@ -203,7 +203,7 @@ class DetailChoices extends Section {
     });
     share.classList.add("checkbox-label");
     let keep: ZestCheckBox | undefined;
-    if (policy.signingRule === "self_signed") {
+    if (policy.signingRule === SigningRule.SELF_SIGNED) {
       const keepBox = checkBox(h("span", null, t("app.choices.keep_verified", { domain: this.context.configuration.domain })), {
         on: { change: () => void this.change(claimType, () => api.account.setMyClaimKeepVerified({ claimType, keepVerified: keepBox.checked })) },
       });
@@ -348,10 +348,10 @@ class ConfirmationRequest extends Section {
     }
   }
 
-  private showResult(made: { site: string; code: string; expiresAt: string } | undefined): void {
+  private showResult(made: { site: string; code: string; expiresAt: Date } | undefined): void {
     this.code = made?.code ?? "";
     if (!made) return this.result.set();
-    const text = formatted("app.confirm.result", { site: h("strong", null, made.site), until: new Date(made.expiresAt).toLocaleString() });
+    const text = formatted("app.confirm.result", { site: h("strong", null, made.site), until: made.expiresAt.toLocaleString() });
     const area = textArea("", { readonly: true, rows: 4, value: made.code, "aria-label": t("app.confirm.code_label", { site: made.site }), on: { focusin: () => area.select() } });
     this.result.set(h("p", null, text), area, button(t("app.confirm.copy"), { onClick: () => void this.copy() }));
   }
@@ -381,7 +381,7 @@ type ValueKind = "bool" | "date" | "text";
 type ValueControl = ZestTextField | ZestComboBox | ZestDateTimePicker;
 
 function valueKind(policy: SettableClaimPolicy | undefined): ValueKind {
-  if (policy?.datatype === "bool") return "bool";
+  if (policy?.datatype === ClaimValueType.BOOL) return "bool";
   return inputType(policy?.datatype) === "date" ? "date" : "text";
 }
 
@@ -732,9 +732,9 @@ class AccountPage extends Page {
       await this.refresh();
       if (!this.isActive()) return;
       this.feedback({
-        status: result.outcome === "verification_required"
+        status: result.outcome === SetClaimOutcome.VERIFICATION_REQUIRED
           ? t("app.account.claim_needs_verification")
-          : result.outcome === "queued"
+          : result.outcome === SetClaimOutcome.QUEUED
             ? t("app.account.claim_queued")
             : t("app.account.claim_saved"),
       });

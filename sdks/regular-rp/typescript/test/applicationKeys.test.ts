@@ -57,9 +57,9 @@ function domainKeyFrom(v: any): DomainPublicKey {
     fingerprint: v.fingerprint,
     algorithm: v.algorithm,
     keyUsage: v.key_usage,
-    createdAt: v.created_at,
-    expiresAt: v.expires_at,
-    revokedAt: v.revoked_at ?? undefined,
+    createdAt: new Date(v.created_at),
+    expiresAt: new Date(v.expires_at),
+    revokedAt: v.revoked_at ? new Date(v.revoked_at) : undefined,
   };
 }
 
@@ -81,8 +81,8 @@ function applicationKeyRefFrom(v: any): ApplicationKeyRef {
     algorithm: v.algorithm,
     publicKey: hex(v.public_key_hex),
     fingerprint: v.fingerprint,
-    createdAt: v.created_at,
-    expiresAt: v.expires_at,
+    createdAt: new Date(v.created_at),
+    expiresAt: new Date(v.expires_at),
   };
 }
 
@@ -100,7 +100,7 @@ function revocationFrom(v: any): ApplicationKeyRevocation {
     instanceId: v.instance_id,
     targetKeyId: v.target_key_id,
     targetFingerprint: v.target_fingerprint,
-    revokedAt: v.revoked_at,
+    revokedAt: new Date(v.revoked_at),
     signatures,
   };
 }
@@ -148,7 +148,7 @@ test("application-key revocation: payload matches the tag-first tuple", () => {
       instance.instance_id,
       d.target_key_id,
       d.target_fingerprint,
-      d.revoked_at,
+      new Date(d.revoked_at),
     ),
     expected,
   );
@@ -176,4 +176,13 @@ test("application-key revocation: negative cases fail", () => {
     const rev = revocationFrom(c.revocation);
     assert.equal(verifyApplicationKeyRevocation(rev, keys), false, `revocation verify mismatch for ${c.name}`);
   }
+});
+
+test("application-key revocation: a revoked_at with a fraction of a second never verifies", () => {
+  const d = load("application_key_revocation.json");
+  const keys = d.keys.map(applicationKeyRefFrom);
+  const rev = revocationFrom(d.cases[0].revocation);
+  assert.equal(verifyApplicationKeyRevocation(rev, keys), true);
+  const fractional = { ...rev, revokedAt: new Date(rev.revokedAt.getTime() + 250) };
+  assert.equal(verifyApplicationKeyRevocation(fractional, keys), false);
 });

@@ -2,6 +2,7 @@
 
 package csilgen.generated;
 
+import java.time.Instant;
 import java.util.List;
 
 public record SigningRequest(
@@ -11,8 +12,8 @@ public record SigningRequest(
     String issuerDomain /* wire: "issuer_domain" */,
     List<String> requestedClaimTypes /* wire: "requested_claim_types" */,
     String nonce /* wire: "nonce" */,
-    String issuedAt /* wire: "issued_at" */,
-    String expiresAt /* wire: "expires_at" */,
+    Instant issuedAt /* wire: "issued_at" */,
+    Instant expiresAt /* wire: "expires_at" */,
     String callback /* wire: "callback" */
 ) {
 }

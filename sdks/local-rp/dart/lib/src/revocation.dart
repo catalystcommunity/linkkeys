@@ -12,6 +12,7 @@ import 'dart:typed_data';
 import 'crypto/crypto.dart';
 import 'errors.dart';
 import 'local_rp.dart';
+import 'rfc3339.dart';
 import 'wire/cbor.dart';
 import 'wire/types.dart';
 
@@ -26,14 +27,15 @@ const String _revocationTag = 'linkkeys-key-revocation-v1alpha';
 /// to stop cross-domain reuse of a signature). This is the OLDER house
 /// tuple pattern -- a five-element array with the domain-separation tag
 /// first -- NOT the two-element `CBOR([context, payload])` envelope framing
-/// the four local-RP structures use.
+/// the four local-RP structures use. `revokedAtSeconds` is whole Unix
+/// seconds (a CBOR integer), see [Rfc3339.signedSeconds].
 Uint8List revocationPayload(String targetKeyId, String targetFingerprint,
-    String revokedAt, String signingDomain) {
+    int revokedAtSeconds, String signingDomain) {
   return Cbor.encode(Cbor.tuple([
     Cbor.vtext(_revocationTag),
     Cbor.vtext(targetKeyId),
     Cbor.vtext(targetFingerprint),
-    Cbor.vtext(revokedAt),
+    Cbor.vint(revokedAtSeconds),
     Cbor.vtext(signingDomain),
   ]));
 }
@@ -59,6 +61,9 @@ Future<void> verifyRevocationCertificate(RevocationCertificate cert,
 Future<int> countValidSigners(RevocationCertificate cert,
     List<DomainPublicKey> domainKeys, String domain) async {
   final validSigners = <String>{};
+  // A revocation time with a fraction of a second was never signed.
+  final revokedAtSeconds = Rfc3339.signedSeconds(cert.revokedAt);
+  if (revokedAtSeconds == null) return 0;
 
   for (final sig in cert.signatures) {
     // A key can never authorize its own revocation.
@@ -83,8 +88,8 @@ Future<int> countValidSigners(RevocationCertificate cert,
     }
 
     final payload = revocationPayload(
-        cert.targetKeyId, cert.targetFingerprint, cert.revokedAt, sig.domain);
-    if (key.algorithm == 'ed25519' &&
+        cert.targetKeyId, cert.targetFingerprint, revokedAtSeconds, sig.domain);
+    if (key.algorithm == KeyAlgorithm.ed25519 &&
         key.publicKey.length == 32 &&
         await Crypto.verifyEd25519(payload, sig.signature, key.publicKey)) {
       validSigners.add(sig.signedByKeyId);

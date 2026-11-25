@@ -1171,6 +1171,94 @@ pub const AdminClient = struct {
         defer alloc.free(csil_respb);
         try codec.decode_PreviewAppAccessResponse(alloc, csil_respb, out);
     }
+
+    /// Invoke Admin/rename-user with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn rename_user(self: AdminClient, alloc: std.mem.Allocator, req: *const types.RenameUserRequest, out: *types.RenameUserResponse) anyerror!void {
+        const csil_reqb = try codec.encode_RenameUserRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "rename-user", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_RenameUserResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Admin/set-application-id with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn set_application_id(self: AdminClient, alloc: std.mem.Allocator, req: *const types.SetApplicationIdRequest, out: *types.SetApplicationIdResponse) anyerror!void {
+        const csil_reqb = try codec.encode_SetApplicationIdRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "set-application-id", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_SetApplicationIdResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Admin/create-api-key with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn create_api_key(self: AdminClient, alloc: std.mem.Allocator, req: *const types.CreateApiKeyRequest, out: *types.CreateApiKeyResponse) anyerror!void {
+        const csil_reqb = try codec.encode_CreateApiKeyRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "create-api-key", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_CreateApiKeyResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Admin/list-api-keys with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn list_api_keys(self: AdminClient, alloc: std.mem.Allocator, req: *const types.ListApiKeysRequest, out: *types.ListApiKeysResponse) anyerror!void {
+        const csil_reqb = try codec.encode_ListApiKeysRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "list-api-keys", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_ListApiKeysResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Admin/revoke-api-key with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn revoke_api_key(self: AdminClient, alloc: std.mem.Allocator, req: *const types.RevokeApiKeyRequest, out: *types.RevokeApiKeyResponse) anyerror!void {
+        const csil_reqb = try codec.encode_RevokeApiKeyRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "revoke-api-key", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_RevokeApiKeyResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Admin/get-account-limits with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn get_account_limits(self: AdminClient, alloc: std.mem.Allocator, req: *const types.GetAccountLimitsRequest, out: *types.GetAccountLimitsResponse) anyerror!void {
+        const csil_reqb = try codec.encode_GetAccountLimitsRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "get-account-limits", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_GetAccountLimitsResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Admin/set-account-limits with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn set_account_limits(self: AdminClient, alloc: std.mem.Allocator, req: *const types.SetAccountLimitsRequest, out: *types.SetAccountLimitsResponse) anyerror!void {
+        const csil_reqb = try codec.encode_SetAccountLimitsRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "set-account-limits", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_SetAccountLimitsResponse(alloc, csil_respb, out);
+    }
+
+    /// Invoke Admin/get-application-usage with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn get_application_usage(self: AdminClient, alloc: std.mem.Allocator, req: *const types.GetApplicationUsageRequest, out: *types.GetApplicationUsageResponse) anyerror!void {
+        const csil_reqb = try codec.encode_GetApplicationUsageRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Admin", "get-application-usage", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_GetApplicationUsageResponse(alloc, csil_respb, out);
+    }
 };
 
 /// AccountClient is a typed client for the Account service over a CsilgenTransport.
@@ -1400,45 +1488,53 @@ pub const RpClient = struct {
     /// Invoke Rp/sign-request with a typed request, returning the decoded
     /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
     /// and free it once when done.
-    pub fn sign_request(self: RpClient, alloc: std.mem.Allocator, req: *const types.RpSignRequest, out: *types.RpSignResponse) anyerror!void {
+    pub fn sign_request(self: RpClient, alloc: std.mem.Allocator, req: *const types.RpSignRequest, out: *types.RpSignRequestReply) anyerror!void {
         const csil_reqb = try codec.encode_RpSignRequest(alloc, req);
         defer alloc.free(csil_reqb);
-        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Rp", "sign-request", csil_reqb);
-        defer alloc.free(csil_respb);
-        try codec.decode_RpSignResponse(alloc, csil_respb, out);
+        const call = self.transport.call_reply orelse return error.MissingRpcReplyCarrier;
+        const reply = try call(self.transport.ptr, alloc, "Rp", "sign-request", csil_reqb);
+        defer if (reply.variant) |variant| alloc.free(variant);
+        defer alloc.free(reply.payload);
+        try codec.decode_RpSignRequestReply(alloc, reply.variant, reply.payload, out);
     }
 
     /// Invoke Rp/decrypt-token with a typed request, returning the decoded
     /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
     /// and free it once when done.
-    pub fn decrypt_token(self: RpClient, alloc: std.mem.Allocator, req: *const types.RpDecryptRequest, out: *types.RpDecryptResponse) anyerror!void {
+    pub fn decrypt_token(self: RpClient, alloc: std.mem.Allocator, req: *const types.RpDecryptRequest, out: *types.RpDecryptTokenReply) anyerror!void {
         const csil_reqb = try codec.encode_RpDecryptRequest(alloc, req);
         defer alloc.free(csil_reqb);
-        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Rp", "decrypt-token", csil_reqb);
-        defer alloc.free(csil_respb);
-        try codec.decode_RpDecryptResponse(alloc, csil_respb, out);
+        const call = self.transport.call_reply orelse return error.MissingRpcReplyCarrier;
+        const reply = try call(self.transport.ptr, alloc, "Rp", "decrypt-token", csil_reqb);
+        defer if (reply.variant) |variant| alloc.free(variant);
+        defer alloc.free(reply.payload);
+        try codec.decode_RpDecryptTokenReply(alloc, reply.variant, reply.payload, out);
     }
 
     /// Invoke Rp/verify-assertion with a typed request, returning the decoded
     /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
     /// and free it once when done.
-    pub fn verify_assertion(self: RpClient, alloc: std.mem.Allocator, req: *const types.RpVerifyRequest, out: *types.RpVerifyResponse) anyerror!void {
+    pub fn verify_assertion(self: RpClient, alloc: std.mem.Allocator, req: *const types.RpVerifyRequest, out: *types.RpVerifyAssertionReply) anyerror!void {
         const csil_reqb = try codec.encode_RpVerifyRequest(alloc, req);
         defer alloc.free(csil_reqb);
-        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Rp", "verify-assertion", csil_reqb);
-        defer alloc.free(csil_respb);
-        try codec.decode_RpVerifyResponse(alloc, csil_respb, out);
+        const call = self.transport.call_reply orelse return error.MissingRpcReplyCarrier;
+        const reply = try call(self.transport.ptr, alloc, "Rp", "verify-assertion", csil_reqb);
+        defer if (reply.variant) |variant| alloc.free(variant);
+        defer alloc.free(reply.payload);
+        try codec.decode_RpVerifyAssertionReply(alloc, reply.variant, reply.payload, out);
     }
 
     /// Invoke Rp/userinfo-fetch with a typed request, returning the decoded
     /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
     /// and free it once when done.
-    pub fn userinfo_fetch(self: RpClient, alloc: std.mem.Allocator, req: *const types.RpUserInfoRequest, out: *types.UserInfo) anyerror!void {
+    pub fn userinfo_fetch(self: RpClient, alloc: std.mem.Allocator, req: *const types.RpUserInfoRequest, out: *types.RpUserinfoFetchReply) anyerror!void {
         const csil_reqb = try codec.encode_RpUserInfoRequest(alloc, req);
         defer alloc.free(csil_reqb);
-        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Rp", "userinfo-fetch", csil_reqb);
-        defer alloc.free(csil_respb);
-        try codec.decode_UserInfo(alloc, csil_respb, out);
+        const call = self.transport.call_reply orelse return error.MissingRpcReplyCarrier;
+        const reply = try call(self.transport.ptr, alloc, "Rp", "userinfo-fetch", csil_reqb);
+        defer if (reply.variant) |variant| alloc.free(variant);
+        defer alloc.free(reply.payload);
+        try codec.decode_RpUserinfoFetchReply(alloc, reply.variant, reply.payload, out);
     }
 
     /// Invoke Rp/issue-attestation with a typed request, returning the decoded

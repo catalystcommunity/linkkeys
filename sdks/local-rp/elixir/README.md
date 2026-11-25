@@ -55,7 +55,8 @@ sdks/local-rp/elixir/
                             # helpers
       browser.ex                        # _linkkeys_apis https= discovery +
                             # browser route URL building
-      timeutil.ex                        # RFC3339 parse/format
+      timeutil.ex                        # timestamp wire forms (tag 0,
+                            # signed whole seconds) + RFC3339 parse/format
       identity.ex                          # generate_local_rp_identity +
                             # byte storage helpers
       begin.ex                              # begin_local_login
@@ -68,6 +69,7 @@ sdks/local-rp/elixir/
     flow_test.exs              # fake-IDP end-to-end flow tests
     begin_test.exs             # identity-input parsing in begin_local_login
     browser_test.exs           # browser endpoint discovery (fake resolver)
+    wire_types_test.exs        # tag 0 timestamps and enum numbers
     act_as_test.exs            # act-as vectors, begin URL, callback nonce
 ```
 
@@ -87,6 +89,29 @@ A request for an `elixir`/`elixir-client` csilgen target has been filed at
 Once available, `cbor.ex`/`types.ex` (and the CSIL-RPC envelope framing
 portion of `rpc.ex`) can be dropped in favor of generated output.
 
+## Wire format: timestamps and enums
+
+`lib/linkkeys_local_rp/types.ex` follows these rules (see
+`docs/UPGRADING.md`, "Wire format: timestamps and enums"):
+
+- Each CSIL `timestamp` field is CBOR tag 0 that contains RFC 3339 text in
+  UTC, for example `c0 74 "2026-01-01T00:00:00Z"`. The structs keep a
+  `DateTime.t()`. The decoder rejects a time without tag 0. The SDK
+  removes the fraction of a second from each time that it makes from
+  `now`.
+- In a signed tuple payload (claim, key revocation, key vouch), a time is
+  a CBOR integer of whole Unix seconds. A time with a fraction of a second
+  cannot be signed. Verification of such a claim or certificate fails. The
+  SDK does not round the time.
+- Each closed vocabulary is a CSIL named-number enum. On the wire it is a
+  CBOR unsigned integer: `KeyAlgorithm` (`ed25519` 1, `x25519` 2),
+  `KeyUsage` (`sign` 1, `encrypt` 2, `agree` 3), and `AeadSuite`
+  (`aes-256-gcm` 1, `chacha20-poly1305` 2). The structs keep the text id
+  (for example `"aes-256-gcm"`). The decoder rejects a number that is not
+  in the registry.
+- The callback-box KDF context still contains the suite TEXT id. Only the
+  header field `suite` is a number.
+
 ## Running the tests
 
 ```sh
@@ -98,7 +123,7 @@ That's the exact command — no setup step, no dependency install, no
 environment variables required (`mix.exs` declares zero deps, and OTP's
 `:ssl` application is started automatically by `test/test_helper.exs`).
 
-Test counts as of this writing: **67 passed** — 29 conformance-vector tests
+Test count now: **91 passed**. The breakdown below is from the first release (**67 passed**) — 29 conformance-vector tests
 (one file per `sdks/local-rp/conformance/*.json`, positive and negative
 cases) + 16 flow tests (happy path + 8 single-step failure modes + 7
 hostile-IDP identity/revocation-binding tests) + 9 TLS pin-extraction tests

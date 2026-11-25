@@ -17,9 +17,9 @@ defmodule LinkkeysLocalRp.ConformanceRevocationsTest do
         fingerprint: k["fingerprint_hex"],
         algorithm: k["algorithm"],
         key_usage: k["key_usage"],
-        created_at: k["created_at"],
-        expires_at: k["expires_at"],
-        revoked_at: k["revoked_at"],
+        created_at: Vectors.ts(k["created_at"]),
+        expires_at: Vectors.ts(k["expires_at"]),
+        revoked_at: Vectors.ts(k["revoked_at"]),
         signed_by_key_id: nil,
         key_signature: nil
       }
@@ -32,7 +32,7 @@ defmodule LinkkeysLocalRp.ConformanceRevocationsTest do
     %RevocationCertificate{
       target_key_id: c["target_key_id"],
       target_fingerprint: c["target_fingerprint"],
-      revoked_at: c["revoked_at"],
+      revoked_at: Vectors.ts(c["revoked_at"]),
       signatures:
         Enum.map(c["signatures"], fn s ->
           %ClaimSignature{
@@ -64,16 +64,32 @@ defmodule LinkkeysLocalRp.ConformanceRevocationsTest do
     cert = case_["certificate"]
 
     for sig <- cert["signatures"] do
-      computed =
+      {:ok, computed} =
         Revocation.revocation_payload(
           cert["target_key_id"],
           cert["target_fingerprint"],
-          cert["revoked_at"],
+          Vectors.ts(cert["revoked_at"]),
           sig["domain"]
         )
 
       assert computed == Vectors.hex(sig["signed_payload_cbor_hex"])
     end
+  end
+
+  test "a revoked_at with a fraction of a second cannot be signed, so the certificate does not count" do
+    case_ = Enum.find(@revocations["certificate_cases"], fn c -> c["name"] == "valid_quorum_two_siblings" end)
+    cert = certificate(case_)
+
+    assert :error ==
+             Revocation.revocation_payload(
+               cert.target_key_id,
+               cert.target_fingerprint,
+               DateTime.add(cert.revoked_at, 500_000, :microsecond),
+               "conformance.example"
+             )
+
+    fractional = %{cert | revoked_at: DateTime.add(cert.revoked_at, 500_000, :microsecond)}
+    assert Revocation.count_valid_signers(fractional, domain_keys(), case_["verify_domain"]) == 0
   end
 
   test "all certificate cases" do

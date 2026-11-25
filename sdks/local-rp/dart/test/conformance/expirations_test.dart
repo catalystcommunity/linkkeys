@@ -35,8 +35,8 @@ void main() {
     test('check_timestamps skew boundaries are exact', () {
       final d = (loadJson('expirations.json')
           as Map<String, dynamic>)['check_timestamps'] as Map<String, dynamic>;
-      final issuedAt = d['issued_at'] as String;
-      final expiresAt = d['expires_at'] as String;
+      final issuedAt = ts(d['issued_at'] as String);
+      final expiresAt = ts(d['expires_at'] as String);
       final skew = d['skew_seconds'] as int;
       final cases = (d['cases'] as List).cast<Map<String, dynamic>>();
       expect(cases.length, equals(4));

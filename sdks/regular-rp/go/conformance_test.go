@@ -46,6 +46,19 @@ func loadVectorFile(t *testing.T, dir, name string, out any) {
 	}
 }
 
+// must returns a function that unwraps a (value, error) pair and fails the
+// test on error. Use it as must[[]byte](t)(api.EncodeX(v)) on the test
+// goroutine.
+func must[T any](t *testing.T) func(T, error) T {
+	return func(v T, err error) T {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		return v
+	}
+}
+
 func mustHex(t *testing.T, s string) []byte {
 	t.Helper()
 	b, err := hex.DecodeString(s)
@@ -60,14 +73,14 @@ func mustHex(t *testing.T, s string) []byte {
 // ---------------------------------------------------------------------------
 
 type appKeyRefVec struct {
-	Algorithm    string  `json:"algorithm"`
-	CreatedAt    string  `json:"created_at"`
-	ExpiresAt    string  `json:"expires_at"`
-	Fingerprint  string  `json:"fingerprint"`
-	KeyID        string  `json:"key_id"`
-	KeyUsage     string  `json:"key_usage"`
-	PublicKeyHex string  `json:"public_key_hex"`
-	RevokedAt    *string `json:"revoked_at"`
+	Algorithm    api.KeyAlgorithm `json:"algorithm"`
+	CreatedAt    time.Time        `json:"created_at"`
+	ExpiresAt    time.Time        `json:"expires_at"`
+	Fingerprint  string           `json:"fingerprint"`
+	KeyID        string           `json:"key_id"`
+	KeyUsage     api.KeyUsage     `json:"key_usage"`
+	PublicKeyHex string           `json:"public_key_hex"`
+	RevokedAt    *time.Time       `json:"revoked_at"`
 }
 
 func (v appKeyRefVec) toRef(t *testing.T) ApplicationKeyRef {
@@ -85,14 +98,14 @@ func (v appKeyRefVec) toRef(t *testing.T) ApplicationKeyRef {
 }
 
 type domainKeyVec struct {
-	Algorithm    string  `json:"algorithm"`
-	CreatedAt    string  `json:"created_at"`
-	ExpiresAt    string  `json:"expires_at"`
-	Fingerprint  string  `json:"fingerprint"`
-	KeyID        string  `json:"key_id"`
-	KeyUsage     string  `json:"key_usage"`
-	PublicKeyHex string  `json:"public_key_hex"`
-	RevokedAt    *string `json:"revoked_at"`
+	Algorithm    api.KeyAlgorithm `json:"algorithm"`
+	CreatedAt    time.Time        `json:"created_at"`
+	ExpiresAt    time.Time        `json:"expires_at"`
+	Fingerprint  string           `json:"fingerprint"`
+	KeyID        string           `json:"key_id"`
+	KeyUsage     api.KeyUsage     `json:"key_usage"`
+	PublicKeyHex string           `json:"public_key_hex"`
+	RevokedAt    *time.Time       `json:"revoked_at"`
 }
 
 func (v domainKeyVec) toDomainKey(t *testing.T) api.DomainPublicKey {
@@ -342,7 +355,7 @@ type revocationVec struct {
 	InstanceID        string         `json:"instance_id"`
 	TargetKeyID       string         `json:"target_key_id"`
 	TargetFingerprint string         `json:"target_fingerprint"`
-	RevokedAt         string         `json:"revoked_at"`
+	RevokedAt         time.Time      `json:"revoked_at"`
 	Signatures        []appKeySigVec `json:"signatures"`
 }
 

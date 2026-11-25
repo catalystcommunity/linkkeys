@@ -259,7 +259,6 @@ defmodule LinkkeysLocalRp.Rpc do
       now
       |> DateTime.add(-30, :day)
       |> DateTime.truncate(:second)
-      |> DateTime.to_iso8601()
 
     req_payload = Types.get_revocations_request_to_cbor(%Types.GetRevocationsRequest{since: since})
 

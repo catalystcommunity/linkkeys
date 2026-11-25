@@ -51,73 +51,102 @@ let civil_from_days (z : int) : int * int * int =
 
 let fail fmt = Printf.ksprintf (fun s -> raise (Bad_timestamp s)) fmt
 
-(* Parse an RFC3339 timestamp into Unix epoch seconds (UTC, as a float so
-   fractional seconds survive). Requires an explicit timezone offset (Z or
-   +HH:MM/-HH:MM) -- a bare local-time string is rejected rather than
-   silently treated as UTC or local time. *)
-let parse_rfc3339 (raw : string) : float =
-  let s = String.trim raw in
+let is_digit c = c >= '0' && c <= '9'
+
+let days_in_month (y : int) (m : int) : int =
+  match m with
+  | 2 -> if (y mod 4 = 0 && y mod 100 <> 0) || y mod 400 = 0 then 29 else 28
+  | 4 | 6 | 9 | 11 -> 30
+  | _ -> 31
+
+(* Strict RFC 3339 parse into (whole Unix seconds, fraction digits). The
+   fraction keeps at most nine digits (later digits are ignored) and has no
+   trailing zeros, so [""] means "a whole second". It accepts the same
+   relaxations as the Rust reference: a [t] or space separator, a [z] offset,
+   and a leap second [:60] read as [:59]. It refuses anything else -- no
+   surrounding whitespace, no missing seconds, an offset with a colon only. *)
+let parse_parts (s : string) : int * string =
   let len = String.length s in
-  if len < 20 then fail "timestamp too short: %S" s;
-  (try
-     if s.[4] <> '-' || s.[7] <> '-' then fail "bad date separators: %S" s;
-     if s.[10] <> 'T' && s.[10] <> 't' then fail "missing T separator: %S" s;
-     let year = int_of_string (String.sub s 0 4) in
-     let month = int_of_string (String.sub s 5 2) in
-     let day = int_of_string (String.sub s 8 2) in
-     let rest = String.sub s 11 (len - 11) in
-     if String.length rest < 9 then fail "time part too short: %S" s;
-     if rest.[2] <> ':' || rest.[5] <> ':' then fail "bad time separators: %S" s;
-     let hour = int_of_string (String.sub rest 0 2) in
-     let minute = int_of_string (String.sub rest 3 2) in
-     let sec = int_of_string (String.sub rest 6 2) in
-     let after_sec = String.sub rest 8 (String.length rest - 8) in
-     let frac, after_frac =
-       if String.length after_sec > 0 && after_sec.[0] = '.' then begin
-         let idx = ref 1 in
-         while
-           !idx < String.length after_sec
-           && (let c = after_sec.[!idx] in
-               c >= '0' && c <= '9')
-         do
-           incr idx
-         done;
-         let digits = String.sub after_sec 1 (!idx - 1) in
-         let frac = if digits = "" then 0.0 else float_of_string ("0." ^ digits) in
-         (frac, String.sub after_sec !idx (String.length after_sec - !idx))
-       end
-       else (0.0, after_sec)
-     in
-     if after_frac = "" then fail "timestamp has no timezone offset: %S" s;
-     let offset_seconds =
-       if after_frac = "Z" || after_frac = "z" then 0
-       else begin
-         let sign =
-           match after_frac.[0] with
-           | '+' -> 1
-           | '-' -> -1
-           | _ -> fail "timestamp has no timezone offset: %S" s
-         in
-         let body = String.sub after_frac 1 (String.length after_frac - 1) in
-         let body =
-           if String.length body = 4 && not (String.contains body ':') then
-             String.sub body 0 2 ^ ":" ^ String.sub body 2 2
-           else body
-         in
-         if String.length body <> 5 || body.[2] <> ':' then fail "bad offset: %S" s;
-         let oh = int_of_string (String.sub body 0 2) in
-         let om = int_of_string (String.sub body 3 2) in
-         sign * ((oh * 3600) + (om * 60))
-       end
-     in
-     if month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || sec > 60 then
-       fail "field out of range: %S" s;
-     let days = days_from_civil year month day in
-     (float_of_int ((days * 86400) + (hour * 3600) + (minute * 60) + sec - offset_seconds)) +. frac
-   with
-  | Bad_timestamp _ as e -> raise e
-  | Failure msg -> fail "unparseable RFC3339 timestamp %S: %s" s msg
-  | Invalid_argument msg -> fail "unparseable RFC3339 timestamp %S: %s" s msg)
+  let num pos n =
+    let sub = String.sub s pos n in
+    if not (String.for_all is_digit sub) then fail "not RFC 3339: %S" s;
+    int_of_string sub
+  in
+  if len < 20 then fail "not RFC 3339 (too short): %S" s;
+  if s.[4] <> '-' || s.[7] <> '-' || s.[13] <> ':' || s.[16] <> ':' then fail "not RFC 3339: %S" s;
+  if s.[10] <> 'T' && s.[10] <> 't' && s.[10] <> ' ' then fail "not RFC 3339 (no T separator): %S" s;
+  let year = num 0 4 and month = num 5 2 and day = num 8 2 in
+  let hour = num 11 2 and minute = num 14 2 and sec = num 17 2 in
+  let pos = ref 19 in
+  let frac =
+    if !pos < len && s.[!pos] = '.' then begin
+      incr pos;
+      let start = !pos in
+      while !pos < len && is_digit s.[!pos] do
+        incr pos
+      done;
+      if !pos = start then fail "not RFC 3339 (empty fraction): %S" s;
+      let digits = String.sub s start (min 9 (!pos - start)) in
+      (* Drop trailing zeros: "500" and "5" are the same fraction. *)
+      let n = ref (String.length digits) in
+      while !n > 0 && digits.[!n - 1] = '0' do
+        decr n
+      done;
+      String.sub digits 0 !n
+    end
+    else ""
+  in
+  let rest = String.sub s !pos (len - !pos) in
+  let offset_seconds =
+    if rest = "Z" || rest = "z" then 0
+    else if String.length rest = 6 && (rest.[0] = '+' || rest.[0] = '-') && rest.[3] = ':' then begin
+      let digits = String.sub rest 1 2 ^ String.sub rest 4 2 in
+      if not (String.for_all is_digit digits) then fail "not RFC 3339 (bad offset): %S" s;
+      let oh = int_of_string (String.sub rest 1 2) and om = int_of_string (String.sub rest 4 2) in
+      if oh > 23 || om > 59 then fail "not RFC 3339 (bad offset): %S" s;
+      (if rest.[0] = '+' then 1 else -1) * ((oh * 3600) + (om * 60))
+    end
+    else fail "not RFC 3339 (no valid offset): %S" s
+  in
+  if month < 1 || month > 12 || day < 1 || day > days_in_month year month || hour > 23 || minute > 59 || sec > 60 then
+    fail "not RFC 3339 (field out of range): %S" s;
+  let sec = if sec = 60 then 59 else sec in
+  let days = days_from_civil year month day in
+  ((days * 86400) + (hour * 3600) + (minute * 60) + sec - offset_seconds, frac)
+
+(* Parse an RFC 3339 timestamp into Unix epoch seconds (UTC, as a float so
+   fractional seconds survive). See [parse_parts] for what it accepts. *)
+let parse_rfc3339 (s : string) : float =
+  let secs, frac = parse_parts s in
+  float_of_int secs +. if frac = "" then 0.0 else float_of_string ("0." ^ frac)
+
+(* Whole Unix seconds as RFC 3339 UTC text, [YYYY-MM-DDTHH:MM:SS], no offset. *)
+let format_whole (secs : int) : string =
+  let days = if secs >= 0 then secs / 86400 else ((secs + 1) / 86400) - 1 in
+  let rem = secs - (days * 86400) in
+  let y, m, d = civil_from_days days in
+  Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02d" y m d (rem / 3600) (rem mod 3600 / 60) (rem mod 60)
+
+(* The CSIL wire form of a timestamp: RFC 3339 in UTC with [Z]. The
+   fraction is written in groups of three digits (none, 3, 6 or 9), as the
+   Rust reference writes it. Raises [Bad_timestamp] if [s] is not RFC 3339. *)
+let normalize_rfc3339 (s : string) : string =
+  let secs, frac = parse_parts s in
+  let frac =
+    if frac = "" then ""
+    else
+      let width = (String.length frac + 2) / 3 * 3 in
+      "." ^ frac ^ String.make (width - String.length frac) '0'
+  in
+  format_whole secs ^ frac ^ "Z"
+
+(* A timestamp inside a signed tuple payload is whole Unix seconds (a CBOR
+   integer). A fraction of a second was never signed, so this raises
+   [Bad_timestamp]; it does not round. *)
+let whole_unix_seconds (s : string) : int =
+  match parse_parts s with
+  | secs, "" -> secs
+  | _ -> fail "a signed timestamp must be a whole number of seconds: %S" s
 
 (* Render Unix epoch seconds as RFC3339 UTC with a Z suffix. Not
    wire-normative (only the parsed instant is ever compared -- see the

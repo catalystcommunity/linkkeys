@@ -1,5 +1,5 @@
 // A tiny, hand-written CBOR encoder for exactly one shape: a definite-length
-// array ("tuple") of text/byte-string/null elements, in a fixed caller-given
+// array ("tuple") of text/byte-string/integer/null elements, in a fixed caller-given
 // order. This is the house pattern liblinkkeys uses for every
 // domain-separated signature payload — see
 // `crates/liblinkkeys/src/local_rp.rs`'s `envelope_signature_input`,
@@ -21,16 +21,23 @@
 export type TupleElem =
   | { readonly t: "text"; readonly v: string }
   | { readonly t: "bytes"; readonly v: Uint8Array }
+  | { readonly t: "int"; readonly v: number }
   | { readonly t: "null" };
 
 export const text = (v: string): TupleElem => ({ t: "text", v });
 export const bytes = (v: Uint8Array): TupleElem => ({ t: "bytes", v });
 export const nullElem = (): TupleElem => ({ t: "null" });
+/** A CBOR integer. `v` must be a safe integer (signed timestamps are whole Unix seconds). */
+export const int = (v: number): TupleElem => {
+  if (!Number.isSafeInteger(v)) throw new RangeError("CBOR tuple integer must be a safe integer");
+  return { t: "int", v };
+};
 export const textOrNull = (v: string | undefined | null): TupleElem =>
   v === undefined || v === null ? nullElem() : text(v);
 
 const TEXT_ENCODER = new TextEncoder();
 
+/** Shortest-form CBOR head (RFC 8949 preferred serialization) for `n` in `0..=2^53-1`. */
 function head(major: number, n: number, out: number[]): void {
   const mt = major << 5;
   if (n < 24) {
@@ -39,11 +46,16 @@ function head(major: number, n: number, out: number[]): void {
     out.push(mt | 24, n);
   } else if (n < 0x10000) {
     out.push(mt | 25, (n >>> 8) & 0xff, n & 0xff);
-  } else {
-    // None of this SDK's tuple payloads ever need a length this large
-    // (they're all small, fixed-arity structures), so a 32-bit head is more
-    // than sufficient and keeps this encoder simple.
+  } else if (n < 0x100000000) {
     out.push(mt | 26, (n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff);
+  } else {
+    let big = BigInt(n);
+    const be: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      be.unshift(Number(big & 0xffn));
+      big >>= 8n;
+    }
+    out.push(mt | 27, ...be);
   }
 }
 
@@ -60,6 +72,11 @@ function writeElem(e: TupleElem, out: number[]): void {
       for (const b of e.v) out.push(b);
       return;
     }
+    case "int": {
+      if (e.v >= 0) head(0, e.v, out);
+      else head(1, -1 - e.v, out);
+      return;
+    }
     case "null": {
       out.push(0xf6);
       return;
@@ -67,7 +84,7 @@ function writeElem(e: TupleElem, out: number[]): void {
   }
 }
 
-/** Encode a fixed-order tuple of text/bytes/null elements as a definite-length CBOR array. */
+/** Encode a fixed-order tuple of text/bytes/integer/null elements as a definite-length CBOR array. */
 export function encodeCborTuple(elems: readonly TupleElem[]): Uint8Array {
   const out: number[] = [];
   head(4, elems.length, out);
