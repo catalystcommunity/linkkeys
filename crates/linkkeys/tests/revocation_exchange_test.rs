@@ -82,7 +82,7 @@ fn issue_signal_serve_and_apply_roundtrip() {
         algorithm: "ed25519".to_string(),
         fingerprint: revoked.fingerprint.clone(),
         key_usage: "sign".to_string(),
-        expires_at: time::OffsetDateTime::now_utc() + time::Duration::days(365),
+        expires_at: liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::days(365),
         revoked_at: None,
     })
     .unwrap();

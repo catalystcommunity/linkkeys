@@ -20,7 +20,7 @@ fn create_test_user_key(pool: &linkkeys::db::DbPool, user_id: &str) {
         &encrypted,
         &fingerprint,
         "ed25519",
-        time::OffsetDateTime::now_utc() + time::Duration::days(365),
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::days(365),
     )
     .expect("create user key");
 }
@@ -40,7 +40,7 @@ fn purge_keeps_uuid_tombstone_and_minimizes_active_data() {
         b"user@example.test",
         &[],
         None,
-        time::OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     )
     .expect("create claim");
     create_relation(&pool, "user", &user.id, "member", "group", "engineering");

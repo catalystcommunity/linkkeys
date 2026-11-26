@@ -28,7 +28,7 @@ use liblinkkeys::generated::types::{
 use linkkeys::net::{DomainRpc, HttpResponse, Net, NetError};
 use linkkeys::services::rp_cache;
 use std::sync::Arc;
-use time::{Duration, OffsetDateTime};
+use time::Duration;
 
 const APP: &str = "tinku";
 
@@ -322,7 +322,7 @@ fn domain_key_cache_miss_fetches_verifies_stores_and_returns_refreshed() {
     assert_eq!(resp.cache_status, RpCacheStatus::Refreshed);
     assert_eq!(resp.keys.len(), 1);
     assert_eq!(resp.keys[0].key_id, d.key_id);
-    assert!(resp.fetched_at <= OffsetDateTime::now_utc());
+    assert!(resp.fetched_at <= liblinkkeys::timestamp::now_whole_milliseconds());
 }
 
 #[test]

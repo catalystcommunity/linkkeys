@@ -60,7 +60,7 @@ fn issuer_signed_claim(
         algorithm: "ed25519".to_string(),
         fingerprint: liblinkkeys::crypto::fingerprint(&pk_bytes),
         key_usage: "sign".to_string(),
-        expires_at: time::OffsetDateTime::now_utc() + time::Duration::days(365),
+        expires_at: liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::days(365),
         revoked_at: None,
     };
     (claim, peer)

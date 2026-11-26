@@ -29,8 +29,8 @@ fn make_domain_key(key_id: &str, pk_bytes: &[u8]) -> DomainPublicKey {
         key_usage: liblinkkeys::generated::types::KeyUsage::Sign,
         signed_by_key_id: None,
         key_signature: None,
-        created_at: time::OffsetDateTime::now_utc(),
-        expires_at: time::OffsetDateTime::now_utc() + time::Duration::hours(1),
+        created_at: liblinkkeys::timestamp::now_whole_milliseconds(),
+        expires_at: liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(1),
         revoked_at: None,
     }
 }

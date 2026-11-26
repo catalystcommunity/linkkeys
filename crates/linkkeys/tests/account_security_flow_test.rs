@@ -43,7 +43,7 @@ fn verified_contact_and_recovery_are_single_use_and_revoke_sessions() {
             "person@example.test",
             &linkkeys::services::verification::token_digest(superseded_verification_token),
             vec![1, 2, 3],
-            time::OffsetDateTime::now_utc() + time::Duration::hours(24),
+            liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(24),
             None,
         )
         .expect("create verification challenge");
@@ -65,7 +65,7 @@ fn verified_contact_and_recovery_are_single_use_and_revoke_sessions() {
         "person@example.test",
         &linkkeys::services::verification::token_digest(verification_token),
         vec![1, 2, 3],
-        time::OffsetDateTime::now_utc() + time::Duration::hours(24),
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(24),
         None,
     )
     .expect("replace verification challenge");
@@ -109,7 +109,7 @@ fn verified_contact_and_recovery_are_single_use_and_revoke_sessions() {
         "person@example.test",
         &linkkeys::services::verification::token_digest(repeated_verification_token),
         vec![1, 2, 3],
-        time::OffsetDateTime::now_utc() + time::Duration::hours(24),
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(24),
         None,
     )
     .expect("create repeated verification challenge");
@@ -146,7 +146,7 @@ fn verified_contact_and_recovery_are_single_use_and_revoke_sessions() {
             "contact@recovery.example.test",
             &linkkeys::services::verification::token_digest(same_domain_token),
             vec![1, 2, 3],
-            time::OffsetDateTime::now_utc() + time::Duration::hours(24),
+            liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(24),
             None,
         )
         .expect("create same-domain verification challenge");
@@ -252,7 +252,7 @@ fn verified_contact_and_recovery_are_single_use_and_revoke_sessions() {
         "person@example.test",
         &linkkeys::services::verification::token_digest(recovery_token),
         vec![4, 5, 6],
-        time::OffsetDateTime::now_utc() + time::Duration::hours(1),
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(1),
         None,
     )
     .expect("create recovery challenge");
@@ -293,7 +293,7 @@ fn verified_contact_and_recovery_are_single_use_and_revoke_sessions() {
         "replacement@example.test",
         &linkkeys::services::verification::token_digest(stale_step_up_token),
         vec![7, 8, 9],
-        time::OffsetDateTime::now_utc() + time::Duration::hours(24),
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(24),
         Some(&active_password.id),
     )
     .unwrap();
@@ -323,13 +323,14 @@ fn verified_contact_and_recovery_are_single_use_and_revoke_sessions() {
         "expiring@example.test",
         &linkkeys::services::verification::token_digest(expired_step_up_token),
         vec![10, 11, 12],
-        time::OffsetDateTime::now_utc() + time::Duration::hours(24),
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(24),
         Some(&expiring_password.id),
     )
     .unwrap();
     pool.set_credential_expires_at(
         &expiring_password.id,
-        &(time::OffsetDateTime::now_utc() - time::Duration::seconds(1)).to_rfc3339(),
+        &(liblinkkeys::timestamp::now_whole_milliseconds() - time::Duration::seconds(1))
+            .to_rfc3339(),
     )
     .unwrap();
     assert!(
@@ -348,7 +349,7 @@ fn verified_contact_and_recovery_are_single_use_and_revoke_sessions() {
             "already-expired@example.test",
             &linkkeys::services::verification::token_digest("already-expired-token"),
             vec![13, 14, 15],
-            time::OffsetDateTime::now_utc() + time::Duration::hours(24),
+            liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(24),
             Some(&expiring_password.id),
         )
         .is_err());

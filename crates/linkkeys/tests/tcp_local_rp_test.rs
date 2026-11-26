@@ -310,7 +310,10 @@ fn redeem_claim_ticket_expired_ticket_rejected() {
     overrides.insert("ticket_hash".to_string(), Value::String(ticket_hash));
     overrides.insert(
         "expires_at".to_string(),
-        Value::String((time::OffsetDateTime::now_utc() - time::Duration::hours(1)).to_rfc3339()),
+        Value::String(
+            (liblinkkeys::timestamp::now_whole_milliseconds() - time::Duration::hours(1))
+                .to_rfc3339(),
+        ),
     );
     create_local_rp_claim_ticket(&pool, &overrides);
 

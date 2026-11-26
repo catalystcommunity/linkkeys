@@ -48,7 +48,9 @@ fn signing_guard() -> MutexGuard<'static, ()> {
 
 fn now() -> OffsetDateTime {
     // Whole seconds, so stored timestamps round-trip byte-identically.
-    OffsetDateTime::now_utc().replace_nanosecond(0).unwrap()
+    liblinkkeys::timestamp::now_whole_milliseconds()
+        .replace_nanosecond(0)
+        .unwrap()
 }
 
 struct Key {
@@ -82,8 +84,8 @@ impl Key {
             algorithm: liblinkkeys::generated::types::KeyAlgorithm::Ed25519,
             public_key: self.public.clone(),
             fingerprint: fingerprint(&self.public),
-            created_at: OffsetDateTime::now_utc() - Duration::days(1),
-            expires_at: OffsetDateTime::now_utc() + Duration::days(30),
+            created_at: liblinkkeys::timestamp::now_whole_milliseconds() - Duration::days(1),
+            expires_at: liblinkkeys::timestamp::now_whole_milliseconds() + Duration::days(30),
             revoked_at: None,
         }
     }
@@ -757,8 +759,8 @@ fn local_rp_descriptor(signing_private: &[u8]) -> (SignedLocalRpDescriptor, Stri
         encryption_public_key: vec![9; 32],
         fingerprint: fp.clone(),
         supported_suites: vec![liblinkkeys::generated::types::AeadSuite::Chacha20Poly1305],
-        created_at: OffsetDateTime::now_utc() - Duration::days(1),
-        expires_at: OffsetDateTime::now_utc() + Duration::days(30),
+        created_at: liblinkkeys::timestamp::now_whole_milliseconds() - Duration::days(1),
+        expires_at: liblinkkeys::timestamp::now_whole_milliseconds() + Duration::days(30),
     };
     (
         liblinkkeys::local_rp::sign_local_rp_descriptor(&descriptor, signing_private).unwrap(),
@@ -929,7 +931,7 @@ fn a_scope_set_survives_when_one_of_its_signing_keys_expired() {
     .unwrap();
     // The first key expired before the set was issued; the second is valid.
     let mut expired = w.audience_key.key_ref();
-    expired.expires_at = OffsetDateTime::now_utc() - Duration::days(1);
+    expired.expires_at = liblinkkeys::timestamp::now_whole_milliseconds() - Duration::days(1);
     w.keys.keys.insert(
         ("audience-app".into(), "audience-inst".into()),
         vec![expired, second.key_ref()],

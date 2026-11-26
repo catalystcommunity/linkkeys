@@ -68,7 +68,7 @@ fn seed_claims(pool: &linkkeys::db::DbPool, user_id: &str) {
             val,
             &[],
             None,
-            time::OffsetDateTime::now_utc(),
+            liblinkkeys::timestamp::now_whole_milliseconds(),
         )
         .expect("create claim");
     }

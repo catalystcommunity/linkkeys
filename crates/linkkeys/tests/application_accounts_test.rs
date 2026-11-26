@@ -261,7 +261,7 @@ fn usage_is_counted_by_day_and_operation() {
     applications::record_usage(&id, "sign-request", true);
     applications::record_usage(&id, "sign-request", true);
     applications::record_usage(&id, "decrypt-token", false);
-    let today = time::OffsetDateTime::now_utc().date();
+    let today = liblinkkeys::timestamp::now_whole_milliseconds().date();
     let usage = applications::get_application_usage(
         &pool,
         GetApplicationUsageRequest {
@@ -290,7 +290,7 @@ fn an_application_account_enrolls_only_under_its_own_id() {
         &pool,
         &id,
         request,
-        time::OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     )
     .unwrap_err();
     assert!(

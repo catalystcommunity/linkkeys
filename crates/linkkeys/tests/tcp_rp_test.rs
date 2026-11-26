@@ -378,7 +378,7 @@ fn start_login(pool: &linkkeys::db::DbPool, account_id: &str, nonce: &str) {
     pool.insert_rp_login_nonce(
         account_id,
         &hash,
-        time::OffsetDateTime::now_utc() + time::Duration::hours(1),
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(1),
     )
     .unwrap();
 }
@@ -528,7 +528,7 @@ fn rp_decrypt_token_enforces_the_distinct_user_limit() {
         &sealed_assertion(&pool, "user-1", app(), None),
     )
     .expect("a known user is still admitted");
-    let since = time::OffsetDateTime::now_utc() - time::Duration::days(30);
+    let since = liblinkkeys::timestamp::now_whole_milliseconds() - time::Duration::days(30);
     assert_eq!(
         pool.count_application_users_since(&user_id, since).unwrap(),
         1
@@ -559,7 +559,7 @@ fn rp_decrypt_token_needs_an_open_login_of_the_caller() {
         Some(Refusal::Rp(RpErrorCode::BadRequest)),
         "a finished login cannot be replayed"
     );
-    let since = time::OffsetDateTime::now_utc() - time::Duration::days(30);
+    let since = liblinkkeys::timestamp::now_whole_milliseconds() - time::Duration::days(30);
     assert_eq!(
         pool.count_application_users_since(&user_id, since).unwrap(),
         1
@@ -574,7 +574,11 @@ fn rp_sign_request_records_the_login_nonce() {
     use sha2::Digest as _;
     let hash: [u8; 32] = sha2::Sha256::digest(b"nonce-1").into();
     assert!(pool
-        .rp_login_nonce_open(&user_id, &hash, time::OffsetDateTime::now_utc())
+        .rp_login_nonce_open(
+            &user_id,
+            &hash,
+            liblinkkeys::timestamp::now_whole_milliseconds()
+        )
         .unwrap());
 }
 

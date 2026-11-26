@@ -48,7 +48,7 @@ fn consent_grant_records_offered_claims() {
     let mut offered_cbor = Vec::new();
     ciborium::ser::into_writer(&encoded, &mut offered_cbor).unwrap();
 
-    let now = time::OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_milliseconds();
     let issued = now;
     let expires = now + time::Duration::days(365);
     pool.upsert_consent_grant(
@@ -88,7 +88,7 @@ fn consent_grant_without_offered_claims_is_null() {
     let pool = common::create_test_pool();
     let user = create_user(&pool, &DataMap::new());
 
-    let now = time::OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_milliseconds();
     pool.upsert_consent_grant(
         &uuid::Uuid::now_v7().to_string(),
         &user.id,
@@ -112,7 +112,7 @@ fn consent_grant_without_offered_claims_is_null() {
 }
 
 fn upsert(pool: &linkkeys::db::DbPool, user_id: &str, app: Option<&ApplicationRef>, claim: &str) {
-    let now = time::OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_milliseconds();
     pool.upsert_consent_grant(
         &uuid::Uuid::now_v7().to_string(),
         user_id,

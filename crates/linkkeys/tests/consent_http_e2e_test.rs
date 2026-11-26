@@ -146,7 +146,7 @@ async fn spa_consent_flow_end_to_end() {
             value,
             &[],
             None,
-            time::OffsetDateTime::now_utc(),
+            liblinkkeys::timestamp::now_whole_milliseconds(),
         )
         .expect("claim");
     }
@@ -777,7 +777,7 @@ async fn off_domain_application_signs_in_with_per_application_consent() {
         b"a@b.com",
         &[],
         None,
-        time::OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     )
     .expect("claim");
 

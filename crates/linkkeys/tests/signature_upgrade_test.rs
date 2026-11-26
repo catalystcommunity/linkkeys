@@ -68,7 +68,7 @@ fn keysets(pool: &DbPool) -> Vec<DomainKeySet> {
 fn bare_claim(pool: &DbPool, user_id: &str, claim_type: &str, value: &[u8]) -> Claim {
     let id = uuid::Uuid::now_v7().to_string();
     // Microseconds, as Postgres stored attestation times before 0.14.1.
-    let attested_at = time::OffsetDateTime::now_utc() - time::Duration::days(200);
+    let attested_at = liblinkkeys::timestamp::now_whole_milliseconds() - time::Duration::days(200);
     let row = pool
         .create_claim(&id, user_id, claim_type, value, &[], None, attested_at)
         .unwrap();
@@ -359,7 +359,8 @@ fn legacy_consent_grant_is_resigned_and_verifies() {
     let pool = common::create_test_pool();
     let keys = three_keys(&pool);
     let user = common::data_factory::create_user(&pool, &HashMap::new());
-    let issued = whole_seconds(time::OffsetDateTime::now_utc() - time::Duration::days(150));
+    let issued =
+        whole_seconds(liblinkkeys::timestamp::now_whole_milliseconds() - time::Duration::days(150));
     let grant = ConsentGrant {
         grant_id: uuid::Uuid::now_v7().to_string(),
         user_id: user.id.clone(),
@@ -489,11 +490,11 @@ fn legacy_attestation(
         pool.revoke_application_key(
             &instance.id,
             &app_key.key_id,
-            time::OffsetDateTime::now_utc(),
+            liblinkkeys::timestamp::now_whole_milliseconds(),
         )
         .unwrap();
     }
-    let now = time::OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_milliseconds();
     let attestation = ApplicationKeyAttestation {
         subject_user_id: instance.subject_user_id.clone(),
         subject_domain: domain(),

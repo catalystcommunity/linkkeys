@@ -50,7 +50,7 @@ fn verified_contact(pool: &DbPool, user_id: &str, destination: &str) {
             destination,
             &linkkeys::services::verification::token_digest(&format!("verify-{destination}")),
             vec![1],
-            time::OffsetDateTime::now_utc() + time::Duration::hours(1),
+            liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(1),
             None,
         )
         .expect("contact challenge");
@@ -156,7 +156,7 @@ fn locked_account_cannot_complete_a_recovery_link() {
         "person@passwordlock.test",
         &linkkeys::services::verification::token_digest(token),
         vec![1, 2, 3],
-        time::OffsetDateTime::now_utc() + time::Duration::hours(1),
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(1),
         None,
     )
     .expect("recovery challenge");

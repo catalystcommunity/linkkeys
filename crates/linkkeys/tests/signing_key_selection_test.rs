@@ -12,7 +12,7 @@ mod common;
 
 use liblinkkeys::crypto::{self, SigningAlgorithm};
 use linkkeys::web::pick_active_signing_key;
-use time::{Duration, OffsetDateTime};
+use time::Duration;
 
 const TEST_PASSPHRASE: &[u8] = b"test-passphrase";
 
@@ -23,7 +23,7 @@ fn add_signing_key(pool: &linkkeys::db::DbPool) -> (String, Vec<u8>) {
     let sk_bytes = sk.to_bytes().to_vec();
     let encrypted = crypto::encrypt_private_key(&sk_bytes, TEST_PASSPHRASE).unwrap();
     let fp = crypto::fingerprint(&pk);
-    let expires = OffsetDateTime::now_utc() + Duration::days(365);
+    let expires = liblinkkeys::timestamp::now_whole_milliseconds() + Duration::days(365);
     let dk = pool
         .create_domain_key(&pk, &encrypted, &fp, "ed25519", expires)
         .expect("create_domain_key");

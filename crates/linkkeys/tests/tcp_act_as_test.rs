@@ -61,7 +61,7 @@ fn revocations_are_served_over_dispatch() {
         &RevokeActAsGrantRequest {
             grant_id: grant.grant_id.clone(),
         },
-        time::OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     )
     .unwrap();
 

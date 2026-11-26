@@ -60,7 +60,7 @@ fn record_trust_reset_increments_count_and_stamps_time() {
     let pool = common::create_test_pool();
     let instance = create_application_instance(&pool, &DataMap::new());
 
-    let at = time::OffsetDateTime::now_utc();
+    let at = liblinkkeys::timestamp::now_whole_milliseconds();
     let affected = pool
         .record_application_trust_reset(&instance.id, at)
         .unwrap();
@@ -78,8 +78,11 @@ fn record_trust_reset_increments_count_and_stamps_time() {
     assert!(updated.last_trust_reset_at.is_some());
 
     // A second reset increments again.
-    pool.record_application_trust_reset(&instance.id, time::OffsetDateTime::now_utc())
-        .unwrap();
+    pool.record_application_trust_reset(
+        &instance.id,
+        liblinkkeys::timestamp::now_whole_milliseconds(),
+    )
+    .unwrap();
     let twice = pool
         .find_application_instance(
             &instance.subject_user_id,
@@ -145,8 +148,8 @@ fn key_id_is_unique_per_instance() {
         "ed25519",
         b"some-other-public-key-bytes-not-real",
         "some-other-fingerprint",
-        time::OffsetDateTime::now_utc(),
-        time::OffsetDateTime::now_utc() + time::Duration::days(1),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::days(1),
     );
     assert!(result.is_err());
 }
@@ -162,7 +165,7 @@ fn revoke_key_is_idempotent_and_excludes_from_active_count() {
 
     assert_eq!(pool.count_application_keys(&instance.id).unwrap(), 1);
 
-    let revoked_at = time::OffsetDateTime::now_utc();
+    let revoked_at = liblinkkeys::timestamp::now_whole_milliseconds();
     let affected = pool
         .revoke_application_key(&instance.id, "revoke-me", revoked_at)
         .unwrap();
@@ -180,7 +183,11 @@ fn revoke_key_is_idempotent_and_excludes_from_active_count() {
 
     // Revoking again is a no-op (0 rows affected — already revoked).
     let affected_again = pool
-        .revoke_application_key(&instance.id, "revoke-me", time::OffsetDateTime::now_utc())
+        .revoke_application_key(
+            &instance.id,
+            "revoke-me",
+            liblinkkeys::timestamp::now_whole_milliseconds(),
+        )
         .unwrap();
     assert_eq!(affected_again, 0);
 }
@@ -234,7 +241,7 @@ fn revocation_insert_is_idempotent_and_list_since_filters_by_time() {
     let pool = common::create_test_pool();
     let instance = create_application_instance(&pool, &DataMap::new());
 
-    let base = time::OffsetDateTime::now_utc();
+    let base = liblinkkeys::timestamp::now_whole_milliseconds();
     let old_overrides: DataMap = [
         ("target_key_id".to_string(), json!("old-key")),
         (
@@ -277,7 +284,7 @@ fn revocation_insert_is_idempotent_and_list_since_filters_by_time() {
             &instance.id,
             "old-key",
             "some-different-fingerprint",
-            time::OffsetDateTime::now_utc(),
+            liblinkkeys::timestamp::now_whole_milliseconds(),
             b"a-different-record-payload",
         )
         .unwrap();
@@ -292,7 +299,7 @@ fn revocation_insert_is_idempotent_and_list_since_filters_by_time() {
 #[test]
 fn challenge_is_single_use() {
     let pool = common::create_test_pool();
-    let expires_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(5);
+    let expires_at = liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::minutes(5);
     pool.insert_application_key_challenge(
         "challenge-1",
         "subject-uuid-string",
@@ -307,7 +314,7 @@ fn challenge_is_single_use() {
     )
     .unwrap();
 
-    let now = time::OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_milliseconds();
     let first = pool
         .consume_application_key_challenge("challenge-1", now)
         .unwrap();
@@ -318,7 +325,10 @@ fn challenge_is_single_use() {
 
     // A second consumption must fail — the challenge is already consumed.
     let second = pool
-        .consume_application_key_challenge("challenge-1", time::OffsetDateTime::now_utc())
+        .consume_application_key_challenge(
+            "challenge-1",
+            liblinkkeys::timestamp::now_whole_milliseconds(),
+        )
         .unwrap();
     assert!(second.is_none());
 }
@@ -326,7 +336,7 @@ fn challenge_is_single_use() {
 #[test]
 fn expired_challenge_cannot_be_consumed() {
     let pool = common::create_test_pool();
-    let expires_at = time::OffsetDateTime::now_utc() - time::Duration::minutes(1);
+    let expires_at = liblinkkeys::timestamp::now_whole_milliseconds() - time::Duration::minutes(1);
     pool.insert_application_key_challenge(
         "expired-challenge",
         "subject-uuid-string",
@@ -342,7 +352,10 @@ fn expired_challenge_cannot_be_consumed() {
     .unwrap();
 
     let result = pool
-        .consume_application_key_challenge("expired-challenge", time::OffsetDateTime::now_utc())
+        .consume_application_key_challenge(
+            "expired-challenge",
+            liblinkkeys::timestamp::now_whole_milliseconds(),
+        )
         .unwrap();
     assert!(result.is_none());
 }
@@ -350,7 +363,7 @@ fn expired_challenge_cannot_be_consumed() {
 #[test]
 fn delete_expired_challenges_removes_only_expired() {
     let pool = common::create_test_pool();
-    let now = time::OffsetDateTime::now_utc();
+    let now = liblinkkeys::timestamp::now_whole_milliseconds();
     pool.insert_application_key_challenge(
         "expired-1",
         "subject",
@@ -427,8 +440,12 @@ fn load_public_records_returns_active_attestations_and_revocations() {
     .into_iter()
     .collect();
     create_application_key_attestation(&pool, &revoked_key.id, &revoked_attestation_overrides);
-    pool.revoke_application_key(&instance.id, "revoked-key", time::OffsetDateTime::now_utc())
-        .unwrap();
+    pool.revoke_application_key(
+        &instance.id,
+        "revoked-key",
+        liblinkkeys::timestamp::now_whole_milliseconds(),
+    )
+    .unwrap();
     let revocation_overrides: DataMap = [
         ("target_key_id".to_string(), json!("revoked-key")),
         (
@@ -485,7 +502,10 @@ fn load_public_records_excludes_expired_keys() {
         ("key_id".to_string(), json!("expired-key")),
         (
             "expires_at".to_string(),
-            json!((time::OffsetDateTime::now_utc() - time::Duration::hours(1)).to_rfc3339()),
+            json!(
+                (liblinkkeys::timestamp::now_whole_milliseconds() - time::Duration::hours(1))
+                    .to_rfc3339()
+            ),
         ),
     ]
     .into_iter()
@@ -560,7 +580,7 @@ fn instances_of_the_same_subject_never_see_each_others_keys() {
     pool.revoke_application_key(
         &instance_a.id,
         "shared-key-id",
-        time::OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     )
     .unwrap();
     assert_eq!(pool.count_application_keys(&instance_a.id).unwrap(), 0);
