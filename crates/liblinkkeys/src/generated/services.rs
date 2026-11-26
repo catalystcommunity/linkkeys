@@ -875,6 +875,12 @@ pub trait Rp {
         ctx: &Self::Context,
         input: RpResolveActAsRevocationsRequest,
     ) -> Result<GetActAsGrantRevocationsResponse, ServiceError>;
+    /// verify-claims (request/response).
+    fn verify_claims(
+        &self,
+        ctx: &Self::Context,
+        input: RpVerifyClaimsRequest,
+    ) -> Result<RpVerifyClaimsResponse, ServiceError>;
 }
 
 /// ActAs service trait

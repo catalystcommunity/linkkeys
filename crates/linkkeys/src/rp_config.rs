@@ -21,7 +21,9 @@
 //! datatype   = "url"
 //! ```
 
-use liblinkkeys::generated::types::{ClaimRequest, ClaimValueType, DomainClaim, RequestedClaim};
+use liblinkkeys::generated::types::{
+    ClaimRequest, ClaimValueType, DomainClaim, RequestedClaim, VerifyingParty,
+};
 use serde::Deserialize;
 use std::env;
 
@@ -42,6 +44,10 @@ pub struct RpClaimsConfig {
 pub struct RpClaim {
     pub claim_type: String,
     pub datatype: String,
+    /// `"home_domain"`: the user's home domain must have verified the claim
+    /// (`RequestedClaim.verified_by`). Absent: no verifier is required.
+    #[serde(default)]
+    pub verified_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -79,6 +85,14 @@ impl RpClaimsConfig {
                     claim.claim_type, claim.datatype
                 ));
             }
+            if let Some(verifier) = &claim.verified_by {
+                if VerifyingParty::from_label(verifier).is_none() {
+                    return Err(format!(
+                        "claim {}: verified_by {:?} is not a CSIL VerifyingParty label",
+                        claim.claim_type, verifier
+                    ));
+                }
+            }
         }
         Ok(config)
     }
@@ -101,6 +115,10 @@ impl RpClaim {
             claim_type: self.claim_type.clone(),
             // `load_from_path` refuses an unknown label.
             datatype: ClaimValueType::from_label(&self.datatype).unwrap_or(ClaimValueType::Opaque),
+            verified_by: self
+                .verified_by
+                .as_deref()
+                .and_then(VerifyingParty::from_label),
         }
     }
 }
@@ -179,6 +197,32 @@ mod tests {
         assert_eq!(req.required[0].claim_type, "email");
         assert_eq!(req.required[0].datatype, ClaimValueType::Email);
         assert_eq!(req.optional[0].claim_type, "display_name");
+    }
+
+    #[test]
+    fn parses_verified_by_and_refuses_an_unknown_verifier() {
+        let cfg = RpClaimsConfig::load_from_path(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/rp-claims.example.toml"
+        ))
+        .expect("the example config loads");
+        let req = cfg.to_claim_request().unwrap();
+        assert_eq!(req.required[0].claim_type, "email");
+        assert_eq!(
+            req.required[0].verified_by,
+            Some(VerifyingParty::HomeDomain)
+        );
+        assert_eq!(req.optional[0].verified_by, None);
+
+        let dir = std::env::temp_dir().join(format!("rp-claims-{}", uuid::Uuid::now_v7()));
+        std::fs::write(
+            &dir,
+            "[[required]]\nclaim_type = \"email\"\ndatatype = \"email\"\nverified_by = \"anyone\"\n",
+        )
+        .unwrap();
+        let refused = RpClaimsConfig::load_from_path(dir.to_str().unwrap());
+        std::fs::remove_file(&dir).unwrap();
+        assert!(refused.unwrap_err().contains("verified_by"));
     }
 
     #[test]

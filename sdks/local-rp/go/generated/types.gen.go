@@ -1176,12 +1176,13 @@ func (v *AccountKind) UnmarshalText(text []byte) error {
 type RpErrorCode int64
 
 const (
-	RpErrorCodeNotApplicationAccount RpErrorCode = 1
-	RpErrorCodeApplicationMismatch   RpErrorCode = 2
-	RpErrorCodeApplicationUserLimit  RpErrorCode = 3
-	RpErrorCodeBadRequest            RpErrorCode = 4
-	RpErrorCodeUpstreamFailed        RpErrorCode = 5
-	RpErrorCodeInternal              RpErrorCode = 6
+	RpErrorCodeNotApplicationAccount   RpErrorCode = 1
+	RpErrorCodeApplicationMismatch     RpErrorCode = 2
+	RpErrorCodeApplicationUserLimit    RpErrorCode = 3
+	RpErrorCodeBadRequest              RpErrorCode = 4
+	RpErrorCodeUpstreamFailed          RpErrorCode = 5
+	RpErrorCodeInternal                RpErrorCode = 6
+	RpErrorCodeRequiredClaimUnverified RpErrorCode = 7
 )
 
 func (v RpErrorCode) ToNumber() int64 {
@@ -1191,7 +1192,7 @@ func (v RpErrorCode) ToNumber() int64 {
 func RpErrorCodeFromNumber(number int64) (RpErrorCode, error) {
 	v := RpErrorCode(number)
 	switch v {
-	case RpErrorCodeNotApplicationAccount, RpErrorCodeApplicationMismatch, RpErrorCodeApplicationUserLimit, RpErrorCodeBadRequest, RpErrorCodeUpstreamFailed, RpErrorCodeInternal:
+	case RpErrorCodeNotApplicationAccount, RpErrorCodeApplicationMismatch, RpErrorCodeApplicationUserLimit, RpErrorCodeBadRequest, RpErrorCodeUpstreamFailed, RpErrorCodeInternal, RpErrorCodeRequiredClaimUnverified:
 		return v, nil
 	}
 	return 0, fmt.Errorf("unknown RpErrorCode value %d", number)
@@ -1211,6 +1212,8 @@ func (v RpErrorCode) MarshalText() ([]byte, error) {
 		return []byte("upstream_failed"), nil
 	case RpErrorCodeInternal:
 		return []byte("internal"), nil
+	case RpErrorCodeRequiredClaimUnverified:
+		return []byte("required_claim_unverified"), nil
 	}
 	return nil, fmt.Errorf("unknown RpErrorCode value %d", v)
 }
@@ -1229,6 +1232,8 @@ func (v *RpErrorCode) UnmarshalText(text []byte) error {
 		*v = RpErrorCodeUpstreamFailed
 	case "internal":
 		*v = RpErrorCodeInternal
+	case "required_claim_unverified":
+		*v = RpErrorCodeRequiredClaimUnverified
 	default:
 		return fmt.Errorf("unknown RpErrorCode label %q", text)
 	}
@@ -1460,10 +1465,48 @@ type GetUserClaimsResponse struct {
 	Claims []Claim `json:"claims" yaml:"claims"`
 }
 
+type VerifyingParty int64
+
+const (
+	VerifyingPartyHomeDomain VerifyingParty = 1
+)
+
+func (v VerifyingParty) ToNumber() int64 {
+	return int64(v)
+}
+
+func VerifyingPartyFromNumber(number int64) (VerifyingParty, error) {
+	v := VerifyingParty(number)
+	switch v {
+	case VerifyingPartyHomeDomain:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown VerifyingParty value %d", number)
+}
+
+func (v VerifyingParty) MarshalText() ([]byte, error) {
+	switch v {
+	case VerifyingPartyHomeDomain:
+		return []byte("home_domain"), nil
+	}
+	return nil, fmt.Errorf("unknown VerifyingParty value %d", v)
+}
+
+func (v *VerifyingParty) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "home_domain":
+		*v = VerifyingPartyHomeDomain
+	default:
+		return fmt.Errorf("unknown VerifyingParty label %q", text)
+	}
+	return nil
+}
+
 // RequestedClaim represents a structured data type
 type RequestedClaim struct {
-	ClaimType string         `json:"claim_type" yaml:"claim_type"`
-	Datatype  ClaimValueType `json:"datatype" yaml:"datatype"`
+	ClaimType  string          `json:"claim_type" yaml:"claim_type"`
+	Datatype   ClaimValueType  `json:"datatype" yaml:"datatype"`
+	VerifiedBy *VerifyingParty `json:"verified_by,omitempty" yaml:"verified_by,omitempty"`
 }
 
 // ClaimRequest represents a structured data type
@@ -2529,6 +2572,7 @@ type BrowserConsentClaim struct {
 	MaxBytes         int64            `json:"max_bytes" yaml:"max_bytes"`
 	RequiresApproval bool             `json:"requires_approval" yaml:"requires_approval"`
 	NewlyRequested   *bool            `json:"newly_requested,omitempty" yaml:"newly_requested,omitempty"`
+	HomeVerified     *bool            `json:"home_verified,omitempty" yaml:"home_verified,omitempty"`
 }
 
 // BrowserAuthorizationInspectResponse represents a structured data type
@@ -2658,6 +2702,110 @@ type RpVerifyRequest struct {
 type RpVerifyResponse struct {
 	Assertion IdentityAssertion `json:"assertion" yaml:"assertion"`
 	Verified  bool              `json:"verified" yaml:"verified"`
+}
+
+type ClaimCheckStatus int64
+
+const (
+	ClaimCheckStatusValid           ClaimCheckStatus = 1
+	ClaimCheckStatusWrongSubject    ClaimCheckStatus = 2
+	ClaimCheckStatusBadTimestamp    ClaimCheckStatus = 3
+	ClaimCheckStatusUnsigned        ClaimCheckStatus = 4
+	ClaimCheckStatusRevoked         ClaimCheckStatus = 5
+	ClaimCheckStatusExpired         ClaimCheckStatus = 6
+	ClaimCheckStatusKeysUnavailable ClaimCheckStatus = 7
+	ClaimCheckStatusKeyNotValid     ClaimCheckStatus = 8
+	ClaimCheckStatusBadSignature    ClaimCheckStatus = 9
+)
+
+func (v ClaimCheckStatus) ToNumber() int64 {
+	return int64(v)
+}
+
+func ClaimCheckStatusFromNumber(number int64) (ClaimCheckStatus, error) {
+	v := ClaimCheckStatus(number)
+	switch v {
+	case ClaimCheckStatusValid, ClaimCheckStatusWrongSubject, ClaimCheckStatusBadTimestamp, ClaimCheckStatusUnsigned, ClaimCheckStatusRevoked, ClaimCheckStatusExpired, ClaimCheckStatusKeysUnavailable, ClaimCheckStatusKeyNotValid, ClaimCheckStatusBadSignature:
+		return v, nil
+	}
+	return 0, fmt.Errorf("unknown ClaimCheckStatus value %d", number)
+}
+
+func (v ClaimCheckStatus) MarshalText() ([]byte, error) {
+	switch v {
+	case ClaimCheckStatusValid:
+		return []byte("valid"), nil
+	case ClaimCheckStatusWrongSubject:
+		return []byte("wrong_subject"), nil
+	case ClaimCheckStatusBadTimestamp:
+		return []byte("bad_timestamp"), nil
+	case ClaimCheckStatusUnsigned:
+		return []byte("unsigned"), nil
+	case ClaimCheckStatusRevoked:
+		return []byte("revoked"), nil
+	case ClaimCheckStatusExpired:
+		return []byte("expired"), nil
+	case ClaimCheckStatusKeysUnavailable:
+		return []byte("keys_unavailable"), nil
+	case ClaimCheckStatusKeyNotValid:
+		return []byte("key_not_valid"), nil
+	case ClaimCheckStatusBadSignature:
+		return []byte("bad_signature"), nil
+	}
+	return nil, fmt.Errorf("unknown ClaimCheckStatus value %d", v)
+}
+
+func (v *ClaimCheckStatus) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "valid":
+		*v = ClaimCheckStatusValid
+	case "wrong_subject":
+		*v = ClaimCheckStatusWrongSubject
+	case "bad_timestamp":
+		*v = ClaimCheckStatusBadTimestamp
+	case "unsigned":
+		*v = ClaimCheckStatusUnsigned
+	case "revoked":
+		*v = ClaimCheckStatusRevoked
+	case "expired":
+		*v = ClaimCheckStatusExpired
+	case "keys_unavailable":
+		*v = ClaimCheckStatusKeysUnavailable
+	case "key_not_valid":
+		*v = ClaimCheckStatusKeyNotValid
+	case "bad_signature":
+		*v = ClaimCheckStatusBadSignature
+	default:
+		return fmt.Errorf("unknown ClaimCheckStatus label %q", text)
+	}
+	return nil
+}
+
+// DomainSignatureCheck represents a structured data type
+type DomainSignatureCheck struct {
+	Domain string           `json:"domain" yaml:"domain"`
+	Status ClaimCheckStatus `json:"status" yaml:"status"`
+}
+
+// ClaimCheck represents a structured data type
+type ClaimCheck struct {
+	ClaimId        string                 `json:"claim_id" yaml:"claim_id"`
+	ClaimType      string                 `json:"claim_type" yaml:"claim_type"`
+	ClaimStatus    ClaimCheckStatus       `json:"claim_status" yaml:"claim_status"`
+	SigningDomains []DomainSignatureCheck `json:"signing_domains" yaml:"signing_domains"`
+	Verified       bool                   `json:"verified" yaml:"verified"`
+}
+
+// RpVerifyClaimsRequest represents a structured data type
+type RpVerifyClaimsRequest struct {
+	SubjectDomain string  `json:"subject_domain" yaml:"subject_domain"`
+	UserId        string  `json:"user_id" yaml:"user_id"`
+	Claims        []Claim `json:"claims" yaml:"claims"`
+}
+
+// RpVerifyClaimsResponse represents a structured data type
+type RpVerifyClaimsResponse struct {
+	Checks []ClaimCheck `json:"checks" yaml:"checks"`
 }
 
 // RpUserInfoRequest represents a structured data type

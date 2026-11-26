@@ -1144,6 +1144,7 @@ pub fn preview_release_policy(
             .map(|claim_type| RequestedClaim {
                 claim_type: claim_type.clone(),
                 datatype: ValueType::Text,
+                verified_by: None,
             })
             .collect()
     };

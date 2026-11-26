@@ -348,6 +348,7 @@ export const RpErrorCode = {
   BAD_REQUEST: "bad_request",
   UPSTREAM_FAILED: "upstream_failed",
   INTERNAL: "internal",
+  REQUIRED_CLAIM_UNVERIFIED: "required_claim_unverified",
 } as const;
 export type RpErrorCode = (typeof RpErrorCode)[keyof typeof RpErrorCode];
 export const RpErrorCodeNumbers = makeEnumNumbers<RpErrorCode>([
@@ -357,6 +358,7 @@ export const RpErrorCodeNumbers = makeEnumNumbers<RpErrorCode>([
   [RpErrorCode.BAD_REQUEST, 4n],
   [RpErrorCode.UPSTREAM_FAILED, 5n],
   [RpErrorCode.INTERNAL, 6n],
+  [RpErrorCode.REQUIRED_CLAIM_UNVERIFIED, 7n],
 ]);
 
 export const IssuedClaimOutcome = {
@@ -518,9 +520,18 @@ export interface GetUserClaimsResponse {
   claims: Claim[];
 }
 
+export const VerifyingParty = {
+  HOME_DOMAIN: "home_domain",
+} as const;
+export type VerifyingParty = (typeof VerifyingParty)[keyof typeof VerifyingParty];
+export const VerifyingPartyNumbers = makeEnumNumbers<VerifyingParty>([
+  [VerifyingParty.HOME_DOMAIN, 1n],
+]);
+
 export interface RequestedClaim {
   claimType: string;
   datatype: ClaimValueType;
+  verifiedBy?: VerifyingParty;
 }
 
 export interface ClaimRequest {
@@ -1421,6 +1432,7 @@ export interface BrowserConsentClaim {
   maxBytes: number;
   requiresApproval: boolean;
   newlyRequested?: boolean;
+  homeVerified?: boolean;
 }
 
 export interface BrowserAuthorizationInspectResponse {
@@ -1533,6 +1545,53 @@ export interface RpVerifyRequest {
 export interface RpVerifyResponse {
   assertion: IdentityAssertion;
   verified: boolean;
+}
+
+export const ClaimCheckStatus = {
+  VALID: "valid",
+  WRONG_SUBJECT: "wrong_subject",
+  BAD_TIMESTAMP: "bad_timestamp",
+  UNSIGNED: "unsigned",
+  REVOKED: "revoked",
+  EXPIRED: "expired",
+  KEYS_UNAVAILABLE: "keys_unavailable",
+  KEY_NOT_VALID: "key_not_valid",
+  BAD_SIGNATURE: "bad_signature",
+} as const;
+export type ClaimCheckStatus = (typeof ClaimCheckStatus)[keyof typeof ClaimCheckStatus];
+export const ClaimCheckStatusNumbers = makeEnumNumbers<ClaimCheckStatus>([
+  [ClaimCheckStatus.VALID, 1n],
+  [ClaimCheckStatus.WRONG_SUBJECT, 2n],
+  [ClaimCheckStatus.BAD_TIMESTAMP, 3n],
+  [ClaimCheckStatus.UNSIGNED, 4n],
+  [ClaimCheckStatus.REVOKED, 5n],
+  [ClaimCheckStatus.EXPIRED, 6n],
+  [ClaimCheckStatus.KEYS_UNAVAILABLE, 7n],
+  [ClaimCheckStatus.KEY_NOT_VALID, 8n],
+  [ClaimCheckStatus.BAD_SIGNATURE, 9n],
+]);
+
+export interface DomainSignatureCheck {
+  domain: string;
+  status: ClaimCheckStatus;
+}
+
+export interface ClaimCheck {
+  claimId: string;
+  claimType: string;
+  claimStatus: ClaimCheckStatus;
+  signingDomains: DomainSignatureCheck[];
+  verified: boolean;
+}
+
+export interface RpVerifyClaimsRequest {
+  subjectDomain: string;
+  userId: string;
+  claims: Claim[];
+}
+
+export interface RpVerifyClaimsResponse {
+  checks: ClaimCheck[];
 }
 
 export interface RpUserInfoRequest {

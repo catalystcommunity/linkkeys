@@ -1451,6 +1451,12 @@ public struct RpClient {
     return try GetActAsGrantRevocationsResponse.fromCbor(csilResp)
   }
 
+  public func verifyClaims(_ request: RpVerifyClaimsRequest) throws -> RpVerifyClaimsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try transport.call(service: "Rp", op: "verify-claims", request: csilRequest)
+    return try RpVerifyClaimsResponse.fromCbor(csilResp)
+  }
+
 }
 
 /// ActAsClient is a typed client for the ActAs service. The client owns

@@ -700,6 +700,7 @@ fn signed_email_request(signing_id: &str, sk_bytes: &[u8], nonce: &str) -> Strin
             required: vec![RequestedClaim {
                 claim_type: "email".to_string(),
                 datatype: liblinkkeys::claim_policy::ValueType::Email,
+                verified_by: None,
             }],
             optional: Vec::new(),
         }),

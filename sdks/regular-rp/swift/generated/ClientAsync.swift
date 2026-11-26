@@ -1618,6 +1618,18 @@ public struct RpAsyncClient {
     return try GetActAsGrantRevocationsResponse.fromCbor(csilResp)
   }
 
+  public func verifyClaims(
+    _ request: RpVerifyClaimsRequest
+  ) async throws -> RpVerifyClaimsResponse {
+    let csilRequest = try request.toCbor()
+    let csilResp = try await transport.call(
+      service: "Rp",
+      op: "verify-claims",
+      request: csilRequest
+    )
+    return try RpVerifyClaimsResponse.fromCbor(csilResp)
+  }
+
 }
 
 /// ActAsAsyncClient is a typed client for the ActAs service. The client owns

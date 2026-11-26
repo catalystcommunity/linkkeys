@@ -632,6 +632,7 @@ public enum RpErrorCode: String, Equatable, Sendable, CaseIterable, Codable {
   case badRequest = "bad_request"
   case upstreamFailed = "upstream_failed"
   case `internal` = "internal"
+  case requiredClaimUnverified = "required_claim_unverified"
 
   public var wireNumber: Int64 {
     switch self {
@@ -641,6 +642,7 @@ public enum RpErrorCode: String, Equatable, Sendable, CaseIterable, Codable {
     case .badRequest: return 4
     case .upstreamFailed: return 5
     case .`internal`: return 6
+    case .requiredClaimUnverified: return 7
     }
   }
 
@@ -652,6 +654,7 @@ public enum RpErrorCode: String, Equatable, Sendable, CaseIterable, Codable {
     case 4: self = .badRequest
     case 5: self = .upstreamFailed
     case 6: self = .`internal`
+    case 7: self = .requiredClaimUnverified
     default: return nil
     }
   }
@@ -1239,21 +1242,43 @@ public struct GetUserClaimsResponse: Equatable, Sendable {
   ]
 }
 
+/// VerifyingParty is a generated CSIL string enum (a closed set of wire values).
+public enum VerifyingParty: String, Equatable, Sendable, CaseIterable, Codable {
+  case homeDomain = "home_domain"
+
+  public var wireNumber: Int64 {
+    switch self {
+    case .homeDomain: return 1
+    }
+  }
+
+  public init?(wireNumber: Int64) {
+    switch wireNumber {
+    case 1: self = .homeDomain
+    default: return nil
+    }
+  }
+}
+
 /// RequestedClaim is a generated CSIL record type.
 public struct RequestedClaim: Equatable, Sendable {
   /// wire key: claim_type
   public let claimType: String
   public let datatype: ClaimValueType
+  /// wire key: verified_by
+  public let verifiedBy: VerifyingParty?
 
-  public init(claimType: String, datatype: ClaimValueType) {
+  public init(claimType: String, datatype: ClaimValueType, verifiedBy: VerifyingParty? = nil) {
     self.claimType = claimType
     self.datatype = datatype
+    self.verifiedBy = verifiedBy
   }
 
   /// CBOR wire keys (verbatim) keyed by Swift property name.
   public static let wireKeys: [String: String] = [
     "claimType": "claim_type",
     "datatype": "datatype",
+    "verifiedBy": "verified_by",
   ]
 }
 
@@ -4673,6 +4698,8 @@ public struct BrowserConsentClaim: Equatable, Sendable {
   public let requiresApproval: Bool
   /// wire key: newly_requested
   public let newlyRequested: Bool?
+  /// wire key: home_verified
+  public let homeVerified: Bool?
 
   public init(
     claimType: String,
@@ -4685,7 +4712,8 @@ public struct BrowserConsentClaim: Equatable, Sendable {
     userSettable: Bool,
     maxBytes: Int64,
     requiresApproval: Bool,
-    newlyRequested: Bool? = nil
+    newlyRequested: Bool? = nil,
+    homeVerified: Bool? = nil
   ) {
     self.claimType = claimType
     self.label = label
@@ -4698,6 +4726,7 @@ public struct BrowserConsentClaim: Equatable, Sendable {
     self.maxBytes = maxBytes
     self.requiresApproval = requiresApproval
     self.newlyRequested = newlyRequested
+    self.homeVerified = homeVerified
   }
 
   /// CBOR wire keys (verbatim) keyed by Swift property name.
@@ -4713,6 +4742,7 @@ public struct BrowserConsentClaim: Equatable, Sendable {
     "maxBytes": "max_bytes",
     "requiresApproval": "requires_approval",
     "newlyRequested": "newly_requested",
+    "homeVerified": "home_verified",
   ]
 }
 
@@ -5178,6 +5208,137 @@ public struct RpVerifyResponse: Equatable, Sendable {
   public static let wireKeys: [String: String] = [
     "assertion": "assertion",
     "verified": "verified",
+  ]
+}
+
+/// ClaimCheckStatus is a generated CSIL string enum (a closed set of wire values).
+public enum ClaimCheckStatus: String, Equatable, Sendable, CaseIterable, Codable {
+  case valid = "valid"
+  case wrongSubject = "wrong_subject"
+  case badTimestamp = "bad_timestamp"
+  case unsigned = "unsigned"
+  case revoked = "revoked"
+  case expired = "expired"
+  case keysUnavailable = "keys_unavailable"
+  case keyNotValid = "key_not_valid"
+  case badSignature = "bad_signature"
+
+  public var wireNumber: Int64 {
+    switch self {
+    case .valid: return 1
+    case .wrongSubject: return 2
+    case .badTimestamp: return 3
+    case .unsigned: return 4
+    case .revoked: return 5
+    case .expired: return 6
+    case .keysUnavailable: return 7
+    case .keyNotValid: return 8
+    case .badSignature: return 9
+    }
+  }
+
+  public init?(wireNumber: Int64) {
+    switch wireNumber {
+    case 1: self = .valid
+    case 2: self = .wrongSubject
+    case 3: self = .badTimestamp
+    case 4: self = .unsigned
+    case 5: self = .revoked
+    case 6: self = .expired
+    case 7: self = .keysUnavailable
+    case 8: self = .keyNotValid
+    case 9: self = .badSignature
+    default: return nil
+    }
+  }
+}
+
+/// DomainSignatureCheck is a generated CSIL record type.
+public struct DomainSignatureCheck: Equatable, Sendable {
+  public let domain: String
+  public let status: ClaimCheckStatus
+
+  public init(domain: String, status: ClaimCheckStatus) {
+    self.domain = domain
+    self.status = status
+  }
+
+  /// CBOR wire keys (verbatim) keyed by Swift property name.
+  public static let wireKeys: [String: String] = [
+    "domain": "domain",
+    "status": "status",
+  ]
+}
+
+/// ClaimCheck is a generated CSIL record type.
+public struct ClaimCheck: Equatable, Sendable {
+  /// wire key: claim_id
+  public let claimId: String
+  /// wire key: claim_type
+  public let claimType: String
+  /// wire key: claim_status
+  public let claimStatus: ClaimCheckStatus
+  /// wire key: signing_domains
+  public let signingDomains: [DomainSignatureCheck]
+  public let verified: Bool
+
+  public init(
+    claimId: String,
+    claimType: String,
+    claimStatus: ClaimCheckStatus,
+    signingDomains: [DomainSignatureCheck],
+    verified: Bool
+  ) {
+    self.claimId = claimId
+    self.claimType = claimType
+    self.claimStatus = claimStatus
+    self.signingDomains = signingDomains
+    self.verified = verified
+  }
+
+  /// CBOR wire keys (verbatim) keyed by Swift property name.
+  public static let wireKeys: [String: String] = [
+    "claimId": "claim_id",
+    "claimType": "claim_type",
+    "claimStatus": "claim_status",
+    "signingDomains": "signing_domains",
+    "verified": "verified",
+  ]
+}
+
+/// RpVerifyClaimsRequest is a generated CSIL record type.
+public struct RpVerifyClaimsRequest: Equatable, Sendable {
+  /// wire key: subject_domain
+  public let subjectDomain: String
+  /// wire key: user_id
+  public let userId: String
+  public let claims: [Claim]
+
+  public init(subjectDomain: String, userId: String, claims: [Claim]) {
+    self.subjectDomain = subjectDomain
+    self.userId = userId
+    self.claims = claims
+  }
+
+  /// CBOR wire keys (verbatim) keyed by Swift property name.
+  public static let wireKeys: [String: String] = [
+    "subjectDomain": "subject_domain",
+    "userId": "user_id",
+    "claims": "claims",
+  ]
+}
+
+/// RpVerifyClaimsResponse is a generated CSIL record type.
+public struct RpVerifyClaimsResponse: Equatable, Sendable {
+  public let checks: [ClaimCheck]
+
+  public init(checks: [ClaimCheck]) {
+    self.checks = checks
+  }
+
+  /// CBOR wire keys (verbatim) keyed by Swift property name.
+  public static let wireKeys: [String: String] = [
+    "checks": "checks"
   ]
 }
 

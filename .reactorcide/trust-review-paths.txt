@@ -44,6 +44,7 @@ crates/linkkeys/src/services/pins.rs
 crates/linkkeys/src/services/pubkey_cache.rs
 crates/linkkeys/src/services/revocations.rs
 crates/linkkeys/src/services/rp_cache.rs
+crates/linkkeys/src/services/rp_claim_check.rs
 crates/linkkeys/src/services/signature_upgrade.rs
 crates/linkkeys/src/tcp/dns_pin_cache.rs
 crates/linkkeys/src/tcp/tls.rs

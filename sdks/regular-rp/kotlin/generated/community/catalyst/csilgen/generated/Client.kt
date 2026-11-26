@@ -508,6 +508,9 @@ class RpClient(private val transport: Transport) {
     fun resolveActAsRevocations(request: RpResolveActAsRevocationsRequest): GetActAsGrantRevocationsResponse {
         return decode<GetActAsGrantRevocationsResponse>(transport.call("Rp", "resolve-act-as-revocations", encode(request)))
     }
+    fun verifyClaims(request: RpVerifyClaimsRequest): RpVerifyClaimsResponse {
+        return decode<RpVerifyClaimsResponse>(transport.call("Rp", "verify-claims", encode(request)))
+    }
 }
 
 /** Typed client for the ActAs service. The client owns (de)serialization;

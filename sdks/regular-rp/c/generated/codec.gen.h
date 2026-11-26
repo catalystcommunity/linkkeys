@@ -1112,6 +1112,8 @@ static inline int csilc_enc_GetUserClaimsRequest(csilc_buf *b, const GetUserClai
 static inline int csilc_dec_GetUserClaimsRequest(const csilc_value *m, CsilCodecArena *a, GetUserClaimsRequest *out);
 static inline int csilc_enc_GetUserClaimsResponse(csilc_buf *b, const GetUserClaimsResponse *v);
 static inline int csilc_dec_GetUserClaimsResponse(const csilc_value *m, CsilCodecArena *a, GetUserClaimsResponse *out);
+static inline int csilc_enc_VerifyingParty(csilc_buf *b, const VerifyingParty *v);
+static inline int csilc_dec_VerifyingParty(const csilc_value *src, CsilCodecArena *a, VerifyingParty *out);
 static inline int csilc_enc_RequestedClaim(csilc_buf *b, const RequestedClaim *v);
 static inline int csilc_dec_RequestedClaim(const csilc_value *m, CsilCodecArena *a, RequestedClaim *out);
 static inline int csilc_enc_ClaimRequest(csilc_buf *b, const ClaimRequest *v);
@@ -1478,6 +1480,16 @@ static inline int csilc_enc_RpVerifyRequest(csilc_buf *b, const RpVerifyRequest 
 static inline int csilc_dec_RpVerifyRequest(const csilc_value *m, CsilCodecArena *a, RpVerifyRequest *out);
 static inline int csilc_enc_RpVerifyResponse(csilc_buf *b, const RpVerifyResponse *v);
 static inline int csilc_dec_RpVerifyResponse(const csilc_value *m, CsilCodecArena *a, RpVerifyResponse *out);
+static inline int csilc_enc_ClaimCheckStatus(csilc_buf *b, const ClaimCheckStatus *v);
+static inline int csilc_dec_ClaimCheckStatus(const csilc_value *src, CsilCodecArena *a, ClaimCheckStatus *out);
+static inline int csilc_enc_DomainSignatureCheck(csilc_buf *b, const DomainSignatureCheck *v);
+static inline int csilc_dec_DomainSignatureCheck(const csilc_value *m, CsilCodecArena *a, DomainSignatureCheck *out);
+static inline int csilc_enc_ClaimCheck(csilc_buf *b, const ClaimCheck *v);
+static inline int csilc_dec_ClaimCheck(const csilc_value *m, CsilCodecArena *a, ClaimCheck *out);
+static inline int csilc_enc_RpVerifyClaimsRequest(csilc_buf *b, const RpVerifyClaimsRequest *v);
+static inline int csilc_dec_RpVerifyClaimsRequest(const csilc_value *m, CsilCodecArena *a, RpVerifyClaimsRequest *out);
+static inline int csilc_enc_RpVerifyClaimsResponse(csilc_buf *b, const RpVerifyClaimsResponse *v);
+static inline int csilc_dec_RpVerifyClaimsResponse(const csilc_value *m, CsilCodecArena *a, RpVerifyClaimsResponse *out);
 static inline int csilc_enc_RpUserInfoRequest(csilc_buf *b, const RpUserInfoRequest *v);
 static inline int csilc_dec_RpUserInfoRequest(const csilc_value *m, CsilCodecArena *a, RpUserInfoRequest *out);
 static inline int csilc_enc_RpError(csilc_buf *b, const RpError *v);
@@ -2976,14 +2988,30 @@ static inline int csilc_dec_GetUserClaimsResponse(const csilc_value *m, CsilCode
     return 0;
 }
 
+static inline int csilc_enc_VerifyingParty(csilc_buf *b, const VerifyingParty *v) {
+    int64_t number;
+    return csil_VerifyingParty_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_VerifyingParty(const csilc_value *src, CsilCodecArena *a, VerifyingParty *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_VerifyingParty_from_number(number, out) ? 0 : -1;
+}
+
 /* csilc_enc_RequestedClaim writes RequestedClaim as a canonical CBOR map. */
 static inline int csilc_enc_RequestedClaim(csilc_buf *b, const RequestedClaim *v) {
     size_t csilc_n = 2;
+    if (v->verified_by) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "datatype", 8)) return -1;
     if (csilc_enc_ClaimValueType(b, &(v->datatype))) return -1;
     if (csilc_w_text(b, "claim_type", 10)) return -1;
     if (csilc_w_text(b, (v->claim_type), (v->claim_type) ? strlen(v->claim_type) : 0)) return -1;
+    if (v->verified_by) {
+        if (csilc_w_text(b, "verified_by", 11)) return -1;
+        if (csilc_enc_VerifyingParty(b, &((*v->verified_by)))) return -1;
+    }
     return 0;
 }
 
@@ -2996,6 +3024,14 @@ static inline int csilc_dec_RequestedClaim(const csilc_value *m, CsilCodecArena 
     if (csilc_dec_ClaimValueType(csilc_f, a, &(out->datatype))) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
+    csilc_f = csilc_map_get(m, "verified_by");
+    out->verified_by = NULL;
+    if (csilc_f) {
+        VerifyingParty *csilc_p = (VerifyingParty *)csilc_arena_alloc(a, sizeof(VerifyingParty));
+        if (!csilc_p) return -1;
+        if (csilc_dec_VerifyingParty(csilc_f, a, &((*csilc_p)))) return -1;
+        out->verified_by = csilc_p;
+    }
     return 0;
 }
 
@@ -7779,6 +7815,7 @@ static inline int csilc_dec_BrowserAuthorizationInspectRequest(const csilc_value
 /* csilc_enc_BrowserConsentClaim writes BrowserConsentClaim as a canonical CBOR map. */
 static inline int csilc_enc_BrowserConsentClaim(csilc_buf *b, const BrowserConsentClaim *v) {
     size_t csilc_n = 10;
+    if (v->home_verified) csilc_n++;
     if (v->newly_requested) csilc_n++;
     if (csilc_w_map_head(b, csilc_n)) return -1;
     if (csilc_w_text(b, "label", 5)) return -1;
@@ -7795,6 +7832,10 @@ static inline int csilc_enc_BrowserConsentClaim(csilc_buf *b, const BrowserConse
     if (csilc_w_int(b, (int64_t)(v->max_bytes))) return -1;
     if (csilc_w_text(b, "claim_type", 10)) return -1;
     if (csilc_w_text(b, (v->claim_type), (v->claim_type) ? strlen(v->claim_type) : 0)) return -1;
+    if (v->home_verified) {
+        if (csilc_w_text(b, "home_verified", 13)) return -1;
+        if (csilc_w_bool(b, ((*v->home_verified)))) return -1;
+    }
     if (csilc_w_text(b, "user_settable", 13)) return -1;
     if (csilc_w_bool(b, (v->user_settable))) return -1;
     if (csilc_w_text(b, "default_granted", 15)) return -1;
@@ -7827,6 +7868,14 @@ static inline int csilc_dec_BrowserConsentClaim(const csilc_value *m, CsilCodecA
     if (!csilc_as_i64(csilc_f, &(out->max_bytes))) return -1;
     csilc_f = csilc_map_get(m, "claim_type");
     if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
+    csilc_f = csilc_map_get(m, "home_verified");
+    out->home_verified = NULL;
+    if (csilc_f) {
+        bool *csilc_p = (bool *)csilc_arena_alloc(a, sizeof(bool));
+        if (!csilc_p) return -1;
+        if (!csilc_as_bool(csilc_f, &((*csilc_p)))) return -1;
+        out->home_verified = csilc_p;
+    }
     csilc_f = csilc_map_get(m, "user_settable");
     if (!csilc_as_bool(csilc_f, &(out->user_settable))) return -1;
     csilc_f = csilc_map_get(m, "default_granted");
@@ -8637,6 +8686,157 @@ static inline int csilc_dec_RpVerifyResponse(const csilc_value *m, CsilCodecAren
     if (!csilc_as_bool(csilc_f, &(out->verified))) return -1;
     csilc_f = csilc_map_get(m, "assertion");
     if (csilc_dec_IdentityAssertion(csilc_f, a, &(out->assertion))) return -1;
+    return 0;
+}
+
+static inline int csilc_enc_ClaimCheckStatus(csilc_buf *b, const ClaimCheckStatus *v) {
+    int64_t number;
+    return csil_ClaimCheckStatus_to_number(*v, &number) ? csilc_w_int(b, number) : -1;
+}
+
+static inline int csilc_dec_ClaimCheckStatus(const csilc_value *src, CsilCodecArena *a, ClaimCheckStatus *out) {
+    (void)a;
+    int64_t number;
+    return csilc_as_i64(src, &number) && csil_ClaimCheckStatus_from_number(number, out) ? 0 : -1;
+}
+
+/* csilc_enc_DomainSignatureCheck writes DomainSignatureCheck as a canonical CBOR map. */
+static inline int csilc_enc_DomainSignatureCheck(csilc_buf *b, const DomainSignatureCheck *v) {
+    size_t csilc_n = 2;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "domain", 6)) return -1;
+    if (csilc_w_text(b, (v->domain), (v->domain) ? strlen(v->domain) : 0)) return -1;
+    if (csilc_w_text(b, "status", 6)) return -1;
+    if (csilc_enc_ClaimCheckStatus(b, &(v->status))) return -1;
+    return 0;
+}
+
+/* csilc_dec_DomainSignatureCheck reads DomainSignatureCheck from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_DomainSignatureCheck(const csilc_value *m, CsilCodecArena *a, DomainSignatureCheck *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "domain");
+    if (!csilc_get_text(csilc_f, &(out->domain))) return -1;
+    csilc_f = csilc_map_get(m, "status");
+    if (csilc_dec_ClaimCheckStatus(csilc_f, a, &(out->status))) return -1;
+    return 0;
+}
+
+/* csilc_enc_ClaimCheck writes ClaimCheck as a canonical CBOR map. */
+static inline int csilc_enc_ClaimCheck(csilc_buf *b, const ClaimCheck *v) {
+    size_t csilc_n = 5;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "claim_id", 8)) return -1;
+    if (csilc_w_text(b, (v->claim_id), (v->claim_id) ? strlen(v->claim_id) : 0)) return -1;
+    if (csilc_w_text(b, "verified", 8)) return -1;
+    if (csilc_w_bool(b, (v->verified))) return -1;
+    if (csilc_w_text(b, "claim_type", 10)) return -1;
+    if (csilc_w_text(b, (v->claim_type), (v->claim_type) ? strlen(v->claim_type) : 0)) return -1;
+    if (csilc_w_text(b, "claim_status", 12)) return -1;
+    if (csilc_enc_ClaimCheckStatus(b, &(v->claim_status))) return -1;
+    if (csilc_w_text(b, "signing_domains", 15)) return -1;
+    if (csilc_w_array_head(b, v->signing_domains_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->signing_domains_count; csilc_i++) {
+        if (csilc_enc_DomainSignatureCheck(b, &(v->signing_domains[csilc_i]))) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_ClaimCheck reads ClaimCheck from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_ClaimCheck(const csilc_value *m, CsilCodecArena *a, ClaimCheck *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "claim_id");
+    if (!csilc_get_text(csilc_f, &(out->claim_id))) return -1;
+    csilc_f = csilc_map_get(m, "verified");
+    if (!csilc_as_bool(csilc_f, &(out->verified))) return -1;
+    csilc_f = csilc_map_get(m, "claim_type");
+    if (!csilc_get_text(csilc_f, &(out->claim_type))) return -1;
+    csilc_f = csilc_map_get(m, "claim_status");
+    if (csilc_dec_ClaimCheckStatus(csilc_f, a, &(out->claim_status))) return -1;
+    csilc_f = csilc_map_get(m, "signing_domains");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->signing_domains_count = csilc_f->as.array.count;
+    out->signing_domains = NULL;
+    if (out->signing_domains_count) {
+        out->signing_domains = (DomainSignatureCheck *)csilc_arena_alloc(a, out->signing_domains_count * sizeof(DomainSignatureCheck));
+        if (!out->signing_domains) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->signing_domains_count; csilc_i++) {
+            if (csilc_dec_DomainSignatureCheck(&csilc_f->as.array.items[csilc_i], a, &(out->signing_domains[csilc_i]))) return -1;
+        }
+    }
+    return 0;
+}
+
+/* csilc_enc_RpVerifyClaimsRequest writes RpVerifyClaimsRequest as a canonical CBOR map. */
+static inline int csilc_enc_RpVerifyClaimsRequest(csilc_buf *b, const RpVerifyClaimsRequest *v) {
+    size_t csilc_n = 3;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "claims", 6)) return -1;
+    if (csilc_w_array_head(b, v->claims_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->claims_count; csilc_i++) {
+        if (csilc_enc_Claim(b, &(v->claims[csilc_i]))) return -1;
+    }
+    if (csilc_w_text(b, "user_id", 7)) return -1;
+    if (csilc_w_text(b, (v->user_id), (v->user_id) ? strlen(v->user_id) : 0)) return -1;
+    if (csilc_w_text(b, "subject_domain", 14)) return -1;
+    if (csilc_w_text(b, (v->subject_domain), (v->subject_domain) ? strlen(v->subject_domain) : 0)) return -1;
+    return 0;
+}
+
+/* csilc_dec_RpVerifyClaimsRequest reads RpVerifyClaimsRequest from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RpVerifyClaimsRequest(const csilc_value *m, CsilCodecArena *a, RpVerifyClaimsRequest *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "claims");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->claims_count = csilc_f->as.array.count;
+    out->claims = NULL;
+    if (out->claims_count) {
+        out->claims = (Claim *)csilc_arena_alloc(a, out->claims_count * sizeof(Claim));
+        if (!out->claims) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->claims_count; csilc_i++) {
+            if (csilc_dec_Claim(&csilc_f->as.array.items[csilc_i], a, &(out->claims[csilc_i]))) return -1;
+        }
+    }
+    csilc_f = csilc_map_get(m, "user_id");
+    if (!csilc_get_text(csilc_f, &(out->user_id))) return -1;
+    csilc_f = csilc_map_get(m, "subject_domain");
+    if (!csilc_get_text(csilc_f, &(out->subject_domain))) return -1;
+    return 0;
+}
+
+/* csilc_enc_RpVerifyClaimsResponse writes RpVerifyClaimsResponse as a canonical CBOR map. */
+static inline int csilc_enc_RpVerifyClaimsResponse(csilc_buf *b, const RpVerifyClaimsResponse *v) {
+    size_t csilc_n = 1;
+    if (csilc_w_map_head(b, csilc_n)) return -1;
+    if (csilc_w_text(b, "checks", 6)) return -1;
+    if (csilc_w_array_head(b, v->checks_count)) return -1;
+    for (size_t csilc_i = 0; csilc_i < v->checks_count; csilc_i++) {
+        if (csilc_enc_ClaimCheck(b, &(v->checks[csilc_i]))) return -1;
+    }
+    return 0;
+}
+
+/* csilc_dec_RpVerifyClaimsResponse reads RpVerifyClaimsResponse from a decoded CBOR map (arena-borrowed). */
+static inline int csilc_dec_RpVerifyClaimsResponse(const csilc_value *m, CsilCodecArena *a, RpVerifyClaimsResponse *out) {
+    (void)a;
+    const csilc_value *csilc_f;
+    if (!m || m->kind != CSILC_MAP || m->as.map.duplicate || m->as.map.long_key) return -1;
+    csilc_f = csilc_map_get(m, "checks");
+    if (!csilc_f || csilc_f->kind != CSILC_ARRAY) return -1;
+    out->checks_count = csilc_f->as.array.count;
+    out->checks = NULL;
+    if (out->checks_count) {
+        out->checks = (ClaimCheck *)csilc_arena_alloc(a, out->checks_count * sizeof(ClaimCheck));
+        if (!out->checks) return -1;
+        for (size_t csilc_i = 0; csilc_i < out->checks_count; csilc_i++) {
+            if (csilc_dec_ClaimCheck(&csilc_f->as.array.items[csilc_i], a, &(out->checks[csilc_i]))) return -1;
+        }
+    }
     return 0;
 }
 
@@ -14629,6 +14829,29 @@ static inline int csil_decode_GetUserClaimsResponse(const uint8_t *in, size_t le
     return 0;
 }
 
+/* Encode a VerifyingParty to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_VerifyingParty(const VerifyingParty *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_VerifyingParty(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a VerifyingParty. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_VerifyingParty(const uint8_t *in, size_t len, VerifyingParty *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_VerifyingParty(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
 /* Encode a RequestedClaim to CBOR. On success *out is a malloc'd buffer of
  * *out_len bytes the caller frees with free(); returns non-zero on failure. */
 static inline int csil_encode_RequestedClaim(const RequestedClaim *v, uint8_t **out, size_t *out_len) {
@@ -18834,6 +19057,121 @@ static inline int csil_decode_RpVerifyResponse(const uint8_t *in, size_t len, Rp
     const csilc_value *root;
     if (csilc_decode(in, len, &a, &root)) return -1;
     if (csilc_dec_RpVerifyResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ClaimCheckStatus to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ClaimCheckStatus(const ClaimCheckStatus *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ClaimCheckStatus(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ClaimCheckStatus. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ClaimCheckStatus(const uint8_t *in, size_t len, ClaimCheckStatus *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ClaimCheckStatus(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a DomainSignatureCheck to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_DomainSignatureCheck(const DomainSignatureCheck *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_DomainSignatureCheck(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a DomainSignatureCheck. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_DomainSignatureCheck(const uint8_t *in, size_t len, DomainSignatureCheck *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_DomainSignatureCheck(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a ClaimCheck to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_ClaimCheck(const ClaimCheck *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_ClaimCheck(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a ClaimCheck. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_ClaimCheck(const uint8_t *in, size_t len, ClaimCheck *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_ClaimCheck(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RpVerifyClaimsRequest to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RpVerifyClaimsRequest(const RpVerifyClaimsRequest *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RpVerifyClaimsRequest(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RpVerifyClaimsRequest. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RpVerifyClaimsRequest(const uint8_t *in, size_t len, RpVerifyClaimsRequest *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RpVerifyClaimsRequest(root, a, out)) { csil_codec_arena_free(a); return -1; }
+    *owner = a;
+    return 0;
+}
+
+/* Encode a RpVerifyClaimsResponse to CBOR. On success *out is a malloc'd buffer of
+ * *out_len bytes the caller frees with free(); returns non-zero on failure. */
+static inline int csil_encode_RpVerifyClaimsResponse(const RpVerifyClaimsResponse *v, uint8_t **out, size_t *out_len) {
+    csilc_buf b;
+    csilc_buf_init(&b);
+    if (csilc_enc_RpVerifyClaimsResponse(&b, v)) { csilc_buf_dispose(&b); return -1; }
+    *out = b.data;
+    *out_len = b.len;
+    return 0;
+}
+
+/* Decode CBOR into a RpVerifyClaimsResponse. On success *owner holds the backing
+ * storage (every string/bytes/array inside *out borrows from it); free it
+ * once with csil_codec_arena_free when done. Returns non-zero on failure. */
+static inline int csil_decode_RpVerifyClaimsResponse(const uint8_t *in, size_t len, RpVerifyClaimsResponse *out, CsilCodecArena **owner) {
+    CsilCodecArena *a;
+    const csilc_value *root;
+    if (csilc_decode(in, len, &a, &root)) return -1;
+    if (csilc_dec_RpVerifyClaimsResponse(root, a, out)) { csil_codec_arena_free(a); return -1; }
     *owner = a;
     return 0;
 }

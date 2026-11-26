@@ -404,6 +404,11 @@ pub fn prune_on_startup(pool: &DbPool) {
         Ok(_) => {}
         Err(e) => log::error!("pruning RP login records failed: {e}"),
     }
+    match pool.prune_rp_login_claim_requirements(liblinkkeys::timestamp::now_whole_milliseconds()) {
+        Ok(n) if n > 0 => log::info!("removed {n} expired RP login claim requirement(s)"),
+        Ok(_) => {}
+        Err(e) => log::error!("pruning RP login claim requirements failed: {e}"),
+    }
 }
 
 // ---------------------------------------------------------------------------

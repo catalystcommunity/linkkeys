@@ -144,6 +144,7 @@ The application must use an API key that has the `api_access` relation.
 | Open | Application to RP server | `Rp/decrypt-token` | A `SignedIdentityAssertion` |
 | Verify | Application to RP server | `Rp/verify-assertion` | A verified `IdentityAssertion` |
 | Claims | Application to RP server | `Rp/userinfo-fetch` | A `UserInfo` record with approved claims |
+| Check claims (optional) | Application to RP server | `Rp/verify-claims` | A result for each claim and each signing domain |
 | Session | Application-local operation | Application session creation | A logged-in application user |
 
 The complete TypeScript SDK is in
@@ -444,7 +445,9 @@ the application needs current data.
 - Pin the application-to-RP connection to configured LinkKeys fingerprints.
 - Check assertion verification, audience, nonce, identity domain, and expiry.
 - Use `(user_id, domain)` as the external identity key.
-- Enforce required claims after `userinfo-fetch`.
+- Enforce required claims after `userinfo-fetch`. For a claim that the home
+  domain must verify, set `RequestedClaim.verified_by` to `home_domain`. The
+  RP server then enforces it in `userinfo-fetch`.
 - Decide which claim signing domains the application trusts.
 - Create, refresh, and revoke the application's own sessions.
 - Do not log API keys, passwords, tokens, pending state, or claim values.

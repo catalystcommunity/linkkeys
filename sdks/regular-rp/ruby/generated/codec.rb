@@ -1135,6 +1135,7 @@ class RequestedClaim
     csil_map = {}
     csil_map["datatype"] = ClaimValueType.to_number(datatype)
     csil_map["claim_type"] = claim_type
+    csil_map["verified_by"] = VerifyingParty.to_number(verified_by) unless verified_by.nil?
     csil_map
   end
 
@@ -1146,7 +1147,8 @@ class RequestedClaim
     CsilCbor.record_map(node, "RequestedClaim")
     new(
       claim_type: CsilCbor.dec_text(CsilCbor.required(node, "claim_type")),
-      datatype: ClaimValueType.from_number(CsilCbor.required(node, "datatype"))
+      datatype: ClaimValueType.from_number(CsilCbor.required(node, "datatype")),
+      verified_by: (node.key?("verified_by") ? VerifyingParty.from_number(node["verified_by"]) : nil)
     )
   end
 end
@@ -5724,6 +5726,7 @@ class BrowserConsentClaim
     csil_map["available"] = available
     csil_map["max_bytes"] = max_bytes
     csil_map["claim_type"] = claim_type
+    csil_map["home_verified"] = home_verified unless home_verified.nil?
     csil_map["user_settable"] = user_settable
     csil_map["default_granted"] = default_granted
     csil_map["newly_requested"] = newly_requested unless newly_requested.nil?
@@ -5748,7 +5751,8 @@ class BrowserConsentClaim
       user_settable: CsilCbor.dec_bool(CsilCbor.required(node, "user_settable")),
       max_bytes: CsilCbor.dec_int(CsilCbor.required(node, "max_bytes")),
       requires_approval: CsilCbor.dec_bool(CsilCbor.required(node, "requires_approval")),
-      newly_requested: (node.key?("newly_requested") ? CsilCbor.dec_bool(node["newly_requested"]) : nil)
+      newly_requested: (node.key?("newly_requested") ? CsilCbor.dec_bool(node["newly_requested"]) : nil),
+      home_verified: (node.key?("home_verified") ? CsilCbor.dec_bool(node["home_verified"]) : nil)
     )
   end
 end
@@ -6262,6 +6266,120 @@ class RpVerifyResponse
     new(
       assertion: IdentityAssertion.csil_from_tree(CsilCbor.required(node, "assertion")),
       verified: CsilCbor.dec_bool(CsilCbor.required(node, "verified"))
+    )
+  end
+end
+
+# CBOR codec for DomainSignatureCheck: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class DomainSignatureCheck
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["domain"] = domain
+    csil_map["status"] = ClaimCheckStatus.to_number(status)
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    CsilCbor.record_map(node, "DomainSignatureCheck")
+    new(
+      domain: CsilCbor.dec_text(CsilCbor.required(node, "domain")),
+      status: ClaimCheckStatus.from_number(CsilCbor.required(node, "status"))
+    )
+  end
+end
+
+# CBOR codec for ClaimCheck: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class ClaimCheck
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["claim_id"] = claim_id
+    csil_map["verified"] = verified
+    csil_map["claim_type"] = claim_type
+    csil_map["claim_status"] = ClaimCheckStatus.to_number(claim_status)
+    csil_map["signing_domains"] = (signing_domains).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    CsilCbor.record_map(node, "ClaimCheck")
+    new(
+      claim_id: CsilCbor.dec_text(CsilCbor.required(node, "claim_id")),
+      claim_type: CsilCbor.dec_text(CsilCbor.required(node, "claim_type")),
+      claim_status: ClaimCheckStatus.from_number(CsilCbor.required(node, "claim_status")),
+      signing_domains: (CsilCbor.required(node, "signing_domains")).map { |csil_e| DomainSignatureCheck.csil_from_tree(csil_e) },
+      verified: CsilCbor.dec_bool(CsilCbor.required(node, "verified"))
+    )
+  end
+end
+
+# CBOR codec for RpVerifyClaimsRequest: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RpVerifyClaimsRequest
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["claims"] = (claims).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map["user_id"] = user_id
+    csil_map["subject_domain"] = subject_domain
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    CsilCbor.record_map(node, "RpVerifyClaimsRequest")
+    new(
+      subject_domain: CsilCbor.dec_text(CsilCbor.required(node, "subject_domain")),
+      user_id: CsilCbor.dec_text(CsilCbor.required(node, "user_id")),
+      claims: (CsilCbor.required(node, "claims")).map { |csil_e| Claim.csil_from_tree(csil_e) }
+    )
+  end
+end
+
+# CBOR codec for RpVerifyClaimsResponse: a map keyed by the verbatim CSIL field names in
+# canonical RFC 8949 order.
+class RpVerifyClaimsResponse
+  def to_cbor
+    CsilCbor.encode(csil_to_tree)
+  end
+
+  def csil_to_tree
+    csil_map = {}
+    csil_map["checks"] = (checks).map { |csil_e| (csil_e).csil_to_tree }
+    csil_map
+  end
+
+  def self.from_cbor(bytes)
+    csil_from_tree(CsilCbor.decode(bytes))
+  end
+
+  def self.csil_from_tree(node)
+    CsilCbor.record_map(node, "RpVerifyClaimsResponse")
+    new(
+      checks: (CsilCbor.required(node, "checks")).map { |csil_e| ClaimCheck.csil_from_tree(csil_e) }
     )
   end
 end

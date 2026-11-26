@@ -52,4 +52,8 @@ public final class RpClient {
     public GetActAsGrantRevocationsResponse resolveActAsRevocations(RpResolveActAsRevocationsRequest req) throws ClientException {
         return CsilCbor.decodeGetActAsGrantRevocationsResponse(transport.call("Rp", "resolve-act-as-revocations", CsilCbor.encodeRpResolveActAsRevocationsRequest(req)));
     }
+
+    public RpVerifyClaimsResponse verifyClaims(RpVerifyClaimsRequest req) throws ClientException {
+        return CsilCbor.decodeRpVerifyClaimsResponse(transport.call("Rp", "verify-claims", CsilCbor.encodeRpVerifyClaimsRequest(req)));
+    }
 }

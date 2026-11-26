@@ -106,7 +106,8 @@ class ConsentClaimRow {
       this.requiredHint,
       this.valueSlot,
       !claim.available && claim.requiresApproval && h("small", null, t("app.consent.needs_approval")),
-      !claim.available && !claim.userSettable && !claim.requiresApproval && h("small", null, t("app.consent.not_in_profile")),
+      !claim.available && !claim.userSettable && !claim.requiresApproval && claim.homeVerified === true && h("small", null, t("app.consent.needs_home_confirmation")),
+      !claim.available && !claim.userSettable && !claim.requiresApproval && claim.homeVerified !== true && h("small", null, t("app.consent.not_in_profile")),
       claim.policy === ConsentRowPolicy.FORCED_DENY && h("small", null, t("app.consent.forced_deny")));
     this.update();
   }

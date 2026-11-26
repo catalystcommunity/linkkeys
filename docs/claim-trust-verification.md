@@ -103,3 +103,7 @@ those signers). The system guarantees the first and never dictates the second.
   (via the verifier's IDP), never needing the subject's domain to vouch.
 - **Verification endpoint**: the viewer's IDP resolves each signer domain's keys
   (cached) and checks every signature on a claim — the "one click" of §6.
+  For applications, this is `Rp/verify-claims`. It returns the result of the
+  claim and of each signing domain, so the application applies its own signer
+  policy. `RequestedClaim.verified_by` asks for the same check at sign-in, and
+  the RP server enforces it in `Rp/userinfo-fetch`.

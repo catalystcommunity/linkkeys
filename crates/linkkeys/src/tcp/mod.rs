@@ -2769,18 +2769,24 @@ fn dispatch_rp_op(
             let Some(ctx) = outbound else {
                 return no_carrier();
             };
-            rp_typed_reply(
-                ctx.rt.block_on(rp::fetch_userinfo_core(
+            // The key fetches of the requirement check block on the
+            // runtime, so the check runs after the async fetch returns.
+            let result = ctx
+                .rt
+                .block_on(rp::fetch_userinfo_core(
                     db_pool,
                     ctx.net,
                     caller,
-                    req.token,
+                    req.token.clone(),
                     &req.api_base,
                     &req.domain,
-                )),
-                "UserInfo",
-                codec::encode_user_info,
-            )
+                ))
+                .and_then(|info| {
+                    crate::services::rp_claim_check::enforce_login_requirements(
+                        db_pool, ctx.net, ctx.rt, caller, &req.token, info,
+                    )
+                });
+            rp_typed_reply(result, "UserInfo", codec::encode_user_info)
         }
         _ => untyped(dispatch_rp_untyped(op, payload, db_pool, outbound)),
     }
@@ -2832,6 +2838,23 @@ fn dispatch_rp_untyped(
             match crate::services::rp_cache::resolve_domain_keys(db_pool, ctx.net, ctx.rt, request)
             {
                 Ok(resp) => ok_response(codec::encode_rp_resolve_domain_keys_response(&resp)),
+                Err(error) => service_error_response(error),
+            }
+        }
+        "verify-claims" => {
+            let request = match codec::decode_rp_verify_claims_request(payload) {
+                Ok(r) => r,
+                Err(e) => return error_response(2, &format!("Invalid payload: {}", e)),
+            };
+            // A signing domain whose keys are not cached needs an onward
+            // server-to-server call, so this needs the outbound context.
+            let ctx = match outbound {
+                Some(ctx) => ctx,
+                None => return error_response(4, "operation unavailable on this carrier"),
+            };
+            match crate::services::rp_claim_check::verify_claims(db_pool, ctx.net, ctx.rt, request)
+            {
+                Ok(resp) => ok_response(codec::encode_rp_verify_claims_response(&resp)),
                 Err(error) => service_error_response(error),
             }
         }

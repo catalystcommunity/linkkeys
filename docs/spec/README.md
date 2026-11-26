@@ -214,6 +214,7 @@ implementation today*, not what is intended.
 | Domain administration | `Admin` | Out of scope | — | — |
 | Account self-service | `Account` | Out of scope | — | — |
 | RP verification obligations | `Rp`: `verify-assertion`, `userinfo-fetch` | Core | Normative | R1 |
+| RP claim verification for applications | `Rp`: `verify-claims` | Deployment profile | — | — |
 | RP-server delegation helpers | `Rp`: `sign-request`, `decrypt-token`, `issue-attestation` | Deployment profile | — | — |
 | Liveness and readiness | `Ops` | Out of scope | — | — |
 | Demo scaffolding | `Hello`, `Guestbook` | Out of scope | — | — |

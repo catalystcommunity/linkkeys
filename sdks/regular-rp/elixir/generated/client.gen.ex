@@ -2025,6 +2025,20 @@ defmodule Csilgen.Generated.RpClient do
 
     Csilgen.Generated.GetActAsGrantRevocationsResponse.from_cbor(resp)
   end
+
+  @spec verify_claims(t(), Csilgen.Generated.RpVerifyClaimsRequest.t()) ::
+          Csilgen.Generated.RpVerifyClaimsResponse.t()
+  def verify_claims(%__MODULE__{transport: transport}, req) do
+    resp =
+      Csilgen.Generated.Transport.call(
+        transport,
+        "Rp",
+        "verify-claims",
+        Csilgen.Generated.RpVerifyClaimsRequest.to_cbor(req)
+      )
+
+    Csilgen.Generated.RpVerifyClaimsResponse.from_cbor(resp)
+  end
 end
 
 defmodule Csilgen.Generated.ActAsClient do

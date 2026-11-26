@@ -487,10 +487,10 @@ pub(super) fn first_authorized_required_without_value<'a>(
 ) -> Option<&'a str> {
     use std::collections::BTreeSet;
     let granted: BTreeSet<&str> = authorized.iter().map(String::as_str).collect();
-    let active: BTreeSet<String> = pool
-        .list_active_claims(user_id)
-        .map(|claims| claims.into_iter().map(|c| c.claim_type).collect())
-        .unwrap_or_default();
+    let active: BTreeSet<String> = usable_claims(pool, user_id, req)
+        .into_iter()
+        .map(|c| c.claim_type)
+        .collect();
     req.required
         .iter()
         .map(|r| r.claim_type.as_str())
@@ -623,6 +623,37 @@ fn prior_grant_object(row: &crate::db::models::ConsentGrantRow) -> ConsentGrant 
     }
 }
 
+/// The active claims of `user_id` that can satisfy `req`. A claim of a type
+/// that the app requires this domain to verify counts only when this domain
+/// signed it. A value signed only by another domain counts as missing. The RP
+/// checks the signatures again (`Rp/userinfo-fetch`).
+fn usable_claims(pool: &DbPool, user_id: &str, req: &ClaimRequest) -> Vec<Claim> {
+    let home_types = home_verified_types(req);
+    let our_domain = get_domain_name();
+    pool.list_active_claims(user_id)
+        .map(|c| c.iter().map(Into::into).collect::<Vec<Claim>>())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|claim| {
+            !home_types.contains(claim.claim_type.as_str())
+                || claim.signatures.iter().any(|sig| sig.domain == our_domain)
+        })
+        .collect()
+}
+
+/// The requested claim types (required or optional) that the app requires
+/// the user's home domain to verify.
+fn home_verified_types(req: &ClaimRequest) -> std::collections::BTreeSet<&str> {
+    req.required
+        .iter()
+        .chain(req.optional.iter())
+        .filter(|c| {
+            c.verified_by == Some(liblinkkeys::generated::types::VerifyingParty::HomeDomain)
+        })
+        .map(|c| c.claim_type.as_str())
+        .collect()
+}
+
 /// Build the consent screen for (user, request) under the current policy:
 /// resolves the user's available claims and any prior standing grant for the
 /// requesting `audience` and `application`.
@@ -634,10 +665,7 @@ pub(super) fn build_consent_screen(
     req: &ClaimRequest,
     policy: &DomainPolicy,
 ) -> ConsentScreen {
-    let available: Vec<Claim> = pool
-        .list_active_claims(user_id)
-        .map(|c| c.iter().map(Into::into).collect())
-        .unwrap_or_default();
+    let available = usable_claims(pool, user_id, req);
     let prior = pool
         .find_active_consent_grant(user_id, audience, application)
         .ok()
@@ -962,6 +990,7 @@ pub(super) fn consent_claims(
     use liblinkkeys::consent::PolicyDisposition;
     use liblinkkeys::generated::types::BrowserConsentClaim;
     use liblinkkeys::generated::types::ConsentRowPolicy;
+    let home_types = home_verified_types(claim_request);
     build_consent_screen(pool, user_id, audience, application, claim_request, policy)
         .rows
         .into_iter()
@@ -986,7 +1015,9 @@ pub(super) fn consent_claims(
                         "text" | "string" | "email" | "date" | "datetime" | "int" | "bool"
                     )
             });
+            let home_verified = home_types.contains(row.claim_type.as_str());
             BrowserConsentClaim {
+                home_verified: home_verified.then_some(true),
                 user_settable,
                 claim_type: row.claim_type,
                 label,

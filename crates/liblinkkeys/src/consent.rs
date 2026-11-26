@@ -862,6 +862,7 @@ mod tests {
                 .map(|(ct, dt)| RequestedClaim {
                     claim_type: ct.to_string(),
                     datatype: crate::generated::types::ClaimValueType::from_label(dt).unwrap(),
+                    verified_by: None,
                 })
                 .collect()
         };

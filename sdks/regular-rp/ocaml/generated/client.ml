@@ -712,6 +712,11 @@ module Rp = struct
     match c.call ~service:"Rp" ~op:"resolve-act-as-revocations" ~payload:(Codec.encode_rp_resolve_act_as_revocations_request_bytes req) with
     | Ok payload -> Ok (Codec.decode_get_act_as_grant_revocations_response_bytes payload)
     | Error _ as e -> e
+
+  let verify_claims (c : client) (req : rp_verify_claims_request) : (rp_verify_claims_response, string) result =
+    match c.call ~service:"Rp" ~op:"verify-claims" ~payload:(Codec.encode_rp_verify_claims_request_bytes req) with
+    | Ok payload -> Ok (Codec.decode_rp_verify_claims_response_bytes payload)
+    | Error _ as e -> e
 end
 
 module Act_as = struct

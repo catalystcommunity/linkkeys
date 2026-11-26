@@ -116,6 +116,20 @@ describe("consent page", () => {
     expect(page.querySelector(".notice code")).toBeNull();
   });
 
+  it("asks the user to confirm a claim that the application needs the home domain to verify", async () => {
+    sessionStorage.setItem("linkkeys-authorization-request", "signed");
+    api.browserAuthorization.inspect.mockResolvedValue({ relyingParty: "app.test", claims: [
+      claim({ claimType: "email", required: true, available: false, homeVerified: true }),
+      claim({ claimType: "legal_name", label: "Legal name", available: false }),
+    ] });
+    const page = mount(consentPage(context()));
+    await settle();
+    const rows = [...page.querySelectorAll<HTMLElement>(".consent-claim")];
+    expect(rows[0].textContent).toContain(t("app.consent.needs_home_confirmation"));
+    expect(rows[0].textContent).not.toContain(t("app.consent.not_in_profile"));
+    expect(rows[1].textContent).toContain(t("app.consent.not_in_profile"));
+  });
+
   it("disables the row controls and shows the error from a failed completion", async () => {
     sessionStorage.setItem("linkkeys-authorization-request", "signed");
     api.browserAuthorization.inspect.mockResolvedValue({ relyingParty: "app.test", claims });

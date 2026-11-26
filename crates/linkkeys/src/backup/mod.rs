@@ -274,6 +274,9 @@ const SNAPSHOT_TABLES: &[&str] = &[
     "account_limits",
     "application_users",
     "rp_usage_days",
+    // Kept so a restore never drops the claim requirement of a login that
+    // `userinfo-fetch` has yet to finish (the RP enforces it there).
+    "rp_login_claim_requirements",
 ];
 
 #[cfg(feature = "sqlite")]
@@ -329,6 +332,10 @@ mod sqlite_backend {
     });
     backup_row!(RpUsageDayBackupRow => rp_usage_days {
         account_id: String, day: String, operation: String, succeeded: i64, failed: i64,
+    });
+    backup_row!(RpLoginClaimRequirementsBackupRow => rp_login_claim_requirements {
+        account_id: String, nonce_hash: Vec<u8>, required_types: String,
+        optional_types: String, expires_at: String,
     });
     backup_row!(UserAuthenticationActivityRow => user_authentication_activity {
         user_id: String, last_authenticated_at: String, last_seen_at: String,
@@ -546,6 +553,7 @@ mod sqlite_backend {
             $op!("account_limits", account_limits, AccountLimitsBackupRow, $($arg)*);
             $op!("application_users", application_users, ApplicationUserBackupRow, $($arg)*);
             $op!("rp_usage_days", rp_usage_days, RpUsageDayBackupRow, $($arg)*);
+            $op!("rp_login_claim_requirements", rp_login_claim_requirements, RpLoginClaimRequirementsBackupRow, $($arg)*);
         };
     }
 

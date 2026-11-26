@@ -311,6 +311,8 @@ and encode_get_user_claims_response (v : get_user_claims_response) : Cbor.t =
          Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
        ])
 
+and encode_verifying_party (v : verifying_party) : Cbor.t = Cbor.int64 (verifying_party_to_number v)
+
 and encode_requested_claim (v : requested_claim) : Cbor.t =
   Cbor.Map
     (List.filter_map
@@ -318,6 +320,7 @@ and encode_requested_claim (v : requested_claim) : Cbor.t =
        [
          Some (Cbor.Text "datatype", (encode_claim_value_type v.datatype));
          Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
+         (match v.verified_by with Some csil_x -> Some (Cbor.Text "verified_by", (encode_verifying_party csil_x)) | None -> None);
        ])
 
 and encode_claim_request (v : claim_request) : Cbor.t =
@@ -1859,6 +1862,7 @@ and encode_browser_consent_claim (v : browser_consent_claim) : Cbor.t =
          Some (Cbor.Text "available", (Cbor.Bool v.available));
          Some (Cbor.Text "max_bytes", (Cbor.int64 v.max_bytes));
          Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
+         (match v.home_verified with Some csil_x -> Some (Cbor.Text "home_verified", (Cbor.Bool csil_x)) | None -> None);
          Some (Cbor.Text "user_settable", (Cbor.Bool v.user_settable));
          Some (Cbor.Text "default_granted", (Cbor.Bool v.default_granted));
          (match v.newly_requested with Some csil_x -> Some (Cbor.Text "newly_requested", (Cbor.Bool csil_x)) | None -> None);
@@ -2043,6 +2047,47 @@ and encode_rp_verify_response (v : rp_verify_response) : Cbor.t =
        [
          Some (Cbor.Text "verified", (Cbor.Bool v.verified));
          Some (Cbor.Text "assertion", (encode_identity_assertion v.assertion));
+       ])
+
+and encode_claim_check_status (v : claim_check_status) : Cbor.t = Cbor.int64 (claim_check_status_to_number v)
+
+and encode_domain_signature_check (v : domain_signature_check) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "domain", (Cbor.Text v.domain));
+         Some (Cbor.Text "status", (encode_claim_check_status v.status));
+       ])
+
+and encode_claim_check (v : claim_check) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "claim_id", (Cbor.Text v.claim_id));
+         Some (Cbor.Text "verified", (Cbor.Bool v.verified));
+         Some (Cbor.Text "claim_type", (Cbor.Text v.claim_type));
+         Some (Cbor.Text "claim_status", (encode_claim_check_status v.claim_status));
+         Some (Cbor.Text "signing_domains", (Cbor.Array (List.map (fun csil_e -> (encode_domain_signature_check csil_e)) v.signing_domains)));
+       ])
+
+and encode_rp_verify_claims_request (v : rp_verify_claims_request) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "claims", (Cbor.Array (List.map (fun csil_e -> (encode_claim csil_e)) v.claims)));
+         Some (Cbor.Text "user_id", (Cbor.Text v.user_id));
+         Some (Cbor.Text "subject_domain", (Cbor.Text v.subject_domain));
+       ])
+
+and encode_rp_verify_claims_response (v : rp_verify_claims_response) : Cbor.t =
+  Cbor.Map
+    (List.filter_map
+       (fun x -> x)
+       [
+         Some (Cbor.Text "checks", (Cbor.Array (List.map (fun csil_e -> (encode_claim_check csil_e)) v.checks)));
        ])
 
 and encode_rp_user_info_request (v : rp_user_info_request) : Cbor.t =
@@ -3778,6 +3823,9 @@ and decode_get_user_claims_response (csil_c : Cbor.t) : get_user_claims_response
       }
   | _ -> failwith "csilgen: expected map for get_user_claims_response"
 
+and decode_verifying_party (csil_c : Cbor.t) : verifying_party =
+  match verifying_party_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
 and decode_requested_claim (csil_c : Cbor.t) : requested_claim =
   match csil_c with
   | Cbor.Map csil_kvs ->
@@ -3789,6 +3837,7 @@ and decode_requested_claim (csil_c : Cbor.t) : requested_claim =
       {
         datatype = (decode_claim_value_type (csil_req "datatype"));
         claim_type = (Cbor.to_text (csil_req "claim_type"));
+        verified_by = (match csil_field "verified_by" with Some csil_v -> Some (decode_verifying_party csil_v) | None -> None);
       }
   | _ -> failwith "csilgen: expected map for requested_claim"
 
@@ -6143,6 +6192,7 @@ and decode_browser_consent_claim (csil_c : Cbor.t) : browser_consent_claim =
         available = (Cbor.to_bool (csil_req "available"));
         max_bytes = (Cbor.to_i64 (csil_req "max_bytes"));
         claim_type = (Cbor.to_text (csil_req "claim_type"));
+        home_verified = (match csil_field "home_verified" with Some csil_v -> Some (Cbor.to_bool csil_v) | None -> None);
         user_settable = (Cbor.to_bool (csil_req "user_settable"));
         default_granted = (Cbor.to_bool (csil_req "default_granted"));
         newly_requested = (match csil_field "newly_requested" with Some csil_v -> Some (Cbor.to_bool csil_v) | None -> None);
@@ -6414,6 +6464,68 @@ and decode_rp_verify_response (csil_c : Cbor.t) : rp_verify_response =
         assertion = (decode_identity_assertion (csil_req "assertion"));
       }
   | _ -> failwith "csilgen: expected map for rp_verify_response"
+
+and decode_claim_check_status (csil_c : Cbor.t) : claim_check_status =
+  match claim_check_status_of_number (Cbor.to_i64 csil_c) with Some v -> v | None -> failwith "csilgen: unknown enum number"
+
+and decode_domain_signature_check (csil_c : Cbor.t) : domain_signature_check =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        domain = (Cbor.to_text (csil_req "domain"));
+        status = (decode_claim_check_status (csil_req "status"));
+      }
+  | _ -> failwith "csilgen: expected map for domain_signature_check"
+
+and decode_claim_check (csil_c : Cbor.t) : claim_check =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        claim_id = (Cbor.to_text (csil_req "claim_id"));
+        verified = (Cbor.to_bool (csil_req "verified"));
+        claim_type = (Cbor.to_text (csil_req "claim_type"));
+        claim_status = (decode_claim_check_status (csil_req "claim_status"));
+        signing_domains = (match (csil_req "signing_domains") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_domain_signature_check csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for claim_check"
+
+and decode_rp_verify_claims_request (csil_c : Cbor.t) : rp_verify_claims_request =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        claims = (match (csil_req "claims") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_claim csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+        user_id = (Cbor.to_text (csil_req "user_id"));
+        subject_domain = (Cbor.to_text (csil_req "subject_domain"));
+      }
+  | _ -> failwith "csilgen: expected map for rp_verify_claims_request"
+
+and decode_rp_verify_claims_response (csil_c : Cbor.t) : rp_verify_claims_response =
+  match csil_c with
+  | Cbor.Map csil_kvs ->
+      let csil_field k = List.assoc_opt (Cbor.Text k) csil_kvs in
+      let csil_req k =
+        match csil_field k with Some v -> v | None -> failwith ("csilgen: missing field " ^ k)
+      in
+      ignore csil_req;
+      {
+        checks = (match (csil_req "checks") with Cbor.Array csil_xs -> List.map (fun csil_e -> (decode_claim_check csil_e)) csil_xs | _ -> failwith "csilgen: expected array");
+      }
+  | _ -> failwith "csilgen: expected map for rp_verify_claims_response"
 
 and decode_rp_user_info_request (csil_c : Cbor.t) : rp_user_info_request =
   match csil_c with
@@ -8505,6 +8617,10 @@ let encode_get_user_claims_response_bytes (v : get_user_claims_response) : bytes
 let decode_get_user_claims_response_bytes (b : bytes) : get_user_claims_response =
   match Cbor.decode b with Ok c -> decode_get_user_claims_response c | Error e -> failwith e
 
+let encode_verifying_party_bytes (v : verifying_party) : bytes = Cbor.encode (encode_verifying_party v)
+let decode_verifying_party_bytes (b : bytes) : verifying_party =
+  match Cbor.decode b with Ok c -> decode_verifying_party c | Error e -> failwith e
+
 let encode_requested_claim_bytes (v : requested_claim) : bytes = Cbor.encode (encode_requested_claim v)
 let decode_requested_claim_bytes (b : bytes) : requested_claim =
   match Cbor.decode b with Ok c -> decode_requested_claim c | Error e -> failwith e
@@ -9236,6 +9352,26 @@ let decode_rp_verify_request_bytes (b : bytes) : rp_verify_request =
 let encode_rp_verify_response_bytes (v : rp_verify_response) : bytes = Cbor.encode (encode_rp_verify_response v)
 let decode_rp_verify_response_bytes (b : bytes) : rp_verify_response =
   match Cbor.decode b with Ok c -> decode_rp_verify_response c | Error e -> failwith e
+
+let encode_claim_check_status_bytes (v : claim_check_status) : bytes = Cbor.encode (encode_claim_check_status v)
+let decode_claim_check_status_bytes (b : bytes) : claim_check_status =
+  match Cbor.decode b with Ok c -> decode_claim_check_status c | Error e -> failwith e
+
+let encode_domain_signature_check_bytes (v : domain_signature_check) : bytes = Cbor.encode (encode_domain_signature_check v)
+let decode_domain_signature_check_bytes (b : bytes) : domain_signature_check =
+  match Cbor.decode b with Ok c -> decode_domain_signature_check c | Error e -> failwith e
+
+let encode_claim_check_bytes (v : claim_check) : bytes = Cbor.encode (encode_claim_check v)
+let decode_claim_check_bytes (b : bytes) : claim_check =
+  match Cbor.decode b with Ok c -> decode_claim_check c | Error e -> failwith e
+
+let encode_rp_verify_claims_request_bytes (v : rp_verify_claims_request) : bytes = Cbor.encode (encode_rp_verify_claims_request v)
+let decode_rp_verify_claims_request_bytes (b : bytes) : rp_verify_claims_request =
+  match Cbor.decode b with Ok c -> decode_rp_verify_claims_request c | Error e -> failwith e
+
+let encode_rp_verify_claims_response_bytes (v : rp_verify_claims_response) : bytes = Cbor.encode (encode_rp_verify_claims_response v)
+let decode_rp_verify_claims_response_bytes (b : bytes) : rp_verify_claims_response =
+  match Cbor.decode b with Ok c -> decode_rp_verify_claims_response c | Error e -> failwith e
 
 let encode_rp_user_info_request_bytes (v : rp_user_info_request) : bytes = Cbor.encode (encode_rp_user_info_request v)
 let decode_rp_user_info_request_bytes (b : bytes) : rp_user_info_request =

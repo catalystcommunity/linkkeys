@@ -2392,6 +2392,23 @@ func (c *RpClient) ResolveActAsRevocations(ctx context.Context, req RpResolveAct
 	return value, nil
 }
 
+func (c *RpClient) VerifyClaims(ctx context.Context, req RpVerifyClaimsRequest) (RpVerifyClaimsResponse, error) {
+	var csilZero RpVerifyClaimsResponse
+	csilReq, csilErr := EncodeRpVerifyClaimsRequest(req)
+	if csilErr != nil {
+		return csilZero, &RPCEncodeError{csilErr}
+	}
+	csilResp, csilErr := c.transport.Call(ctx, "Rp", "verify-claims", csilReq)
+	if csilErr != nil {
+		return csilZero, csilErr
+	}
+	value, err := DecodeRpVerifyClaimsResponse(csilResp)
+	if err != nil {
+		return csilZero, &RPCDecodeError{err}
+	}
+	return value, nil
+}
+
 // ActAsClient is a typed client for the ActAs service. The client owns
 // (de)serialization via the generated codec; the transport only moves bytes.
 type ActAsClient struct {

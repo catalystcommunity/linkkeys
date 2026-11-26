@@ -10,7 +10,8 @@ public enum RpErrorCode {
     APPLICATION_USER_LIMIT("application_user_limit", 3L),
     BAD_REQUEST("bad_request", 4L),
     UPSTREAM_FAILED("upstream_failed", 5L),
-    INTERNAL("internal", 6L);
+    INTERNAL("internal", 6L),
+    REQUIRED_CLAIM_UNVERIFIED("required_claim_unverified", 7L);
 
     private final String value;
 

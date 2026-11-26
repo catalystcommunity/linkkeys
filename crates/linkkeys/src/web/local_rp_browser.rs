@@ -301,6 +301,7 @@ fn build_claim_request(pool: &DbPool, requested: &[String], required: &[String])
                 .flatten()
                 .and_then(|p| liblinkkeys::claim_policy::ValueType::parse(&p.value_type))
                 .unwrap_or(liblinkkeys::claim_policy::ValueType::Text),
+            verified_by: None,
         };
         if required_set.contains(ct.as_str()) {
             req_list.push(rc);

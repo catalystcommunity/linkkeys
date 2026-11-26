@@ -30,7 +30,7 @@ impl CoreError {
 }
 
 /// Server-side fault: log the cause, put the step on the wire (500-class).
-fn core_internal(step: &str, cause: impl std::fmt::Display) -> CoreError {
+pub(crate) fn core_internal(step: &str, cause: impl std::fmt::Display) -> CoreError {
     log::error!("{step} failed: {cause}");
     CoreError {
         status: Status::InternalServerError,
@@ -40,7 +40,7 @@ fn core_internal(step: &str, cause: impl std::fmt::Display) -> CoreError {
 }
 
 /// Upstream/peer fault: log the cause, put the step on the wire (502-class).
-fn core_upstream(step: &str, cause: impl std::fmt::Display) -> CoreError {
+pub(crate) fn core_upstream(step: &str, cause: impl std::fmt::Display) -> CoreError {
     log::error!("{step} failed: {cause}");
     CoreError {
         status: Status::BadGateway,
@@ -50,7 +50,7 @@ fn core_upstream(step: &str, cause: impl std::fmt::Display) -> CoreError {
 }
 
 /// Caller fault: the message alone is the diagnosis; nothing to log.
-fn core_bad_request(message: &str) -> CoreError {
+pub(crate) fn core_bad_request(message: &str) -> CoreError {
     CoreError {
         status: Status::BadRequest,
         code: RpErrorCode::BadRequest,
@@ -75,7 +75,7 @@ fn core_forbidden(message: &str) -> CoreError {
 }
 
 /// A refusal with a stable code an application can act on.
-fn core_refused(code: RpErrorCode, message: &str) -> CoreError {
+pub(crate) fn core_refused(code: RpErrorCode, message: &str) -> CoreError {
     CoreError {
         status: Status::Forbidden,
         code,
@@ -106,7 +106,7 @@ pub(crate) fn caller_application(
 const LOGIN_NONCE_TTL_SECONDS: i64 = 3600;
 
 /// The stored form of a login nonce.
-fn login_nonce_hash(nonce: &str) -> [u8; 32] {
+pub(crate) fn login_nonce_hash(nonce: &str) -> [u8; 32] {
     use sha2::Digest as _;
     sha2::Sha256::digest(nonce.as_bytes()).into()
 }
@@ -159,6 +159,31 @@ pub(crate) fn sign_request_core(
         application: caller_application(&caller)?,
         display_name: caller.display_name,
     };
+    let claim_request = req
+        .requested_claims
+        .or_else(|| rp_config.to_claim_request());
+    // `userinfo-fetch` enforces the claims that must be verified. The RP
+    // keeps its own copy, because the IDP is not trusted to enforce them.
+    let requirements = claim_request
+        .as_ref()
+        .map(crate::services::rp_claim_check::login_requirements)
+        .unwrap_or_default();
+    if requirements.is_empty() {
+        // A repeated nonce must not keep the requirements of an older request.
+        pool.take_rp_login_claim_requirements(&caller.id, &login_nonce_hash(&req.nonce))
+            .map_err(|e| core_internal("sign-request: clearing the claim requirements", e))?;
+    } else {
+        pool.insert_rp_login_claim_requirements(
+            &caller.id,
+            &login_nonce_hash(&req.nonce),
+            &requirements,
+            liblinkkeys::timestamp::now_whole_milliseconds()
+                + time::Duration::seconds(
+                    crate::services::rp_claim_check::LOGIN_REQUIREMENT_TTL_SECONDS,
+                ),
+        )
+        .map_err(|e| core_internal("sign-request: recording the claim requirements", e))?;
+    }
     // `decrypt-token` admits a user only for a login this application
     // started, so a forged assertion cannot fill its distinct-user count.
     pool.insert_rp_login_nonce(
@@ -194,8 +219,7 @@ pub(crate) fn sign_request_core(
         &req.callback_url,
         &req.nonce,
         &dk.id,
-        req.requested_claims
-            .or_else(|| rp_config.to_claim_request()),
+        claim_request,
         req.flow_context,
         application,
     );

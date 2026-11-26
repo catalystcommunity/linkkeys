@@ -397,6 +397,8 @@ public sealed class RpAsyncClient(ICsilAsyncTransport transport)
         Codec.Decode<RefreshActAsGrantResponse>(await transport.Call("Rp", "act-as-refresh-grant", Codec.Encode(rpActAsRefreshRequest)));
     public async System.Threading.Tasks.Task<GetActAsGrantRevocationsResponse> ResolveActAsRevocationsAsync(RpResolveActAsRevocationsRequest rpResolveActAsRevocationsRequest) =>
         Codec.Decode<GetActAsGrantRevocationsResponse>(await transport.Call("Rp", "resolve-act-as-revocations", Codec.Encode(rpResolveActAsRevocationsRequest)));
+    public async System.Threading.Tasks.Task<RpVerifyClaimsResponse> VerifyClaimsAsync(RpVerifyClaimsRequest rpVerifyClaimsRequest) =>
+        Codec.Decode<RpVerifyClaimsResponse>(await transport.Call("Rp", "verify-claims", Codec.Encode(rpVerifyClaimsRequest)));
 }
 
 /// <summary>Typed RPC client for the ActAs service. The client owns
