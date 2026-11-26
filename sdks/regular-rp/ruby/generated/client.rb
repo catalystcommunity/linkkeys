@@ -795,6 +795,11 @@ class RpClient
   def resolve_act_as_revocations(req)
     GetActAsGrantRevocationsResponse.from_cbor(@transport.call("Rp", "resolve-act-as-revocations", req.to_cbor))
   end
+
+  # verify-claims: -> RpVerifyClaimsResponse
+  def verify_claims(req)
+    RpVerifyClaimsResponse.from_cbor(@transport.call("Rp", "verify-claims", req.to_cbor))
+  end
 end
 
 # Typed client for the ActAs service.

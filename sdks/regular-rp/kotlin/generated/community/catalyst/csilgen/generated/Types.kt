@@ -293,7 +293,8 @@ enum class RpErrorCode(val label: String, val wireNumber: Long) {
     ApplicationUserLimit("application_user_limit", 3L),
     BadRequest("bad_request", 4L),
     UpstreamFailed("upstream_failed", 5L),
-    Internal("internal", 6L);
+    Internal("internal", 6L),
+    RequiredClaimUnverified("required_claim_unverified", 7L);
 
     companion object {
         private val byNumber = values().associateBy { it.wireNumber }
@@ -638,11 +639,22 @@ data class GetUserClaimsResponse(
     val claims: List<Claim>
 )
 
+enum class VerifyingParty(val label: String, val wireNumber: Long) {
+    HomeDomain("home_domain", 1L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): VerifyingParty? = byNumber[number]
+    }
+}
+
 /** RequestedClaim record. */
 data class RequestedClaim(
     // wire key: claim_type
     val claimType: String,
-    val datatype: ClaimValueType
+    val datatype: ClaimValueType,
+    // wire key: verified_by
+    val verifiedBy: VerifyingParty? = null
 )
 
 /** ClaimRequest record. */
@@ -2127,7 +2139,9 @@ data class BrowserConsentClaim(
     // wire key: requires_approval
     val requiresApproval: Boolean,
     // wire key: newly_requested
-    val newlyRequested: Boolean? = null
+    val newlyRequested: Boolean? = null,
+    // wire key: home_verified
+    val homeVerified: Boolean? = null
 )
 
 /** BrowserAuthorizationInspectResponse record. */
@@ -2304,6 +2318,56 @@ data class RpVerifyRequest(
 data class RpVerifyResponse(
     val assertion: IdentityAssertion,
     val verified: Boolean
+)
+
+enum class ClaimCheckStatus(val label: String, val wireNumber: Long) {
+    Valid("valid", 1L),
+    WrongSubject("wrong_subject", 2L),
+    BadTimestamp("bad_timestamp", 3L),
+    Unsigned("unsigned", 4L),
+    Revoked("revoked", 5L),
+    Expired("expired", 6L),
+    KeysUnavailable("keys_unavailable", 7L),
+    KeyNotValid("key_not_valid", 8L),
+    BadSignature("bad_signature", 9L);
+
+    companion object {
+        private val byNumber = values().associateBy { it.wireNumber }
+        fun fromNumber(number: Long): ClaimCheckStatus? = byNumber[number]
+    }
+}
+
+/** DomainSignatureCheck record. */
+data class DomainSignatureCheck(
+    val domain: String,
+    val status: ClaimCheckStatus
+)
+
+/** ClaimCheck record. */
+data class ClaimCheck(
+    // wire key: claim_id
+    val claimId: String,
+    // wire key: claim_type
+    val claimType: String,
+    // wire key: claim_status
+    val claimStatus: ClaimCheckStatus,
+    // wire key: signing_domains
+    val signingDomains: List<DomainSignatureCheck>,
+    val verified: Boolean
+)
+
+/** RpVerifyClaimsRequest record. */
+data class RpVerifyClaimsRequest(
+    // wire key: subject_domain
+    val subjectDomain: String,
+    // wire key: user_id
+    val userId: String,
+    val claims: List<Claim>
+)
+
+/** RpVerifyClaimsResponse record. */
+data class RpVerifyClaimsResponse(
+    val checks: List<ClaimCheck>
 )
 
 /** RpUserInfoRequest record. */

@@ -575,6 +575,7 @@ pub const RpErrorCode = enum(i64) {
     bad_request = 4,
     upstream_failed = 5,
     internal = 6,
+    required_claim_unverified = 7,
 
     pub fn to_number(self: RpErrorCode) i64 {
         return @intFromEnum(self);
@@ -592,6 +593,7 @@ pub const RpErrorCode = enum(i64) {
             .bad_request => "bad_request",
             .upstream_failed => "upstream_failed",
             .internal => "internal",
+            .required_claim_unverified => "required_claim_unverified",
         };
     }
 };
@@ -617,6 +619,60 @@ pub const IssuedClaimOutcome = enum(i64) {
             .handoff => "handoff",
             .skipped => "skipped",
             .failed => "failed",
+        };
+    }
+};
+
+/// VerifyingParty is an enumeration.
+pub const VerifyingParty = enum(i64) {
+    home_domain = 1,
+
+    pub fn to_number(self: VerifyingParty) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?VerifyingParty {
+        return @import("std").meta.intToEnum(VerifyingParty, number) catch null;
+    }
+
+    pub fn wire_name(self: VerifyingParty) []const u8 {
+        return switch (self) {
+            .home_domain => "home_domain",
+        };
+    }
+};
+
+/// ClaimCheckStatus is an enumeration.
+pub const ClaimCheckStatus = enum(i64) {
+    valid = 1,
+    wrong_subject = 2,
+    bad_timestamp = 3,
+    unsigned = 4,
+    revoked = 5,
+    expired = 6,
+    keys_unavailable = 7,
+    key_not_valid = 8,
+    bad_signature = 9,
+
+    pub fn to_number(self: ClaimCheckStatus) i64 {
+        return @intFromEnum(self);
+    }
+
+    pub fn from_number(number: i64) ?ClaimCheckStatus {
+        return @import("std").meta.intToEnum(ClaimCheckStatus, number) catch null;
+    }
+
+    pub fn wire_name(self: ClaimCheckStatus) []const u8 {
+        return switch (self) {
+            .valid => "valid",
+            .wrong_subject => "wrong_subject",
+            .bad_timestamp => "bad_timestamp",
+            .unsigned => "unsigned",
+            .revoked => "revoked",
+            .expired => "expired",
+            .keys_unavailable => "keys_unavailable",
+            .key_not_valid => "key_not_valid",
+            .bad_signature => "bad_signature",
         };
     }
 };
@@ -1704,6 +1760,18 @@ pub const RpVerifyRequest = struct {
     expected_domain: []const u8,
 };
 
+/// RpVerifyClaimsRequest is a structured data type.
+pub const RpVerifyClaimsRequest = struct {
+    subject_domain: []const u8,
+    user_id: []const u8,
+    claims: []Claim,
+};
+
+/// RpVerifyClaimsResponse is a structured data type.
+pub const RpVerifyClaimsResponse = struct {
+    checks: []ClaimCheck,
+};
+
 /// RpUserInfoRequest is a structured data type.
 pub const RpUserInfoRequest = struct {
     token: []const u8,
@@ -2494,6 +2562,7 @@ pub const UserPublicKey = struct {
 pub const RequestedClaim = struct {
     claim_type: []const u8,
     datatype: ClaimValueType,
+    verified_by: ?VerifyingParty = null,
 };
 
 /// AuthFlowContext is a structured data type.
@@ -2740,6 +2809,7 @@ pub const BrowserConsentClaim = struct {
     max_bytes: i64,
     requires_approval: bool,
     newly_requested: ?bool = null,
+    home_verified: ?bool = null,
 };
 
 /// BrowserLocalRpInspectResponse is a structured data type.
@@ -2754,6 +2824,21 @@ pub const BrowserLocalRpInspectResponse = struct {
     already_consented: ?bool = null,
     authorized_claims: ?[][]const u8 = null,
     access_denied: ?AppAccessDenial = null,
+};
+
+/// DomainSignatureCheck is a structured data type.
+pub const DomainSignatureCheck = struct {
+    domain: []const u8,
+    status: ClaimCheckStatus,
+};
+
+/// ClaimCheck is a structured data type.
+pub const ClaimCheck = struct {
+    claim_id: []const u8,
+    claim_type: []const u8,
+    claim_status: ClaimCheckStatus,
+    signing_domains: []DomainSignatureCheck,
+    verified: bool,
 };
 
 /// RpError is a structured data type.

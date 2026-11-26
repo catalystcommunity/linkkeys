@@ -34,6 +34,31 @@ impl Default for AccountLimitsRecord {
     }
 }
 
+/// The claim types that one login requires a verifier to verify
+/// (`RequestedClaim.verified_by`), split by required and optional.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LoginClaimRequirements {
+    pub required: Vec<String>,
+    pub optional: Vec<String>,
+}
+
+impl LoginClaimRequirements {
+    pub fn is_empty(&self) -> bool {
+        self.required.is_empty() && self.optional.is_empty()
+    }
+}
+
+/// A claim type list in its stored form, a JSON array.
+fn types_text(types: &[String]) -> String {
+    serde_json::to_string(types).expect("a list of strings encodes as JSON")
+}
+
+/// A stored claim type list. A row that does not decode is a storage fault,
+/// so it fails the read and no requirement is skipped.
+fn types_from_text(text: &str) -> QueryResult<Vec<String>> {
+    serde_json::from_str(text).map_err(|e| diesel::result::Error::DeserializationError(Box::new(e)))
+}
+
 /// Counts of one `Rp` operation by one account on one UTC day.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UsageDayRecord {
@@ -354,6 +379,71 @@ pub mod pg {
         use crate::schema::pg::rp_login_nonces;
         diesel::delete(rp_login_nonces::table.filter(rp_login_nonces::expires_at.le(now)))
             .execute(conn)
+    }
+    pub fn insert_login_claim_requirements(
+        conn: &mut PgConnection,
+        account_id: &str,
+        nonce_hash: &[u8],
+        requirements: &LoginClaimRequirements,
+        expires_at: OffsetDateTime,
+    ) -> QueryResult<usize> {
+        use crate::schema::pg::rp_login_claim_requirements as t;
+        let required = types_text(&requirements.required);
+        let optional = types_text(&requirements.optional);
+        diesel::insert_into(t::table)
+            .values((
+                t::account_id.eq(uuid(account_id)?),
+                t::nonce_hash.eq(nonce_hash),
+                t::required_types.eq(&required),
+                t::optional_types.eq(&optional),
+                t::expires_at.eq(expires_at),
+            ))
+            .on_conflict((t::account_id, t::nonce_hash))
+            .do_update()
+            .set((
+                t::required_types.eq(&required),
+                t::optional_types.eq(&optional),
+                t::expires_at.eq(expires_at),
+            ))
+            .execute(conn)
+    }
+
+    pub fn take_login_claim_requirements(
+        conn: &mut PgConnection,
+        account_id: &str,
+        nonce_hash: &[u8],
+    ) -> QueryResult<Option<LoginClaimRequirements>> {
+        use crate::schema::pg::rp_login_claim_requirements as t;
+        let account = uuid(account_id)?;
+        conn.transaction(|conn| {
+            let row: Option<(String, String)> = t::table
+                .filter(t::account_id.eq(account))
+                .filter(t::nonce_hash.eq(nonce_hash))
+                .select((t::required_types, t::optional_types))
+                .first(conn)
+                .optional()?;
+            diesel::delete(
+                t::table
+                    .filter(t::account_id.eq(account))
+                    .filter(t::nonce_hash.eq(nonce_hash)),
+            )
+            .execute(conn)?;
+            row.map(|(required, optional)| {
+                Ok(LoginClaimRequirements {
+                    required: types_from_text(&required)?,
+                    optional: types_from_text(&optional)?,
+                })
+            })
+            .transpose()
+        })
+    }
+
+    pub fn prune_login_claim_requirements(
+        conn: &mut PgConnection,
+        now: OffsetDateTime,
+    ) -> QueryResult<usize> {
+        use crate::schema::pg::rp_login_claim_requirements as t;
+        diesel::delete(t::table.filter(t::expires_at.le(now))).execute(conn)
     }
 }
 
@@ -711,6 +801,71 @@ pub mod sqlite {
         )
         .execute(conn)
     }
+    pub fn insert_login_claim_requirements(
+        conn: &mut SqliteConnection,
+        account_id: &str,
+        nonce_hash: &[u8],
+        requirements: &LoginClaimRequirements,
+        expires_at: OffsetDateTime,
+    ) -> QueryResult<usize> {
+        use crate::schema::sqlite::rp_login_claim_requirements as t;
+        let required = types_text(&requirements.required);
+        let optional = types_text(&requirements.optional);
+        let expires = seen_text(expires_at);
+        diesel::insert_into(t::table)
+            .values((
+                t::account_id.eq(account_id),
+                t::nonce_hash.eq(nonce_hash),
+                t::required_types.eq(&required),
+                t::optional_types.eq(&optional),
+                t::expires_at.eq(&expires),
+            ))
+            .on_conflict((t::account_id, t::nonce_hash))
+            .do_update()
+            .set((
+                t::required_types.eq(&required),
+                t::optional_types.eq(&optional),
+                t::expires_at.eq(&expires),
+            ))
+            .execute(conn)
+    }
+
+    pub fn take_login_claim_requirements(
+        conn: &mut SqliteConnection,
+        account_id: &str,
+        nonce_hash: &[u8],
+    ) -> QueryResult<Option<LoginClaimRequirements>> {
+        use crate::schema::sqlite::rp_login_claim_requirements as t;
+        conn.transaction(|conn| {
+            let row: Option<(String, String)> = t::table
+                .filter(t::account_id.eq(account_id))
+                .filter(t::nonce_hash.eq(nonce_hash))
+                .select((t::required_types, t::optional_types))
+                .first(conn)
+                .optional()?;
+            diesel::delete(
+                t::table
+                    .filter(t::account_id.eq(account_id))
+                    .filter(t::nonce_hash.eq(nonce_hash)),
+            )
+            .execute(conn)?;
+            row.map(|(required, optional)| {
+                Ok(LoginClaimRequirements {
+                    required: types_from_text(&required)?,
+                    optional: types_from_text(&optional)?,
+                })
+            })
+            .transpose()
+        })
+    }
+
+    pub fn prune_login_claim_requirements(
+        conn: &mut SqliteConnection,
+        now: OffsetDateTime,
+    ) -> QueryResult<usize> {
+        use crate::schema::sqlite::rp_login_claim_requirements as t;
+        diesel::delete(t::table.filter(t::expires_at.le(seen_text(now)))).execute(conn)
+    }
 }
 
 macro_rules! dispatch {
@@ -850,6 +1005,34 @@ impl DbPool {
 
     pub fn prune_rp_login_nonces(&self, now: OffsetDateTime) -> QueryResult<usize> {
         dispatch!(self, prune_login_nonces(now))
+    }
+
+    /// Record the claims that a login requires a verifier to verify.
+    pub fn insert_rp_login_claim_requirements(
+        &self,
+        account_id: &str,
+        nonce_hash: &[u8],
+        requirements: &LoginClaimRequirements,
+        expires_at: OffsetDateTime,
+    ) -> QueryResult<usize> {
+        dispatch!(
+            self,
+            insert_login_claim_requirements(account_id, nonce_hash, requirements, expires_at)
+        )
+    }
+
+    /// Read and remove the requirements of one login. `None` when the login
+    /// recorded none.
+    pub fn take_rp_login_claim_requirements(
+        &self,
+        account_id: &str,
+        nonce_hash: &[u8],
+    ) -> QueryResult<Option<LoginClaimRequirements>> {
+        dispatch!(self, take_login_claim_requirements(account_id, nonce_hash))
+    }
+
+    pub fn prune_rp_login_claim_requirements(&self, now: OffsetDateTime) -> QueryResult<usize> {
+        dispatch!(self, prune_login_claim_requirements(now))
     }
 
     pub fn list_rp_usage(

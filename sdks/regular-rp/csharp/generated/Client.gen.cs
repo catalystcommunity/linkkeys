@@ -412,6 +412,8 @@ public sealed class RpClient(ICsilTransport transport)
         Codec.Decode<RefreshActAsGrantResponse>(transport.Call("Rp", "act-as-refresh-grant", Codec.Encode(rpActAsRefreshRequest)));
     public GetActAsGrantRevocationsResponse ResolveActAsRevocations(RpResolveActAsRevocationsRequest rpResolveActAsRevocationsRequest) =>
         Codec.Decode<GetActAsGrantRevocationsResponse>(transport.Call("Rp", "resolve-act-as-revocations", Codec.Encode(rpResolveActAsRevocationsRequest)));
+    public RpVerifyClaimsResponse VerifyClaims(RpVerifyClaimsRequest rpVerifyClaimsRequest) =>
+        Codec.Decode<RpVerifyClaimsResponse>(transport.Call("Rp", "verify-claims", Codec.Encode(rpVerifyClaimsRequest)));
 }
 
 /// <summary>Typed RPC client for the ActAs service. The client owns

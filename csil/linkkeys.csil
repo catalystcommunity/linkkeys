@@ -222,6 +222,9 @@ AccountKind = &(
 ;;   application of this RP.
 ;; - application_user_limit: a new user would take the application over its
 ;;   distinct-user limit ("this application is full").
+;; - required_claim_unverified: the login requested a required claim with
+;;   `verified_by`, and `userinfo-fetch` got no claim of that type that the
+;;   verifier verified. The message names the claim type.
 ;; - bad_request / upstream_failed / internal: other failures; see `message`.
 ;; An account over its request rate gets the transport status Unavailable (6),
 ;; as for any throttle.
@@ -231,7 +234,8 @@ RpErrorCode = &(
     application_user_limit: 3,
     bad_request: 4,
     upstream_failed: 5,
-    internal: 6
+    internal: 6,
+    required_claim_unverified: 7
 )
 
 ;; `deposited`: signed and delivered. `handoff`: signed, but the subject
@@ -459,13 +463,35 @@ GetUserClaimsResponse = {
 ;; Consent (claim-release grants)
 ;; ============================================================
 
+;; Who must verify a requested claim.
+;; - home_domain: the user's home domain (the assertion domain) signed the
+;;   claim, and the claim is current: about the user, not revoked, and not
+;;   expired. Signatures by other domains do not count and do not block.
+;;   For `email`, the LinkKeys reference server signs the claim only after
+;;   the user opens the confirmation link that it sent to the address. Ask
+;;   also for `email_verified` to get that statement as its own claim.
+VerifyingParty = &(
+    home_domain: 1
+)
+
 ;; One claim a relying party asks for, with the datatype it expects the value
 ;; to carry. `datatype` is advisory metadata for the consent UI and RP-side
 ;; validation. The protocol does not enforce it; claim values remain opaque
 ;; bytes.
+;;
+;; `verified_by` asks for a claim that a verifier verified:
+;; - The IDP shows the claim as missing when it has no such value, and tells
+;;   the user how to add one.
+;; - The RP server enforces it in `Rp/userinfo-fetch`, because the IDP is not
+;;   trusted to do so. For a required claim, the RP refuses the login with
+;;   `required_claim_unverified` when no claim of the type is verified. For an
+;;   optional claim, the RP removes the claims of the type that are not
+;;   verified.
+;; An IDP older than this field ignores it. The RP still enforces it.
 RequestedClaim = {
     claim_type: text,
-    datatype: ClaimValueType
+    datatype: ClaimValueType,
+    ? verified_by: VerifyingParty
 }
 
 ;; What a relying party advertises it wants on first contact. `required` means
@@ -1751,7 +1777,11 @@ BrowserConsentClaim = {
     ;; True when the app did not request this claim at the user's last
     ;; consent to this app, so the user has not seen it. Absent on first
     ;; consent. A new claim, required or optional, reopens consent once.
-    ? newly_requested: bool
+    ? newly_requested: bool,
+    ;; True when the app requires that this domain verified the claim
+    ;; (`RequestedClaim.verified_by` is `home_domain`). `available` then
+    ;; counts only values that this domain signed.
+    ? home_verified: bool
 }
 
 BrowserAuthorizationInspectResponse = {
@@ -1924,6 +1954,77 @@ RpVerifyRequest = {
 RpVerifyResponse = {
     assertion: IdentityAssertion,
     verified: bool
+}
+
+;; The result of one check in `Rp/verify-claims`.
+;; - valid: the check passed.
+;; - wrong_subject: the claim `user_id` is not the requested `user_id`.
+;; - bad_timestamp: a signed time has a fraction of a second.
+;; - unsigned: the claim has no signatures.
+;; - revoked: the claim is revoked.
+;; - expired: the claim is past its signed `expires_at`.
+;; - keys_unavailable: the RP could not get the keys of the signing domain.
+;; - key_not_valid: the signing key is unknown to the RP, is not a signing
+;;   key, or was revoked or expired at the claim `attested_at`.
+;; - bad_signature: no signature of the domain verifies.
+ClaimCheckStatus = &(
+    valid: 1,
+    wrong_subject: 2,
+    bad_timestamp: 3,
+    unsigned: 4,
+    revoked: 5,
+    expired: 6,
+    keys_unavailable: 7,
+    key_not_valid: 8,
+    bad_signature: 9
+)
+
+;; The signature check of one signing domain. `status` is `valid` when one
+;; or more signatures of `domain` verify against a key of `domain` that was
+;; valid at the claim `attested_at`.
+DomainSignatureCheck = {
+    domain: text,
+    status: ClaimCheckStatus
+}
+
+;; The result for one claim of `Rp/verify-claims`.
+;; - `claim_status` is about the claim itself: the subject, the signed times,
+;;   one or more signatures, not revoked, and not expired. It does not cover
+;;   the signatures.
+;; - `signing_domains` has one entry for each distinct signing domain, in
+;;   ascending order of `domain`.
+;; - `verified` is true only when `claim_status` is `valid` and each entry
+;;   of `signing_domains` is `valid`. This is the full claim verification of
+;;   `liblinkkeys::claims::verify_claim`.
+;; A claim is "verified by domain D" when `claim_status` is `valid` and the
+;; `signing_domains` entry for D is `valid`. The signatures of other domains
+;; do not change that result.
+ClaimCheck = {
+    claim_id: text,
+    claim_type: text,
+    claim_status: ClaimCheckStatus,
+    signing_domains: [* DomainSignatureCheck],
+    verified: bool
+}
+
+;; Verify claims for the calling application. The RP server gets the keys of
+;; each signing domain (pinned to DNS, cached, with revocations applied), and
+;; checks each claim with the LinkKeys reference verifier. The application
+;; does not copy the signature checks, and it gets the same result in each
+;; language.
+;; - `subject_domain` and `user_id` come from the verified assertion
+;;   (`Rp/verify-assertion`), not from the claims.
+;; - `claims` holds 1 to 64 claims, from 16 or fewer distinct signing
+;;   domains. Typically they are the `claims` of `Rp/userinfo-fetch`.
+RpVerifyClaimsRequest = {
+    subject_domain: text,
+    user_id: text,
+    claims: [* Claim]
+}
+
+;; `checks` has one entry for each request claim, in the request order.
+RpVerifyClaimsResponse = {
+    checks: [* ClaimCheck]
 }
 
 ;; Fetch a user's claims from the IDP on the RP's behalf (proof-of-possession via
@@ -3332,7 +3433,8 @@ service Rp {
     resolve-domain-keys: RpResolveDomainKeysRequest -> RpResolveDomainKeysResponse,
     resolve-application-keys: RpResolveApplicationKeysRequest -> RpResolveApplicationKeysResponse,
     act-as-refresh-grant: RpActAsRefreshRequest -> RefreshActAsGrantResponse,
-    resolve-act-as-revocations: RpResolveActAsRevocationsRequest -> GetActAsGrantRevocationsResponse
+    resolve-act-as-revocations: RpResolveActAsRevocationsRequest -> GetActAsGrantRevocationsResponse,
+    verify-claims: RpVerifyClaimsRequest -> RpVerifyClaimsResponse
 }
 
 ;; Act-as grants, wire operations. No operation takes an API key.

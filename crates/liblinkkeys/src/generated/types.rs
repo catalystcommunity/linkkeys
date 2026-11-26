@@ -1128,6 +1128,7 @@ pub enum RpErrorCode {
     BadRequest,
     UpstreamFailed,
     Internal,
+    RequiredClaimUnverified,
 }
 
 impl RpErrorCode {
@@ -1139,6 +1140,7 @@ impl RpErrorCode {
             Self::BadRequest => "bad_request",
             Self::UpstreamFailed => "upstream_failed",
             Self::Internal => "internal",
+            Self::RequiredClaimUnverified => "required_claim_unverified",
         }
     }
 
@@ -1150,6 +1152,7 @@ impl RpErrorCode {
             "bad_request" => Some(Self::BadRequest),
             "upstream_failed" => Some(Self::UpstreamFailed),
             "internal" => Some(Self::Internal),
+            "required_claim_unverified" => Some(Self::RequiredClaimUnverified),
             _ => None,
         }
     }
@@ -1162,6 +1165,7 @@ impl RpErrorCode {
             Self::BadRequest => 4,
             Self::UpstreamFailed => 5,
             Self::Internal => 6,
+            Self::RequiredClaimUnverified => 7,
         }
     }
 
@@ -1173,6 +1177,7 @@ impl RpErrorCode {
             4 => Some(Self::BadRequest),
             5 => Some(Self::UpstreamFailed),
             6 => Some(Self::Internal),
+            7 => Some(Self::RequiredClaimUnverified),
             _ => None,
         }
     }
@@ -1396,10 +1401,45 @@ pub struct GetUserClaimsResponse {
     pub claims: Vec<Claim>,
 }
 
+/// VerifyingParty variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum VerifyingParty {
+    HomeDomain,
+}
+
+impl VerifyingParty {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::HomeDomain => "home_domain",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "home_domain" => Some(Self::HomeDomain),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::HomeDomain => 1,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::HomeDomain),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct RequestedClaim {
     pub claim_type: String,
     pub datatype: ClaimValueType,
+    pub verified_by: Option<VerifyingParty>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2462,6 +2502,7 @@ pub struct BrowserConsentClaim {
     pub max_bytes: i64,
     pub requires_approval: bool,
     pub newly_requested: Option<bool>,
+    pub home_verified: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2591,6 +2632,107 @@ pub struct RpVerifyRequest {
 pub struct RpVerifyResponse {
     pub assertion: IdentityAssertion,
     pub verified: bool,
+}
+
+/// ClaimCheckStatus variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClaimCheckStatus {
+    Valid,
+    WrongSubject,
+    BadTimestamp,
+    Unsigned,
+    Revoked,
+    Expired,
+    KeysUnavailable,
+    KeyNotValid,
+    BadSignature,
+}
+
+impl ClaimCheckStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Valid => "valid",
+            Self::WrongSubject => "wrong_subject",
+            Self::BadTimestamp => "bad_timestamp",
+            Self::Unsigned => "unsigned",
+            Self::Revoked => "revoked",
+            Self::Expired => "expired",
+            Self::KeysUnavailable => "keys_unavailable",
+            Self::KeyNotValid => "key_not_valid",
+            Self::BadSignature => "bad_signature",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "valid" => Some(Self::Valid),
+            "wrong_subject" => Some(Self::WrongSubject),
+            "bad_timestamp" => Some(Self::BadTimestamp),
+            "unsigned" => Some(Self::Unsigned),
+            "revoked" => Some(Self::Revoked),
+            "expired" => Some(Self::Expired),
+            "keys_unavailable" => Some(Self::KeysUnavailable),
+            "key_not_valid" => Some(Self::KeyNotValid),
+            "bad_signature" => Some(Self::BadSignature),
+            _ => None,
+        }
+    }
+
+    pub fn to_number(self) -> i64 {
+        match self {
+            Self::Valid => 1,
+            Self::WrongSubject => 2,
+            Self::BadTimestamp => 3,
+            Self::Unsigned => 4,
+            Self::Revoked => 5,
+            Self::Expired => 6,
+            Self::KeysUnavailable => 7,
+            Self::KeyNotValid => 8,
+            Self::BadSignature => 9,
+        }
+    }
+
+    pub fn from_number(number: i64) -> Option<Self> {
+        match number {
+            1 => Some(Self::Valid),
+            2 => Some(Self::WrongSubject),
+            3 => Some(Self::BadTimestamp),
+            4 => Some(Self::Unsigned),
+            5 => Some(Self::Revoked),
+            6 => Some(Self::Expired),
+            7 => Some(Self::KeysUnavailable),
+            8 => Some(Self::KeyNotValid),
+            9 => Some(Self::BadSignature),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DomainSignatureCheck {
+    pub domain: String,
+    pub status: ClaimCheckStatus,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClaimCheck {
+    pub claim_id: String,
+    pub claim_type: String,
+    pub claim_status: ClaimCheckStatus,
+    pub signing_domains: Vec<DomainSignatureCheck>,
+    pub verified: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RpVerifyClaimsRequest {
+    pub subject_domain: String,
+    pub user_id: String,
+    pub claims: Vec<Claim>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RpVerifyClaimsResponse {
+    pub checks: Vec<ClaimCheck>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

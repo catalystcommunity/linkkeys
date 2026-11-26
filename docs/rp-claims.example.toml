@@ -11,9 +11,21 @@
 
 # Declining a `required` claim is allowed at the IDP. The RP/app should reject
 # or degrade the session if it cannot function without it.
+#
+# `verified_by = "home_domain"` requires a claim that the user's home domain
+# signed. The RP server enforces it in `Rp/userinfo-fetch`: it refuses the
+# login (`required_claim_unverified`) when no such claim is left. The
+# reference server signs `email` and `email_verified` only after the user
+# confirms the address.
 [[required]]
-claim_type = "email"
-datatype   = "email"
+claim_type  = "email"
+datatype    = "email"
+verified_by = "home_domain"
+
+[[required]]
+claim_type  = "email_verified"
+datatype    = "bool"
+verified_by = "home_domain"
 
 # `optional` claims are best-effort: the user may grant any subset.
 [[optional]]

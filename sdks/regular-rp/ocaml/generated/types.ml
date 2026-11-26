@@ -61,6 +61,7 @@ and rp_error_code =
   | Bad_request
   | Upstream_failed
   | Internal
+  | Required_claim_unverified
 
 and issued_claim_outcome = Deposited | Handoff | Skipped | Failed
 and hello_request = { name : string option }
@@ -184,7 +185,13 @@ and get_user_claims_response = {
   claims : claim list;
 }
 
-and requested_claim = { claim_type : string; datatype : claim_value_type }
+and verifying_party = Home_domain
+
+and requested_claim = {
+  claim_type : string;
+  datatype : claim_value_type;
+  verified_by : verifying_party option;
+}
 
 and claim_request = {
   required : requested_claim list;
@@ -842,6 +849,7 @@ and browser_consent_claim = {
   max_bytes : int64;
   requires_approval : bool;
   newly_requested : bool option;
+  home_verified : bool option;
 }
 
 and browser_authorization_inspect_response = {
@@ -930,6 +938,35 @@ and rp_decrypt_request = { encrypted_token : string }
 and rp_decrypt_response = { signed_assertion : string }
 and rp_verify_request = { signed_assertion : string; expected_domain : string }
 and rp_verify_response = { assertion : identity_assertion; verified : bool }
+
+and claim_check_status =
+  | Valid
+  | Wrong_subject
+  | Bad_timestamp
+  | Unsigned
+  | Revoked
+  | Expired
+  | Keys_unavailable
+  | Key_not_valid
+  | Bad_signature
+
+and domain_signature_check = { domain : string; status : claim_check_status }
+
+and claim_check = {
+  claim_id : string;
+  claim_type : string;
+  claim_status : claim_check_status;
+  signing_domains : domain_signature_check list;
+  verified : bool;
+}
+
+and rp_verify_claims_request = {
+  subject_domain : string;
+  user_id : string;
+  claims : claim list;
+}
+
+and rp_verify_claims_response = { checks : claim_check list }
 
 and rp_user_info_request = {
   token : string;
@@ -2155,6 +2192,7 @@ let rp_error_code_label (v : rp_error_code) =
   | Bad_request -> "bad_request"
   | Upstream_failed -> "upstream_failed"
   | Internal -> "internal"
+  | Required_claim_unverified -> "required_claim_unverified"
 
 let rp_error_code_to_number (v : rp_error_code) =
   match v with
@@ -2164,6 +2202,7 @@ let rp_error_code_to_number (v : rp_error_code) =
   | Bad_request -> 4L
   | Upstream_failed -> 5L
   | Internal -> 6L
+  | Required_claim_unverified -> 7L
 
 let rp_error_code_of_number (n : int64) : rp_error_code option =
   match n with
@@ -2173,6 +2212,7 @@ let rp_error_code_of_number (n : int64) : rp_error_code option =
   | 4L -> Some Bad_request
   | 5L -> Some Upstream_failed
   | 6L -> Some Internal
+  | 7L -> Some Required_claim_unverified
   | _ -> None
 
 let issued_claim_outcome_label (v : issued_claim_outcome) =
@@ -2195,6 +2235,56 @@ let issued_claim_outcome_of_number (n : int64) : issued_claim_outcome option =
   | 2L -> Some Handoff
   | 3L -> Some Skipped
   | 4L -> Some Failed
+  | _ -> None
+
+let verifying_party_label (v : verifying_party) =
+  match v with
+  | Home_domain -> "home_domain"
+
+let verifying_party_to_number (v : verifying_party) =
+  match v with
+  | Home_domain -> 1L
+
+let verifying_party_of_number (n : int64) : verifying_party option =
+  match n with
+  | 1L -> Some Home_domain
+  | _ -> None
+
+let claim_check_status_label (v : claim_check_status) =
+  match v with
+  | Valid -> "valid"
+  | Wrong_subject -> "wrong_subject"
+  | Bad_timestamp -> "bad_timestamp"
+  | Unsigned -> "unsigned"
+  | Revoked -> "revoked"
+  | Expired -> "expired"
+  | Keys_unavailable -> "keys_unavailable"
+  | Key_not_valid -> "key_not_valid"
+  | Bad_signature -> "bad_signature"
+
+let claim_check_status_to_number (v : claim_check_status) =
+  match v with
+  | Valid -> 1L
+  | Wrong_subject -> 2L
+  | Bad_timestamp -> 3L
+  | Unsigned -> 4L
+  | Revoked -> 5L
+  | Expired -> 6L
+  | Keys_unavailable -> 7L
+  | Key_not_valid -> 8L
+  | Bad_signature -> 9L
+
+let claim_check_status_of_number (n : int64) : claim_check_status option =
+  match n with
+  | 1L -> Some Valid
+  | 2L -> Some Wrong_subject
+  | 3L -> Some Bad_timestamp
+  | 4L -> Some Unsigned
+  | 5L -> Some Revoked
+  | 6L -> Some Expired
+  | 7L -> Some Keys_unavailable
+  | 8L -> Some Key_not_valid
+  | 9L -> Some Bad_signature
   | _ -> None
 
 let api_error_code_label (v : api_error_code) =

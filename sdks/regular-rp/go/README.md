@@ -320,6 +320,52 @@ D also owns the freshness of its revocation data. It decides how often to
 call `ResolveGrantRevocations`. A short grant lifetime decreases the risk
 of old revocation data.
 
+## Claims that the home domain verified
+
+To require a claim that the user's home domain verified, set `VerifiedBy`
+on the requested claim when you call `Rp/sign-request`:
+
+```go
+home := api.VerifyingPartyHomeDomain
+claims := api.ClaimRequest{Required: []api.RequestedClaim{
+	{ClaimType: "email", Datatype: api.ClaimValueTypeEmail, VerifiedBy: &home},
+	{ClaimType: "email_verified", Datatype: api.ClaimValueTypeBool, VerifiedBy: &home},
+}}
+```
+
+The RP server records the requirement and enforces it in
+`Rp/userinfo-fetch`:
+
+- It removes each claim of the type that the home domain did not verify.
+- When no claim of a required type is left, it refuses the login with
+  `api.RpErrorCodeRequiredClaimUnverified`.
+
+The IDP shows the claim as missing until the user has a value that the home
+domain signed. The LinkKeys reference server signs `email` and
+`email_verified` only after the user opens the confirmation link that it
+sent to the address. Check that the `email_verified` value is `true`.
+
+### Verify claims at another time
+
+`VerifyClaims(ctx, transport, subjectDomain, userID, claims)` calls
+`Rp/verify-claims`. The RP server gets the keys of each signing domain and
+runs the LinkKeys reference verifier. It returns one `api.ClaimCheck` for
+each claim:
+
+- `ClaimStatus` is about the claim itself: the subject, the signed times, one
+  or more signatures, not revoked, and not expired.
+- `SigningDomains` has the result of each signing domain.
+- `Verified` is true only when the claim and every signing domain are valid.
+
+`VerifiedBy(check, domain)` is true when the claim is valid and the
+signatures of `domain` are valid. The signatures of other domains do not
+change the result.
+
+`RequireClaimsVerifiedBy(ctx, transport, domain, userID, claims, types...)`
+returns, for each type, a claim that `domain` verified. It fails with a
+`*ClaimCheckError` for the first type that has none. Take `domain` and
+`userID` from the verified assertion, never from the claims.
+
 ## What this package does not do
 
 It never submits an addition, renewal, or revocation request over the

@@ -816,7 +816,8 @@ enum RpErrorCode {
   applicationUserLimit('application_user_limit', 3),
   badRequest('bad_request', 4),
   upstreamFailed('upstream_failed', 5),
-  internal('internal', 6);
+  internal('internal', 6),
+  requiredClaimUnverified('required_claim_unverified', 7);
 
   const RpErrorCode(this.wireValue, this.wireNumber);
   final String wireValue;
@@ -2519,16 +2520,48 @@ final class GetUserClaimsResponse {
       GetUserClaimsResponse.fromCborValue(CsilCbor.decode(bytes));
 }
 
+enum VerifyingParty {
+  homeDomain('home_domain', 1);
+
+  const VerifyingParty(this.wireValue, this.wireNumber);
+  final String wireValue;
+  final int wireNumber;
+  static final _byNumber = <int, VerifyingParty>{
+    for (final member in values) member.wireNumber: member,
+  };
+
+  static VerifyingParty fromNumber(Object? value) {
+    final member = value is int ? _byNumber[value] : null;
+    if (member != null) return member;
+    throw FormatException('unknown VerifyingParty number', value);
+  }
+
+  String toJson() => wireValue;
+
+  static VerifyingParty fromWire(Object? value) {
+    for (final member in values) {
+      if (member.wireValue == value) return member;
+    }
+    throw FormatException('unknown VerifyingParty value', value);
+  }
+}
+
 final class RequestedClaim {
   final String claimType;
   final ClaimValueType datatype;
+  final VerifyingParty? verifiedBy;
 
-  const RequestedClaim({required this.claimType, required this.datatype});
+  const RequestedClaim({
+    required this.claimType,
+    required this.datatype,
+    this.verifiedBy,
+  });
 
   Map<String, Object?> toMap() {
     final map = <String, Object?>{};
     map['claim_type'] = claimType;
     map['datatype'] = datatype.wireValue;
+    if (verifiedBy != null) map['verified_by'] = verifiedBy!.wireValue;
     return map;
   }
 
@@ -2536,23 +2569,29 @@ final class RequestedClaim {
     return RequestedClaim(
       claimType: map['claim_type'] as String,
       datatype: ClaimValueType.fromWire(map['datatype']),
+      verifiedBy: map['verified_by'] == null
+          ? null
+          : VerifyingParty.fromWire(map['verified_by']),
     );
   }
 
   @override
   bool operator ==(Object other) {
     if (other is! RequestedClaim) return false;
-    return claimType == other.claimType && datatype == other.datatype;
+    return claimType == other.claimType &&
+        datatype == other.datatype &&
+        verifiedBy == other.verifiedBy;
   }
 
   @override
-  int get hashCode => Object.hashAll([claimType, datatype]);
+  int get hashCode => Object.hashAll([claimType, datatype, verifiedBy]);
 
   /// The CBOR-encodable dynamic tree for this record (deep).
   Map<String, Object?> toCborValue() {
     final map = <String, Object?>{};
     map['claim_type'] = claimType;
     map['datatype'] = datatype.wireNumber;
+    if (verifiedBy != null) map['verified_by'] = verifiedBy!.wireNumber;
     return map;
   }
 
@@ -2562,6 +2601,9 @@ final class RequestedClaim {
     return RequestedClaim(
       claimType: map['claim_type'] as String,
       datatype: ClaimValueType.fromNumber(map['datatype']),
+      verifiedBy: map['verified_by'] == null
+          ? null
+          : VerifyingParty.fromNumber(map['verified_by']),
     );
   }
 
@@ -12608,6 +12650,7 @@ final class BrowserConsentClaim {
   final int maxBytes;
   final bool requiresApproval;
   final bool? newlyRequested;
+  final bool? homeVerified;
 
   const BrowserConsentClaim({
     required this.claimType,
@@ -12621,6 +12664,7 @@ final class BrowserConsentClaim {
     required this.maxBytes,
     required this.requiresApproval,
     this.newlyRequested,
+    this.homeVerified,
   });
 
   Map<String, Object?> toMap() {
@@ -12636,6 +12680,7 @@ final class BrowserConsentClaim {
     map['max_bytes'] = maxBytes;
     map['requires_approval'] = requiresApproval;
     if (newlyRequested != null) map['newly_requested'] = newlyRequested;
+    if (homeVerified != null) map['home_verified'] = homeVerified;
     return map;
   }
 
@@ -12652,6 +12697,7 @@ final class BrowserConsentClaim {
       maxBytes: map['max_bytes'] as int,
       requiresApproval: map['requires_approval'] as bool,
       newlyRequested: map['newly_requested'] as bool?,
+      homeVerified: map['home_verified'] as bool?,
     );
   }
 
@@ -12668,7 +12714,8 @@ final class BrowserConsentClaim {
         userSettable == other.userSettable &&
         maxBytes == other.maxBytes &&
         requiresApproval == other.requiresApproval &&
-        newlyRequested == other.newlyRequested;
+        newlyRequested == other.newlyRequested &&
+        homeVerified == other.homeVerified;
   }
 
   @override
@@ -12684,6 +12731,7 @@ final class BrowserConsentClaim {
     maxBytes,
     requiresApproval,
     newlyRequested,
+    homeVerified,
   ]);
 
   /// The CBOR-encodable dynamic tree for this record (deep).
@@ -12700,6 +12748,7 @@ final class BrowserConsentClaim {
     map['max_bytes'] = maxBytes;
     map['requires_approval'] = requiresApproval;
     if (newlyRequested != null) map['newly_requested'] = newlyRequested!;
+    if (homeVerified != null) map['home_verified'] = homeVerified!;
     return map;
   }
 
@@ -12720,6 +12769,9 @@ final class BrowserConsentClaim {
       newlyRequested: map['newly_requested'] == null
           ? null
           : map['newly_requested'] as bool,
+      homeVerified: map['home_verified'] == null
+          ? null
+          : map['home_verified'] as bool,
     );
   }
 
@@ -14021,6 +14073,302 @@ final class RpVerifyResponse {
   /// Decode a CSIL CBOR byte payload into this record.
   factory RpVerifyResponse.fromCbor(List<int> bytes) =>
       RpVerifyResponse.fromCborValue(CsilCbor.decode(bytes));
+}
+
+enum ClaimCheckStatus {
+  valid('valid', 1),
+  wrongSubject('wrong_subject', 2),
+  badTimestamp('bad_timestamp', 3),
+  unsigned('unsigned', 4),
+  revoked('revoked', 5),
+  expired('expired', 6),
+  keysUnavailable('keys_unavailable', 7),
+  keyNotValid('key_not_valid', 8),
+  badSignature('bad_signature', 9);
+
+  const ClaimCheckStatus(this.wireValue, this.wireNumber);
+  final String wireValue;
+  final int wireNumber;
+  static final _byNumber = <int, ClaimCheckStatus>{
+    for (final member in values) member.wireNumber: member,
+  };
+
+  static ClaimCheckStatus fromNumber(Object? value) {
+    final member = value is int ? _byNumber[value] : null;
+    if (member != null) return member;
+    throw FormatException('unknown ClaimCheckStatus number', value);
+  }
+
+  String toJson() => wireValue;
+
+  static ClaimCheckStatus fromWire(Object? value) {
+    for (final member in values) {
+      if (member.wireValue == value) return member;
+    }
+    throw FormatException('unknown ClaimCheckStatus value', value);
+  }
+}
+
+final class DomainSignatureCheck {
+  final String domain;
+  final ClaimCheckStatus status;
+
+  const DomainSignatureCheck({required this.domain, required this.status});
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['domain'] = domain;
+    map['status'] = status.wireValue;
+    return map;
+  }
+
+  factory DomainSignatureCheck.fromMap(Map<String, Object?> map) {
+    return DomainSignatureCheck(
+      domain: map['domain'] as String,
+      status: ClaimCheckStatus.fromWire(map['status']),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! DomainSignatureCheck) return false;
+    return domain == other.domain && status == other.status;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([domain, status]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['domain'] = domain;
+    map['status'] = status.wireNumber;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory DomainSignatureCheck.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return DomainSignatureCheck(
+      domain: map['domain'] as String,
+      status: ClaimCheckStatus.fromNumber(map['status']),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory DomainSignatureCheck.fromCbor(List<int> bytes) =>
+      DomainSignatureCheck.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class ClaimCheck {
+  final String claimId;
+  final String claimType;
+  final ClaimCheckStatus claimStatus;
+  final List<DomainSignatureCheck> signingDomains;
+  final bool verified;
+
+  const ClaimCheck({
+    required this.claimId,
+    required this.claimType,
+    required this.claimStatus,
+    required this.signingDomains,
+    required this.verified,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['claim_id'] = claimId;
+    map['claim_type'] = claimType;
+    map['claim_status'] = claimStatus.wireValue;
+    map['signing_domains'] = signingDomains;
+    map['verified'] = verified;
+    return map;
+  }
+
+  factory ClaimCheck.fromMap(Map<String, Object?> map) {
+    return ClaimCheck(
+      claimId: map['claim_id'] as String,
+      claimType: map['claim_type'] as String,
+      claimStatus: ClaimCheckStatus.fromWire(map['claim_status']),
+      signingDomains: map['signing_domains'] as List<DomainSignatureCheck>,
+      verified: map['verified'] as bool,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! ClaimCheck) return false;
+    return claimId == other.claimId &&
+        claimType == other.claimType &&
+        claimStatus == other.claimStatus &&
+        signingDomains == other.signingDomains &&
+        verified == other.verified;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([
+    claimId,
+    claimType,
+    claimStatus,
+    signingDomains,
+    verified,
+  ]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['claim_id'] = claimId;
+    map['claim_type'] = claimType;
+    map['claim_status'] = claimStatus.wireNumber;
+    map['signing_domains'] = signingDomains
+        .map((csilE) => csilE.toCborValue())
+        .toList();
+    map['verified'] = verified;
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory ClaimCheck.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return ClaimCheck(
+      claimId: map['claim_id'] as String,
+      claimType: map['claim_type'] as String,
+      claimStatus: ClaimCheckStatus.fromNumber(map['claim_status']),
+      signingDomains: CsilCbor.listOf(
+        map['signing_domains'],
+        (csilE) => DomainSignatureCheck.fromCborValue(csilE),
+      ),
+      verified: map['verified'] as bool,
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory ClaimCheck.fromCbor(List<int> bytes) =>
+      ClaimCheck.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class RpVerifyClaimsRequest {
+  final String subjectDomain;
+  final String userId;
+  final List<Claim> claims;
+
+  const RpVerifyClaimsRequest({
+    required this.subjectDomain,
+    required this.userId,
+    required this.claims,
+  });
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['subject_domain'] = subjectDomain;
+    map['user_id'] = userId;
+    map['claims'] = claims;
+    return map;
+  }
+
+  factory RpVerifyClaimsRequest.fromMap(Map<String, Object?> map) {
+    return RpVerifyClaimsRequest(
+      subjectDomain: map['subject_domain'] as String,
+      userId: map['user_id'] as String,
+      claims: map['claims'] as List<Claim>,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! RpVerifyClaimsRequest) return false;
+    return subjectDomain == other.subjectDomain &&
+        userId == other.userId &&
+        claims == other.claims;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([subjectDomain, userId, claims]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['subject_domain'] = subjectDomain;
+    map['user_id'] = userId;
+    map['claims'] = claims.map((csilE) => csilE.toCborValue()).toList();
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory RpVerifyClaimsRequest.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return RpVerifyClaimsRequest(
+      subjectDomain: map['subject_domain'] as String,
+      userId: map['user_id'] as String,
+      claims: CsilCbor.listOf(
+        map['claims'],
+        (csilE) => Claim.fromCborValue(csilE),
+      ),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory RpVerifyClaimsRequest.fromCbor(List<int> bytes) =>
+      RpVerifyClaimsRequest.fromCborValue(CsilCbor.decode(bytes));
+}
+
+final class RpVerifyClaimsResponse {
+  final List<ClaimCheck> checks;
+
+  const RpVerifyClaimsResponse({required this.checks});
+
+  Map<String, Object?> toMap() {
+    final map = <String, Object?>{};
+    map['checks'] = checks;
+    return map;
+  }
+
+  factory RpVerifyClaimsResponse.fromMap(Map<String, Object?> map) {
+    return RpVerifyClaimsResponse(checks: map['checks'] as List<ClaimCheck>);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (other is! RpVerifyClaimsResponse) return false;
+    return checks == other.checks;
+  }
+
+  @override
+  int get hashCode => Object.hashAll([checks]);
+
+  /// The CBOR-encodable dynamic tree for this record (deep).
+  Map<String, Object?> toCborValue() {
+    final map = <String, Object?>{};
+    map['checks'] = checks.map((csilE) => csilE.toCborValue()).toList();
+    return map;
+  }
+
+  /// Reconstruct this record from a decoded CBOR dynamic tree.
+  factory RpVerifyClaimsResponse.fromCborValue(Object? cbor) {
+    final map = cbor as Map;
+    return RpVerifyClaimsResponse(
+      checks: CsilCbor.listOf(
+        map['checks'],
+        (csilE) => ClaimCheck.fromCborValue(csilE),
+      ),
+    );
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  Uint8List toCbor() => CsilCbor.encodeValue(toCborValue());
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  factory RpVerifyClaimsResponse.fromCbor(List<int> bytes) =>
+      RpVerifyClaimsResponse.fromCborValue(CsilCbor.decode(bytes));
 }
 
 final class RpUserInfoRequest {

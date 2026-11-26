@@ -455,24 +455,29 @@ fn demo_initial_claim_request() -> lk::ClaimRequest {
             lk::RequestedClaim {
                 claim_type: "display_name".to_string(),
                 datatype: liblinkkeys::generated::types::ClaimValueType::Text,
+                verified_by: None,
             },
             lk::RequestedClaim {
                 claim_type: "handle".to_string(),
                 datatype: liblinkkeys::generated::types::ClaimValueType::Text,
+                verified_by: None,
             },
         ],
         optional: vec![
             lk::RequestedClaim {
                 claim_type: "email".to_string(),
                 datatype: liblinkkeys::generated::types::ClaimValueType::Email,
+                verified_by: None,
             },
             lk::RequestedClaim {
                 claim_type: "over_21".to_string(),
                 datatype: liblinkkeys::generated::types::ClaimValueType::Bool,
+                verified_by: None,
             },
             lk::RequestedClaim {
                 claim_type: "address".to_string(),
                 datatype: liblinkkeys::generated::types::ClaimValueType::Text,
+                verified_by: None,
             },
         ],
     }
@@ -484,14 +489,17 @@ fn demo_age_update_claim_request() -> lk::ClaimRequest {
         lk::RequestedClaim {
             claim_type: "over_13".to_string(),
             datatype: liblinkkeys::generated::types::ClaimValueType::Bool,
+            verified_by: None,
         },
         lk::RequestedClaim {
             claim_type: "over_16".to_string(),
             datatype: liblinkkeys::generated::types::ClaimValueType::Bool,
+            verified_by: None,
         },
         lk::RequestedClaim {
             claim_type: "over_18".to_string(),
             datatype: liblinkkeys::generated::types::ClaimValueType::Bool,
+            verified_by: None,
         },
     ]);
     request

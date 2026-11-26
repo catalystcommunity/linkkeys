@@ -1747,12 +1747,27 @@ fn dec_GetUserClaimsResponse(alloc: std.mem.Allocator, m: Value, out: *types.Get
     }
 }
 
+fn enc_VerifyingParty(out: *std.ArrayList(u8), v: *const types.VerifyingParty) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_VerifyingParty(alloc: std.mem.Allocator, src: Value, out: *types.VerifyingParty) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.VerifyingParty, try as_i64(src)) catch return error.WrongType;
+}
+
 fn enc_RequestedClaim(out: *std.ArrayList(u8), v: *const types.RequestedClaim) CodecError!void {
-    try w_map_head(out, 2);
+    var csil_n: usize = 2;
+    if (v.verified_by != null) csil_n += 1;
+    try w_map_head(out, csil_n);
     try w_text(out, "datatype");
     try enc_ClaimValueType(out, &(v.datatype));
     try w_text(out, "claim_type");
     try w_text(out, v.claim_type);
+    if (v.verified_by) |csil_x| {
+        try w_text(out, "verified_by");
+        try enc_VerifyingParty(out, &(csil_x));
+    }
 }
 
 fn dec_RequestedClaim(alloc: std.mem.Allocator, m: Value, out: *types.RequestedClaim) CodecError!void {
@@ -1764,6 +1779,15 @@ fn dec_RequestedClaim(alloc: std.mem.Allocator, m: Value, out: *types.RequestedC
     {
         const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "verified_by")) |csil_fv| {
+            var csil_tmp: types.VerifyingParty = undefined;
+            try dec_VerifyingParty(alloc, csil_fv, &(csil_tmp));
+            out.verified_by = csil_tmp;
+        } else {
+            out.verified_by = null;
+        }
     }
 }
 
@@ -6232,6 +6256,7 @@ fn dec_BrowserAuthorizationInspectRequest(alloc: std.mem.Allocator, m: Value, ou
 
 fn enc_BrowserConsentClaim(out: *std.ArrayList(u8), v: *const types.BrowserConsentClaim) CodecError!void {
     var csil_n: usize = 10;
+    if (v.home_verified != null) csil_n += 1;
     if (v.newly_requested != null) csil_n += 1;
     try w_map_head(out, csil_n);
     try w_text(out, "label");
@@ -6248,6 +6273,10 @@ fn enc_BrowserConsentClaim(out: *std.ArrayList(u8), v: *const types.BrowserConse
     try w_int(out, v.max_bytes);
     try w_text(out, "claim_type");
     try w_text(out, v.claim_type);
+    if (v.home_verified) |csil_x| {
+        try w_text(out, "home_verified");
+        try w_bool(out, csil_x);
+    }
     try w_text(out, "user_settable");
     try w_bool(out, v.user_settable);
     try w_text(out, "default_granted");
@@ -6289,6 +6318,13 @@ fn dec_BrowserConsentClaim(alloc: std.mem.Allocator, m: Value, out: *types.Brows
     {
         const csil_fv = try csil_required_field(m, "claim_type");
         out.claim_type = try as_text(csil_fv);
+    }
+    {
+        if (mget(m, "home_verified")) |csil_fv| {
+            out.home_verified = try as_bool(csil_fv);
+        } else {
+            out.home_verified = null;
+        }
     }
     {
         const csil_fv = try csil_required_field(m, "user_settable");
@@ -7084,6 +7120,134 @@ fn dec_RpVerifyResponse(alloc: std.mem.Allocator, m: Value, out: *types.RpVerify
     {
         const csil_fv = try csil_required_field(m, "assertion");
         try dec_IdentityAssertion(alloc, csil_fv, &(out.assertion));
+    }
+}
+
+fn enc_ClaimCheckStatus(out: *std.ArrayList(u8), v: *const types.ClaimCheckStatus) CodecError!void {
+    try w_int(out, @intFromEnum(v.*));
+}
+
+fn dec_ClaimCheckStatus(alloc: std.mem.Allocator, src: Value, out: *types.ClaimCheckStatus) CodecError!void {
+    _ = alloc;
+    out.* = std.meta.intToEnum(types.ClaimCheckStatus, try as_i64(src)) catch return error.WrongType;
+}
+
+fn enc_DomainSignatureCheck(out: *std.ArrayList(u8), v: *const types.DomainSignatureCheck) CodecError!void {
+    try w_map_head(out, 2);
+    try w_text(out, "domain");
+    try w_text(out, v.domain);
+    try w_text(out, "status");
+    try enc_ClaimCheckStatus(out, &(v.status));
+}
+
+fn dec_DomainSignatureCheck(alloc: std.mem.Allocator, m: Value, out: *types.DomainSignatureCheck) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "domain");
+        out.domain = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try csil_required_field(m, "status");
+        try dec_ClaimCheckStatus(alloc, csil_fv, &(out.status));
+    }
+}
+
+fn enc_ClaimCheck(out: *std.ArrayList(u8), v: *const types.ClaimCheck) CodecError!void {
+    try w_map_head(out, 5);
+    try w_text(out, "claim_id");
+    try w_text(out, v.claim_id);
+    try w_text(out, "verified");
+    try w_bool(out, v.verified);
+    try w_text(out, "claim_type");
+    try w_text(out, v.claim_type);
+    try w_text(out, "claim_status");
+    try enc_ClaimCheckStatus(out, &(v.claim_status));
+    try w_text(out, "signing_domains");
+    try w_array_head(out, v.signing_domains.len);
+    for (v.signing_domains) |csil_it| {
+        try enc_DomainSignatureCheck(out, &(csil_it));
+    }
+}
+
+fn dec_ClaimCheck(alloc: std.mem.Allocator, m: Value, out: *types.ClaimCheck) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "claim_id");
+        out.claim_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try csil_required_field(m, "verified");
+        out.verified = try as_bool(csil_fv);
+    }
+    {
+        const csil_fv = try csil_required_field(m, "claim_type");
+        out.claim_type = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try csil_required_field(m, "claim_status");
+        try dec_ClaimCheckStatus(alloc, csil_fv, &(out.claim_status));
+    }
+    {
+        const csil_fv = try csil_required_field(m, "signing_domains");
+        if (csil_fv != .array) return error.WrongType;
+        out.signing_domains = try alloc.alloc(types.DomainSignatureCheck, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_DomainSignatureCheck(alloc, csil_it, &(out.signing_domains[csil_i]));
+        }
+    }
+}
+
+fn enc_RpVerifyClaimsRequest(out: *std.ArrayList(u8), v: *const types.RpVerifyClaimsRequest) CodecError!void {
+    try w_map_head(out, 3);
+    try w_text(out, "claims");
+    try w_array_head(out, v.claims.len);
+    for (v.claims) |csil_it| {
+        try enc_Claim(out, &(csil_it));
+    }
+    try w_text(out, "user_id");
+    try w_text(out, v.user_id);
+    try w_text(out, "subject_domain");
+    try w_text(out, v.subject_domain);
+}
+
+fn dec_RpVerifyClaimsRequest(alloc: std.mem.Allocator, m: Value, out: *types.RpVerifyClaimsRequest) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "claims");
+        if (csil_fv != .array) return error.WrongType;
+        out.claims = try alloc.alloc(types.Claim, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_Claim(alloc, csil_it, &(out.claims[csil_i]));
+        }
+    }
+    {
+        const csil_fv = try csil_required_field(m, "user_id");
+        out.user_id = try as_text(csil_fv);
+    }
+    {
+        const csil_fv = try csil_required_field(m, "subject_domain");
+        out.subject_domain = try as_text(csil_fv);
+    }
+}
+
+fn enc_RpVerifyClaimsResponse(out: *std.ArrayList(u8), v: *const types.RpVerifyClaimsResponse) CodecError!void {
+    try w_map_head(out, 1);
+    try w_text(out, "checks");
+    try w_array_head(out, v.checks.len);
+    for (v.checks) |csil_it| {
+        try enc_ClaimCheck(out, &(csil_it));
+    }
+}
+
+fn dec_RpVerifyClaimsResponse(alloc: std.mem.Allocator, m: Value, out: *types.RpVerifyClaimsResponse) CodecError!void {
+    if (m != .map) return error.WrongType;
+    {
+        const csil_fv = try csil_required_field(m, "checks");
+        if (csil_fv != .array) return error.WrongType;
+        out.checks = try alloc.alloc(types.ClaimCheck, csil_fv.array.len);
+        for (csil_fv.array, 0..) |csil_it, csil_i| {
+            try dec_ClaimCheck(alloc, csil_it, &(out.checks[csil_i]));
+        }
     }
 }
 
@@ -12668,6 +12832,22 @@ pub fn decode_GetUserClaimsResponse(alloc: std.mem.Allocator, bytes: []const u8,
     try dec_GetUserClaimsResponse(alloc, root, out);
 }
 
+/// Encode a VerifyingParty to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_VerifyingParty(alloc: std.mem.Allocator, v: *const types.VerifyingParty) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_VerifyingParty(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a VerifyingParty. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_VerifyingParty(alloc: std.mem.Allocator, bytes: []const u8, out: *types.VerifyingParty) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_VerifyingParty(alloc, root, out);
+}
+
 /// Encode a RequestedClaim to CBOR. The returned slice is owned by the caller
 /// (free it with alloc.free).
 pub fn encode_RequestedClaim(alloc: std.mem.Allocator, v: *const types.RequestedClaim) CodecError![]u8 {
@@ -15594,6 +15774,86 @@ pub fn encode_RpVerifyResponse(alloc: std.mem.Allocator, v: *const types.RpVerif
 pub fn decode_RpVerifyResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RpVerifyResponse) CodecError!void {
     const root = try decode(alloc, bytes);
     try dec_RpVerifyResponse(alloc, root, out);
+}
+
+/// Encode a ClaimCheckStatus to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ClaimCheckStatus(alloc: std.mem.Allocator, v: *const types.ClaimCheckStatus) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ClaimCheckStatus(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ClaimCheckStatus. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ClaimCheckStatus(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ClaimCheckStatus) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ClaimCheckStatus(alloc, root, out);
+}
+
+/// Encode a DomainSignatureCheck to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_DomainSignatureCheck(alloc: std.mem.Allocator, v: *const types.DomainSignatureCheck) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_DomainSignatureCheck(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a DomainSignatureCheck. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_DomainSignatureCheck(alloc: std.mem.Allocator, bytes: []const u8, out: *types.DomainSignatureCheck) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_DomainSignatureCheck(alloc, root, out);
+}
+
+/// Encode a ClaimCheck to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_ClaimCheck(alloc: std.mem.Allocator, v: *const types.ClaimCheck) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_ClaimCheck(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a ClaimCheck. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_ClaimCheck(alloc: std.mem.Allocator, bytes: []const u8, out: *types.ClaimCheck) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_ClaimCheck(alloc, root, out);
+}
+
+/// Encode a RpVerifyClaimsRequest to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RpVerifyClaimsRequest(alloc: std.mem.Allocator, v: *const types.RpVerifyClaimsRequest) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RpVerifyClaimsRequest(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RpVerifyClaimsRequest. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RpVerifyClaimsRequest(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RpVerifyClaimsRequest) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RpVerifyClaimsRequest(alloc, root, out);
+}
+
+/// Encode a RpVerifyClaimsResponse to CBOR. The returned slice is owned by the caller
+/// (free it with alloc.free).
+pub fn encode_RpVerifyClaimsResponse(alloc: std.mem.Allocator, v: *const types.RpVerifyClaimsResponse) CodecError![]u8 {
+    var out = std.ArrayList(u8).init(alloc);
+    errdefer out.deinit();
+    try enc_RpVerifyClaimsResponse(&out, v);
+    return out.toOwnedSlice();
+}
+
+/// Decode CBOR into a RpVerifyClaimsResponse. Every string/slice/map inside `out` is
+/// allocated from `alloc`; pass an arena and free it all at once.
+pub fn decode_RpVerifyClaimsResponse(alloc: std.mem.Allocator, bytes: []const u8, out: *types.RpVerifyClaimsResponse) CodecError!void {
+    const root = try decode(alloc, bytes);
+    try dec_RpVerifyClaimsResponse(alloc, root, out);
 }
 
 /// Encode a RpUserInfoRequest to CBOR. The returned slice is owned by the caller

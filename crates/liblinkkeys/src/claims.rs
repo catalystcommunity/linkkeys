@@ -1,6 +1,9 @@
 // LINKKEYS-TRUST-CRITICAL: a change to this file needs a trust approval. See docs/trust-change-control.md.
 use crate::crypto::{self, CryptoError, SigningAlgorithm};
-use crate::generated::types::{Claim, ClaimSignature, DomainPublicKey, KeyUsage};
+use crate::generated::types::{
+    Claim, ClaimCheck, ClaimCheckStatus, ClaimSignature, DomainPublicKey, DomainSignatureCheck,
+    KeyUsage,
+};
 use crate::timestamp::SignedTime;
 use std::collections::BTreeSet;
 use std::fmt;
@@ -405,6 +408,95 @@ pub fn verify_claim(
     }
 
     Ok(())
+}
+
+/// The `ClaimCheckStatus` for a [`ClaimError`].
+fn check_status(error: &ClaimError) -> ClaimCheckStatus {
+    match error {
+        ClaimError::BadTimestamp => ClaimCheckStatus::BadTimestamp,
+        ClaimError::Unsigned => ClaimCheckStatus::Unsigned,
+        ClaimError::Revoked => ClaimCheckStatus::Revoked,
+        ClaimError::Expired => ClaimCheckStatus::Expired,
+        ClaimError::DomainKeysUnavailable(_) => ClaimCheckStatus::KeysUnavailable,
+        ClaimError::KeyNotFound(_) | ClaimError::KeyRevoked(_) | ClaimError::KeyExpired(_) => {
+            ClaimCheckStatus::KeyNotValid
+        }
+        ClaimError::SignatureInvalid
+        | ClaimError::UnsupportedAlgorithm(_)
+        | ClaimError::DomainUnverified(_)
+        | ClaimError::Crypto(_) => ClaimCheckStatus::BadSignature,
+    }
+}
+
+/// Check one claim for an application, with a result for each signing
+/// domain (the `Rp/verify-claims` result, see `ClaimCheck` in the CSIL).
+///
+/// - `user_id` and `subject_domain` come from the verified assertion. A claim
+///   about another `user_id` gets `claim_status` `wrong_subject`.
+/// - `domain_keys` holds the keys of each signing domain, with revocations
+///   applied. A domain without an entry gets `keys_unavailable`.
+/// - `now` is the time for the expiry check.
+///
+/// Each signing domain is checked with only its own signatures, by the same
+/// quorum rule as [`verify_claim_signatures`]. So `verified` is true exactly
+/// when the subject matches and [`verify_claim`] at `now` accepts the claim.
+/// This function performs no I/O.
+pub fn check_claim(
+    claim: &Claim,
+    user_id: &str,
+    subject_domain: &str,
+    domain_keys: &[DomainKeySet],
+    now: OffsetDateTime,
+) -> ClaimCheck {
+    let claim_status = if claim.user_id != user_id {
+        ClaimCheckStatus::WrongSubject
+    } else if signed_times(claim.expires_at.as_ref(), &claim.attested_at).is_err() {
+        ClaimCheckStatus::BadTimestamp
+    } else if claim.signatures.is_empty() {
+        ClaimCheckStatus::Unsigned
+    } else if claim.revoked_at.is_some() {
+        ClaimCheckStatus::Revoked
+    } else if claim.expires_at.is_some_and(|expires| now > expires) {
+        ClaimCheckStatus::Expired
+    } else {
+        ClaimCheckStatus::Valid
+    };
+
+    let domains: BTreeSet<&str> = claim.signatures.iter().map(|s| s.domain.as_str()).collect();
+    let signing_domains: Vec<DomainSignatureCheck> = domains
+        .into_iter()
+        .map(|domain| {
+            let only_domain = Claim {
+                signatures: claim
+                    .signatures
+                    .iter()
+                    .filter(|s| s.domain == domain)
+                    .cloned()
+                    .collect(),
+                ..claim.clone()
+            };
+            let status = match verify_claim_signatures(&only_domain, subject_domain, domain_keys) {
+                Ok(()) => ClaimCheckStatus::Valid,
+                Err(e) => check_status(&e),
+            };
+            DomainSignatureCheck {
+                domain: domain.to_string(),
+                status,
+            }
+        })
+        .collect();
+
+    let verified = claim_status == ClaimCheckStatus::Valid
+        && signing_domains
+            .iter()
+            .all(|d| d.status == ClaimCheckStatus::Valid);
+    ClaimCheck {
+        claim_id: claim.claim_id.clone(),
+        claim_type: claim.claim_type.clone(),
+        claim_status,
+        signing_domains,
+        verified,
+    }
 }
 
 #[cfg(test)]
@@ -934,6 +1026,194 @@ mod tests {
             verify(&claim, &keyset(vec![make_domain_key("key-1", &pk)])),
             Err(ClaimError::BadTimestamp)
         ));
+    }
+
+    fn now() -> OffsetDateTime {
+        crate::timestamp::now_whole_milliseconds()
+    }
+
+    fn statuses(check: &ClaimCheck) -> Vec<(&str, ClaimCheckStatus)> {
+        check
+            .signing_domains
+            .iter()
+            .map(|d| (d.domain.as_str(), d.status))
+            .collect()
+    }
+
+    #[test]
+    fn check_claim_valid_matches_verify_claim() {
+        let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
+        let claim = signed_claim("key-1", &sk, None);
+        let keys = keyset(vec![make_domain_key("key-1", &pk)]);
+        let check = check_claim(&claim, "user-123", DOMAIN, &keys, now());
+        assert_eq!(check.claim_id, "claim-1");
+        assert_eq!(check.claim_type, "over-21");
+        assert_eq!(check.claim_status, ClaimCheckStatus::Valid);
+        assert_eq!(statuses(&check), vec![(DOMAIN, ClaimCheckStatus::Valid)]);
+        assert!(check.verified);
+        assert!(verify(&claim, &keys).is_ok());
+    }
+
+    #[test]
+    fn check_claim_refuses_another_subject() {
+        let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
+        let claim = signed_claim("key-1", &sk, None);
+        let keys = keyset(vec![make_domain_key("key-1", &pk)]);
+        let check = check_claim(&claim, "user-999", DOMAIN, &keys, now());
+        assert_eq!(check.claim_status, ClaimCheckStatus::WrongSubject);
+        assert!(!check.verified);
+    }
+
+    #[test]
+    fn check_claim_refuses_another_subject_domain() {
+        // The signature binds user_id@subject_domain, so the same claim
+        // presented for another home domain fails its signature check.
+        let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
+        let claim = signed_claim("key-1", &sk, None);
+        let keys = keyset(vec![make_domain_key("key-1", &pk)]);
+        let check = check_claim(&claim, "user-123", "other.example", &keys, now());
+        assert_eq!(check.claim_status, ClaimCheckStatus::Valid);
+        assert_eq!(
+            statuses(&check),
+            vec![(DOMAIN, ClaimCheckStatus::BadSignature)]
+        );
+        assert!(!check.verified);
+    }
+
+    #[test]
+    fn check_claim_reports_claim_level_failures() {
+        let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
+        let keys = keyset(vec![make_domain_key("key-1", &pk)]);
+
+        let mut revoked = signed_claim("key-1", &sk, None);
+        revoked.revoked_at = Some(now());
+        let check = check_claim(&revoked, "user-123", DOMAIN, &keys, now());
+        assert_eq!(check.claim_status, ClaimCheckStatus::Revoked);
+        assert!(!check.verified);
+
+        let past = crate::timestamp::now_whole_seconds() - time::Duration::hours(1);
+        let expired = signed_claim("key-1", &sk, Some(past));
+        let check = check_claim(&expired, "user-123", DOMAIN, &keys, now());
+        assert_eq!(check.claim_status, ClaimCheckStatus::Expired);
+        assert_eq!(statuses(&check), vec![(DOMAIN, ClaimCheckStatus::Valid)]);
+        assert!(!check.verified);
+        // The same claim before its expiry verifies.
+        let before = past - time::Duration::minutes(1);
+        assert!(check_claim(&expired, "user-123", DOMAIN, &keys, before).verified);
+
+        let mut unsigned = signed_claim("key-1", &sk, None);
+        unsigned.signatures.clear();
+        let check = check_claim(&unsigned, "user-123", DOMAIN, &keys, now());
+        assert_eq!(check.claim_status, ClaimCheckStatus::Unsigned);
+        assert!(check.signing_domains.is_empty());
+        assert!(!check.verified);
+
+        let mut fractional = signed_claim("key-1", &sk, None);
+        fractional.attested_at += time::Duration::milliseconds(5);
+        let check = check_claim(&fractional, "user-123", DOMAIN, &keys, now());
+        assert_eq!(check.claim_status, ClaimCheckStatus::BadTimestamp);
+        assert!(!check.verified);
+    }
+
+    #[test]
+    fn check_claim_reports_signature_failures() {
+        let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
+        let claim = signed_claim("key-1", &sk, None);
+
+        let mut tampered = claim.clone();
+        tampered.claim_value = b"false".to_vec();
+        let keys = keyset(vec![make_domain_key("key-1", &pk)]);
+        let check = check_claim(&tampered, "user-123", DOMAIN, &keys, now());
+        assert_eq!(
+            statuses(&check),
+            vec![(DOMAIN, ClaimCheckStatus::BadSignature)]
+        );
+
+        let unknown_key = keyset(vec![make_domain_key("key-2", &pk)]);
+        let check = check_claim(&claim, "user-123", DOMAIN, &unknown_key, now());
+        assert_eq!(
+            statuses(&check),
+            vec![(DOMAIN, ClaimCheckStatus::KeyNotValid)]
+        );
+
+        let check = check_claim(&claim, "user-123", DOMAIN, &[], now());
+        assert_eq!(
+            statuses(&check),
+            vec![(DOMAIN, ClaimCheckStatus::KeysUnavailable)]
+        );
+        assert!(!check.verified);
+    }
+
+    #[test]
+    fn check_claim_revocation_is_not_retroactive() {
+        let (pk, sk) = generate_keypair(SigningAlgorithm::Ed25519);
+        // signed_claim attests at 2020-01-01.
+        let claim = signed_claim("key-1", &sk, None);
+        let mut key = make_domain_key("key-1", &pk);
+
+        key.revoked_at = Some(at("2021-01-01T00:00:00+00:00"));
+        let after = keyset(vec![key.clone()]);
+        assert!(check_claim(&claim, "user-123", DOMAIN, &after, now()).verified);
+
+        key.revoked_at = Some(at("2019-01-01T00:00:00+00:00"));
+        let before = keyset(vec![key]);
+        let check = check_claim(&claim, "user-123", DOMAIN, &before, now());
+        assert_eq!(
+            statuses(&check),
+            vec![(DOMAIN, ClaimCheckStatus::KeyNotValid)]
+        );
+        assert!(!check.verified);
+    }
+
+    #[test]
+    fn check_claim_reports_each_signing_domain() {
+        // The home domain signs, and a second domain signs badly. The home
+        // domain result stays valid; the full result is not verified.
+        let (pk_home, sk_home) = generate_keypair(SigningAlgorithm::Ed25519);
+        let (pk_other, _) = generate_keypair(SigningAlgorithm::Ed25519);
+        let (_, sk_wrong) = generate_keypair(SigningAlgorithm::Ed25519);
+        let claim = sign_claim(
+            &ClaimSpec {
+                claim_id: "claim-1",
+                claim_type: "email",
+                claim_value: b"me@example.com",
+                user_id: "user-123",
+                subject_domain: DOMAIN,
+                expires_at: None,
+                attested_at: at("2020-01-01T00:00:00+00:00"),
+            },
+            &[
+                signer("home-1", &sk_home),
+                ClaimSigner {
+                    domain: "other.example",
+                    key_id: "other-1",
+                    algorithm: SigningAlgorithm::Ed25519,
+                    private_key_bytes: &sk_wrong,
+                },
+            ],
+        )
+        .unwrap();
+        let keys = [
+            DomainKeySet {
+                domain: DOMAIN.to_string(),
+                keys: vec![make_domain_key("home-1", &pk_home)],
+            },
+            DomainKeySet {
+                domain: "other.example".to_string(),
+                keys: vec![make_domain_key("other-1", &pk_other)],
+            },
+        ];
+        let check = check_claim(&claim, "user-123", DOMAIN, &keys, now());
+        assert_eq!(check.claim_status, ClaimCheckStatus::Valid);
+        assert_eq!(
+            statuses(&check),
+            vec![
+                (DOMAIN, ClaimCheckStatus::Valid),
+                ("other.example", ClaimCheckStatus::BadSignature),
+            ]
+        );
+        assert!(!check.verified);
+        assert!(verify(&claim, &keys).is_err());
     }
 
     // Small helper so multi-domain tests can reuse a key set across two

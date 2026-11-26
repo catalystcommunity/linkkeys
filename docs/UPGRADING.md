@@ -4,6 +4,26 @@ This file collects the steps an operator must do when they upgrade across the
 named versions. Put the applicable entries in the release notes of each
 release.
 
+## Verified claims (the release after 0.16.12)
+
+This release adds two ways for an application to require a claim that a
+domain verified:
+
+- `RequestedClaim.verified_by` (`home_domain`) in `Rp/sign-request` or in
+  `RP_CLAIMS_CONFIG`. The RP server enforces it in `Rp/userinfo-fetch`. A
+  required claim that the home domain did not verify refuses the login with
+  the new `RpError` code `required_claim_unverified`.
+- `Rp/verify-claims` verifies claims for the application, with a result for
+  each signing domain.
+
+A migration adds the table `rp_login_claim_requirements`. It runs when the
+server starts. You do not have to do a manual step.
+
+An IDP older than this release ignores `verified_by`, so its consent screen
+does not show the requirement. The RP server still enforces it. A client
+built on older bindings cannot decode the new `RpError` code, so update the
+bindings before you set `verified_by`.
+
 ## Millisecond timestamps (the release after 0.16.11)
 
 Version 0.16.11 sends stored times with microsecond precision. The web UI

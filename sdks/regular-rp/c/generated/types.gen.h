@@ -857,6 +857,7 @@ typedef enum RpErrorCode {
     RP_ERROR_CODE_BAD_REQUEST,
     RP_ERROR_CODE_UPSTREAM_FAILED,
     RP_ERROR_CODE_INTERNAL,
+    RP_ERROR_CODE_REQUIRED_CLAIM_UNVERIFIED,
 } RpErrorCode;
 
 static inline const char *csil_RpErrorCode_label(RpErrorCode value) {
@@ -867,6 +868,7 @@ static inline const char *csil_RpErrorCode_label(RpErrorCode value) {
     case RP_ERROR_CODE_BAD_REQUEST: return "bad_request";
     case RP_ERROR_CODE_UPSTREAM_FAILED: return "upstream_failed";
     case RP_ERROR_CODE_INTERNAL: return "internal";
+    case RP_ERROR_CODE_REQUIRED_CLAIM_UNVERIFIED: return "required_claim_unverified";
     default: return (const char *)0;
     }
 }
@@ -879,6 +881,7 @@ static inline bool csil_RpErrorCode_to_number(RpErrorCode value, int64_t *out) {
     case RP_ERROR_CODE_BAD_REQUEST: *out = 4; return true;
     case RP_ERROR_CODE_UPSTREAM_FAILED: *out = 5; return true;
     case RP_ERROR_CODE_INTERNAL: *out = 6; return true;
+    case RP_ERROR_CODE_REQUIRED_CLAIM_UNVERIFIED: *out = 7; return true;
     default: return false;
     }
 }
@@ -891,6 +894,7 @@ static inline bool csil_RpErrorCode_from_number(int64_t number, RpErrorCode *out
     case 4: *out = RP_ERROR_CODE_BAD_REQUEST; return true;
     case 5: *out = RP_ERROR_CODE_UPSTREAM_FAILED; return true;
     case 6: *out = RP_ERROR_CODE_INTERNAL; return true;
+    case 7: *out = RP_ERROR_CODE_REQUIRED_CLAIM_UNVERIFIED; return true;
     default: return false;
     }
 }
@@ -929,6 +933,90 @@ static inline bool csil_IssuedClaimOutcome_from_number(int64_t number, IssuedCla
     case 2: *out = ISSUED_CLAIM_OUTCOME_HANDOFF; return true;
     case 3: *out = ISSUED_CLAIM_OUTCOME_SKIPPED; return true;
     case 4: *out = ISSUED_CLAIM_OUTCOME_FAILED; return true;
+    default: return false;
+    }
+}
+
+/* VerifyingParty is an enumeration. */
+typedef enum VerifyingParty {
+    VERIFYING_PARTY_HOME_DOMAIN,
+} VerifyingParty;
+
+static inline const char *csil_VerifyingParty_label(VerifyingParty value) {
+    switch (value) {
+    case VERIFYING_PARTY_HOME_DOMAIN: return "home_domain";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_VerifyingParty_to_number(VerifyingParty value, int64_t *out) {
+    switch (value) {
+    case VERIFYING_PARTY_HOME_DOMAIN: *out = 1; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_VerifyingParty_from_number(int64_t number, VerifyingParty *out) {
+    switch (number) {
+    case 1: *out = VERIFYING_PARTY_HOME_DOMAIN; return true;
+    default: return false;
+    }
+}
+
+/* ClaimCheckStatus is an enumeration. */
+typedef enum ClaimCheckStatus {
+    CLAIM_CHECK_STATUS_VALID,
+    CLAIM_CHECK_STATUS_WRONG_SUBJECT,
+    CLAIM_CHECK_STATUS_BAD_TIMESTAMP,
+    CLAIM_CHECK_STATUS_UNSIGNED,
+    CLAIM_CHECK_STATUS_REVOKED,
+    CLAIM_CHECK_STATUS_EXPIRED,
+    CLAIM_CHECK_STATUS_KEYS_UNAVAILABLE,
+    CLAIM_CHECK_STATUS_KEY_NOT_VALID,
+    CLAIM_CHECK_STATUS_BAD_SIGNATURE,
+} ClaimCheckStatus;
+
+static inline const char *csil_ClaimCheckStatus_label(ClaimCheckStatus value) {
+    switch (value) {
+    case CLAIM_CHECK_STATUS_VALID: return "valid";
+    case CLAIM_CHECK_STATUS_WRONG_SUBJECT: return "wrong_subject";
+    case CLAIM_CHECK_STATUS_BAD_TIMESTAMP: return "bad_timestamp";
+    case CLAIM_CHECK_STATUS_UNSIGNED: return "unsigned";
+    case CLAIM_CHECK_STATUS_REVOKED: return "revoked";
+    case CLAIM_CHECK_STATUS_EXPIRED: return "expired";
+    case CLAIM_CHECK_STATUS_KEYS_UNAVAILABLE: return "keys_unavailable";
+    case CLAIM_CHECK_STATUS_KEY_NOT_VALID: return "key_not_valid";
+    case CLAIM_CHECK_STATUS_BAD_SIGNATURE: return "bad_signature";
+    default: return (const char *)0;
+    }
+}
+
+static inline bool csil_ClaimCheckStatus_to_number(ClaimCheckStatus value, int64_t *out) {
+    switch (value) {
+    case CLAIM_CHECK_STATUS_VALID: *out = 1; return true;
+    case CLAIM_CHECK_STATUS_WRONG_SUBJECT: *out = 2; return true;
+    case CLAIM_CHECK_STATUS_BAD_TIMESTAMP: *out = 3; return true;
+    case CLAIM_CHECK_STATUS_UNSIGNED: *out = 4; return true;
+    case CLAIM_CHECK_STATUS_REVOKED: *out = 5; return true;
+    case CLAIM_CHECK_STATUS_EXPIRED: *out = 6; return true;
+    case CLAIM_CHECK_STATUS_KEYS_UNAVAILABLE: *out = 7; return true;
+    case CLAIM_CHECK_STATUS_KEY_NOT_VALID: *out = 8; return true;
+    case CLAIM_CHECK_STATUS_BAD_SIGNATURE: *out = 9; return true;
+    default: return false;
+    }
+}
+
+static inline bool csil_ClaimCheckStatus_from_number(int64_t number, ClaimCheckStatus *out) {
+    switch (number) {
+    case 1: *out = CLAIM_CHECK_STATUS_VALID; return true;
+    case 2: *out = CLAIM_CHECK_STATUS_WRONG_SUBJECT; return true;
+    case 3: *out = CLAIM_CHECK_STATUS_BAD_TIMESTAMP; return true;
+    case 4: *out = CLAIM_CHECK_STATUS_UNSIGNED; return true;
+    case 5: *out = CLAIM_CHECK_STATUS_REVOKED; return true;
+    case 6: *out = CLAIM_CHECK_STATUS_EXPIRED; return true;
+    case 7: *out = CLAIM_CHECK_STATUS_KEYS_UNAVAILABLE; return true;
+    case 8: *out = CLAIM_CHECK_STATUS_KEY_NOT_VALID; return true;
+    case 9: *out = CLAIM_CHECK_STATUS_BAD_SIGNATURE; return true;
     default: return false;
     }
 }
@@ -1207,6 +1295,10 @@ typedef struct RpDecryptRequest RpDecryptRequest;
 typedef struct RpDecryptResponse RpDecryptResponse;
 typedef struct RpVerifyRequest RpVerifyRequest;
 typedef struct RpVerifyResponse RpVerifyResponse;
+typedef struct DomainSignatureCheck DomainSignatureCheck;
+typedef struct ClaimCheck ClaimCheck;
+typedef struct RpVerifyClaimsRequest RpVerifyClaimsRequest;
+typedef struct RpVerifyClaimsResponse RpVerifyClaimsResponse;
 typedef struct RpUserInfoRequest RpUserInfoRequest;
 typedef struct RpError RpError;
 typedef struct RpIssueAttestationRequest RpIssueAttestationRequest;
@@ -1542,6 +1634,7 @@ typedef struct GetUserClaimsResponse {
 typedef struct RequestedClaim {
     char *claim_type;
     ClaimValueType datatype;
+    VerifyingParty *verified_by;
 } RequestedClaim;
 
 /* ClaimRequest is a structured data type. */
@@ -2608,6 +2701,7 @@ typedef struct BrowserConsentClaim {
     int64_t max_bytes;
     bool requires_approval;
     bool *newly_requested;
+    bool *home_verified;
 } BrowserConsentClaim;
 
 /* BrowserAuthorizationInspectResponse is a structured data type. */
@@ -2744,6 +2838,36 @@ typedef struct RpVerifyRequest {
     char *signed_assertion;
     char *expected_domain;
 } RpVerifyRequest;
+
+/* DomainSignatureCheck is a structured data type. */
+typedef struct DomainSignatureCheck {
+    char *domain;
+    ClaimCheckStatus status;
+} DomainSignatureCheck;
+
+/* ClaimCheck is a structured data type. */
+typedef struct ClaimCheck {
+    char *claim_id;
+    char *claim_type;
+    ClaimCheckStatus claim_status;
+    DomainSignatureCheck *signing_domains;
+    size_t signing_domains_count;
+    bool verified;
+} ClaimCheck;
+
+/* RpVerifyClaimsRequest is a structured data type. */
+typedef struct RpVerifyClaimsRequest {
+    char *subject_domain;
+    char *user_id;
+    Claim *claims;
+    size_t claims_count;
+} RpVerifyClaimsRequest;
+
+/* RpVerifyClaimsResponse is a structured data type. */
+typedef struct RpVerifyClaimsResponse {
+    ClaimCheck *checks;
+    size_t checks_count;
+} RpVerifyClaimsResponse;
 
 /* RpUserInfoRequest is a structured data type. */
 typedef struct RpUserInfoRequest {

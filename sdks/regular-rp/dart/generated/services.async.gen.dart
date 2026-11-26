@@ -1548,6 +1548,17 @@ final class RpAsyncClient {
       CsilCbor.decode(csilResp),
     );
   }
+
+  Future<RpVerifyClaimsResponse> verifyClaims(
+    RpVerifyClaimsRequest request,
+  ) async {
+    final csilResp = await transport.call(
+      'Rp',
+      'verify-claims',
+      request.toCbor(),
+    );
+    return RpVerifyClaimsResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
 }
 
 /// A typed, transport-agnostic client for the ActAs service. The client owns

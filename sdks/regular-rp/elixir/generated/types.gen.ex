@@ -593,18 +593,21 @@ defmodule Csilgen.Generated.RpErrorCode do
           | :bad_request
           | :upstream_failed
           | :internal
+          | :required_claim_unverified
   def to_wire(:not_application_account), do: "not_application_account"
   def to_wire(:application_mismatch), do: "application_mismatch"
   def to_wire(:application_user_limit), do: "application_user_limit"
   def to_wire(:bad_request), do: "bad_request"
   def to_wire(:upstream_failed), do: "upstream_failed"
   def to_wire(:internal), do: "internal"
+  def to_wire(:required_claim_unverified), do: "required_claim_unverified"
   def from_wire("not_application_account"), do: :not_application_account
   def from_wire("application_mismatch"), do: :application_mismatch
   def from_wire("application_user_limit"), do: :application_user_limit
   def from_wire("bad_request"), do: :bad_request
   def from_wire("upstream_failed"), do: :upstream_failed
   def from_wire("internal"), do: :internal
+  def from_wire("required_claim_unverified"), do: :required_claim_unverified
   def from_wire(value), do: raise(ArgumentError, "unknown RpErrorCode: #{inspect(value)}")
   def to_number(:not_application_account), do: 1
   def to_number(:application_mismatch), do: 2
@@ -612,12 +615,14 @@ defmodule Csilgen.Generated.RpErrorCode do
   def to_number(:bad_request), do: 4
   def to_number(:upstream_failed), do: 5
   def to_number(:internal), do: 6
+  def to_number(:required_claim_unverified), do: 7
   def from_number(1), do: :not_application_account
   def from_number(2), do: :application_mismatch
   def from_number(3), do: :application_user_limit
   def from_number(4), do: :bad_request
   def from_number(5), do: :upstream_failed
   def from_number(6), do: :internal
+  def from_number(7), do: :required_claim_unverified
   def from_number(_), do: raise(ArgumentError, "unknown enum number")
 end
 
@@ -2265,18 +2270,29 @@ defmodule Csilgen.Generated.GetUserClaimsResponse do
   def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
 end
 
+defmodule Csilgen.Generated.VerifyingParty do
+  @type t :: :home_domain
+  def to_wire(:home_domain), do: "home_domain"
+  def from_wire("home_domain"), do: :home_domain
+  def from_wire(value), do: raise(ArgumentError, "unknown VerifyingParty: #{inspect(value)}")
+  def to_number(:home_domain), do: 1
+  def from_number(1), do: :home_domain
+  def from_number(_), do: raise(ArgumentError, "unknown enum number")
+end
+
 defmodule Csilgen.Generated.RequestedClaim do
   @moduledoc "Generated struct for the RequestedClaim type."
 
   @enforce_keys [:claim_type, :datatype]
-  defstruct [:claim_type, :datatype]
+  defstruct [:claim_type, :datatype, :verified_by]
 
   @type t :: %__MODULE__{
           claim_type: String.t(),
-          datatype: Csilgen.Generated.ClaimValueType.t()
+          datatype: Csilgen.Generated.ClaimValueType.t(),
+          verified_by: Csilgen.Generated.VerifyingParty.t() | nil
         }
 
-  @wire_keys [claim_type: "claim_type", datatype: "datatype"]
+  @wire_keys [claim_type: "claim_type", datatype: "datatype", verified_by: "verified_by"]
   @doc "Maps struct field atoms to their verbatim CBOR wire keys."
   @spec wire_keys() :: keyword()
   def wire_keys, do: @wire_keys
@@ -2288,7 +2304,13 @@ defmodule Csilgen.Generated.RequestedClaim do
      Enum.reject(
        [
          {{:text, "datatype"}, {:int, Csilgen.Generated.ClaimValueType.to_number(v.datatype)}},
-         {{:text, "claim_type"}, {:text, v.claim_type}}
+         {{:text, "claim_type"}, {:text, v.claim_type}},
+         if(is_nil(v.verified_by),
+           do: nil,
+           else:
+             {{:text, "verified_by"},
+              {:int, Csilgen.Generated.VerifyingParty.to_number(v.verified_by)}}
+         )
        ],
        &is_nil/1
      )}
@@ -2306,7 +2328,15 @@ defmodule Csilgen.Generated.RequestedClaim do
         Csilgen.Generated.ClaimValueType.from_number(
           Csilgen.Generated.Cbor.to_int(Map.fetch!(csil_fields, {:text, "datatype"}))
         ),
-      claim_type: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "claim_type"}))
+      claim_type: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "claim_type"})),
+      verified_by:
+        case Map.get(csil_fields, {:text, "verified_by"}) do
+          nil ->
+            nil
+
+          csil_v ->
+            Csilgen.Generated.VerifyingParty.from_number(Csilgen.Generated.Cbor.to_int(csil_v))
+        end
     }
   end
 
@@ -12210,7 +12240,8 @@ defmodule Csilgen.Generated.BrowserConsentClaim do
     :user_settable,
     :max_bytes,
     :requires_approval,
-    :newly_requested
+    :newly_requested,
+    :home_verified
   ]
 
   @type t :: %__MODULE__{
@@ -12224,7 +12255,8 @@ defmodule Csilgen.Generated.BrowserConsentClaim do
           user_settable: boolean(),
           max_bytes: integer(),
           requires_approval: boolean(),
-          newly_requested: boolean() | nil
+          newly_requested: boolean() | nil,
+          home_verified: boolean() | nil
         }
 
   @wire_keys [
@@ -12238,7 +12270,8 @@ defmodule Csilgen.Generated.BrowserConsentClaim do
     user_settable: "user_settable",
     max_bytes: "max_bytes",
     requires_approval: "requires_approval",
-    newly_requested: "newly_requested"
+    newly_requested: "newly_requested",
+    home_verified: "home_verified"
   ]
   @doc "Maps struct field atoms to their verbatim CBOR wire keys."
   @spec wire_keys() :: keyword()
@@ -12257,6 +12290,10 @@ defmodule Csilgen.Generated.BrowserConsentClaim do
          {{:text, "available"}, {:bool, v.available}},
          {{:text, "max_bytes"}, {:int, v.max_bytes}},
          {{:text, "claim_type"}, {:text, v.claim_type}},
+         if(is_nil(v.home_verified),
+           do: nil,
+           else: {{:text, "home_verified"}, {:bool, v.home_verified}}
+         ),
          {{:text, "user_settable"}, {:bool, v.user_settable}},
          {{:text, "default_granted"}, {:bool, v.default_granted}},
          if(is_nil(v.newly_requested),
@@ -12290,6 +12327,11 @@ defmodule Csilgen.Generated.BrowserConsentClaim do
       available: Csilgen.Generated.Cbor.to_bool(Map.fetch!(csil_fields, {:text, "available"})),
       max_bytes: Csilgen.Generated.Cbor.to_int(Map.fetch!(csil_fields, {:text, "max_bytes"})),
       claim_type: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "claim_type"})),
+      home_verified:
+        case Map.get(csil_fields, {:text, "home_verified"}) do
+          nil -> nil
+          csil_v -> Csilgen.Generated.Cbor.to_bool(csil_v)
+        end,
       user_settable:
         Csilgen.Generated.Cbor.to_bool(Map.fetch!(csil_fields, {:text, "user_settable"})),
       default_granted:
@@ -13643,6 +13685,308 @@ defmodule Csilgen.Generated.RpVerifyResponse do
         Csilgen.Generated.IdentityAssertion.from_cbor_value(
           Map.fetch!(csil_fields, {:text, "assertion"})
         )
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
+defmodule Csilgen.Generated.ClaimCheckStatus do
+  @type t ::
+          :valid
+          | :wrong_subject
+          | :bad_timestamp
+          | :unsigned
+          | :revoked
+          | :expired
+          | :keys_unavailable
+          | :key_not_valid
+          | :bad_signature
+  def to_wire(:valid), do: "valid"
+  def to_wire(:wrong_subject), do: "wrong_subject"
+  def to_wire(:bad_timestamp), do: "bad_timestamp"
+  def to_wire(:unsigned), do: "unsigned"
+  def to_wire(:revoked), do: "revoked"
+  def to_wire(:expired), do: "expired"
+  def to_wire(:keys_unavailable), do: "keys_unavailable"
+  def to_wire(:key_not_valid), do: "key_not_valid"
+  def to_wire(:bad_signature), do: "bad_signature"
+  def from_wire("valid"), do: :valid
+  def from_wire("wrong_subject"), do: :wrong_subject
+  def from_wire("bad_timestamp"), do: :bad_timestamp
+  def from_wire("unsigned"), do: :unsigned
+  def from_wire("revoked"), do: :revoked
+  def from_wire("expired"), do: :expired
+  def from_wire("keys_unavailable"), do: :keys_unavailable
+  def from_wire("key_not_valid"), do: :key_not_valid
+  def from_wire("bad_signature"), do: :bad_signature
+  def from_wire(value), do: raise(ArgumentError, "unknown ClaimCheckStatus: #{inspect(value)}")
+  def to_number(:valid), do: 1
+  def to_number(:wrong_subject), do: 2
+  def to_number(:bad_timestamp), do: 3
+  def to_number(:unsigned), do: 4
+  def to_number(:revoked), do: 5
+  def to_number(:expired), do: 6
+  def to_number(:keys_unavailable), do: 7
+  def to_number(:key_not_valid), do: 8
+  def to_number(:bad_signature), do: 9
+  def from_number(1), do: :valid
+  def from_number(2), do: :wrong_subject
+  def from_number(3), do: :bad_timestamp
+  def from_number(4), do: :unsigned
+  def from_number(5), do: :revoked
+  def from_number(6), do: :expired
+  def from_number(7), do: :keys_unavailable
+  def from_number(8), do: :key_not_valid
+  def from_number(9), do: :bad_signature
+  def from_number(_), do: raise(ArgumentError, "unknown enum number")
+end
+
+defmodule Csilgen.Generated.DomainSignatureCheck do
+  @moduledoc "Generated struct for the DomainSignatureCheck type."
+
+  @enforce_keys [:domain, :status]
+  defstruct [:domain, :status]
+
+  @type t :: %__MODULE__{
+          domain: String.t(),
+          status: Csilgen.Generated.ClaimCheckStatus.t()
+        }
+
+  @wire_keys [domain: "domain", status: "status"]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         {{:text, "domain"}, {:text, v.domain}},
+         {{:text, "status"}, {:int, Csilgen.Generated.ClaimCheckStatus.to_number(v.status)}}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:unordered_map, csil_kvs}), do: from_cbor_value({:map, csil_kvs})
+
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      domain: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "domain"})),
+      status:
+        Csilgen.Generated.ClaimCheckStatus.from_number(
+          Csilgen.Generated.Cbor.to_int(Map.fetch!(csil_fields, {:text, "status"}))
+        )
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
+defmodule Csilgen.Generated.ClaimCheck do
+  @moduledoc "Generated struct for the ClaimCheck type."
+
+  @enforce_keys [:claim_id, :claim_type, :claim_status, :signing_domains, :verified]
+  defstruct [:claim_id, :claim_type, :claim_status, :signing_domains, :verified]
+
+  @type t :: %__MODULE__{
+          claim_id: String.t(),
+          claim_type: String.t(),
+          claim_status: Csilgen.Generated.ClaimCheckStatus.t(),
+          signing_domains: [Csilgen.Generated.DomainSignatureCheck.t()],
+          verified: boolean()
+        }
+
+  @wire_keys [
+    claim_id: "claim_id",
+    claim_type: "claim_type",
+    claim_status: "claim_status",
+    signing_domains: "signing_domains",
+    verified: "verified"
+  ]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         {{:text, "claim_id"}, {:text, v.claim_id}},
+         {{:text, "verified"}, {:bool, v.verified}},
+         {{:text, "claim_type"}, {:text, v.claim_type}},
+         {{:text, "claim_status"},
+          {:int, Csilgen.Generated.ClaimCheckStatus.to_number(v.claim_status)}},
+         {{:text, "signing_domains"},
+          {:array,
+           Enum.map(v.signing_domains, fn csil_e ->
+             Csilgen.Generated.DomainSignatureCheck.to_cbor_value(csil_e)
+           end)}}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:unordered_map, csil_kvs}), do: from_cbor_value({:map, csil_kvs})
+
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      claim_id: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "claim_id"})),
+      verified: Csilgen.Generated.Cbor.to_bool(Map.fetch!(csil_fields, {:text, "verified"})),
+      claim_type: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "claim_type"})),
+      claim_status:
+        Csilgen.Generated.ClaimCheckStatus.from_number(
+          Csilgen.Generated.Cbor.to_int(Map.fetch!(csil_fields, {:text, "claim_status"}))
+        ),
+      signing_domains:
+        case Map.fetch!(csil_fields, {:text, "signing_domains"}) do
+          {:array, csil_xs} ->
+            Enum.map(csil_xs, fn csil_e ->
+              Csilgen.Generated.DomainSignatureCheck.from_cbor_value(csil_e)
+            end)
+        end
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
+defmodule Csilgen.Generated.RpVerifyClaimsRequest do
+  @moduledoc "Generated struct for the RpVerifyClaimsRequest type."
+
+  @enforce_keys [:subject_domain, :user_id, :claims]
+  defstruct [:subject_domain, :user_id, :claims]
+
+  @type t :: %__MODULE__{
+          subject_domain: String.t(),
+          user_id: String.t(),
+          claims: [Csilgen.Generated.Claim.t()]
+        }
+
+  @wire_keys [subject_domain: "subject_domain", user_id: "user_id", claims: "claims"]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         {{:text, "claims"},
+          {:array,
+           Enum.map(v.claims, fn csil_e -> Csilgen.Generated.Claim.to_cbor_value(csil_e) end)}},
+         {{:text, "user_id"}, {:text, v.user_id}},
+         {{:text, "subject_domain"}, {:text, v.subject_domain}}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:unordered_map, csil_kvs}), do: from_cbor_value({:map, csil_kvs})
+
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      claims:
+        case Map.fetch!(csil_fields, {:text, "claims"}) do
+          {:array, csil_xs} ->
+            Enum.map(csil_xs, fn csil_e -> Csilgen.Generated.Claim.from_cbor_value(csil_e) end)
+        end,
+      user_id: Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "user_id"})),
+      subject_domain:
+        Csilgen.Generated.Cbor.to_text(Map.fetch!(csil_fields, {:text, "subject_domain"}))
+    }
+  end
+
+  @doc "Encodes this struct to canonical CBOR bytes."
+  @spec to_cbor(t()) :: binary()
+  def to_cbor(v), do: Csilgen.Generated.Cbor.encode(to_cbor_value(v))
+
+  @doc "Decodes canonical CBOR bytes into this struct."
+  @spec from_cbor(binary()) :: t()
+  def from_cbor(bytes), do: from_cbor_value(Csilgen.Generated.Cbor.decode(bytes))
+end
+
+defmodule Csilgen.Generated.RpVerifyClaimsResponse do
+  @moduledoc "Generated struct for the RpVerifyClaimsResponse type."
+
+  @enforce_keys [:checks]
+  defstruct [:checks]
+
+  @type t :: %__MODULE__{
+          checks: [Csilgen.Generated.ClaimCheck.t()]
+        }
+
+  @wire_keys [checks: "checks"]
+  @doc "Maps struct field atoms to their verbatim CBOR wire keys."
+  @spec wire_keys() :: keyword()
+  def wire_keys, do: @wire_keys
+
+  @doc "Builds the canonical CBOR value tree for this struct."
+  @spec to_cbor_value(t()) :: Csilgen.Generated.Cbor.value()
+  def to_cbor_value(%__MODULE__{} = v) do
+    {:map,
+     Enum.reject(
+       [
+         {{:text, "checks"},
+          {:array,
+           Enum.map(v.checks, fn csil_e -> Csilgen.Generated.ClaimCheck.to_cbor_value(csil_e) end)}}
+       ],
+       &is_nil/1
+     )}
+  end
+
+  @doc "Reconstructs this struct from a decoded CBOR value tree."
+  @spec from_cbor_value(term()) :: t()
+  def from_cbor_value({:unordered_map, csil_kvs}), do: from_cbor_value({:map, csil_kvs})
+
+  def from_cbor_value({:map, csil_kvs}) do
+    csil_fields = Map.new(csil_kvs)
+
+    %__MODULE__{
+      checks:
+        case Map.fetch!(csil_fields, {:text, "checks"}) do
+          {:array, csil_xs} ->
+            Enum.map(csil_xs, fn csil_e ->
+              Csilgen.Generated.ClaimCheck.from_cbor_value(csil_e)
+            end)
+        end
     }
   end
 

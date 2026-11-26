@@ -913,6 +913,7 @@ public enum RpErrorCode : long
     BadRequest = 4,
     UpstreamFailed = 5,
     Internal = 6,
+    RequiredClaimUnverified = 7,
 }
 
 public static class RpErrorCodeNumbers
@@ -934,6 +935,7 @@ public sealed class RpErrorCodeJsonConverter : System.Text.Json.Serialization.Js
         "bad_request" => RpErrorCode.BadRequest,
         "upstream_failed" => RpErrorCode.UpstreamFailed,
         "internal" => RpErrorCode.Internal,
+        "required_claim_unverified" => RpErrorCode.RequiredClaimUnverified,
         _ => throw new System.Text.Json.JsonException("unknown RpErrorCode label"),
     };
 
@@ -945,6 +947,7 @@ public sealed class RpErrorCodeJsonConverter : System.Text.Json.Serialization.Js
         RpErrorCode.BadRequest => "bad_request",
         RpErrorCode.UpstreamFailed => "upstream_failed",
         RpErrorCode.Internal => "internal",
+        RpErrorCode.RequiredClaimUnverified => "required_claim_unverified",
         _ => throw new System.Text.Json.JsonException("unknown RpErrorCode value"),
     });
 }
@@ -1228,12 +1231,44 @@ public sealed record GetUserClaimsResponse
     public required System.Collections.Generic.List<Claim> Claims { get; init; }
 }
 
+[System.Text.Json.Serialization.JsonConverter(typeof(VerifyingPartyJsonConverter))]
+public enum VerifyingParty : long
+{
+    HomeDomain = 1,
+}
+
+public static class VerifyingPartyNumbers
+{
+    public static long ToNumber(this VerifyingParty value) => (long)value;
+
+    public static VerifyingParty FromNumber(long number) => System.Enum.IsDefined(typeof(VerifyingParty), number)
+        ? (VerifyingParty)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class VerifyingPartyJsonConverter : System.Text.Json.Serialization.JsonConverter<VerifyingParty>
+{
+    public override VerifyingParty Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "home_domain" => VerifyingParty.HomeDomain,
+        _ => throw new System.Text.Json.JsonException("unknown VerifyingParty label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, VerifyingParty value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        VerifyingParty.HomeDomain => "home_domain",
+        _ => throw new System.Text.Json.JsonException("unknown VerifyingParty value"),
+    });
+}
+
 public sealed record RequestedClaim
 {
     // CBOR key: claim_type
     public required string ClaimType { get; init; }
     // CBOR key: datatype
     public required ClaimValueType Datatype { get; init; }
+    // CBOR key: verified_by
+    public VerifyingParty? VerifiedBy { get; init; }
 }
 
 public sealed record ClaimRequest
@@ -2704,6 +2739,8 @@ public sealed record BrowserConsentClaim
     public required bool RequiresApproval { get; init; }
     // CBOR key: newly_requested
     public bool? NewlyRequested { get; init; }
+    // CBOR key: home_verified
+    public bool? HomeVerified { get; init; }
 }
 
 public sealed record BrowserAuthorizationInspectResponse
@@ -2894,6 +2931,98 @@ public sealed record RpVerifyResponse
     public required IdentityAssertion Assertion { get; init; }
     // CBOR key: verified
     public required bool Verified { get; init; }
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(ClaimCheckStatusJsonConverter))]
+public enum ClaimCheckStatus : long
+{
+    Valid = 1,
+    WrongSubject = 2,
+    BadTimestamp = 3,
+    Unsigned = 4,
+    Revoked = 5,
+    Expired = 6,
+    KeysUnavailable = 7,
+    KeyNotValid = 8,
+    BadSignature = 9,
+}
+
+public static class ClaimCheckStatusNumbers
+{
+    public static long ToNumber(this ClaimCheckStatus value) => (long)value;
+
+    public static ClaimCheckStatus FromNumber(long number) => System.Enum.IsDefined(typeof(ClaimCheckStatus), number)
+        ? (ClaimCheckStatus)number
+        : throw new System.ArgumentOutOfRangeException(nameof(number));
+}
+
+public sealed class ClaimCheckStatusJsonConverter : System.Text.Json.Serialization.JsonConverter<ClaimCheckStatus>
+{
+    public override ClaimCheckStatus Read(ref System.Text.Json.Utf8JsonReader reader, System.Type type, System.Text.Json.JsonSerializerOptions options) => reader.GetString() switch
+    {
+        "valid" => ClaimCheckStatus.Valid,
+        "wrong_subject" => ClaimCheckStatus.WrongSubject,
+        "bad_timestamp" => ClaimCheckStatus.BadTimestamp,
+        "unsigned" => ClaimCheckStatus.Unsigned,
+        "revoked" => ClaimCheckStatus.Revoked,
+        "expired" => ClaimCheckStatus.Expired,
+        "keys_unavailable" => ClaimCheckStatus.KeysUnavailable,
+        "key_not_valid" => ClaimCheckStatus.KeyNotValid,
+        "bad_signature" => ClaimCheckStatus.BadSignature,
+        _ => throw new System.Text.Json.JsonException("unknown ClaimCheckStatus label"),
+    };
+
+    public override void Write(System.Text.Json.Utf8JsonWriter writer, ClaimCheckStatus value, System.Text.Json.JsonSerializerOptions options) => writer.WriteStringValue(value switch
+    {
+        ClaimCheckStatus.Valid => "valid",
+        ClaimCheckStatus.WrongSubject => "wrong_subject",
+        ClaimCheckStatus.BadTimestamp => "bad_timestamp",
+        ClaimCheckStatus.Unsigned => "unsigned",
+        ClaimCheckStatus.Revoked => "revoked",
+        ClaimCheckStatus.Expired => "expired",
+        ClaimCheckStatus.KeysUnavailable => "keys_unavailable",
+        ClaimCheckStatus.KeyNotValid => "key_not_valid",
+        ClaimCheckStatus.BadSignature => "bad_signature",
+        _ => throw new System.Text.Json.JsonException("unknown ClaimCheckStatus value"),
+    });
+}
+
+public sealed record DomainSignatureCheck
+{
+    // CBOR key: domain
+    public required string Domain { get; init; }
+    // CBOR key: status
+    public required ClaimCheckStatus Status { get; init; }
+}
+
+public sealed record ClaimCheck
+{
+    // CBOR key: claim_id
+    public required string ClaimId { get; init; }
+    // CBOR key: claim_type
+    public required string ClaimType { get; init; }
+    // CBOR key: claim_status
+    public required ClaimCheckStatus ClaimStatus { get; init; }
+    // CBOR key: signing_domains
+    public required System.Collections.Generic.List<DomainSignatureCheck> SigningDomains { get; init; }
+    // CBOR key: verified
+    public required bool Verified { get; init; }
+}
+
+public sealed record RpVerifyClaimsRequest
+{
+    // CBOR key: subject_domain
+    public required string SubjectDomain { get; init; }
+    // CBOR key: user_id
+    public required string UserId { get; init; }
+    // CBOR key: claims
+    public required System.Collections.Generic.List<Claim> Claims { get; init; }
+}
+
+public sealed record RpVerifyClaimsResponse
+{
+    // CBOR key: checks
+    public required System.Collections.Generic.List<ClaimCheck> Checks { get; init; }
 }
 
 public sealed record RpUserInfoRequest

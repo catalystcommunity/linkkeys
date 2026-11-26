@@ -553,7 +553,8 @@ class RpErrorCode < String
   BAD_REQUEST = new("bad_request").freeze
   UPSTREAM_FAILED = new("upstream_failed").freeze
   INTERNAL = new("internal").freeze
-  NUMBERS = {NOT_APPLICATION_ACCOUNT => 1, APPLICATION_MISMATCH => 2, APPLICATION_USER_LIMIT => 3, BAD_REQUEST => 4, UPSTREAM_FAILED => 5, INTERNAL => 6}.freeze
+  REQUIRED_CLAIM_UNVERIFIED = new("required_claim_unverified").freeze
+  NUMBERS = {NOT_APPLICATION_ACCOUNT => 1, APPLICATION_MISMATCH => 2, APPLICATION_USER_LIMIT => 3, BAD_REQUEST => 4, UPSTREAM_FAILED => 5, INTERNAL => 6, REQUIRED_CLAIM_UNVERIFIED => 7}.freeze
   BY_NUMBER = NUMBERS.invert.freeze
   def self.to_number(value)
     NUMBERS.fetch(value) { raise ArgumentError, "unknown RpErrorCode member" }
@@ -563,7 +564,7 @@ class RpErrorCode < String
     BY_NUMBER.fetch(value) { raise ArgumentError, "unknown RpErrorCode number" }
   end
 
-  MEMBERS_BY_WIRE = [NOT_APPLICATION_ACCOUNT, APPLICATION_MISMATCH, APPLICATION_USER_LIMIT, BAD_REQUEST, UPSTREAM_FAILED, INTERNAL].to_h { |v| [v, v] }.freeze
+  MEMBERS_BY_WIRE = [NOT_APPLICATION_ACCOUNT, APPLICATION_MISMATCH, APPLICATION_USER_LIMIT, BAD_REQUEST, UPSTREAM_FAILED, INTERNAL, REQUIRED_CLAIM_UNVERIFIED].to_h { |v| [v, v] }.freeze
   private_class_method :new
 
   def self.from_wire(value)
@@ -750,9 +751,34 @@ GetUserClaimsRequest = Data.define(:user_id, :token)
 # claims [Array<Claim>]
 GetUserClaimsResponse = Data.define(:user_id, :domain, :claims)
 
+class VerifyingParty < String
+  HOME_DOMAIN = new("home_domain").freeze
+  NUMBERS = {HOME_DOMAIN => 1}.freeze
+  BY_NUMBER = NUMBERS.invert.freeze
+  def self.to_number(value)
+    NUMBERS.fetch(value) { raise ArgumentError, "unknown VerifyingParty member" }
+  end
+
+  def self.from_number(value)
+    BY_NUMBER.fetch(value) { raise ArgumentError, "unknown VerifyingParty number" }
+  end
+
+  MEMBERS_BY_WIRE = [HOME_DOMAIN].to_h { |v| [v, v] }.freeze
+  private_class_method :new
+
+  def self.from_wire(value)
+    MEMBERS_BY_WIRE.fetch(value) { raise ArgumentError, "unknown VerifyingParty value: #{value.inspect}" }
+  end
+end
+
 # claim_type [String]
 # datatype [ClaimValueType]
-RequestedClaim = Data.define(:claim_type, :datatype)
+# verified_by [VerifyingParty]
+RequestedClaim = Data.define(:claim_type, :datatype, :verified_by) do
+  def initialize(claim_type:, datatype:, verified_by: nil)
+    super
+  end
+end
 
 # required [Array<RequestedClaim>]
 # optional [Array<RequestedClaim>]
@@ -1611,8 +1637,9 @@ BrowserAuthorizationInspectRequest = Data.define(:signed_request)
 # max_bytes [Integer]
 # requires_approval [Boolean]
 # newly_requested [Boolean]
-BrowserConsentClaim = Data.define(:claim_type, :label, :datatype, :required, :available, :default_granted, :policy, :user_settable, :max_bytes, :requires_approval, :newly_requested) do
-  def initialize(claim_type:, label:, datatype:, required:, available:, default_granted:, policy:, user_settable:, max_bytes:, requires_approval:, newly_requested: nil)
+# home_verified [Boolean]
+BrowserConsentClaim = Data.define(:claim_type, :label, :datatype, :required, :available, :default_granted, :policy, :user_settable, :max_bytes, :requires_approval, :newly_requested, :home_verified) do
+  def initialize(claim_type:, label:, datatype:, required:, available:, default_granted:, policy:, user_settable:, max_bytes:, requires_approval:, newly_requested: nil, home_verified: nil)
     super
   end
 end
@@ -1747,6 +1774,53 @@ RpVerifyRequest = Data.define(:signed_assertion, :expected_domain)
 # assertion [IdentityAssertion]
 # verified [Boolean]
 RpVerifyResponse = Data.define(:assertion, :verified)
+
+class ClaimCheckStatus < String
+  VALID = new("valid").freeze
+  WRONG_SUBJECT = new("wrong_subject").freeze
+  BAD_TIMESTAMP = new("bad_timestamp").freeze
+  UNSIGNED = new("unsigned").freeze
+  REVOKED = new("revoked").freeze
+  EXPIRED = new("expired").freeze
+  KEYS_UNAVAILABLE = new("keys_unavailable").freeze
+  KEY_NOT_VALID = new("key_not_valid").freeze
+  BAD_SIGNATURE = new("bad_signature").freeze
+  NUMBERS = {VALID => 1, WRONG_SUBJECT => 2, BAD_TIMESTAMP => 3, UNSIGNED => 4, REVOKED => 5, EXPIRED => 6, KEYS_UNAVAILABLE => 7, KEY_NOT_VALID => 8, BAD_SIGNATURE => 9}.freeze
+  BY_NUMBER = NUMBERS.invert.freeze
+  def self.to_number(value)
+    NUMBERS.fetch(value) { raise ArgumentError, "unknown ClaimCheckStatus member" }
+  end
+
+  def self.from_number(value)
+    BY_NUMBER.fetch(value) { raise ArgumentError, "unknown ClaimCheckStatus number" }
+  end
+
+  MEMBERS_BY_WIRE = [VALID, WRONG_SUBJECT, BAD_TIMESTAMP, UNSIGNED, REVOKED, EXPIRED, KEYS_UNAVAILABLE, KEY_NOT_VALID, BAD_SIGNATURE].to_h { |v| [v, v] }.freeze
+  private_class_method :new
+
+  def self.from_wire(value)
+    MEMBERS_BY_WIRE.fetch(value) { raise ArgumentError, "unknown ClaimCheckStatus value: #{value.inspect}" }
+  end
+end
+
+# domain [String]
+# status [ClaimCheckStatus]
+DomainSignatureCheck = Data.define(:domain, :status)
+
+# claim_id [String]
+# claim_type [String]
+# claim_status [ClaimCheckStatus]
+# signing_domains [Array<DomainSignatureCheck>]
+# verified [Boolean]
+ClaimCheck = Data.define(:claim_id, :claim_type, :claim_status, :signing_domains, :verified)
+
+# subject_domain [String]
+# user_id [String]
+# claims [Array<Claim>]
+RpVerifyClaimsRequest = Data.define(:subject_domain, :user_id, :claims)
+
+# checks [Array<ClaimCheck>]
+RpVerifyClaimsResponse = Data.define(:checks)
 
 # token [String]
 # api_base [String]

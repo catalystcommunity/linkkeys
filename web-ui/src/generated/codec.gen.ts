@@ -55,9 +55,13 @@ import { RpErrorCodeNumbers } from "./types.gen.ts";
 export { RpErrorCodeNumbers };
 import { IssuedClaimOutcomeNumbers } from "./types.gen.ts";
 export { IssuedClaimOutcomeNumbers };
+import { VerifyingPartyNumbers } from "./types.gen.ts";
+export { VerifyingPartyNumbers };
+import { ClaimCheckStatusNumbers } from "./types.gen.ts";
+export { ClaimCheckStatusNumbers };
 import { ApiErrorCodeNumbers } from "./types.gen.ts";
 export { ApiErrorCodeNumbers };
-import type { AccountKind, AccountLimits, ActAsCredential, ActAsGrant, ActAsGrantRequest, ActAsGrantRevocation, ActAsGrantSummary, ActAsPresentation, ActAsRefreshRequest, ActAsScopeEntry, ActAsScopeSet, ActAsScopeSetRequest, ActivateUserRequest, ActivateUserResponse, AddApplicationKeyRequest, AddApplicationKeyResponse, AddTrustedIssuerRequest, AddTrustedIssuerResponse, AdminIssueAttestationRequest, AdminIssueAttestationResponse, AdminLocalRp, AdminUser, AdminUserClaimsRequest, AdminUserClaimsResponse, AeadSuite, AlgorithmSupport, ApiError, ApiErrorCode, ApiKeyInfo, AppAccessDenial, AppAccessMode, AppAccessPolicy, AppAccessTarget, AppAccessTargetKind, ApplicationKeyAddition, ApplicationKeyAttestation, ApplicationKeyChallengePurpose, ApplicationKeyRenewal, ApplicationKeyRevocation, ApplicationKeySignature, ApplicationRef, ApproveClaimRequest, ApproveClaimResponse, ApproveLocalRpRequest, ApproveLocalRpResponse, AuthFlow, AuthFlowContext, AuthRequest, AuthenticateRequest, AuthenticateResponse, AuthenticationRequirements, AuthorizeFinalizeRequest, AuthorizeFinalizeResponse, AuthorizeValidateRequest, AuthorizeValidateResponse, BrowserActAsCompleteRequest, BrowserActAsCompleteResponse, BrowserActAsInspectRequest, BrowserActAsInspectResponse, BrowserActAsParty, BrowserActAsScopeEntry, BrowserAuthorizationCompleteRequest, BrowserAuthorizationCompleteResponse, BrowserAuthorizationInspectRequest, BrowserAuthorizationInspectResponse, BrowserConsentClaim, BrowserLocalRpCompleteRequest, BrowserLocalRpCompleteResponse, BrowserLocalRpInspectRequest, BrowserLocalRpInspectResponse, BrowserSessionInfo, ChangePasswordRequest, ChangePasswordResponse, CheckEntries, CheckPermissionRequest, CheckPermissionResponse, CheckResult, CheckValue, Claim, ClaimApproval, ClaimApprovalStatus, ClaimOperator, ClaimRequest, ClaimSignature, ClaimTypeLabel, ClaimTypePolicy, ClaimValueType, CompletePasswordRecoveryRequest, CompletePasswordRecoveryResponse, ConfirmContactVerificationRequest, ConfirmContactVerificationResponse, ConsentGrant, ConsentRowPolicy, CreateApiKeyRequest, CreateApiKeyResponse, CreateGuestbookRequest, CreateProfileRequest, CreateProfileResponse, CreateUserRequest, CreateUserResponse, DeactivateUserRequest, DeactivateUserResponse, DeleteGuestbookRequest, DeleteGuestbookResponse, DenyLocalRpRequest, DenyLocalRpResponse, DepositClaimRequest, DepositClaimResponse, DestinationKind, DomainClaim, DomainPublicKey, EmptyRequest, EncryptedToken, EnrollApplicationInstanceRequest, EnrollApplicationInstanceResponse, GetAccountLimitsRequest, GetAccountLimitsResponse, GetActAsGrantRevocationsRequest, GetActAsGrantRevocationsResponse, GetApplicationKeysRequest, GetApplicationKeysResponse, GetApplicationUsageRequest, GetApplicationUsageResponse, GetDomainKeysResponse, GetLocalRpPolicyRequest, GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse, GetMyInfoResponse, GetNotificationCapabilitiesResponse, GetRevocationsRequest, GetRevocationsResponse, GetUiConfigurationResponse, GetUserAuthenticationActivityRequest, GetUserAuthenticationActivityResponse, GetUserClaimsRequest, GetUserClaimsResponse, GetUserInfoRequest, GetUserKeysRequest, GetUserKeysResponse, GetUserRequest, GetUserResponse, GrantRelationRequest, GrantRelationResponse, GranteeProof, GranteeRef, GuestbookEntry, GuestbookListRequest, GuestbookListResponse, HandshakeRequest, HandshakeResponse, HelloRequest, HelloResponse, IdentityAssertion, InspectSigningRequestRequest, InspectSigningRequestResponse, IntrospectBrowserSessionRequest, IntrospectBrowserSessionResponse, IssueForSigningRequestRequest, IssueForSigningRequestResponse, IssuedClaimOutcome, IssuedClaimResult, KeyAlgorithm, KeyUsage, ListActAsGrantsResponse, ListApiKeysRequest, ListApiKeysResponse, ListAppAccessPoliciesResponse, ListClaimTypeLabelsResponse, ListClaimTypesResponse, ListLocalRpsRequest, ListLocalRpsResponse, ListLocalesResponse, ListPendingClaimApprovalsResponse, ListRelationsRequest, ListRelationsResponse, ListReleaseRulesResponse, ListSettablePoliciesResponse, ListTrustedIssuersResponse, ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, ListVerifiedContactMethodsResponse, LocalRpAdmission, LocalRpCallbackHeader, LocalRpCallbackPayload, LocalRpDescriptor, LocalRpEncryptedCallback, LocalRpLoginRequest, LocalRpPolicy, LocalRpStatus, LocalRpTicketRedemptionRequest, LocalRpTicketRedemptionResponse, LocaleMessages, MyClaimSetting, MyClaimSettingsResponse, NotificationCapability, NotificationChannel, NotificationPurpose, PasswordPolicy, PinRecheckOutcome, PinRecheckResult, PreviewAppAccessRequest, PreviewAppAccessResponse, PreviewIssuerPolicyRequest, PreviewIssuerPolicyResponse, PreviewReleasePolicyRequest, PreviewReleasePolicyResponse, PreviewReleaseRow, Profile, PurgeLocalRpTicketsRequest, PurgeLocalRpTicketsResponse, PurgeUserRequest, PurgeUserResponse, RecheckPinsRequest, RecheckPinsResponse, RefreshActAsGrantRequest, RefreshActAsGrantResponse, RejectClaimRequest, RejectClaimResponse, Relation, ReleaseDisposition, ReleaseRule, RelyingPartyApplication, RemoveAppAccessPolicyRequest, RemoveAppAccessPolicyResponse, RemoveClaimRequest, RemoveClaimResponse, RemoveClaimTypeLabelRequest, RemoveClaimTypeLabelResponse, RemoveClaimTypeRequest, RemoveClaimTypeResponse, RemoveCredentialRequest, RemoveCredentialResponse, RemoveMyClaimRequest, RemoveMyClaimResponse, RemoveRelationRequest, RemoveRelationResponse, RemoveReleaseRuleRequest, RemoveReleaseRuleResponse, RemoveTrustedIssuerRequest, RemoveTrustedIssuerResponse, RenameUserRequest, RenameUserResponse, RenewApplicationKeyAttestationRequest, RenewApplicationKeyAttestationResponse, RequestContactVerificationRequest, RequestContactVerificationResponse, RequestPasswordRecoveryRequest, RequestPasswordRecoveryResponse, RequestVerificationRequest, RequestVerificationResponse, RequestedClaim, ResetPasswordRequest, ResetPasswordResponse, RevocationCertificate, RevokeActAsGrantRequest, RevokeActAsGrantResponse, RevokeApiKeyRequest, RevokeApiKeyResponse, RevokeApplicationKeyRequest, RevokeApplicationKeyResponse, RevokeDomainKeyRequest, RevokeDomainKeyResponse, RevokeLocalRpRequest, RevokeLocalRpResponse, RevokeVerifiedContactMethodRequest, RevokeVerifiedContactMethodResponse, RpActAsRefreshRequest, RpCacheStatus, RpDecryptRequest, RpDecryptResponse, RpError, RpErrorCode, RpIssueAttestationRequest, RpIssueAttestationResponse, RpResolveActAsRevocationsRequest, RpResolveApplicationKeysRequest, RpResolveApplicationKeysResponse, RpResolveDomainKeysRequest, RpResolveDomainKeysResponse, RpSignRequest, RpSignResponse, RpUsageDay, RpUserInfoRequest, RpVerifyRequest, RpVerifyResponse, SessionCurrentResponse, SessionLogoutResponse, SessionPasswordLoginRequest, SessionPasswordLoginResponse, SetAccountLimitsRequest, SetAccountLimitsResponse, SetAppAccessPolicyRequest, SetAppAccessPolicyResponse, SetApplicationIdRequest, SetApplicationIdResponse, SetClaimOutcome, SetClaimRequest, SetClaimResponse, SetClaimTypeLabelRequest, SetClaimTypeLabelResponse, SetClaimTypeRequest, SetClaimTypeResponse, SetLocalRpPolicyRequest, SetLocalRpPolicyResponse, SetMyClaimKeepVerifiedRequest, SetMyClaimKeepVerifiedResponse, SetMyClaimRequest, SetMyClaimResponse, SetMyClaimSharingRequest, SetMyClaimSharingResponse, SetReleaseRuleRequest, SetReleaseRuleResponse, SetRule, SetSignInPolicyRequest, SetUserClaimRequest, SetUserClaimResponse, SetUserPasswordLockRequest, SetUserPasswordLockResponse, SettableClaimPolicy, SignInPolicy, SignedActAsGrant, SignedActAsGrantRequest, SignedActAsGrantRevocation, SignedActAsPresentation, SignedActAsRefreshRequest, SignedActAsScopeSet, SignedApplicationKeyAddition, SignedApplicationKeyAttestation, SignedApplicationKeyRenewal, SignedAuthRequest, SignedConsentGrant, SignedIdentityAssertion, SignedLocalRpCallbackPayload, SignedLocalRpDescriptor, SignedLocalRpLoginRequest, SignedLocalRpTicketRedemptionRequest, SignedSigningRequest, SignedUserInfoRequest, SigningRequest, SigningRule, StartApplicationKeyChallengeRequest, StartApplicationKeyChallengeResponse, TranslationsRequest, TranslationsResponse, TrustedIssuer, UiDisplaySettings, UiExtension, UiTheme, UpdateGuestbookRequest, UpdateUserRequest, UpdateUserResponse, UserAuthenticationActivity, UserInfo, UserInfoRequest, UserPublicKey, ValidatePasswordRecoveryRequest, ValidatePasswordRecoveryResponse, VerifiedContactMethod } from "./types.gen.ts";
+import type { AccountKind, AccountLimits, ActAsCredential, ActAsGrant, ActAsGrantRequest, ActAsGrantRevocation, ActAsGrantSummary, ActAsPresentation, ActAsRefreshRequest, ActAsScopeEntry, ActAsScopeSet, ActAsScopeSetRequest, ActivateUserRequest, ActivateUserResponse, AddApplicationKeyRequest, AddApplicationKeyResponse, AddTrustedIssuerRequest, AddTrustedIssuerResponse, AdminIssueAttestationRequest, AdminIssueAttestationResponse, AdminLocalRp, AdminUser, AdminUserClaimsRequest, AdminUserClaimsResponse, AeadSuite, AlgorithmSupport, ApiError, ApiErrorCode, ApiKeyInfo, AppAccessDenial, AppAccessMode, AppAccessPolicy, AppAccessTarget, AppAccessTargetKind, ApplicationKeyAddition, ApplicationKeyAttestation, ApplicationKeyChallengePurpose, ApplicationKeyRenewal, ApplicationKeyRevocation, ApplicationKeySignature, ApplicationRef, ApproveClaimRequest, ApproveClaimResponse, ApproveLocalRpRequest, ApproveLocalRpResponse, AuthFlow, AuthFlowContext, AuthRequest, AuthenticateRequest, AuthenticateResponse, AuthenticationRequirements, AuthorizeFinalizeRequest, AuthorizeFinalizeResponse, AuthorizeValidateRequest, AuthorizeValidateResponse, BrowserActAsCompleteRequest, BrowserActAsCompleteResponse, BrowserActAsInspectRequest, BrowserActAsInspectResponse, BrowserActAsParty, BrowserActAsScopeEntry, BrowserAuthorizationCompleteRequest, BrowserAuthorizationCompleteResponse, BrowserAuthorizationInspectRequest, BrowserAuthorizationInspectResponse, BrowserConsentClaim, BrowserLocalRpCompleteRequest, BrowserLocalRpCompleteResponse, BrowserLocalRpInspectRequest, BrowserLocalRpInspectResponse, BrowserSessionInfo, ChangePasswordRequest, ChangePasswordResponse, CheckEntries, CheckPermissionRequest, CheckPermissionResponse, CheckResult, CheckValue, Claim, ClaimApproval, ClaimApprovalStatus, ClaimCheck, ClaimCheckStatus, ClaimOperator, ClaimRequest, ClaimSignature, ClaimTypeLabel, ClaimTypePolicy, ClaimValueType, CompletePasswordRecoveryRequest, CompletePasswordRecoveryResponse, ConfirmContactVerificationRequest, ConfirmContactVerificationResponse, ConsentGrant, ConsentRowPolicy, CreateApiKeyRequest, CreateApiKeyResponse, CreateGuestbookRequest, CreateProfileRequest, CreateProfileResponse, CreateUserRequest, CreateUserResponse, DeactivateUserRequest, DeactivateUserResponse, DeleteGuestbookRequest, DeleteGuestbookResponse, DenyLocalRpRequest, DenyLocalRpResponse, DepositClaimRequest, DepositClaimResponse, DestinationKind, DomainClaim, DomainPublicKey, DomainSignatureCheck, EmptyRequest, EncryptedToken, EnrollApplicationInstanceRequest, EnrollApplicationInstanceResponse, GetAccountLimitsRequest, GetAccountLimitsResponse, GetActAsGrantRevocationsRequest, GetActAsGrantRevocationsResponse, GetApplicationKeysRequest, GetApplicationKeysResponse, GetApplicationUsageRequest, GetApplicationUsageResponse, GetDomainKeysResponse, GetLocalRpPolicyRequest, GetLocalRpPolicyResponse, GetLocalRpRequest, GetLocalRpResponse, GetMyInfoResponse, GetNotificationCapabilitiesResponse, GetRevocationsRequest, GetRevocationsResponse, GetUiConfigurationResponse, GetUserAuthenticationActivityRequest, GetUserAuthenticationActivityResponse, GetUserClaimsRequest, GetUserClaimsResponse, GetUserInfoRequest, GetUserKeysRequest, GetUserKeysResponse, GetUserRequest, GetUserResponse, GrantRelationRequest, GrantRelationResponse, GranteeProof, GranteeRef, GuestbookEntry, GuestbookListRequest, GuestbookListResponse, HandshakeRequest, HandshakeResponse, HelloRequest, HelloResponse, IdentityAssertion, InspectSigningRequestRequest, InspectSigningRequestResponse, IntrospectBrowserSessionRequest, IntrospectBrowserSessionResponse, IssueForSigningRequestRequest, IssueForSigningRequestResponse, IssuedClaimOutcome, IssuedClaimResult, KeyAlgorithm, KeyUsage, ListActAsGrantsResponse, ListApiKeysRequest, ListApiKeysResponse, ListAppAccessPoliciesResponse, ListClaimTypeLabelsResponse, ListClaimTypesResponse, ListLocalRpsRequest, ListLocalRpsResponse, ListLocalesResponse, ListPendingClaimApprovalsResponse, ListRelationsRequest, ListRelationsResponse, ListReleaseRulesResponse, ListSettablePoliciesResponse, ListTrustedIssuersResponse, ListUserClaimsRequest, ListUserClaimsResponse, ListUsersRequest, ListUsersResponse, ListVerifiedContactMethodsResponse, LocalRpAdmission, LocalRpCallbackHeader, LocalRpCallbackPayload, LocalRpDescriptor, LocalRpEncryptedCallback, LocalRpLoginRequest, LocalRpPolicy, LocalRpStatus, LocalRpTicketRedemptionRequest, LocalRpTicketRedemptionResponse, LocaleMessages, MyClaimSetting, MyClaimSettingsResponse, NotificationCapability, NotificationChannel, NotificationPurpose, PasswordPolicy, PinRecheckOutcome, PinRecheckResult, PreviewAppAccessRequest, PreviewAppAccessResponse, PreviewIssuerPolicyRequest, PreviewIssuerPolicyResponse, PreviewReleasePolicyRequest, PreviewReleasePolicyResponse, PreviewReleaseRow, Profile, PurgeLocalRpTicketsRequest, PurgeLocalRpTicketsResponse, PurgeUserRequest, PurgeUserResponse, RecheckPinsRequest, RecheckPinsResponse, RefreshActAsGrantRequest, RefreshActAsGrantResponse, RejectClaimRequest, RejectClaimResponse, Relation, ReleaseDisposition, ReleaseRule, RelyingPartyApplication, RemoveAppAccessPolicyRequest, RemoveAppAccessPolicyResponse, RemoveClaimRequest, RemoveClaimResponse, RemoveClaimTypeLabelRequest, RemoveClaimTypeLabelResponse, RemoveClaimTypeRequest, RemoveClaimTypeResponse, RemoveCredentialRequest, RemoveCredentialResponse, RemoveMyClaimRequest, RemoveMyClaimResponse, RemoveRelationRequest, RemoveRelationResponse, RemoveReleaseRuleRequest, RemoveReleaseRuleResponse, RemoveTrustedIssuerRequest, RemoveTrustedIssuerResponse, RenameUserRequest, RenameUserResponse, RenewApplicationKeyAttestationRequest, RenewApplicationKeyAttestationResponse, RequestContactVerificationRequest, RequestContactVerificationResponse, RequestPasswordRecoveryRequest, RequestPasswordRecoveryResponse, RequestVerificationRequest, RequestVerificationResponse, RequestedClaim, ResetPasswordRequest, ResetPasswordResponse, RevocationCertificate, RevokeActAsGrantRequest, RevokeActAsGrantResponse, RevokeApiKeyRequest, RevokeApiKeyResponse, RevokeApplicationKeyRequest, RevokeApplicationKeyResponse, RevokeDomainKeyRequest, RevokeDomainKeyResponse, RevokeLocalRpRequest, RevokeLocalRpResponse, RevokeVerifiedContactMethodRequest, RevokeVerifiedContactMethodResponse, RpActAsRefreshRequest, RpCacheStatus, RpDecryptRequest, RpDecryptResponse, RpError, RpErrorCode, RpIssueAttestationRequest, RpIssueAttestationResponse, RpResolveActAsRevocationsRequest, RpResolveApplicationKeysRequest, RpResolveApplicationKeysResponse, RpResolveDomainKeysRequest, RpResolveDomainKeysResponse, RpSignRequest, RpSignResponse, RpUsageDay, RpUserInfoRequest, RpVerifyClaimsRequest, RpVerifyClaimsResponse, RpVerifyRequest, RpVerifyResponse, SessionCurrentResponse, SessionLogoutResponse, SessionPasswordLoginRequest, SessionPasswordLoginResponse, SetAccountLimitsRequest, SetAccountLimitsResponse, SetAppAccessPolicyRequest, SetAppAccessPolicyResponse, SetApplicationIdRequest, SetApplicationIdResponse, SetClaimOutcome, SetClaimRequest, SetClaimResponse, SetClaimTypeLabelRequest, SetClaimTypeLabelResponse, SetClaimTypeRequest, SetClaimTypeResponse, SetLocalRpPolicyRequest, SetLocalRpPolicyResponse, SetMyClaimKeepVerifiedRequest, SetMyClaimKeepVerifiedResponse, SetMyClaimRequest, SetMyClaimResponse, SetMyClaimSharingRequest, SetMyClaimSharingResponse, SetReleaseRuleRequest, SetReleaseRuleResponse, SetRule, SetSignInPolicyRequest, SetUserClaimRequest, SetUserClaimResponse, SetUserPasswordLockRequest, SetUserPasswordLockResponse, SettableClaimPolicy, SignInPolicy, SignedActAsGrant, SignedActAsGrantRequest, SignedActAsGrantRevocation, SignedActAsPresentation, SignedActAsRefreshRequest, SignedActAsScopeSet, SignedApplicationKeyAddition, SignedApplicationKeyAttestation, SignedApplicationKeyRenewal, SignedAuthRequest, SignedConsentGrant, SignedIdentityAssertion, SignedLocalRpCallbackPayload, SignedLocalRpDescriptor, SignedLocalRpLoginRequest, SignedLocalRpTicketRedemptionRequest, SignedSigningRequest, SignedUserInfoRequest, SigningRequest, SigningRule, StartApplicationKeyChallengeRequest, StartApplicationKeyChallengeResponse, TranslationsRequest, TranslationsResponse, TrustedIssuer, UiDisplaySettings, UiExtension, UiTheme, UpdateGuestbookRequest, UpdateUserRequest, UpdateUserResponse, UserAuthenticationActivity, UserInfo, UserInfoRequest, UserPublicKey, ValidatePasswordRecoveryRequest, ValidatePasswordRecoveryResponse, VerifiedContactMethod, VerifyingParty } from "./types.gen.ts";
 
 
 export function encodeDate(value: string): CborTag {
@@ -1258,6 +1262,7 @@ export function toRequestedClaimCborValue(v: RequestedClaim): CborValue {
   const csilMap = new Map<CborValue, CborValue>();
   csilMap.set("datatype", ClaimValueTypeNumbers.numberFromEnum(v.datatype as Parameters<typeof ClaimValueTypeNumbers.numberFromEnum>[0]));
   csilMap.set("claim_type", v.claimType);
+  if (v.verifiedBy !== undefined) csilMap.set("verified_by", VerifyingPartyNumbers.numberFromEnum(v.verifiedBy as Parameters<typeof VerifyingPartyNumbers.numberFromEnum>[0]));
   return csilMap;
 }
 
@@ -1266,6 +1271,7 @@ export function fromRequestedClaimCborValue(value: CborValue): RequestedClaim {
   return {
     claimType: asString(requireKey(value, "claim_type")),
     datatype: ClaimValueTypeNumbers.enumFromNumber(requireKey(value, "datatype")),
+    verifiedBy: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : VerifyingPartyNumbers.enumFromNumber(csilV))(mapGet(value, "verified_by")),
   };
 }
 
@@ -5187,6 +5193,7 @@ export function toBrowserConsentClaimCborValue(v: BrowserConsentClaim): CborValu
   csilMap.set("available", v.available);
   csilMap.set("max_bytes", v.maxBytes);
   csilMap.set("claim_type", v.claimType);
+  if (v.homeVerified !== undefined) csilMap.set("home_verified", v.homeVerified);
   csilMap.set("user_settable", v.userSettable);
   csilMap.set("default_granted", v.defaultGranted);
   if (v.newlyRequested !== undefined) csilMap.set("newly_requested", v.newlyRequested);
@@ -5208,6 +5215,7 @@ export function fromBrowserConsentClaimCborValue(value: CborValue): BrowserConse
     maxBytes: asNumber(requireKey(value, "max_bytes")),
     requiresApproval: asBool(requireKey(value, "requires_approval")),
     newlyRequested: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBool(csilV))(mapGet(value, "newly_requested")),
+    homeVerified: ((csilV: CborValue | undefined) => csilV === undefined ? undefined : asBool(csilV))(mapGet(value, "home_verified")),
   };
 }
 
@@ -5662,6 +5670,104 @@ export function toRpVerifyResponseCbor(v: RpVerifyResponse): Uint8Array {
 
 export function fromRpVerifyResponseCbor(bytes: Uint8Array): RpVerifyResponse {
   return fromRpVerifyResponseCborValue(decode(bytes));
+}
+
+export function toDomainSignatureCheckCborValue(v: DomainSignatureCheck): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("domain", v.domain);
+  csilMap.set("status", ClaimCheckStatusNumbers.numberFromEnum(v.status as Parameters<typeof ClaimCheckStatusNumbers.numberFromEnum>[0]));
+  return csilMap;
+}
+
+export function fromDomainSignatureCheckCborValue(value: CborValue): DomainSignatureCheck {
+  asMap(value);
+  return {
+    domain: asString(requireKey(value, "domain")),
+    status: ClaimCheckStatusNumbers.enumFromNumber(requireKey(value, "status")),
+  };
+}
+
+export function toDomainSignatureCheckCbor(v: DomainSignatureCheck): Uint8Array {
+  return encodeValue(toDomainSignatureCheckCborValue(v));
+}
+
+export function fromDomainSignatureCheckCbor(bytes: Uint8Array): DomainSignatureCheck {
+  return fromDomainSignatureCheckCborValue(decode(bytes));
+}
+
+export function toClaimCheckCborValue(v: ClaimCheck): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("claim_id", v.claimId);
+  csilMap.set("verified", v.verified);
+  csilMap.set("claim_type", v.claimType);
+  csilMap.set("claim_status", ClaimCheckStatusNumbers.numberFromEnum(v.claimStatus as Parameters<typeof ClaimCheckStatusNumbers.numberFromEnum>[0]));
+  csilMap.set("signing_domains", v.signingDomains.map((csilE): CborValue => toDomainSignatureCheckCborValue(csilE)));
+  return csilMap;
+}
+
+export function fromClaimCheckCborValue(value: CborValue): ClaimCheck {
+  asMap(value);
+  return {
+    claimId: asString(requireKey(value, "claim_id")),
+    claimType: asString(requireKey(value, "claim_type")),
+    claimStatus: ClaimCheckStatusNumbers.enumFromNumber(requireKey(value, "claim_status")),
+    signingDomains: asArray(requireKey(value, "signing_domains")).map((csilE) => fromDomainSignatureCheckCborValue(csilE)),
+    verified: asBool(requireKey(value, "verified")),
+  };
+}
+
+export function toClaimCheckCbor(v: ClaimCheck): Uint8Array {
+  return encodeValue(toClaimCheckCborValue(v));
+}
+
+export function fromClaimCheckCbor(bytes: Uint8Array): ClaimCheck {
+  return fromClaimCheckCborValue(decode(bytes));
+}
+
+export function toRpVerifyClaimsRequestCborValue(v: RpVerifyClaimsRequest): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("claims", v.claims.map((csilE): CborValue => toClaimCborValue(csilE)));
+  csilMap.set("user_id", v.userId);
+  csilMap.set("subject_domain", v.subjectDomain);
+  return csilMap;
+}
+
+export function fromRpVerifyClaimsRequestCborValue(value: CborValue): RpVerifyClaimsRequest {
+  asMap(value);
+  return {
+    subjectDomain: asString(requireKey(value, "subject_domain")),
+    userId: asString(requireKey(value, "user_id")),
+    claims: asArray(requireKey(value, "claims")).map((csilE) => fromClaimCborValue(csilE)),
+  };
+}
+
+export function toRpVerifyClaimsRequestCbor(v: RpVerifyClaimsRequest): Uint8Array {
+  return encodeValue(toRpVerifyClaimsRequestCborValue(v));
+}
+
+export function fromRpVerifyClaimsRequestCbor(bytes: Uint8Array): RpVerifyClaimsRequest {
+  return fromRpVerifyClaimsRequestCborValue(decode(bytes));
+}
+
+export function toRpVerifyClaimsResponseCborValue(v: RpVerifyClaimsResponse): CborValue {
+  const csilMap = new Map<CborValue, CborValue>();
+  csilMap.set("checks", v.checks.map((csilE): CborValue => toClaimCheckCborValue(csilE)));
+  return csilMap;
+}
+
+export function fromRpVerifyClaimsResponseCborValue(value: CborValue): RpVerifyClaimsResponse {
+  asMap(value);
+  return {
+    checks: asArray(requireKey(value, "checks")).map((csilE) => fromClaimCheckCborValue(csilE)),
+  };
+}
+
+export function toRpVerifyClaimsResponseCbor(v: RpVerifyClaimsResponse): Uint8Array {
+  return encodeValue(toRpVerifyClaimsResponseCborValue(v));
+}
+
+export function fromRpVerifyClaimsResponseCbor(bytes: Uint8Array): RpVerifyClaimsResponse {
+  return fromRpVerifyClaimsResponseCborValue(decode(bytes));
 }
 
 export function toRpUserInfoRequestCborValue(v: RpUserInfoRequest): CborValue {

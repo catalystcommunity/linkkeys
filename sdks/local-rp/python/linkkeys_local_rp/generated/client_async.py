@@ -645,6 +645,10 @@ class RpAsyncClient:
         """resolve-act-as-revocations"""
         return GetActAsGrantRevocationsResponse.from_cbor(await self._transport.call("Rp", "resolve-act-as-revocations", req.to_cbor()))
 
+    async def verify_claims(self, req: RpVerifyClaimsRequest) -> RpVerifyClaimsResponse:
+        """verify-claims"""
+        return RpVerifyClaimsResponse.from_cbor(await self._transport.call("Rp", "verify-claims", req.to_cbor()))
+
 class ActAsAsyncClient:
     """Typed client for the ActAs service."""
     def __init__(self, transport: AsyncTransport):

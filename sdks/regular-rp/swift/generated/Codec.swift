@@ -2083,12 +2083,34 @@ extension GetUserClaimsResponse {
   }
 }
 
+extension VerifyingParty {
+  public func toCborValue() throws -> CsilCborValue {
+    wireNumber >= 0 ? .uint(UInt64(wireNumber)) : .int(wireNumber)
+  }
+
+  public init(cborValue: CsilCborValue) throws {
+    guard let value = Self(wireNumber: try CsilCbor.asI64(cborValue)) else {
+      throw CsilCborError.typeMismatch
+    }
+    self = value
+  }
+
+  public func toCbor() throws -> [UInt8] { CsilCbor.encode(try toCborValue()) }
+
+  public static func fromCbor(_ bytes: [UInt8]) throws -> VerifyingParty {
+    try VerifyingParty(cborValue: CsilCbor.decode(bytes))
+  }
+}
+
 extension RequestedClaim {
   /// The CBOR value tree for this record (deep, canonical key order).
   public func toCborValue() throws -> CsilCborValue {
     var csilEntries: [(CsilCborValue, CsilCborValue)] = []
     csilEntries.append((.text("datatype"), try self.datatype.toCborValue()))
     csilEntries.append((.text("claim_type"), .text(self.claimType)))
+    if let csilV = self.verifiedBy {
+      csilEntries.append((.text("verified_by"), try csilV.toCborValue()))
+    }
     return .map(csilEntries)
   }
 
@@ -2096,7 +2118,13 @@ extension RequestedClaim {
   public init(cborValue: CsilCborValue) throws {
     let claimType = try CsilCbor.asText(try CsilCbor.require(cborValue, "claim_type"))
     let datatype = try ClaimValueType(cborValue: try CsilCbor.require(cborValue, "datatype"))
-    self.init(claimType: claimType, datatype: datatype)
+    let verifiedBy: VerifyingParty? =
+      if let csilV = CsilCbor.mapGet(cborValue, "verified_by") {
+        try VerifyingParty(cborValue: csilV)
+      } else {
+        nil
+      }
+    self.init(claimType: claimType, datatype: datatype, verifiedBy: verifiedBy)
   }
 
   /// Encode this record to canonical CSIL CBOR bytes.
@@ -7063,6 +7091,7 @@ extension BrowserConsentClaim {
     csilEntries.append((.text("available"), .bool(self.available)))
     csilEntries.append((.text("max_bytes"), .int(self.maxBytes)))
     csilEntries.append((.text("claim_type"), .text(self.claimType)))
+    if let csilV = self.homeVerified { csilEntries.append((.text("home_verified"), .bool(csilV))) }
     csilEntries.append((.text("user_settable"), .bool(self.userSettable)))
     csilEntries.append((.text("default_granted"), .bool(self.defaultGranted)))
     if let csilV = self.newlyRequested {
@@ -7090,6 +7119,12 @@ extension BrowserConsentClaim {
       } else {
         nil
       }
+    let homeVerified: Bool? =
+      if let csilV = CsilCbor.mapGet(cborValue, "home_verified") {
+        try CsilCbor.asBool(csilV)
+      } else {
+        nil
+      }
     self.init(
       claimType: claimType,
       label: label,
@@ -7101,7 +7136,8 @@ extension BrowserConsentClaim {
       userSettable: userSettable,
       maxBytes: maxBytes,
       requiresApproval: requiresApproval,
-      newlyRequested: newlyRequested
+      newlyRequested: newlyRequested,
+      homeVerified: homeVerified
     )
   }
 
@@ -7851,6 +7887,156 @@ extension RpVerifyResponse {
   /// Decode a CSIL CBOR byte payload into this record.
   public static func fromCbor(_ bytes: [UInt8]) throws -> RpVerifyResponse {
     try RpVerifyResponse(cborValue: CsilCbor.decode(bytes))
+  }
+}
+
+extension ClaimCheckStatus {
+  public func toCborValue() throws -> CsilCborValue {
+    wireNumber >= 0 ? .uint(UInt64(wireNumber)) : .int(wireNumber)
+  }
+
+  public init(cborValue: CsilCborValue) throws {
+    guard let value = Self(wireNumber: try CsilCbor.asI64(cborValue)) else {
+      throw CsilCborError.typeMismatch
+    }
+    self = value
+  }
+
+  public func toCbor() throws -> [UInt8] { CsilCbor.encode(try toCborValue()) }
+
+  public static func fromCbor(_ bytes: [UInt8]) throws -> ClaimCheckStatus {
+    try ClaimCheckStatus(cborValue: CsilCbor.decode(bytes))
+  }
+}
+
+extension DomainSignatureCheck {
+  /// The CBOR value tree for this record (deep, canonical key order).
+  public func toCborValue() throws -> CsilCborValue {
+    var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+    csilEntries.append((.text("domain"), .text(self.domain)))
+    csilEntries.append((.text("status"), try self.status.toCborValue()))
+    return .map(csilEntries)
+  }
+
+  /// Reconstruct this record from a decoded CBOR value tree.
+  public init(cborValue: CsilCborValue) throws {
+    let domain = try CsilCbor.asText(try CsilCbor.require(cborValue, "domain"))
+    let status = try ClaimCheckStatus(cborValue: try CsilCbor.require(cborValue, "status"))
+    self.init(domain: domain, status: status)
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  public func toCbor() throws -> [UInt8] { CsilCbor.encode(try toCborValue()) }
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  public static func fromCbor(_ bytes: [UInt8]) throws -> DomainSignatureCheck {
+    try DomainSignatureCheck(cborValue: CsilCbor.decode(bytes))
+  }
+}
+
+extension ClaimCheck {
+  /// The CBOR value tree for this record (deep, canonical key order).
+  public func toCborValue() throws -> CsilCborValue {
+    var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+    csilEntries.append((.text("claim_id"), .text(self.claimId)))
+    csilEntries.append((.text("verified"), .bool(self.verified)))
+    csilEntries.append((.text("claim_type"), .text(self.claimType)))
+    csilEntries.append((.text("claim_status"), try self.claimStatus.toCborValue()))
+    csilEntries.append(
+      (
+        .text("signing_domains"),
+        CsilCborValue.array(try self.signingDomains.map { try $0.toCborValue() })
+      )
+    )
+    return .map(csilEntries)
+  }
+
+  /// Reconstruct this record from a decoded CBOR value tree.
+  public init(cborValue: CsilCborValue) throws {
+    let claimId = try CsilCbor.asText(try CsilCbor.require(cborValue, "claim_id"))
+    let claimType = try CsilCbor.asText(try CsilCbor.require(cborValue, "claim_type"))
+    let claimStatus = try ClaimCheckStatus(
+      cborValue: try CsilCbor.require(cborValue, "claim_status")
+    )
+    let signingDomains = try CsilCbor.asArray(
+      try CsilCbor.require(cborValue, "signing_domains")
+    ).map {
+      try DomainSignatureCheck(cborValue: $0)
+    }
+    let verified = try CsilCbor.asBool(try CsilCbor.require(cborValue, "verified"))
+    self.init(
+      claimId: claimId,
+      claimType: claimType,
+      claimStatus: claimStatus,
+      signingDomains: signingDomains,
+      verified: verified
+    )
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  public func toCbor() throws -> [UInt8] { CsilCbor.encode(try toCborValue()) }
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  public static func fromCbor(_ bytes: [UInt8]) throws -> ClaimCheck {
+    try ClaimCheck(cborValue: CsilCbor.decode(bytes))
+  }
+}
+
+extension RpVerifyClaimsRequest {
+  /// The CBOR value tree for this record (deep, canonical key order).
+  public func toCborValue() throws -> CsilCborValue {
+    var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+    csilEntries.append(
+      (.text("claims"), CsilCborValue.array(try self.claims.map { try $0.toCborValue() }))
+    )
+    csilEntries.append((.text("user_id"), .text(self.userId)))
+    csilEntries.append((.text("subject_domain"), .text(self.subjectDomain)))
+    return .map(csilEntries)
+  }
+
+  /// Reconstruct this record from a decoded CBOR value tree.
+  public init(cborValue: CsilCborValue) throws {
+    let subjectDomain = try CsilCbor.asText(try CsilCbor.require(cborValue, "subject_domain"))
+    let userId = try CsilCbor.asText(try CsilCbor.require(cborValue, "user_id"))
+    let claims = try CsilCbor.asArray(try CsilCbor.require(cborValue, "claims")).map {
+      try Claim(cborValue: $0)
+    }
+    self.init(subjectDomain: subjectDomain, userId: userId, claims: claims)
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  public func toCbor() throws -> [UInt8] { CsilCbor.encode(try toCborValue()) }
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  public static func fromCbor(_ bytes: [UInt8]) throws -> RpVerifyClaimsRequest {
+    try RpVerifyClaimsRequest(cborValue: CsilCbor.decode(bytes))
+  }
+}
+
+extension RpVerifyClaimsResponse {
+  /// The CBOR value tree for this record (deep, canonical key order).
+  public func toCborValue() throws -> CsilCborValue {
+    var csilEntries: [(CsilCborValue, CsilCborValue)] = []
+    csilEntries.append(
+      (.text("checks"), CsilCborValue.array(try self.checks.map { try $0.toCborValue() }))
+    )
+    return .map(csilEntries)
+  }
+
+  /// Reconstruct this record from a decoded CBOR value tree.
+  public init(cborValue: CsilCborValue) throws {
+    let checks = try CsilCbor.asArray(try CsilCbor.require(cborValue, "checks")).map {
+      try ClaimCheck(cborValue: $0)
+    }
+    self.init(checks: checks)
+  }
+
+  /// Encode this record to canonical CSIL CBOR bytes.
+  public func toCbor() throws -> [UInt8] { CsilCbor.encode(try toCborValue()) }
+
+  /// Decode a CSIL CBOR byte payload into this record.
+  public static func fromCbor(_ bytes: [UInt8]) throws -> RpVerifyClaimsResponse {
+    try RpVerifyClaimsResponse(cborValue: CsilCbor.decode(bytes))
   }
 }
 

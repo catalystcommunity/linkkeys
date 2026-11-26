@@ -1856,6 +1856,28 @@ class Codec
         ));
     }
 
+    public static function encodeVerifyingParty($value)
+    {
+        return CBOR::encode(self::toCborVerifyingParty($value));
+    }
+
+    public static function decodeVerifyingParty($bytes)
+    {
+        return self::fromCborVerifyingParty(self::csilDecode($bytes));
+    }
+
+    public static function toCborVerifyingParty($value)
+    {
+        try { return VerifyingParty::toNumber($value); }
+        catch (\InvalidArgumentException $e) { throw new CodecException($e->getMessage()); }
+    }
+
+    public static function fromCborVerifyingParty($value)
+    {
+        try { return VerifyingParty::fromNumber($value); }
+        catch (\InvalidArgumentException $e) { throw new CodecException($e->getMessage()); }
+    }
+
     public static function encodeRequestedClaim($value)
     {
         return CBOR::encode(self::toCborRequestedClaim($value));
@@ -1873,6 +1895,10 @@ class Codec
         $out['claim_type'] = $field;
         $field = $value instanceof RequestedClaim ? $value->datatype : (is_array($value) && array_key_exists('datatype', $value) ? $value['datatype'] : null);
         $out['datatype'] = self::toCborClaimValueType($field);
+        $field = $value instanceof RequestedClaim ? $value->verifiedBy : (is_array($value) && array_key_exists('verified_by', $value) ? $value['verified_by'] : null);
+        if ($field !== null) {
+            $out['verified_by'] = self::toCborVerifyingParty($field);
+        }
         return $out === array() ? CBOR::mapEntries(array()) : $out;
     }
 
@@ -1882,6 +1908,7 @@ class Codec
         return new RequestedClaim(array(
             'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
             'datatype' => array_key_exists('datatype', $value) ? self::fromCborClaimValueType($value['datatype']) : null,
+            'verified_by' => array_key_exists('verified_by', $value) ? self::fromCborVerifyingParty($value['verified_by']) : null,
         ));
     }
 
@@ -6976,6 +7003,10 @@ class Codec
         if ($field !== null) {
             $out['newly_requested'] = $field;
         }
+        $field = $value instanceof BrowserConsentClaim ? $value->homeVerified : (is_array($value) && array_key_exists('home_verified', $value) ? $value['home_verified'] : null);
+        if ($field !== null) {
+            $out['home_verified'] = $field;
+        }
         return $out === array() ? CBOR::mapEntries(array()) : $out;
     }
 
@@ -6994,6 +7025,7 @@ class Codec
             'max_bytes' => array_key_exists('max_bytes', $value) ? $value['max_bytes'] : null,
             'requires_approval' => array_key_exists('requires_approval', $value) ? $value['requires_approval'] : null,
             'newly_requested' => array_key_exists('newly_requested', $value) ? $value['newly_requested'] : null,
+            'home_verified' => array_key_exists('home_verified', $value) ? $value['home_verified'] : null,
         ));
     }
 
@@ -7618,6 +7650,153 @@ class Codec
         return new RpVerifyResponse(array(
             'assertion' => array_key_exists('assertion', $value) ? self::fromCborIdentityAssertion($value['assertion']) : null,
             'verified' => array_key_exists('verified', $value) ? $value['verified'] : null,
+        ));
+    }
+
+    public static function encodeClaimCheckStatus($value)
+    {
+        return CBOR::encode(self::toCborClaimCheckStatus($value));
+    }
+
+    public static function decodeClaimCheckStatus($bytes)
+    {
+        return self::fromCborClaimCheckStatus(self::csilDecode($bytes));
+    }
+
+    public static function toCborClaimCheckStatus($value)
+    {
+        try { return ClaimCheckStatus::toNumber($value); }
+        catch (\InvalidArgumentException $e) { throw new CodecException($e->getMessage()); }
+    }
+
+    public static function fromCborClaimCheckStatus($value)
+    {
+        try { return ClaimCheckStatus::fromNumber($value); }
+        catch (\InvalidArgumentException $e) { throw new CodecException($e->getMessage()); }
+    }
+
+    public static function encodeDomainSignatureCheck($value)
+    {
+        return CBOR::encode(self::toCborDomainSignatureCheck($value));
+    }
+
+    public static function decodeDomainSignatureCheck($bytes)
+    {
+        return self::fromCborDomainSignatureCheck(self::csilDecode($bytes));
+    }
+
+    public static function toCborDomainSignatureCheck($value)
+    {
+        $out = array();
+        $field = $value instanceof DomainSignatureCheck ? $value->domain : (is_array($value) && array_key_exists('domain', $value) ? $value['domain'] : null);
+        $out['domain'] = $field;
+        $field = $value instanceof DomainSignatureCheck ? $value->status : (is_array($value) && array_key_exists('status', $value) ? $value['status'] : null);
+        $out['status'] = self::toCborClaimCheckStatus($field);
+        return $out === array() ? CBOR::mapEntries(array()) : $out;
+    }
+
+    public static function fromCborDomainSignatureCheck($value)
+    {
+        $value = self::csilRecord($value, 'DomainSignatureCheck', array('domain', 'status'));
+        return new DomainSignatureCheck(array(
+            'domain' => array_key_exists('domain', $value) ? $value['domain'] : null,
+            'status' => array_key_exists('status', $value) ? self::fromCborClaimCheckStatus($value['status']) : null,
+        ));
+    }
+
+    public static function encodeClaimCheck($value)
+    {
+        return CBOR::encode(self::toCborClaimCheck($value));
+    }
+
+    public static function decodeClaimCheck($bytes)
+    {
+        return self::fromCborClaimCheck(self::csilDecode($bytes));
+    }
+
+    public static function toCborClaimCheck($value)
+    {
+        $out = array();
+        $field = $value instanceof ClaimCheck ? $value->claimId : (is_array($value) && array_key_exists('claim_id', $value) ? $value['claim_id'] : null);
+        $out['claim_id'] = $field;
+        $field = $value instanceof ClaimCheck ? $value->claimType : (is_array($value) && array_key_exists('claim_type', $value) ? $value['claim_type'] : null);
+        $out['claim_type'] = $field;
+        $field = $value instanceof ClaimCheck ? $value->claimStatus : (is_array($value) && array_key_exists('claim_status', $value) ? $value['claim_status'] : null);
+        $out['claim_status'] = self::toCborClaimCheckStatus($field);
+        $field = $value instanceof ClaimCheck ? $value->signingDomains : (is_array($value) && array_key_exists('signing_domains', $value) ? $value['signing_domains'] : null);
+        $out['signing_domains'] = array_map(function ($item) { return self::toCborDomainSignatureCheck($item); }, $field === null ? array() : $field);
+        $field = $value instanceof ClaimCheck ? $value->verified : (is_array($value) && array_key_exists('verified', $value) ? $value['verified'] : null);
+        $out['verified'] = $field;
+        return $out === array() ? CBOR::mapEntries(array()) : $out;
+    }
+
+    public static function fromCborClaimCheck($value)
+    {
+        $value = self::csilRecord($value, 'ClaimCheck', array('claim_id', 'claim_type', 'claim_status', 'signing_domains', 'verified'));
+        return new ClaimCheck(array(
+            'claim_id' => array_key_exists('claim_id', $value) ? $value['claim_id'] : null,
+            'claim_type' => array_key_exists('claim_type', $value) ? $value['claim_type'] : null,
+            'claim_status' => array_key_exists('claim_status', $value) ? self::fromCborClaimCheckStatus($value['claim_status']) : null,
+            'signing_domains' => array_key_exists('signing_domains', $value) ? array_map(function ($item) { return self::fromCborDomainSignatureCheck($item); }, self::csilList($value['signing_domains'])) : null,
+            'verified' => array_key_exists('verified', $value) ? $value['verified'] : null,
+        ));
+    }
+
+    public static function encodeRpVerifyClaimsRequest($value)
+    {
+        return CBOR::encode(self::toCborRpVerifyClaimsRequest($value));
+    }
+
+    public static function decodeRpVerifyClaimsRequest($bytes)
+    {
+        return self::fromCborRpVerifyClaimsRequest(self::csilDecode($bytes));
+    }
+
+    public static function toCborRpVerifyClaimsRequest($value)
+    {
+        $out = array();
+        $field = $value instanceof RpVerifyClaimsRequest ? $value->subjectDomain : (is_array($value) && array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null);
+        $out['subject_domain'] = $field;
+        $field = $value instanceof RpVerifyClaimsRequest ? $value->userId : (is_array($value) && array_key_exists('user_id', $value) ? $value['user_id'] : null);
+        $out['user_id'] = $field;
+        $field = $value instanceof RpVerifyClaimsRequest ? $value->claims : (is_array($value) && array_key_exists('claims', $value) ? $value['claims'] : null);
+        $out['claims'] = array_map(function ($item) { return self::toCborClaim($item); }, $field === null ? array() : $field);
+        return $out === array() ? CBOR::mapEntries(array()) : $out;
+    }
+
+    public static function fromCborRpVerifyClaimsRequest($value)
+    {
+        $value = self::csilRecord($value, 'RpVerifyClaimsRequest', array('subject_domain', 'user_id', 'claims'));
+        return new RpVerifyClaimsRequest(array(
+            'subject_domain' => array_key_exists('subject_domain', $value) ? $value['subject_domain'] : null,
+            'user_id' => array_key_exists('user_id', $value) ? $value['user_id'] : null,
+            'claims' => array_key_exists('claims', $value) ? array_map(function ($item) { return self::fromCborClaim($item); }, self::csilList($value['claims'])) : null,
+        ));
+    }
+
+    public static function encodeRpVerifyClaimsResponse($value)
+    {
+        return CBOR::encode(self::toCborRpVerifyClaimsResponse($value));
+    }
+
+    public static function decodeRpVerifyClaimsResponse($bytes)
+    {
+        return self::fromCborRpVerifyClaimsResponse(self::csilDecode($bytes));
+    }
+
+    public static function toCborRpVerifyClaimsResponse($value)
+    {
+        $out = array();
+        $field = $value instanceof RpVerifyClaimsResponse ? $value->checks : (is_array($value) && array_key_exists('checks', $value) ? $value['checks'] : null);
+        $out['checks'] = array_map(function ($item) { return self::toCborClaimCheck($item); }, $field === null ? array() : $field);
+        return $out === array() ? CBOR::mapEntries(array()) : $out;
+    }
+
+    public static function fromCborRpVerifyClaimsResponse($value)
+    {
+        $value = self::csilRecord($value, 'RpVerifyClaimsResponse', array('checks'));
+        return new RpVerifyClaimsResponse(array(
+            'checks' => array_key_exists('checks', $value) ? array_map(function ($item) { return self::fromCborClaimCheck($item); }, self::csilList($value['checks'])) : null,
         ));
     }
 

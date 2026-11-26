@@ -2514,9 +2514,12 @@ func csilEncRequestedClaim(csilV RequestedClaim, csilDepth int) (cborValue, erro
 		return nil, fmt.Errorf("csil cbor: nesting limit exceeded")
 	}
 	var csilE csilRtEncErr
-	csilEntries := make(cborMap, 0, 2)
+	csilEntries := make(cborMap, 0, 3)
 	csilEntries = append(csilEntries, cborEntry{cborText("datatype"), csilE.val(csilRtEncMember(csilV.Datatype, cborInt(csilV.Datatype), 1, 2, 3, 4, 5, 6, 7, 8, 9, 10))})
 	csilEntries = append(csilEntries, cborEntry{cborText("claim_type"), cborText(csilV.ClaimType)})
+	if csilV.VerifiedBy != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("verified_by"), csilE.val(csilRtEncMember((*csilV.VerifiedBy), cborInt((*csilV.VerifiedBy)), 1))})
+	}
 	return csilE.result(csilEntries)
 }
 
@@ -2550,6 +2553,19 @@ func csilDecRequestedClaim(csilRoot cborValue) (RequestedClaim, error) {
 			return csilOut, csilErr
 		}
 		csilOut.Datatype = csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "verified_by"); csilOk {
+		csilVal, csilErr := (func(csilV cborValue) (VerifyingParty, error) {
+			n, err := cborAsI64(csilV)
+			if err != nil {
+				return 0, err
+			}
+			return VerifyingPartyFromNumber(n)
+		})(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.VerifiedBy = &csilVal
 	}
 	return csilOut, nil
 }
@@ -12383,7 +12399,7 @@ func csilEncBrowserConsentClaim(csilV BrowserConsentClaim, csilDepth int) (cborV
 		return nil, fmt.Errorf("csil cbor: nesting limit exceeded")
 	}
 	var csilE csilRtEncErr
-	csilEntries := make(cborMap, 0, 11)
+	csilEntries := make(cborMap, 0, 12)
 	csilEntries = append(csilEntries, cborEntry{cborText("label"), cborText(csilV.Label)})
 	csilEntries = append(csilEntries, cborEntry{cborText("policy"), csilE.val(csilRtEncMember(csilV.Policy, cborInt(csilV.Policy), 1, 2, 3))})
 	csilEntries = append(csilEntries, cborEntry{cborText("datatype"), csilE.val(csilRtEncMember(csilV.Datatype, cborInt(csilV.Datatype), 1, 2, 3, 4, 5, 6, 7, 8, 9, 10))})
@@ -12391,6 +12407,9 @@ func csilEncBrowserConsentClaim(csilV BrowserConsentClaim, csilDepth int) (cborV
 	csilEntries = append(csilEntries, cborEntry{cborText("available"), cborBool(csilV.Available)})
 	csilEntries = append(csilEntries, cborEntry{cborText("max_bytes"), cborInt(csilV.MaxBytes)})
 	csilEntries = append(csilEntries, cborEntry{cborText("claim_type"), cborText(csilV.ClaimType)})
+	if csilV.HomeVerified != nil {
+		csilEntries = append(csilEntries, cborEntry{cborText("home_verified"), cborBool((*csilV.HomeVerified))})
+	}
 	csilEntries = append(csilEntries, cborEntry{cborText("user_settable"), cborBool(csilV.UserSettable)})
 	csilEntries = append(csilEntries, cborEntry{cborText("default_granted"), cborBool(csilV.DefaultGranted)})
 	if csilV.NewlyRequested != nil {
@@ -12531,6 +12550,13 @@ func csilDecBrowserConsentClaim(csilRoot cborValue) (BrowserConsentClaim, error)
 			return csilOut, csilErr
 		}
 		csilOut.NewlyRequested = &csilVal
+	}
+	if csilField, csilOk := cborMapGet(csilRoot, "home_verified"); csilOk {
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.HomeVerified = &csilVal
 	}
 	return csilOut, nil
 }
@@ -13763,6 +13789,278 @@ func DecodeRpVerifyResponse(csilData []byte) (RpVerifyResponse, error) {
 	return csilDecRpVerifyResponse(csilRoot)
 }
 
+// csilEncDomainSignatureCheck builds the canonical CBOR value tree for a DomainSignatureCheck.
+func csilEncDomainSignatureCheck(csilV DomainSignatureCheck, csilDepth int) (cborValue, error) {
+	if csilDepth > csilRtEncDepthLimit {
+		return nil, fmt.Errorf("csil cbor: nesting limit exceeded")
+	}
+	var csilE csilRtEncErr
+	csilEntries := make(cborMap, 0, 2)
+	csilEntries = append(csilEntries, cborEntry{cborText("domain"), cborText(csilV.Domain)})
+	csilEntries = append(csilEntries, cborEntry{cborText("status"), csilE.val(csilRtEncMember(csilV.Status, cborInt(csilV.Status), 1, 2, 3, 4, 5, 6, 7, 8, 9))})
+	return csilE.result(csilEntries)
+}
+
+// csilDecDomainSignatureCheck reconstructs a DomainSignatureCheck from a decoded CBOR value tree.
+func csilDecDomainSignatureCheck(csilRoot cborValue) (DomainSignatureCheck, error) {
+	var csilOut DomainSignatureCheck
+	{
+		csilField, csilErr := cborRequire(csilRoot, "domain")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Domain = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "status")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) (ClaimCheckStatus, error) {
+			n, err := cborAsI64(csilV)
+			if err != nil {
+				return 0, err
+			}
+			return ClaimCheckStatusFromNumber(n)
+		})(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Status = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeDomainSignatureCheck encodes a DomainSignatureCheck to canonical CSIL CBOR bytes.
+func EncodeDomainSignatureCheck(csilV DomainSignatureCheck) ([]byte, error) {
+	return cborEncodeE(csilEncDomainSignatureCheck(csilV, 0))
+}
+
+// DecodeDomainSignatureCheck decodes canonical CSIL CBOR bytes into a DomainSignatureCheck.
+func DecodeDomainSignatureCheck(csilData []byte) (DomainSignatureCheck, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero DomainSignatureCheck
+		return csilZero, csilErr
+	}
+	return csilDecDomainSignatureCheck(csilRoot)
+}
+
+// csilEncClaimCheck builds the canonical CBOR value tree for a ClaimCheck.
+func csilEncClaimCheck(csilV ClaimCheck, csilDepth int) (cborValue, error) {
+	if csilDepth > csilRtEncDepthLimit {
+		return nil, fmt.Errorf("csil cbor: nesting limit exceeded")
+	}
+	var csilE csilRtEncErr
+	csilEntries := make(cborMap, 0, 5)
+	csilEntries = append(csilEntries, cborEntry{cborText("claim_id"), cborText(csilV.ClaimId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("verified"), cborBool(csilV.Verified)})
+	csilEntries = append(csilEntries, cborEntry{cborText("claim_type"), cborText(csilV.ClaimType)})
+	csilEntries = append(csilEntries, cborEntry{cborText("claim_status"), csilE.val(csilRtEncMember(csilV.ClaimStatus, cborInt(csilV.ClaimStatus), 1, 2, 3, 4, 5, 6, 7, 8, 9))})
+	csilEntries = append(csilEntries, cborEntry{cborText("signing_domains"), csilE.val(cborEncArray(csilV.SigningDomains, func(csilElem DomainSignatureCheck) (cborValue, error) {
+		return csilEncDomainSignatureCheck(csilElem, csilDepth+1)
+	}))})
+	return csilE.result(csilEntries)
+}
+
+// csilDecClaimCheck reconstructs a ClaimCheck from a decoded CBOR value tree.
+func csilDecClaimCheck(csilRoot cborValue) (ClaimCheck, error) {
+	var csilOut ClaimCheck
+	{
+		csilField, csilErr := cborRequire(csilRoot, "claim_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ClaimId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "claim_type")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ClaimType = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "claim_status")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) (ClaimCheckStatus, error) {
+			n, err := cborAsI64(csilV)
+			if err != nil {
+				return 0, err
+			}
+			return ClaimCheckStatusFromNumber(n)
+		})(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.ClaimStatus = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "signing_domains")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]DomainSignatureCheck, error) {
+			return cborDecArray(csilV, csilDecDomainSignatureCheck)
+		})(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SigningDomains = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "verified")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsBool)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Verified = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeClaimCheck encodes a ClaimCheck to canonical CSIL CBOR bytes.
+func EncodeClaimCheck(csilV ClaimCheck) ([]byte, error) {
+	return cborEncodeE(csilEncClaimCheck(csilV, 0))
+}
+
+// DecodeClaimCheck decodes canonical CSIL CBOR bytes into a ClaimCheck.
+func DecodeClaimCheck(csilData []byte) (ClaimCheck, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero ClaimCheck
+		return csilZero, csilErr
+	}
+	return csilDecClaimCheck(csilRoot)
+}
+
+// csilEncRpVerifyClaimsRequest builds the canonical CBOR value tree for a RpVerifyClaimsRequest.
+func csilEncRpVerifyClaimsRequest(csilV RpVerifyClaimsRequest, csilDepth int) (cborValue, error) {
+	if csilDepth > csilRtEncDepthLimit {
+		return nil, fmt.Errorf("csil cbor: nesting limit exceeded")
+	}
+	var csilE csilRtEncErr
+	csilEntries := make(cborMap, 0, 3)
+	csilEntries = append(csilEntries, cborEntry{cborText("claims"), csilE.val(cborEncArray(csilV.Claims, func(csilElem Claim) (cborValue, error) { return csilEncClaim(csilElem, csilDepth+1) }))})
+	csilEntries = append(csilEntries, cborEntry{cborText("user_id"), cborText(csilV.UserId)})
+	csilEntries = append(csilEntries, cborEntry{cborText("subject_domain"), cborText(csilV.SubjectDomain)})
+	return csilE.result(csilEntries)
+}
+
+// csilDecRpVerifyClaimsRequest reconstructs a RpVerifyClaimsRequest from a decoded CBOR value tree.
+func csilDecRpVerifyClaimsRequest(csilRoot cborValue) (RpVerifyClaimsRequest, error) {
+	var csilOut RpVerifyClaimsRequest
+	{
+		csilField, csilErr := cborRequire(csilRoot, "subject_domain")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.SubjectDomain = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "user_id")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (cborAsText)(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.UserId = csilVal
+	}
+	{
+		csilField, csilErr := cborRequire(csilRoot, "claims")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]Claim, error) { return cborDecArray(csilV, csilDecClaim) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Claims = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeRpVerifyClaimsRequest encodes a RpVerifyClaimsRequest to canonical CSIL CBOR bytes.
+func EncodeRpVerifyClaimsRequest(csilV RpVerifyClaimsRequest) ([]byte, error) {
+	return cborEncodeE(csilEncRpVerifyClaimsRequest(csilV, 0))
+}
+
+// DecodeRpVerifyClaimsRequest decodes canonical CSIL CBOR bytes into a RpVerifyClaimsRequest.
+func DecodeRpVerifyClaimsRequest(csilData []byte) (RpVerifyClaimsRequest, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero RpVerifyClaimsRequest
+		return csilZero, csilErr
+	}
+	return csilDecRpVerifyClaimsRequest(csilRoot)
+}
+
+// csilEncRpVerifyClaimsResponse builds the canonical CBOR value tree for a RpVerifyClaimsResponse.
+func csilEncRpVerifyClaimsResponse(csilV RpVerifyClaimsResponse, csilDepth int) (cborValue, error) {
+	if csilDepth > csilRtEncDepthLimit {
+		return nil, fmt.Errorf("csil cbor: nesting limit exceeded")
+	}
+	var csilE csilRtEncErr
+	csilEntries := make(cborMap, 0, 1)
+	csilEntries = append(csilEntries, cborEntry{cborText("checks"), csilE.val(cborEncArray(csilV.Checks, func(csilElem ClaimCheck) (cborValue, error) { return csilEncClaimCheck(csilElem, csilDepth+1) }))})
+	return csilE.result(csilEntries)
+}
+
+// csilDecRpVerifyClaimsResponse reconstructs a RpVerifyClaimsResponse from a decoded CBOR value tree.
+func csilDecRpVerifyClaimsResponse(csilRoot cborValue) (RpVerifyClaimsResponse, error) {
+	var csilOut RpVerifyClaimsResponse
+	{
+		csilField, csilErr := cborRequire(csilRoot, "checks")
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilVal, csilErr := (func(csilV cborValue) ([]ClaimCheck, error) { return cborDecArray(csilV, csilDecClaimCheck) })(csilField)
+		if csilErr != nil {
+			return csilOut, csilErr
+		}
+		csilOut.Checks = csilVal
+	}
+	return csilOut, nil
+}
+
+// EncodeRpVerifyClaimsResponse encodes a RpVerifyClaimsResponse to canonical CSIL CBOR bytes.
+func EncodeRpVerifyClaimsResponse(csilV RpVerifyClaimsResponse) ([]byte, error) {
+	return cborEncodeE(csilEncRpVerifyClaimsResponse(csilV, 0))
+}
+
+// DecodeRpVerifyClaimsResponse decodes canonical CSIL CBOR bytes into a RpVerifyClaimsResponse.
+func DecodeRpVerifyClaimsResponse(csilData []byte) (RpVerifyClaimsResponse, error) {
+	csilRoot, csilErr := cborDecode(csilData)
+	if csilErr != nil {
+		var csilZero RpVerifyClaimsResponse
+		return csilZero, csilErr
+	}
+	return csilDecRpVerifyClaimsResponse(csilRoot)
+}
+
 // csilEncRpUserInfoRequest builds the canonical CBOR value tree for a RpUserInfoRequest.
 func csilEncRpUserInfoRequest(csilV RpUserInfoRequest, csilDepth int) (cborValue, error) {
 	if csilDepth > csilRtEncDepthLimit {
@@ -13836,7 +14134,7 @@ func csilEncRpError(csilV RpError, csilDepth int) (cborValue, error) {
 	}
 	var csilE csilRtEncErr
 	csilEntries := make(cborMap, 0, 2)
-	csilEntries = append(csilEntries, cborEntry{cborText("code"), csilE.val(csilRtEncMember(csilV.Code, cborInt(csilV.Code), 1, 2, 3, 4, 5, 6))})
+	csilEntries = append(csilEntries, cborEntry{cborText("code"), csilE.val(csilRtEncMember(csilV.Code, cborInt(csilV.Code), 1, 2, 3, 4, 5, 6, 7))})
 	csilEntries = append(csilEntries, cborEntry{cborText("message"), cborText(csilV.Message)})
 	return csilE.result(csilEntries)
 }

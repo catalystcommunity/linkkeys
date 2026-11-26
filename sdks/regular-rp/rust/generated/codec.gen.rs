@@ -2049,12 +2049,18 @@ pub fn decode_get_user_claims_response(
 
 /// Build the canonical CBOR value tree for a RequestedClaim.
 fn csil_enc_requested_claim(csil_v: &RequestedClaim) -> Result<CsilCborValue, CsilCborError> {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
     csil_entries.push((
         cbor_text("datatype"),
         csil_enc_claim_value_type(&csil_v.datatype)?,
     ));
     csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    if let Some(csil_inner) = &csil_v.verified_by {
+        csil_entries.push((
+            cbor_text("verified_by"),
+            csil_enc_verifying_party(csil_inner)?,
+        ));
+    }
     Ok(CsilCborValue::Map(csil_entries))
 }
 
@@ -2071,9 +2077,17 @@ fn csil_dec_requested_claim(csil_root: &CsilCborValue) -> Result<RequestedClaim,
         let csil_decode = csil_dec_claim_value_type;
         csil_decode(csil_field)?
     };
+    let verified_by = match cbor_map_get(csil_root, "verified_by") {
+        Some(csil_field) => {
+            let csil_decode = csil_dec_verifying_party;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     Ok(RequestedClaim {
         claim_type,
         datatype,
+        verified_by,
     })
 }
 
@@ -10358,7 +10372,7 @@ pub fn decode_browser_authorization_inspect_request(
 fn csil_enc_browser_consent_claim(
     csil_v: &BrowserConsentClaim,
 ) -> Result<CsilCborValue, CsilCborError> {
-    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(11);
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(12);
     csil_entries.push((cbor_text("label"), cbor_text(&csil_v.label)));
     csil_entries.push((
         cbor_text("policy"),
@@ -10372,6 +10386,9 @@ fn csil_enc_browser_consent_claim(
     csil_entries.push((cbor_text("available"), cbor_bool(csil_v.available)));
     csil_entries.push((cbor_text("max_bytes"), cbor_int(csil_v.max_bytes)));
     csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    if let Some(csil_inner) = &csil_v.home_verified {
+        csil_entries.push((cbor_text("home_verified"), cbor_bool(*csil_inner)));
+    }
     csil_entries.push((cbor_text("user_settable"), cbor_bool(csil_v.user_settable)));
     csil_entries.push((
         cbor_text("default_granted"),
@@ -10449,6 +10466,13 @@ fn csil_dec_browser_consent_claim(
         }
         None => None,
     };
+    let home_verified = match cbor_map_get(csil_root, "home_verified") {
+        Some(csil_field) => {
+            let csil_decode = cbor_as_bool;
+            Some(csil_decode(csil_field)?)
+        }
+        None => None,
+    };
     Ok(BrowserConsentClaim {
         claim_type,
         label,
@@ -10461,6 +10485,7 @@ fn csil_dec_browser_consent_claim(
         max_bytes,
         requires_approval,
         newly_requested,
+        home_verified,
     })
 }
 
@@ -11602,6 +11627,220 @@ pub fn encode_rp_verify_response(csil_v: &RpVerifyResponse) -> Result<Vec<u8>, C
 pub fn decode_rp_verify_response(csil_data: &[u8]) -> Result<RpVerifyResponse, CsilCborError> {
     let csil_root = cbor_decode(csil_data)?;
     csil_dec_rp_verify_response(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a DomainSignatureCheck.
+fn csil_enc_domain_signature_check(
+    csil_v: &DomainSignatureCheck,
+) -> Result<CsilCborValue, CsilCborError> {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(2);
+    csil_entries.push((cbor_text("domain"), cbor_text(&csil_v.domain)));
+    csil_entries.push((
+        cbor_text("status"),
+        csil_enc_claim_check_status(&csil_v.status)?,
+    ));
+    Ok(CsilCborValue::Map(csil_entries))
+}
+
+/// Reconstruct a DomainSignatureCheck from a decoded CBOR value tree.
+fn csil_dec_domain_signature_check(
+    csil_root: &CsilCborValue,
+) -> Result<DomainSignatureCheck, CsilCborError> {
+    cbor_check_record(csil_root)?;
+    let domain = {
+        let csil_field = cbor_require(csil_root, "domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let status = {
+        let csil_field = cbor_require(csil_root, "status")?;
+        let csil_decode = csil_dec_claim_check_status;
+        csil_decode(csil_field)?
+    };
+    Ok(DomainSignatureCheck { domain, status })
+}
+
+/// Encode a DomainSignatureCheck to canonical CSIL CBOR bytes.
+pub fn encode_domain_signature_check(
+    csil_v: &DomainSignatureCheck,
+) -> Result<Vec<u8>, CsilCborError> {
+    let csil_tree = csil_enc_domain_signature_check(csil_v)?;
+    Ok(cbor_encode(&csil_tree))
+}
+
+/// Decode canonical CSIL CBOR bytes into a DomainSignatureCheck.
+pub fn decode_domain_signature_check(
+    csil_data: &[u8],
+) -> Result<DomainSignatureCheck, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_domain_signature_check(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a ClaimCheck.
+fn csil_enc_claim_check(csil_v: &ClaimCheck) -> Result<CsilCborValue, CsilCborError> {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(5);
+    csil_entries.push((cbor_text("claim_id"), cbor_text(&csil_v.claim_id)));
+    csil_entries.push((cbor_text("verified"), cbor_bool(csil_v.verified)));
+    csil_entries.push((cbor_text("claim_type"), cbor_text(&csil_v.claim_type)));
+    csil_entries.push((
+        cbor_text("claim_status"),
+        csil_enc_claim_check_status(&csil_v.claim_status)?,
+    ));
+    csil_entries.push((
+        cbor_text("signing_domains"),
+        cbor_enc_array(&csil_v.signing_domains, csil_enc_domain_signature_check)?,
+    ));
+    Ok(CsilCborValue::Map(csil_entries))
+}
+
+/// Reconstruct a ClaimCheck from a decoded CBOR value tree.
+fn csil_dec_claim_check(csil_root: &CsilCborValue) -> Result<ClaimCheck, CsilCborError> {
+    cbor_check_record(csil_root)?;
+    let claim_id = {
+        let csil_field = cbor_require(csil_root, "claim_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let claim_type = {
+        let csil_field = cbor_require(csil_root, "claim_type")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let claim_status = {
+        let csil_field = cbor_require(csil_root, "claim_status")?;
+        let csil_decode = csil_dec_claim_check_status;
+        csil_decode(csil_field)?
+    };
+    let signing_domains = {
+        let csil_field = cbor_require(csil_root, "signing_domains")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_domain_signature_check);
+        csil_decode(csil_field)?
+    };
+    let verified = {
+        let csil_field = cbor_require(csil_root, "verified")?;
+        let csil_decode = cbor_as_bool;
+        csil_decode(csil_field)?
+    };
+    Ok(ClaimCheck {
+        claim_id,
+        claim_type,
+        claim_status,
+        signing_domains,
+        verified,
+    })
+}
+
+/// Encode a ClaimCheck to canonical CSIL CBOR bytes.
+pub fn encode_claim_check(csil_v: &ClaimCheck) -> Result<Vec<u8>, CsilCborError> {
+    let csil_tree = csil_enc_claim_check(csil_v)?;
+    Ok(cbor_encode(&csil_tree))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ClaimCheck.
+pub fn decode_claim_check(csil_data: &[u8]) -> Result<ClaimCheck, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_claim_check(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RpVerifyClaimsRequest.
+fn csil_enc_rp_verify_claims_request(
+    csil_v: &RpVerifyClaimsRequest,
+) -> Result<CsilCborValue, CsilCborError> {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(3);
+    csil_entries.push((
+        cbor_text("claims"),
+        cbor_enc_array(&csil_v.claims, csil_enc_claim)?,
+    ));
+    csil_entries.push((cbor_text("user_id"), cbor_text(&csil_v.user_id)));
+    csil_entries.push((
+        cbor_text("subject_domain"),
+        cbor_text(&csil_v.subject_domain),
+    ));
+    Ok(CsilCborValue::Map(csil_entries))
+}
+
+/// Reconstruct a RpVerifyClaimsRequest from a decoded CBOR value tree.
+fn csil_dec_rp_verify_claims_request(
+    csil_root: &CsilCborValue,
+) -> Result<RpVerifyClaimsRequest, CsilCborError> {
+    cbor_check_record(csil_root)?;
+    let subject_domain = {
+        let csil_field = cbor_require(csil_root, "subject_domain")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let user_id = {
+        let csil_field = cbor_require(csil_root, "user_id")?;
+        let csil_decode = cbor_as_text;
+        csil_decode(csil_field)?
+    };
+    let claims = {
+        let csil_field = cbor_require(csil_root, "claims")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_claim);
+        csil_decode(csil_field)?
+    };
+    Ok(RpVerifyClaimsRequest {
+        subject_domain,
+        user_id,
+        claims,
+    })
+}
+
+/// Encode a RpVerifyClaimsRequest to canonical CSIL CBOR bytes.
+pub fn encode_rp_verify_claims_request(
+    csil_v: &RpVerifyClaimsRequest,
+) -> Result<Vec<u8>, CsilCborError> {
+    let csil_tree = csil_enc_rp_verify_claims_request(csil_v)?;
+    Ok(cbor_encode(&csil_tree))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RpVerifyClaimsRequest.
+pub fn decode_rp_verify_claims_request(
+    csil_data: &[u8],
+) -> Result<RpVerifyClaimsRequest, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_rp_verify_claims_request(&csil_root)
+}
+
+/// Build the canonical CBOR value tree for a RpVerifyClaimsResponse.
+fn csil_enc_rp_verify_claims_response(
+    csil_v: &RpVerifyClaimsResponse,
+) -> Result<CsilCborValue, CsilCborError> {
+    let mut csil_entries: Vec<(CsilCborValue, CsilCborValue)> = Vec::with_capacity(1);
+    csil_entries.push((
+        cbor_text("checks"),
+        cbor_enc_array(&csil_v.checks, csil_enc_claim_check)?,
+    ));
+    Ok(CsilCborValue::Map(csil_entries))
+}
+
+/// Reconstruct a RpVerifyClaimsResponse from a decoded CBOR value tree.
+fn csil_dec_rp_verify_claims_response(
+    csil_root: &CsilCborValue,
+) -> Result<RpVerifyClaimsResponse, CsilCborError> {
+    cbor_check_record(csil_root)?;
+    let checks = {
+        let csil_field = cbor_require(csil_root, "checks")?;
+        let csil_decode = |csil_v| cbor_dec_array(csil_v, csil_dec_claim_check);
+        csil_decode(csil_field)?
+    };
+    Ok(RpVerifyClaimsResponse { checks })
+}
+
+/// Encode a RpVerifyClaimsResponse to canonical CSIL CBOR bytes.
+pub fn encode_rp_verify_claims_response(
+    csil_v: &RpVerifyClaimsResponse,
+) -> Result<Vec<u8>, CsilCborError> {
+    let csil_tree = csil_enc_rp_verify_claims_response(csil_v)?;
+    Ok(cbor_encode(&csil_tree))
+}
+
+/// Decode canonical CSIL CBOR bytes into a RpVerifyClaimsResponse.
+pub fn decode_rp_verify_claims_response(
+    csil_data: &[u8],
+) -> Result<RpVerifyClaimsResponse, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_rp_verify_claims_response(&csil_root)
 }
 
 /// Build the canonical CBOR value tree for a RpUserInfoRequest.
@@ -20134,6 +20373,55 @@ pub fn encode_issued_claim_outcome(csil_v: &IssuedClaimOutcome) -> Result<Vec<u8
 pub fn decode_issued_claim_outcome(csil_data: &[u8]) -> Result<IssuedClaimOutcome, CsilCborError> {
     let csil_root = cbor_decode(csil_data)?;
     csil_dec_issued_claim_outcome(&csil_root)
+}
+
+/// Encode a VerifyingParty enum as its CBOR value.
+fn csil_enc_verifying_party(csil_v: &VerifyingParty) -> Result<CsilCborValue, CsilCborError> {
+    Ok(cbor_int(csil_v.to_number()))
+}
+
+fn csil_dec_verifying_party(csil_v: &CsilCborValue) -> Result<VerifyingParty, CsilCborError> {
+    let number = cbor_as_i64(csil_v)?;
+    VerifyingParty::from_number(number)
+        .ok_or_else(|| CsilCborError(format!("csil cbor: unknown VerifyingParty value {number}")))
+}
+
+/// Encode a VerifyingParty to canonical CSIL CBOR bytes.
+pub fn encode_verifying_party(csil_v: &VerifyingParty) -> Result<Vec<u8>, CsilCborError> {
+    let csil_tree = csil_enc_verifying_party(csil_v)?;
+    Ok(cbor_encode(&csil_tree))
+}
+
+/// Decode canonical CSIL CBOR bytes into a VerifyingParty.
+pub fn decode_verifying_party(csil_data: &[u8]) -> Result<VerifyingParty, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_verifying_party(&csil_root)
+}
+
+/// Encode a ClaimCheckStatus enum as its CBOR value.
+fn csil_enc_claim_check_status(csil_v: &ClaimCheckStatus) -> Result<CsilCborValue, CsilCborError> {
+    Ok(cbor_int(csil_v.to_number()))
+}
+
+fn csil_dec_claim_check_status(csil_v: &CsilCborValue) -> Result<ClaimCheckStatus, CsilCborError> {
+    let number = cbor_as_i64(csil_v)?;
+    ClaimCheckStatus::from_number(number).ok_or_else(|| {
+        CsilCborError(format!(
+            "csil cbor: unknown ClaimCheckStatus value {number}"
+        ))
+    })
+}
+
+/// Encode a ClaimCheckStatus to canonical CSIL CBOR bytes.
+pub fn encode_claim_check_status(csil_v: &ClaimCheckStatus) -> Result<Vec<u8>, CsilCborError> {
+    let csil_tree = csil_enc_claim_check_status(csil_v)?;
+    Ok(cbor_encode(&csil_tree))
+}
+
+/// Decode canonical CSIL CBOR bytes into a ClaimCheckStatus.
+pub fn decode_claim_check_status(csil_data: &[u8]) -> Result<ClaimCheckStatus, CsilCborError> {
+    let csil_root = cbor_decode(csil_data)?;
+    csil_dec_claim_check_status(&csil_root)
 }
 
 /// Encode a ApiErrorCode enum as its CBOR value.

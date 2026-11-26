@@ -161,10 +161,12 @@ async fn spa_consent_flow_end_to_end() {
             required: vec![RequestedClaim {
                 claim_type: "email".to_string(),
                 datatype: liblinkkeys::claim_policy::ValueType::Email,
+                verified_by: None,
             }],
             optional: vec![RequestedClaim {
                 claim_type: "ssn".to_string(),
                 datatype: liblinkkeys::claim_policy::ValueType::Text,
+                verified_by: None,
             }],
         }),
         None,
@@ -342,10 +344,12 @@ async fn spa_consent_flow_end_to_end() {
             required: vec![RequestedClaim {
                 claim_type: "email".to_string(),
                 datatype: liblinkkeys::claim_policy::ValueType::Email,
+                verified_by: None,
             }],
             optional: vec![RequestedClaim {
                 claim_type: "ssn".to_string(),
                 datatype: liblinkkeys::claim_policy::ValueType::Text,
+                verified_by: None,
             }],
         }),
         None,
@@ -398,10 +402,12 @@ async fn spa_consent_flow_end_to_end() {
             required: vec![RequestedClaim {
                 claim_type: "email".to_string(),
                 datatype: liblinkkeys::claim_policy::ValueType::Email,
+                verified_by: None,
             }],
             optional: vec![RequestedClaim {
                 claim_type: "ssn".to_string(),
                 datatype: liblinkkeys::claim_policy::ValueType::Text,
+                verified_by: None,
             }],
         }),
         None,
@@ -480,6 +486,7 @@ async fn spa_consent_flow_end_to_end() {
             required: vec![RequestedClaim {
                 claim_type: "display_name".to_string(),
                 datatype: liblinkkeys::claim_policy::ValueType::Text,
+                verified_by: None,
             }],
             optional: Vec::new(),
         }),
@@ -504,6 +511,99 @@ async fn spa_consent_flow_end_to_end() {
     assert!(inspection.claims.iter().any(|claim| {
         claim.claim_type == "display_name" && !claim.available && claim.user_settable
     }));
+
+    // A claim that the app requires this domain to verify counts only when
+    // this domain signed it. The stored email has no signature; the handle
+    // below has this domain's signature.
+    let handle_id = uuid::Uuid::now_v7().to_string();
+    let attested_at = liblinkkeys::timestamp::now_whole_seconds();
+    let handle = liblinkkeys::claims::sign_claim(
+        &liblinkkeys::claims::ClaimSpec {
+            claim_id: &handle_id,
+            claim_type: "handle",
+            claim_value: b"alice",
+            user_id: &user.id,
+            subject_domain: TEST_DOMAIN,
+            expires_at: None,
+            attested_at,
+        },
+        &[liblinkkeys::claims::ClaimSigner {
+            domain: TEST_DOMAIN,
+            key_id: &signing.id,
+            algorithm: SigningAlgorithm::Ed25519,
+            private_key_bytes: &signing_key_bytes,
+        }],
+    )
+    .unwrap();
+    pool.create_claim(
+        &handle_id,
+        &user.id,
+        "handle",
+        b"alice",
+        &handle.signatures,
+        None,
+        attested_at,
+    )
+    .expect("signed handle claim");
+    let home = Some(liblinkkeys::generated::types::VerifyingParty::HomeDomain);
+    let home_verified_authorization = signed_request(
+        &signing.id,
+        &signing_key_bytes,
+        "spa-login-nonce-home",
+        Some(ClaimRequest {
+            required: vec![
+                RequestedClaim {
+                    claim_type: "email".to_string(),
+                    datatype: liblinkkeys::claim_policy::ValueType::Email,
+                    verified_by: home,
+                },
+                RequestedClaim {
+                    claim_type: "handle".to_string(),
+                    datatype: liblinkkeys::claim_policy::ValueType::Text,
+                    verified_by: home,
+                },
+            ],
+            optional: vec![RequestedClaim {
+                claim_type: "ssn".to_string(),
+                datatype: liblinkkeys::claim_policy::ValueType::Text,
+                verified_by: None,
+            }],
+        }),
+        None,
+    );
+    let response = rpc(
+        &client,
+        "BrowserAuthorization",
+        "inspect",
+        liblinkkeys::generated::encode_browser_authorization_inspect_request(
+            &BrowserAuthorizationInspectRequest {
+                signed_request: home_verified_authorization,
+            },
+        )
+        .unwrap(),
+    )
+    .await;
+    assert_eq!(response.status, RpcStatus::Ok);
+    let inspection =
+        liblinkkeys::generated::decode_browser_authorization_inspect_response(&response.payload)
+            .unwrap();
+    let row = |claim_type: &str| {
+        inspection
+            .claims
+            .iter()
+            .find(|claim| claim.claim_type == claim_type)
+            .unwrap_or_else(|| panic!("no {claim_type} row"))
+            .clone()
+    };
+    let email = row("email");
+    assert!(!email.available, "an unsigned email is not home-verified");
+    assert_eq!(email.home_verified, Some(true));
+    let handle_row = row("handle");
+    assert!(handle_row.available, "this domain signed the handle");
+    assert_eq!(handle_row.home_verified, Some(true));
+    let ssn = row("ssn");
+    assert!(ssn.available);
+    assert_eq!(ssn.home_verified, None);
 
     let response = rpc(
         &client,
@@ -570,6 +670,7 @@ fn signed_app_request(
             required: vec![RequestedClaim {
                 claim_type: "email".to_string(),
                 datatype: liblinkkeys::claim_policy::ValueType::Email,
+                verified_by: None,
             }],
             optional: Vec::new(),
         }),

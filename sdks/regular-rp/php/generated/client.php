@@ -1243,6 +1243,13 @@ class RpClient
         return Codec::decodeGetActAsGrantRevocationsResponse($reply);
     }
 
+    public function verifyClaims($request)
+    {
+        $payload = Codec::encodeRpVerifyClaimsRequest($request);
+        $reply = $this->transport->call('Rp', 'verify-claims', $payload);
+        return Codec::decodeRpVerifyClaimsResponse($reply);
+    }
+
 }
 
 /**

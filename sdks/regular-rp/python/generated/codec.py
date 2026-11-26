@@ -1297,6 +1297,9 @@ def _encode_requested_claim_value(v: "RequestedClaim") -> Dict[Any, Any]:
     csil_m: Dict[Any, Any] = {}
     csil_m["datatype"] = _encode_claim_value_type_value(v.datatype)
     csil_m["claim_type"] = v.claim_type
+    csil_x = v.verified_by
+    if csil_x is not None:
+        csil_m["verified_by"] = _encode_verifying_party_value(csil_x)
     return csil_m
 
 def _decode_requested_claim_value(tree: Any) -> "RequestedClaim":
@@ -1304,6 +1307,7 @@ def _decode_requested_claim_value(tree: Any) -> "RequestedClaim":
     return RequestedClaim(
         claim_type=_csil_expect_text(tree["claim_type"]),
         datatype=_decode_claim_value_type_value(tree["datatype"]),
+        verified_by=(None if tree.get("verified_by") is None else _decode_verifying_party_value(tree["verified_by"])),
     )
 
 
@@ -5656,6 +5660,9 @@ def _encode_browser_consent_claim_value(v: "BrowserConsentClaim") -> Dict[Any, A
     csil_m["available"] = v.available
     csil_m["max_bytes"] = v.max_bytes
     csil_m["claim_type"] = v.claim_type
+    csil_x = v.home_verified
+    if csil_x is not None:
+        csil_m["home_verified"] = csil_x
     csil_m["user_settable"] = v.user_settable
     csil_m["default_granted"] = v.default_granted
     csil_x = v.newly_requested
@@ -5678,6 +5685,7 @@ def _decode_browser_consent_claim_value(tree: Any) -> "BrowserConsentClaim":
         max_bytes=_csil_expect_int(tree["max_bytes"]),
         requires_approval=_csil_expect_bool(tree["requires_approval"]),
         newly_requested=(None if tree.get("newly_requested") is None else _csil_expect_bool(tree["newly_requested"])),
+        home_verified=(None if tree.get("home_verified") is None else _csil_expect_bool(tree["home_verified"])),
     )
 
 
@@ -6220,6 +6228,112 @@ def _rp_verify_response_from_cbor(data: bytes) -> "RpVerifyResponse":
 
 RpVerifyResponse.to_cbor = _rp_verify_response_to_cbor
 RpVerifyResponse.from_cbor = staticmethod(_rp_verify_response_from_cbor)
+
+def _encode_domain_signature_check_value(v: "DomainSignatureCheck") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["domain"] = v.domain
+    csil_m["status"] = _encode_claim_check_status_value(v.status)
+    return csil_m
+
+def _decode_domain_signature_check_value(tree: Any) -> "DomainSignatureCheck":
+    tree = _CsilMap(_csil_expect_map(tree))
+    return DomainSignatureCheck(
+        domain=_csil_expect_text(tree["domain"]),
+        status=_decode_claim_check_status_value(tree["status"]),
+    )
+
+
+def _domain_signature_check_to_cbor(self) -> bytes:
+    return _csil_encode_tree(lambda: _encode_domain_signature_check_value(self))
+
+
+def _domain_signature_check_from_cbor(data: bytes) -> "DomainSignatureCheck":
+    return _decode_domain_signature_check_value(cbor_decode(data))
+
+
+DomainSignatureCheck.to_cbor = _domain_signature_check_to_cbor
+DomainSignatureCheck.from_cbor = staticmethod(_domain_signature_check_from_cbor)
+
+def _encode_claim_check_value(v: "ClaimCheck") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["claim_id"] = v.claim_id
+    csil_m["verified"] = v.verified
+    csil_m["claim_type"] = v.claim_type
+    csil_m["claim_status"] = _encode_claim_check_status_value(v.claim_status)
+    csil_m["signing_domains"] = [_encode_domain_signature_check_value(csil_e) for csil_e in v.signing_domains]
+    return csil_m
+
+def _decode_claim_check_value(tree: Any) -> "ClaimCheck":
+    tree = _CsilMap(_csil_expect_map(tree))
+    return ClaimCheck(
+        claim_id=_csil_expect_text(tree["claim_id"]),
+        claim_type=_csil_expect_text(tree["claim_type"]),
+        claim_status=_decode_claim_check_status_value(tree["claim_status"]),
+        signing_domains=[_decode_domain_signature_check_value(csil_e) for csil_e in _csil_expect_array(tree["signing_domains"])],
+        verified=_csil_expect_bool(tree["verified"]),
+    )
+
+
+def _claim_check_to_cbor(self) -> bytes:
+    return _csil_encode_tree(lambda: _encode_claim_check_value(self))
+
+
+def _claim_check_from_cbor(data: bytes) -> "ClaimCheck":
+    return _decode_claim_check_value(cbor_decode(data))
+
+
+ClaimCheck.to_cbor = _claim_check_to_cbor
+ClaimCheck.from_cbor = staticmethod(_claim_check_from_cbor)
+
+def _encode_rp_verify_claims_request_value(v: "RpVerifyClaimsRequest") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["claims"] = [_encode_claim_value(csil_e) for csil_e in v.claims]
+    csil_m["user_id"] = v.user_id
+    csil_m["subject_domain"] = v.subject_domain
+    return csil_m
+
+def _decode_rp_verify_claims_request_value(tree: Any) -> "RpVerifyClaimsRequest":
+    tree = _CsilMap(_csil_expect_map(tree))
+    return RpVerifyClaimsRequest(
+        subject_domain=_csil_expect_text(tree["subject_domain"]),
+        user_id=_csil_expect_text(tree["user_id"]),
+        claims=[_decode_claim_value(csil_e) for csil_e in _csil_expect_array(tree["claims"])],
+    )
+
+
+def _rp_verify_claims_request_to_cbor(self) -> bytes:
+    return _csil_encode_tree(lambda: _encode_rp_verify_claims_request_value(self))
+
+
+def _rp_verify_claims_request_from_cbor(data: bytes) -> "RpVerifyClaimsRequest":
+    return _decode_rp_verify_claims_request_value(cbor_decode(data))
+
+
+RpVerifyClaimsRequest.to_cbor = _rp_verify_claims_request_to_cbor
+RpVerifyClaimsRequest.from_cbor = staticmethod(_rp_verify_claims_request_from_cbor)
+
+def _encode_rp_verify_claims_response_value(v: "RpVerifyClaimsResponse") -> Dict[Any, Any]:
+    csil_m: Dict[Any, Any] = {}
+    csil_m["checks"] = [_encode_claim_check_value(csil_e) for csil_e in v.checks]
+    return csil_m
+
+def _decode_rp_verify_claims_response_value(tree: Any) -> "RpVerifyClaimsResponse":
+    tree = _CsilMap(_csil_expect_map(tree))
+    return RpVerifyClaimsResponse(
+        checks=[_decode_claim_check_value(csil_e) for csil_e in _csil_expect_array(tree["checks"])],
+    )
+
+
+def _rp_verify_claims_response_to_cbor(self) -> bytes:
+    return _csil_encode_tree(lambda: _encode_rp_verify_claims_response_value(self))
+
+
+def _rp_verify_claims_response_from_cbor(data: bytes) -> "RpVerifyClaimsResponse":
+    return _decode_rp_verify_claims_response_value(cbor_decode(data))
+
+
+RpVerifyClaimsResponse.to_cbor = _rp_verify_claims_response_to_cbor
+RpVerifyClaimsResponse.from_cbor = staticmethod(_rp_verify_claims_response_from_cbor)
 
 def _encode_rp_user_info_request_value(v: "RpUserInfoRequest") -> Dict[Any, Any]:
     csil_m: Dict[Any, Any] = {}
@@ -10083,6 +10197,28 @@ def _encode_issued_claim_outcome_value(value):
 def _decode_issued_claim_outcome_value(value):
     try:
         return IssuedClaimOutcome.from_number(_csil_expect_int(value))
+    except ValueError as exc:
+        raise CsilDecodeError(str(exc)) from exc
+
+
+def _encode_verifying_party_value(value):
+    return VerifyingParty(value).wire_number
+
+
+def _decode_verifying_party_value(value):
+    try:
+        return VerifyingParty.from_number(_csil_expect_int(value))
+    except ValueError as exc:
+        raise CsilDecodeError(str(exc)) from exc
+
+
+def _encode_claim_check_status_value(value):
+    return ClaimCheckStatus(value).wire_number
+
+
+def _decode_claim_check_status_value(value):
+    try:
+        return ClaimCheckStatus.from_number(_csil_expect_int(value))
     except ValueError as exc:
         raise CsilDecodeError(str(exc)) from exc
 

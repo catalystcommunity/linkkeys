@@ -100,6 +100,16 @@ pub mod pg {
     }
 
     diesel::table! {
+        rp_login_claim_requirements (account_id, nonce_hash) {
+            account_id -> Uuid,
+            nonce_hash -> Bytea,
+            required_types -> Text,
+            optional_types -> Text,
+            expires_at -> Timestamptz,
+        }
+    }
+
+    diesel::table! {
         rp_usage_days (account_id, day, operation) {
             account_id -> Uuid,
             day -> Date,
@@ -707,6 +717,7 @@ pub mod pg {
         application_users,
         rp_usage_days,
         rp_login_nonces,
+        rp_login_claim_requirements,
     );
 }
 
@@ -804,6 +815,16 @@ pub mod sqlite {
         rp_login_nonces (account_id, nonce_hash) {
             account_id -> Text,
             nonce_hash -> Binary,
+            expires_at -> Text,
+        }
+    }
+
+    diesel::table! {
+        rp_login_claim_requirements (account_id, nonce_hash) {
+            account_id -> Text,
+            nonce_hash -> Binary,
+            required_types -> Text,
+            optional_types -> Text,
             expires_at -> Text,
         }
     }
@@ -1416,5 +1437,6 @@ pub mod sqlite {
         application_users,
         rp_usage_days,
         rp_login_nonces,
+        rp_login_claim_requirements,
     );
 }

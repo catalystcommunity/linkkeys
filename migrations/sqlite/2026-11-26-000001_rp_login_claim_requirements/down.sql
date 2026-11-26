@@ -1,0 +1,1 @@
+DROP TABLE rp_login_claim_requirements;

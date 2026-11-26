@@ -2177,6 +2177,19 @@ impl<T: Transport> RpClient<T> {
         decode_get_act_as_grant_revocations_response(&csil_resp)
             .map_err(|e| ClientError::Decode(e.to_string()))
     }
+
+    /// verify-claims (request/response).
+    pub fn verify_claims(
+        &self,
+        req: RpVerifyClaimsRequest,
+    ) -> Result<RpVerifyClaimsResponse, ClientError> {
+        let csil_req = match encode_rp_verify_claims_request(&req) {
+            Ok(csil_bytes) => csil_bytes,
+            Err(e) => return Err(ClientError::Encode(e.to_string())),
+        };
+        let csil_resp = self.transport.call("Rp", "verify-claims", &csil_req)?;
+        decode_rp_verify_claims_response(&csil_resp).map_err(|e| ClientError::Decode(e.to_string()))
+    }
 }
 
 /// Typed client for the ActAs service.

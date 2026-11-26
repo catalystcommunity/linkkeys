@@ -331,6 +331,7 @@
   "app.consent.new_badge": "New!",
   "app.consent.new_notice": "Items marked New! were not in your last approval for this application.",
   "app.consent.new_title": "{app} asks for new information",
+  "app.consent.needs_home_confirmation": "This application needs a detail that your domain confirmed. Confirm it on your account page, for example open the confirmation link for your email address. Then reload this page.",
   "app.consent.needs_approval": "This detail needs operator approval. Add it to your account, and wait for approval before you continue.",
   "app.consent.no_claims": "This application does not request profile details.",
   "app.consent.not_in_profile": "This detail is not in your profile. Add it to your account or contact support before you continue.",

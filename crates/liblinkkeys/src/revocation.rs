@@ -186,6 +186,31 @@ pub fn verify_revocation_certificate(
     }
 }
 
+/// Apply the revocation certificates of `domain` to its key set. Each
+/// certificate that [`verify_revocation_certificate`] accepts against the
+/// unchanged `domain_keys` sets the `revoked_at` of its target key, unless
+/// the key already has an earlier `revoked_at`. A certificate that does not
+/// verify, or names an unknown key, has no effect. The key stays in the set,
+/// so a signature made before the revocation still verifies (invariant I-7).
+pub fn apply_revocation_certificates(
+    domain_keys: &[DomainPublicKey],
+    certs: &[RevocationCertificate],
+    domain: &str,
+) -> Vec<DomainPublicKey> {
+    let mut out = domain_keys.to_vec();
+    for cert in certs {
+        if verify_revocation_certificate(cert, domain_keys, domain).is_err() {
+            continue;
+        }
+        for key in out.iter_mut().filter(|k| k.key_id == cert.target_key_id) {
+            if key.revoked_at.is_none_or(|at| cert.revoked_at < at) {
+                key.revoked_at = Some(cert.revoked_at);
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,5 +352,41 @@ mod tests {
         // Verifying under a different domain context must fail (signatures are
         // bound to the signing domain).
         assert!(verify_revocation_certificate(&cert, &keys, "evil.test").is_err());
+    }
+
+    #[test]
+    fn apply_revocation_certificates_marks_only_verified_targets() {
+        let domain = "example.test";
+        let siblings: Vec<Sibling> = ["k1", "k2", "k3"]
+            .iter()
+            .map(|id| make_sibling(id))
+            .collect();
+        let keys: Vec<DomainPublicKey> = siblings.iter().map(pubkey).collect();
+        let revoked_at = crate::timestamp::parse_rfc3339("2025-01-01T00:00:00Z").unwrap();
+        let good = build_revocation_certificate(
+            &RevocationSpec {
+                target_key_id: "k1",
+                target_fingerprint: &keys[0].fingerprint,
+                revoked_at,
+            },
+            &[signer(&siblings[1], domain), signer(&siblings[2], domain)],
+        )
+        .unwrap();
+        // One sibling signature is below the quorum.
+        let weak = build_revocation_certificate(
+            &RevocationSpec {
+                target_key_id: "k2",
+                target_fingerprint: &keys[1].fingerprint,
+                revoked_at,
+            },
+            &[signer(&siblings[0], domain)],
+        )
+        .unwrap();
+
+        let out = apply_revocation_certificates(&keys, &[good, weak], domain);
+        assert_eq!(out.len(), 3, "a revoked key stays in the set");
+        assert_eq!(out[0].revoked_at, Some(revoked_at));
+        assert_eq!(out[1].revoked_at, None);
+        assert_eq!(out[2].revoked_at, None);
     }
 }

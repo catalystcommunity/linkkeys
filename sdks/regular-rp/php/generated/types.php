@@ -641,8 +641,9 @@ final class RpErrorCode
     const BAD_REQUEST = 'bad_request';
     const UPSTREAM_FAILED = 'upstream_failed';
     const INTERNAL = 'internal';
+    const REQUIRED_CLAIM_UNVERIFIED = 'required_claim_unverified';
 
-    private static $byNumber = array(1 => self::NOT_APPLICATION_ACCOUNT, 2 => self::APPLICATION_MISMATCH, 3 => self::APPLICATION_USER_LIMIT, 4 => self::BAD_REQUEST, 5 => self::UPSTREAM_FAILED, 6 => self::INTERNAL);
+    private static $byNumber = array(1 => self::NOT_APPLICATION_ACCOUNT, 2 => self::APPLICATION_MISMATCH, 3 => self::APPLICATION_USER_LIMIT, 4 => self::BAD_REQUEST, 5 => self::UPSTREAM_FAILED, 6 => self::INTERNAL, 7 => self::REQUIRED_CLAIM_UNVERIFIED);
 
     public static function toNumber($member)
     {
@@ -1412,6 +1413,29 @@ class GetUserClaimsResponse
     }
 }
 
+final class VerifyingParty
+{
+    const HOME_DOMAIN = 'home_domain';
+
+    private static $byNumber = array(1 => self::HOME_DOMAIN);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown VerifyingParty member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown VerifyingParty number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
 class RequestedClaim
 {
     /** @var mixed */
@@ -1420,11 +1444,15 @@ class RequestedClaim
     /** @var mixed */
     public $datatype;
 
+    /** @var mixed */
+    public $verifiedBy;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
         $this->claimType = array_key_exists('claim_type', $values) ? $values['claim_type'] : null;
         $this->datatype = array_key_exists('datatype', $values) ? $values['datatype'] : null;
+        $this->verifiedBy = array_key_exists('verified_by', $values) ? $values['verified_by'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -1433,6 +1461,7 @@ class RequestedClaim
         return array(
             'claim_type' => $this->claimType,
             'datatype' => $this->datatype,
+            'verified_by' => $this->verifiedBy,
         );
     }
 }
@@ -5902,6 +5931,9 @@ class BrowserConsentClaim
     /** @var mixed */
     public $newlyRequested;
 
+    /** @var mixed */
+    public $homeVerified;
+
     /** @param array<string,mixed> $values */
     public function __construct(array $values = array())
     {
@@ -5916,6 +5948,7 @@ class BrowserConsentClaim
         $this->maxBytes = array_key_exists('max_bytes', $values) ? $values['max_bytes'] : null;
         $this->requiresApproval = array_key_exists('requires_approval', $values) ? $values['requires_approval'] : null;
         $this->newlyRequested = array_key_exists('newly_requested', $values) ? $values['newly_requested'] : null;
+        $this->homeVerified = array_key_exists('home_verified', $values) ? $values['home_verified'] : null;
     }
 
     /** @return array<string,mixed> */
@@ -5933,6 +5966,7 @@ class BrowserConsentClaim
             'max_bytes' => $this->maxBytes,
             'requires_approval' => $this->requiresApproval,
             'newly_requested' => $this->newlyRequested,
+            'home_verified' => $this->homeVerified,
         );
     }
 }
@@ -6493,6 +6527,152 @@ class RpVerifyResponse
         return array(
             'assertion' => $this->assertion,
             'verified' => $this->verified,
+        );
+    }
+}
+
+final class ClaimCheckStatus
+{
+    const VALID = 'valid';
+    const WRONG_SUBJECT = 'wrong_subject';
+    const BAD_TIMESTAMP = 'bad_timestamp';
+    const UNSIGNED = 'unsigned';
+    const REVOKED = 'revoked';
+    const EXPIRED = 'expired';
+    const KEYS_UNAVAILABLE = 'keys_unavailable';
+    const KEY_NOT_VALID = 'key_not_valid';
+    const BAD_SIGNATURE = 'bad_signature';
+
+    private static $byNumber = array(1 => self::VALID, 2 => self::WRONG_SUBJECT, 3 => self::BAD_TIMESTAMP, 4 => self::UNSIGNED, 5 => self::REVOKED, 6 => self::EXPIRED, 7 => self::KEYS_UNAVAILABLE, 8 => self::KEY_NOT_VALID, 9 => self::BAD_SIGNATURE);
+
+    public static function toNumber($member)
+    {
+        static $byMember = null;
+        if ($byMember === null) $byMember = array_flip(self::$byNumber);
+        if (!is_string($member) || !isset($byMember[$member])) throw new \InvalidArgumentException('unknown ClaimCheckStatus member');
+        return $byMember[$member];
+    }
+
+    public static function fromNumber($number)
+    {
+        if (!is_int($number) || !isset(self::$byNumber[$number])) throw new \InvalidArgumentException('unknown ClaimCheckStatus number');
+        return self::$byNumber[$number];
+    }
+
+    private function __construct() {}
+}
+
+class DomainSignatureCheck
+{
+    /** @var mixed */
+    public $domain;
+
+    /** @var mixed */
+    public $status;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->domain = array_key_exists('domain', $values) ? $values['domain'] : null;
+        $this->status = array_key_exists('status', $values) ? $values['status'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'domain' => $this->domain,
+            'status' => $this->status,
+        );
+    }
+}
+
+class ClaimCheck
+{
+    /** @var mixed */
+    public $claimId;
+
+    /** @var mixed */
+    public $claimType;
+
+    /** @var mixed */
+    public $claimStatus;
+
+    /** @var mixed */
+    public $signingDomains;
+
+    /** @var mixed */
+    public $verified;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->claimId = array_key_exists('claim_id', $values) ? $values['claim_id'] : null;
+        $this->claimType = array_key_exists('claim_type', $values) ? $values['claim_type'] : null;
+        $this->claimStatus = array_key_exists('claim_status', $values) ? $values['claim_status'] : null;
+        $this->signingDomains = array_key_exists('signing_domains', $values) ? $values['signing_domains'] : null;
+        $this->verified = array_key_exists('verified', $values) ? $values['verified'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'claim_id' => $this->claimId,
+            'claim_type' => $this->claimType,
+            'claim_status' => $this->claimStatus,
+            'signing_domains' => $this->signingDomains,
+            'verified' => $this->verified,
+        );
+    }
+}
+
+class RpVerifyClaimsRequest
+{
+    /** @var mixed */
+    public $subjectDomain;
+
+    /** @var mixed */
+    public $userId;
+
+    /** @var mixed */
+    public $claims;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->subjectDomain = array_key_exists('subject_domain', $values) ? $values['subject_domain'] : null;
+        $this->userId = array_key_exists('user_id', $values) ? $values['user_id'] : null;
+        $this->claims = array_key_exists('claims', $values) ? $values['claims'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'subject_domain' => $this->subjectDomain,
+            'user_id' => $this->userId,
+            'claims' => $this->claims,
+        );
+    }
+}
+
+class RpVerifyClaimsResponse
+{
+    /** @var mixed */
+    public $checks;
+
+    /** @param array<string,mixed> $values */
+    public function __construct(array $values = array())
+    {
+        $this->checks = array_key_exists('checks', $values) ? $values['checks'] : null;
+    }
+
+    /** @return array<string,mixed> */
+    public function toArray()
+    {
+        return array(
+            'checks' => $this->checks,
         );
     }
 }

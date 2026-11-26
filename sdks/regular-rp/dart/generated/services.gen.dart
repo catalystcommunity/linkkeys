@@ -1368,6 +1368,11 @@ final class RpClient {
       CsilCbor.decode(csilResp),
     );
   }
+
+  RpVerifyClaimsResponse verifyClaims(RpVerifyClaimsRequest request) {
+    final csilResp = transport.call('Rp', 'verify-claims', request.toCbor());
+    return RpVerifyClaimsResponse.fromCborValue(CsilCbor.decode(csilResp));
+  }
 }
 
 /// A typed, transport-agnostic client for the ActAs service. The client owns

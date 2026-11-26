@@ -663,6 +663,7 @@ class RpErrorCode(str, _Enum):
     BAD_REQUEST = "bad_request"
     UPSTREAM_FAILED = "upstream_failed"
     INTERNAL = "internal"
+    REQUIRED_CLAIM_UNVERIFIED = "required_claim_unverified"
 
     @property
     def wire_number(self) -> int:
@@ -681,6 +682,7 @@ _RpErrorCode_by_number = {
     4: RpErrorCode("bad_request"),
     5: RpErrorCode("upstream_failed"),
     6: RpErrorCode("internal"),
+    7: RpErrorCode("required_claim_unverified"),
 }
 _RpErrorCode_numbers = {member: n for n, member in _RpErrorCode_by_number.items()}
 
@@ -708,6 +710,60 @@ _IssuedClaimOutcome_by_number = {
     4: IssuedClaimOutcome("failed"),
 }
 _IssuedClaimOutcome_numbers = {member: n for n, member in _IssuedClaimOutcome_by_number.items()}
+
+class VerifyingParty(str, _Enum):
+    __str__ = str.__str__
+    HOME_DOMAIN = "home_domain"
+
+    @property
+    def wire_number(self) -> int:
+        return _VerifyingParty_numbers[self]
+
+    @classmethod
+    def from_number(cls, number: int) -> 'VerifyingParty':
+        if type(number) is not int or number not in _VerifyingParty_by_number:
+            raise ValueError(f'unknown VerifyingParty number: {number!r}')
+        return _VerifyingParty_by_number[number]
+
+_VerifyingParty_by_number = {
+    1: VerifyingParty("home_domain"),
+}
+_VerifyingParty_numbers = {member: n for n, member in _VerifyingParty_by_number.items()}
+
+class ClaimCheckStatus(str, _Enum):
+    __str__ = str.__str__
+    VALID = "valid"
+    WRONG_SUBJECT = "wrong_subject"
+    BAD_TIMESTAMP = "bad_timestamp"
+    UNSIGNED = "unsigned"
+    REVOKED = "revoked"
+    EXPIRED = "expired"
+    KEYS_UNAVAILABLE = "keys_unavailable"
+    KEY_NOT_VALID = "key_not_valid"
+    BAD_SIGNATURE = "bad_signature"
+
+    @property
+    def wire_number(self) -> int:
+        return _ClaimCheckStatus_numbers[self]
+
+    @classmethod
+    def from_number(cls, number: int) -> 'ClaimCheckStatus':
+        if type(number) is not int or number not in _ClaimCheckStatus_by_number:
+            raise ValueError(f'unknown ClaimCheckStatus number: {number!r}')
+        return _ClaimCheckStatus_by_number[number]
+
+_ClaimCheckStatus_by_number = {
+    1: ClaimCheckStatus("valid"),
+    2: ClaimCheckStatus("wrong_subject"),
+    3: ClaimCheckStatus("bad_timestamp"),
+    4: ClaimCheckStatus("unsigned"),
+    5: ClaimCheckStatus("revoked"),
+    6: ClaimCheckStatus("expired"),
+    7: ClaimCheckStatus("keys_unavailable"),
+    8: ClaimCheckStatus("key_not_valid"),
+    9: ClaimCheckStatus("bad_signature"),
+}
+_ClaimCheckStatus_numbers = {member: n for n, member in _ClaimCheckStatus_by_number.items()}
 
 class ApiErrorCode(str, _Enum):
     __str__ = str.__str__
@@ -1518,6 +1574,7 @@ class GetUserClaimsResponse:
 class RequestedClaim:
     claim_type: str
     datatype: ClaimValueType
+    verified_by: Optional[VerifyingParty] = None
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {}
@@ -1525,12 +1582,14 @@ class RequestedClaim:
             result['claim_type'] = self.claim_type
         if hasattr(self, 'datatype') and self.datatype is not None:
             result['datatype'] = self.datatype
+        if hasattr(self, 'verified_by') and self.verified_by is not None:
+            result['verified_by'] = self.verified_by
         return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'RequestedClaim':
         """Create instance from dictionary."""
-        return cls(claim_type=data.get('claim_type'), datatype=(None if data.get('datatype') is None else ClaimValueType(data['datatype'])))
+        return cls(claim_type=data.get('claim_type'), datatype=(None if data.get('datatype') is None else ClaimValueType(data['datatype'])), verified_by=(None if data.get('verified_by') is None else VerifyingParty(data['verified_by'])))
 
     def to_json(self) -> str:
         """Convert to JSON string."""
@@ -6322,6 +6381,7 @@ class BrowserConsentClaim:
     max_bytes: int
     requires_approval: bool
     newly_requested: Optional[bool] = None
+    home_verified: Optional[bool] = None
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {}
@@ -6347,12 +6407,14 @@ class BrowserConsentClaim:
             result['requires_approval'] = self.requires_approval
         if hasattr(self, 'newly_requested') and self.newly_requested is not None:
             result['newly_requested'] = self.newly_requested
+        if hasattr(self, 'home_verified') and self.home_verified is not None:
+            result['home_verified'] = self.home_verified
         return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'BrowserConsentClaim':
         """Create instance from dictionary."""
-        return cls(claim_type=data.get('claim_type'), label=data.get('label'), datatype=(None if data.get('datatype') is None else ClaimValueType(data['datatype'])), required=data.get('required'), available=data.get('available'), default_granted=data.get('default_granted'), policy=(None if data.get('policy') is None else ConsentRowPolicy(data['policy'])), user_settable=data.get('user_settable'), max_bytes=data.get('max_bytes'), requires_approval=data.get('requires_approval'), newly_requested=data.get('newly_requested'))
+        return cls(claim_type=data.get('claim_type'), label=data.get('label'), datatype=(None if data.get('datatype') is None else ClaimValueType(data['datatype'])), required=data.get('required'), available=data.get('available'), default_granted=data.get('default_granted'), policy=(None if data.get('policy') is None else ConsentRowPolicy(data['policy'])), user_settable=data.get('user_settable'), max_bytes=data.get('max_bytes'), requires_approval=data.get('requires_approval'), newly_requested=data.get('newly_requested'), home_verified=data.get('home_verified'))
 
     def to_json(self) -> str:
         """Convert to JSON string."""
@@ -6945,6 +7007,127 @@ class RpVerifyResponse:
 
     @classmethod
     def from_json(cls, json_str: str) -> 'RpVerifyResponse':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
+class DomainSignatureCheck:
+    domain: str
+    status: ClaimCheckStatus
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'domain') and self.domain is not None:
+            result['domain'] = self.domain
+        if hasattr(self, 'status') and self.status is not None:
+            result['status'] = self.status
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'DomainSignatureCheck':
+        """Create instance from dictionary."""
+        return cls(domain=data.get('domain'), status=(None if data.get('status') is None else ClaimCheckStatus(data['status'])))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'DomainSignatureCheck':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
+class ClaimCheck:
+    claim_id: str
+    claim_type: str
+    claim_status: ClaimCheckStatus
+    signing_domains: List[DomainSignatureCheck]
+    verified: bool
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'claim_id') and self.claim_id is not None:
+            result['claim_id'] = self.claim_id
+        if hasattr(self, 'claim_type') and self.claim_type is not None:
+            result['claim_type'] = self.claim_type
+        if hasattr(self, 'claim_status') and self.claim_status is not None:
+            result['claim_status'] = self.claim_status
+        if hasattr(self, 'signing_domains') and self.signing_domains is not None:
+            result['signing_domains'] = [item0.to_dict() for item0 in self.signing_domains]
+        if hasattr(self, 'verified') and self.verified is not None:
+            result['verified'] = self.verified
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'ClaimCheck':
+        """Create instance from dictionary."""
+        return cls(claim_id=data.get('claim_id'), claim_type=data.get('claim_type'), claim_status=(None if data.get('claim_status') is None else ClaimCheckStatus(data['claim_status'])), signing_domains=(None if data.get('signing_domains') is None else [DomainSignatureCheck.from_dict(item0) for item0 in data['signing_domains']]), verified=data.get('verified'))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'ClaimCheck':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
+class RpVerifyClaimsRequest:
+    subject_domain: str
+    user_id: str
+    claims: List[Claim]
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'subject_domain') and self.subject_domain is not None:
+            result['subject_domain'] = self.subject_domain
+        if hasattr(self, 'user_id') and self.user_id is not None:
+            result['user_id'] = self.user_id
+        if hasattr(self, 'claims') and self.claims is not None:
+            result['claims'] = [item0.to_dict() for item0 in self.claims]
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'RpVerifyClaimsRequest':
+        """Create instance from dictionary."""
+        return cls(subject_domain=data.get('subject_domain'), user_id=data.get('user_id'), claims=(None if data.get('claims') is None else [Claim.from_dict(item0) for item0 in data['claims']]))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'RpVerifyClaimsRequest':
+        """Create instance from JSON string."""
+        return cls.from_dict(json.loads(json_str))
+
+
+@dataclass
+class RpVerifyClaimsResponse:
+    checks: List[ClaimCheck]
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = {}
+        if hasattr(self, 'checks') and self.checks is not None:
+            result['checks'] = [item0.to_dict() for item0 in self.checks]
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'RpVerifyClaimsResponse':
+        """Create instance from dictionary."""
+        return cls(checks=(None if data.get('checks') is None else [ClaimCheck.from_dict(item0) for item0 in data['checks']]))
+
+    def to_json(self) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict())
+
+    @classmethod
+    def from_json(cls, json_str: str) -> 'RpVerifyClaimsResponse':
         """Create instance from JSON string."""
         return cls.from_dict(json.loads(json_str))
 

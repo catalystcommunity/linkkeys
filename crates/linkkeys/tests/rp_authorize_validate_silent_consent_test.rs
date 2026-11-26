@@ -140,12 +140,14 @@ fn signed_claims_request(
             required: vec![RequestedClaim {
                 claim_type: "email".to_string(),
                 datatype: liblinkkeys::claim_policy::ValueType::Email,
+                verified_by: None,
             }],
             optional: optional
                 .iter()
                 .map(|claim_type| RequestedClaim {
                     claim_type: claim_type.to_string(),
                     datatype: liblinkkeys::claim_policy::ValueType::Text,
+                    verified_by: None,
                 })
                 .collect(),
         }),

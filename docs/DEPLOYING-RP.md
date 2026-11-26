@@ -118,7 +118,33 @@ Rp/sign-request      — sign an auth request before redirecting the user
 Rp/decrypt-token     — decrypt the encrypted token from the callback
 Rp/verify-assertion  — verify the decrypted assertion against the IDP
 Rp/userinfo-fetch    — (optional) fetch the user's claims from the IDP
+Rp/verify-claims     — (optional) verify claims, with a result for each signing domain
 ```
+
+### Claims that the home domain must verify
+
+To require a claim that the user's home domain verified, set `verified_by`
+to `home_domain` on the `RequestedClaim` in `Rp/sign-request`. You can also
+set it in `RP_CLAIMS_CONFIG` (see `docs/rp-claims.example.toml`):
+
+- The IDP shows the claim as missing until the user has a value that the
+  home domain signed. For `email`, the user confirms the address on the
+  account page.
+- The RP server records the requirement, and enforces it in
+  `Rp/userinfo-fetch`. It removes each claim of that type that the home
+  domain did not verify. When no claim of a required type is left, it
+  refuses the login with the `RpError` code `required_claim_unverified`.
+
+To require a confirmed email address, request `email` and `email_verified`,
+both required and with `verified_by = home_domain`. Then check that the
+`email_verified` value is `true`. The LinkKeys reference server signs both
+claims only after the user opens the confirmation link that it sent to the
+address. You do not have to send your own confirmation message.
+
+`Rp/verify-claims` gives the same check outside sign-in, for example for a
+claim that the application stored. A claim is verified by a domain when its
+`claim_status` is `valid` and the `signing_domains` entry of that domain is
+`valid`.
 
 When the app redirects the browser, it can add the user's local username:
 

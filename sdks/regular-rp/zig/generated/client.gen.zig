@@ -1591,6 +1591,17 @@ pub const RpClient = struct {
         defer alloc.free(csil_respb);
         try codec.decode_GetActAsGrantRevocationsResponse(alloc, csil_respb, out);
     }
+
+    /// Invoke Rp/verify-claims with a typed request, returning the decoded
+    /// typed response. Everything in `out` is allocated from `alloc`; pass an arena
+    /// and free it once when done.
+    pub fn verify_claims(self: RpClient, alloc: std.mem.Allocator, req: *const types.RpVerifyClaimsRequest, out: *types.RpVerifyClaimsResponse) anyerror!void {
+        const csil_reqb = try codec.encode_RpVerifyClaimsRequest(alloc, req);
+        defer alloc.free(csil_reqb);
+        const csil_respb = try self.transport.call(self.transport.ptr, alloc, "Rp", "verify-claims", csil_reqb);
+        defer alloc.free(csil_respb);
+        try codec.decode_RpVerifyClaimsResponse(alloc, csil_respb, out);
+    }
 };
 
 /// ActAsClient is a typed client for the ActAs service over a CsilgenTransport.

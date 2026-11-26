@@ -606,6 +606,7 @@ public static class Codec
         Claim csilTyped => ClaimToCborValue(csilTyped),
         GetUserClaimsRequest csilTyped => GetUserClaimsRequestToCborValue(csilTyped),
         GetUserClaimsResponse csilTyped => GetUserClaimsResponseToCborValue(csilTyped),
+        VerifyingParty csilTyped => VerifyingPartyToCborValue(csilTyped),
         RequestedClaim csilTyped => RequestedClaimToCborValue(csilTyped),
         ClaimRequest csilTyped => ClaimRequestToCborValue(csilTyped),
         AuthenticationRequirements csilTyped => AuthenticationRequirementsToCborValue(csilTyped),
@@ -789,6 +790,11 @@ public static class Codec
         RpDecryptResponse csilTyped => RpDecryptResponseToCborValue(csilTyped),
         RpVerifyRequest csilTyped => RpVerifyRequestToCborValue(csilTyped),
         RpVerifyResponse csilTyped => RpVerifyResponseToCborValue(csilTyped),
+        ClaimCheckStatus csilTyped => ClaimCheckStatusToCborValue(csilTyped),
+        DomainSignatureCheck csilTyped => DomainSignatureCheckToCborValue(csilTyped),
+        ClaimCheck csilTyped => ClaimCheckToCborValue(csilTyped),
+        RpVerifyClaimsRequest csilTyped => RpVerifyClaimsRequestToCborValue(csilTyped),
+        RpVerifyClaimsResponse csilTyped => RpVerifyClaimsResponseToCborValue(csilTyped),
         RpUserInfoRequest csilTyped => RpUserInfoRequestToCborValue(csilTyped),
         RpError csilTyped => RpErrorToCborValue(csilTyped),
         RpIssueAttestationRequest csilTyped => RpIssueAttestationRequestToCborValue(csilTyped),
@@ -970,6 +976,7 @@ public static class Codec
         if (csilType == typeof(Claim)) return ClaimFromCborValue(value);
         if (csilType == typeof(GetUserClaimsRequest)) return GetUserClaimsRequestFromCborValue(value);
         if (csilType == typeof(GetUserClaimsResponse)) return GetUserClaimsResponseFromCborValue(value);
+        if (csilType == typeof(VerifyingParty)) return VerifyingPartyFromCborValue(value);
         if (csilType == typeof(RequestedClaim)) return RequestedClaimFromCborValue(value);
         if (csilType == typeof(ClaimRequest)) return ClaimRequestFromCborValue(value);
         if (csilType == typeof(AuthenticationRequirements)) return AuthenticationRequirementsFromCborValue(value);
@@ -1153,6 +1160,11 @@ public static class Codec
         if (csilType == typeof(RpDecryptResponse)) return RpDecryptResponseFromCborValue(value);
         if (csilType == typeof(RpVerifyRequest)) return RpVerifyRequestFromCborValue(value);
         if (csilType == typeof(RpVerifyResponse)) return RpVerifyResponseFromCborValue(value);
+        if (csilType == typeof(ClaimCheckStatus)) return ClaimCheckStatusFromCborValue(value);
+        if (csilType == typeof(DomainSignatureCheck)) return DomainSignatureCheckFromCborValue(value);
+        if (csilType == typeof(ClaimCheck)) return ClaimCheckFromCborValue(value);
+        if (csilType == typeof(RpVerifyClaimsRequest)) return RpVerifyClaimsRequestFromCborValue(value);
+        if (csilType == typeof(RpVerifyClaimsResponse)) return RpVerifyClaimsResponseFromCborValue(value);
         if (csilType == typeof(RpUserInfoRequest)) return RpUserInfoRequestFromCborValue(value);
         if (csilType == typeof(RpError)) return RpErrorFromCborValue(value);
         if (csilType == typeof(RpIssueAttestationRequest)) return RpIssueAttestationRequestFromCborValue(value);
@@ -2213,12 +2225,26 @@ public static class Codec
         };
     }
 
+    public static CborValue VerifyingPartyToCborValue(VerifyingParty value) => System.Enum.IsDefined(typeof(VerifyingParty), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid VerifyingParty");
+
+    public static VerifyingParty VerifyingPartyFromCborValue(CborValue value)
+    {
+        try { return VerifyingPartyNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid VerifyingParty value"); }
+    }
+
     /// <summary>The canonical CBOR value tree for a RequestedClaim.</summary>
     public static CborValue RequestedClaimToCborValue(RequestedClaim value)
     {
         var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
         csilEntries.Add((new CborValue.Text("datatype"), ClaimValueTypeToCborValue(value.Datatype)));
         csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
+        if (value.VerifiedBy is { } csilV2)
+        {
+            csilEntries.Add((new CborValue.Text("verified_by"), VerifyingPartyToCborValue(csilV2)));
+        }
         return new CborValue.Map(csilEntries);
     }
 
@@ -2227,10 +2253,12 @@ public static class Codec
     {
         var csilField0 = Cbor.AsText(Cbor.Require(value, "claim_type"));
         var csilField1 = ClaimValueTypeFromCborValue(Cbor.Require(value, "datatype"));
+        VerifyingParty? csilField2 = Cbor.MapGet(value, "verified_by") is { } csilRaw2 ? VerifyingPartyFromCborValue(csilRaw2) : null;
         return new RequestedClaim
         {
             ClaimType = csilField0,
             Datatype = csilField1,
+            VerifiedBy = csilField2,
         };
     }
 
@@ -6037,11 +6065,15 @@ public static class Codec
         csilEntries.Add((new CborValue.Text("available"), new CborValue.Bool(value.Available)));
         csilEntries.Add((new CborValue.Text("max_bytes"), new CborValue.Int(value.MaxBytes)));
         csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
+        if (value.HomeVerified is { } csilV7)
+        {
+            csilEntries.Add((new CborValue.Text("home_verified"), new CborValue.Bool(csilV7)));
+        }
         csilEntries.Add((new CborValue.Text("user_settable"), new CborValue.Bool(value.UserSettable)));
         csilEntries.Add((new CborValue.Text("default_granted"), new CborValue.Bool(value.DefaultGranted)));
-        if (value.NewlyRequested is { } csilV9)
+        if (value.NewlyRequested is { } csilV10)
         {
-            csilEntries.Add((new CborValue.Text("newly_requested"), new CborValue.Bool(csilV9)));
+            csilEntries.Add((new CborValue.Text("newly_requested"), new CborValue.Bool(csilV10)));
         }
         csilEntries.Add((new CborValue.Text("requires_approval"), new CborValue.Bool(value.RequiresApproval)));
         return new CborValue.Map(csilEntries);
@@ -6061,6 +6093,7 @@ public static class Codec
         var csilField8 = Cbor.AsI64(Cbor.Require(value, "max_bytes"));
         var csilField9 = Cbor.AsBool(Cbor.Require(value, "requires_approval"));
         bool? csilField10 = Cbor.MapGet(value, "newly_requested") is { } csilRaw10 ? Cbor.AsBool(csilRaw10) : null;
+        bool? csilField11 = Cbor.MapGet(value, "home_verified") is { } csilRaw11 ? Cbor.AsBool(csilRaw11) : null;
         return new BrowserConsentClaim
         {
             ClaimType = csilField0,
@@ -6074,6 +6107,7 @@ public static class Codec
             MaxBytes = csilField8,
             RequiresApproval = csilField9,
             NewlyRequested = csilField10,
+            HomeVerified = csilField11,
         };
     }
 
@@ -6587,6 +6621,109 @@ public static class Codec
         {
             Assertion = csilField0,
             Verified = csilField1,
+        };
+    }
+
+    public static CborValue ClaimCheckStatusToCborValue(ClaimCheckStatus value) => System.Enum.IsDefined(typeof(ClaimCheckStatus), value)
+        ? new CborValue.Int(value.ToNumber())
+        : throw new CborException("invalid ClaimCheckStatus");
+
+    public static ClaimCheckStatus ClaimCheckStatusFromCborValue(CborValue value)
+    {
+        try { return ClaimCheckStatusNumbers.FromNumber(Cbor.AsI64(value)); }
+        catch (System.ArgumentOutOfRangeException) { throw new CborException("invalid ClaimCheckStatus value"); }
+    }
+
+    /// <summary>The canonical CBOR value tree for a DomainSignatureCheck.</summary>
+    public static CborValue DomainSignatureCheckToCborValue(DomainSignatureCheck value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("domain"), new CborValue.Text(value.Domain)));
+        csilEntries.Add((new CborValue.Text("status"), ClaimCheckStatusToCborValue(value.Status)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a DomainSignatureCheck from a decoded CBOR value tree.</summary>
+    public static DomainSignatureCheck DomainSignatureCheckFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "domain"));
+        var csilField1 = ClaimCheckStatusFromCborValue(Cbor.Require(value, "status"));
+        return new DomainSignatureCheck
+        {
+            Domain = csilField0,
+            Status = csilField1,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a ClaimCheck.</summary>
+    public static CborValue ClaimCheckToCborValue(ClaimCheck value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("claim_id"), new CborValue.Text(value.ClaimId)));
+        csilEntries.Add((new CborValue.Text("verified"), new CborValue.Bool(value.Verified)));
+        csilEntries.Add((new CborValue.Text("claim_type"), new CborValue.Text(value.ClaimType)));
+        csilEntries.Add((new CborValue.Text("claim_status"), ClaimCheckStatusToCborValue(value.ClaimStatus)));
+        csilEntries.Add((new CborValue.Text("signing_domains"), new CborValue.Array(value.SigningDomains.Select(csilElem => (CborValue)DomainSignatureCheckToCborValue(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a ClaimCheck from a decoded CBOR value tree.</summary>
+    public static ClaimCheck ClaimCheckFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "claim_id"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "claim_type"));
+        var csilField2 = ClaimCheckStatusFromCborValue(Cbor.Require(value, "claim_status"));
+        var csilField3 = Cbor.AsArray(Cbor.Require(value, "signing_domains")).Select(csilElem => DomainSignatureCheckFromCborValue(csilElem)).ToList();
+        var csilField4 = Cbor.AsBool(Cbor.Require(value, "verified"));
+        return new ClaimCheck
+        {
+            ClaimId = csilField0,
+            ClaimType = csilField1,
+            ClaimStatus = csilField2,
+            SigningDomains = csilField3,
+            Verified = csilField4,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RpVerifyClaimsRequest.</summary>
+    public static CborValue RpVerifyClaimsRequestToCborValue(RpVerifyClaimsRequest value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("claims"), new CborValue.Array(value.Claims.Select(csilElem => (CborValue)ClaimToCborValue(csilElem)).ToList())));
+        csilEntries.Add((new CborValue.Text("user_id"), new CborValue.Text(value.UserId)));
+        csilEntries.Add((new CborValue.Text("subject_domain"), new CborValue.Text(value.SubjectDomain)));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RpVerifyClaimsRequest from a decoded CBOR value tree.</summary>
+    public static RpVerifyClaimsRequest RpVerifyClaimsRequestFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsText(Cbor.Require(value, "subject_domain"));
+        var csilField1 = Cbor.AsText(Cbor.Require(value, "user_id"));
+        var csilField2 = Cbor.AsArray(Cbor.Require(value, "claims")).Select(csilElem => ClaimFromCborValue(csilElem)).ToList();
+        return new RpVerifyClaimsRequest
+        {
+            SubjectDomain = csilField0,
+            UserId = csilField1,
+            Claims = csilField2,
+        };
+    }
+
+    /// <summary>The canonical CBOR value tree for a RpVerifyClaimsResponse.</summary>
+    public static CborValue RpVerifyClaimsResponseToCborValue(RpVerifyClaimsResponse value)
+    {
+        var csilEntries = new System.Collections.Generic.List<(CborValue, CborValue)>();
+        csilEntries.Add((new CborValue.Text("checks"), new CborValue.Array(value.Checks.Select(csilElem => (CborValue)ClaimCheckToCborValue(csilElem)).ToList())));
+        return new CborValue.Map(csilEntries);
+    }
+
+    /// <summary>Reconstruct a RpVerifyClaimsResponse from a decoded CBOR value tree.</summary>
+    public static RpVerifyClaimsResponse RpVerifyClaimsResponseFromCborValue(CborValue value)
+    {
+        var csilField0 = Cbor.AsArray(Cbor.Require(value, "checks")).Select(csilElem => ClaimCheckFromCborValue(csilElem)).ToList();
+        return new RpVerifyClaimsResponse
+        {
+            Checks = csilField0,
         };
     }
 

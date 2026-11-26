@@ -645,6 +645,10 @@ class RpClient:
         """resolve-act-as-revocations"""
         return GetActAsGrantRevocationsResponse.from_cbor(self._transport.call("Rp", "resolve-act-as-revocations", req.to_cbor()))
 
+    def verify_claims(self, req: RpVerifyClaimsRequest) -> RpVerifyClaimsResponse:
+        """verify-claims"""
+        return RpVerifyClaimsResponse.from_cbor(self._transport.call("Rp", "verify-claims", req.to_cbor()))
+
 class ActAsClient:
     """Typed client for the ActAs service."""
     def __init__(self, transport: Transport):
