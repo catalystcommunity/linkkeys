@@ -130,7 +130,7 @@ fn seed_idp_and_user(pool: &linkkeys::db::DbPool) -> linkkeys::db::models::User 
     let sk_bytes = sk.to_bytes().to_vec();
     let enc_sk = crypto::encrypt_private_key(&sk_bytes, PASSPHRASE).unwrap();
     let fp = crypto::fingerprint(&pk);
-    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
+    let expires = liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::days(365);
     pool.create_domain_key(&pk, &enc_sk, &fp, "ed25519", expires)
         .expect("signing key");
 
@@ -157,7 +157,7 @@ fn seed_idp_and_user(pool: &linkkeys::db::DbPool) -> linkkeys::db::models::User 
             val,
             &[],
             None,
-            time::OffsetDateTime::now_utc(),
+            liblinkkeys::timestamp::now_whole_milliseconds(),
         )
         .expect("claim");
     }

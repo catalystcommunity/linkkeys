@@ -20,7 +20,7 @@ fn seed(pool: &linkkeys::db::DbPool, user_id: &str) -> (String, Vec<u8>) {
     let sk_bytes = sk.to_bytes().to_vec();
     let enc = crypto::encrypt_private_key(&sk_bytes, TEST_PASSPHRASE).unwrap();
     let fp = crypto::fingerprint(&pk);
-    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
+    let expires = liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::days(365);
     let dk = pool
         .create_domain_key(&pk, &enc, &fp, "ed25519", expires)
         .expect("create_domain_key");
@@ -33,7 +33,7 @@ fn seed(pool: &linkkeys::db::DbPool, user_id: &str) -> (String, Vec<u8>) {
             val,
             &[],
             None,
-            time::OffsetDateTime::now_utc(),
+            liblinkkeys::timestamp::now_whole_milliseconds(),
         )
         .expect("create claim");
     }

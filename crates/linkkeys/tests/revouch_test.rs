@@ -39,7 +39,7 @@ fn setup_keys(pool: &DbPool, tag: &str) -> (DomainKey, String) {
     let enc_fp = crypto::fingerprint(&enc_pub);
     let enc_priv_encrypted =
         crypto::encrypt_private_key(&enc_priv, TEST_PASSPHRASE.as_bytes()).unwrap();
-    let expires = (time::OffsetDateTime::now_utc() + time::Duration::days(365))
+    let expires = (liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::days(365))
         .replace_nanosecond(0)
         .unwrap();
     let vouch = sign_vouch_with_tag(tag, &enc_fp, &expires.to_rfc3339(), &sk_bytes);

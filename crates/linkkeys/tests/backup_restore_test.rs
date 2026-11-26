@@ -62,7 +62,7 @@ fn backup_restore_round_trip_replaces_state() {
         "person@example.test",
         &linkkeys::services::verification::token_digest(action_token),
         vec![1, 2, 3],
-        time::OffsetDateTime::now_utc() + time::Duration::hours(1),
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(1),
         None,
     )
     .expect("create pre-backup action");

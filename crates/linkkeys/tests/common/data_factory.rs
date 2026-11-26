@@ -58,7 +58,7 @@ pub fn create_domain_key(pool: &DbPool) -> DomainKey {
     let encrypted = liblinkkeys::crypto::encrypt_private_key(&sk_bytes, b"test-passphrase")
         .expect("Failed to encrypt test key");
     let fp = liblinkkeys::crypto::fingerprint(&pk_bytes);
-    let expires = time::OffsetDateTime::now_utc() + time::Duration::days(365);
+    let expires = liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::days(365);
 
     pool.create_domain_key(&pk_bytes, &encrypted, &fp, "ed25519", expires)
         .expect("Failed to create test domain key")
@@ -363,7 +363,9 @@ pub fn create_local_rp_claim_ticket(pool: &DbPool, overrides: &DataMap) -> Local
         .get("expires_at")
         .and_then(|v| v.as_str())
         .and_then(|s| liblinkkeys::timestamp::parse_rfc3339(s).ok())
-        .unwrap_or_else(|| time::OffsetDateTime::now_utc() + time::Duration::hours(1));
+        .unwrap_or_else(|| {
+            liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(1)
+        });
 
     linkkeys::services::local_rp::issue_ticket(
         pool,
@@ -429,7 +431,7 @@ pub fn create_application_key(
     });
     let created_at = extract_datetime(overrides, "created_at", time::OffsetDateTime::now_utc);
     let expires_at = extract_datetime(overrides, "expires_at", || {
-        time::OffsetDateTime::now_utc() + time::Duration::days(90)
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::days(90)
     });
 
     pool.insert_application_key(
@@ -464,7 +466,7 @@ pub fn create_application_key_attestation(
         .unwrap_or_else(|| format!("test-attestation-{}", rand_suffix()).into_bytes());
     let attested_at = extract_datetime(overrides, "attested_at", time::OffsetDateTime::now_utc);
     let expires_at = extract_datetime(overrides, "expires_at", || {
-        time::OffsetDateTime::now_utc() + time::Duration::hours(24)
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(24)
     });
 
     pool.upsert_application_key_attestation(

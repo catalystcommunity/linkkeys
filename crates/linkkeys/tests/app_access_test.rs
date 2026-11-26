@@ -79,14 +79,14 @@ fn add_claim(pool: &DbPool, user_id: &str, claim_type: &str, value: &str) {
         value.as_bytes(),
         &[],
         None,
-        time::OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     )
     .expect("claim");
 }
 
 /// A `YYYY-MM-DD` birth date `years` years before today, minus `days` days.
 fn birth_date(years: i32, days: i64) -> String {
-    let today = time::OffsetDateTime::now_utc().date();
+    let today = liblinkkeys::timestamp::now_whole_milliseconds().date();
     let year = today.year() - years;
     // 29 February moves to 28 February in a year that has no 29th.
     let day = today.day().min(today.month().length(year));

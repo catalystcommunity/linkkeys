@@ -50,7 +50,7 @@ fn worker_delivers_and_redacts_the_secret_payload() {
         &user.id,
         &key,
         "verify_contact",
-        time::OffsetDateTime::now_utc() + time::Duration::hours(1),
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(1),
     );
     let transport = Arc::new(InMemoryEmailTransport::default());
     let channel = Arc::new(EmailDeliveryChannel::new(
@@ -92,7 +92,7 @@ fn worker_retries_temporary_failures_and_redacts_terminal_failures() {
         &user.id,
         &key,
         "verify_contact",
-        time::OffsetDateTime::now_utc() + time::Duration::hours(1),
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(1),
     );
     transport.fail_next(DeliveryFailure {
         category: "smtp_timeout",
@@ -106,14 +106,14 @@ fn worker_retries_temporary_failures_and_redacts_terminal_failures() {
     assert_eq!(retry.state, "pending");
     assert_eq!(retry.last_error.as_deref(), Some("smtp_timeout"));
     assert!(retry.encrypted_payload.is_some());
-    assert!(retry.next_attempt_at > time::OffsetDateTime::now_utc());
+    assert!(retry.next_attempt_at > liblinkkeys::timestamp::now_whole_milliseconds());
 
     enqueue(
         &pool,
         &user.id,
         &key,
         "verify_contact",
-        time::OffsetDateTime::now_utc() + time::Duration::hours(1),
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(1),
     );
     transport.fail_next(DeliveryFailure {
         category: "smtp_permanent",
@@ -159,7 +159,7 @@ fn worker_times_out_before_its_lease_and_stops_at_max_attempts() {
         &user.id,
         &key,
         "verify_contact",
-        time::OffsetDateTime::now_utc() + time::Duration::hours(1),
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(1),
     );
     let worker = OutboxWorker::new(pool.clone(), Arc::new(NeverDelivery), key, 1, 2);
 
@@ -183,7 +183,7 @@ fn leases_prevent_two_workers_from_claiming_the_same_item() {
         &user.id,
         &key,
         "verify_contact",
-        time::OffsetDateTime::now_utc() + time::Duration::hours(1),
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(1),
     );
     let first = pool
         .claim_notification_outbox("email", "worker-one", 60)
@@ -198,7 +198,7 @@ fn leases_prevent_two_workers_from_claiming_the_same_item() {
             &first.id,
             "worker-two",
             "pending",
-            time::OffsetDateTime::now_utc(),
+            liblinkkeys::timestamp::now_whole_milliseconds(),
             Some("retry"),
             false,
         )
@@ -210,7 +210,7 @@ fn leases_prevent_two_workers_from_claiming_the_same_item() {
             &first.id,
             "worker-one",
             "pending",
-            time::OffsetDateTime::now_utc(),
+            liblinkkeys::timestamp::now_whole_milliseconds(),
             Some("retry"),
             false,
         )
@@ -235,7 +235,7 @@ fn expiry_redacts_pending_payloads() {
         &user.id,
         &key,
         "verify_contact",
-        time::OffsetDateTime::now_utc() - time::Duration::seconds(1),
+        liblinkkeys::timestamp::now_whole_milliseconds() - time::Duration::seconds(1),
     );
     assert_eq!(pool.expire_notification_outbox().unwrap(), 1);
     let item = pool
@@ -279,7 +279,7 @@ fn sqlite_workers_claim_one_item_once_across_connections() {
         &user.id,
         &[11_u8; 32],
         "verify_contact",
-        time::OffsetDateTime::now_utc() + time::Duration::hours(1),
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(1),
     );
 
     let barrier = Arc::new(Barrier::new(3));
@@ -339,7 +339,7 @@ fn postgres_workers_claim_one_item_once_across_connections() {
         &user.id,
         &[13_u8; 32],
         "verify_contact",
-        time::OffsetDateTime::now_utc() + time::Duration::hours(1),
+        liblinkkeys::timestamp::now_whole_milliseconds() + time::Duration::hours(1),
     );
 
     let barrier = Arc::new(Barrier::new(3));

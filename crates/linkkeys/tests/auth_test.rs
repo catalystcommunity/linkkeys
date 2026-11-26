@@ -219,7 +219,8 @@ fn test_expired_credential_rejected_in_auth_flow() {
     let cred = create_auth_credential(&pool, &user.id, auth::CREDENTIAL_TYPE_PASSWORD, &hash);
 
     // Expire the credential
-    let past = (time::OffsetDateTime::now_utc() - time::Duration::hours(1)).to_rfc3339();
+    let past =
+        (liblinkkeys::timestamp::now_whole_milliseconds() - time::Duration::hours(1)).to_rfc3339();
     pool.set_credential_expires_at(&cred.id, &past).unwrap();
 
     // find_for_user filters out expired credentials

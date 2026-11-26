@@ -233,7 +233,7 @@ async fn validate_reports_silent_consent_from_a_standing_grant() {
             b"a@b.com",
             &[],
             None,
-            time::OffsetDateTime::now_utc(),
+            liblinkkeys::timestamp::now_whole_milliseconds(),
         )
         .expect("email claim");
 
@@ -383,7 +383,7 @@ async fn forced_claim_without_a_value_does_not_reopen_consent() {
         b"a@b.com",
         &[],
         None,
-        time::OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     )
     .expect("email claim");
 
@@ -453,7 +453,7 @@ async fn forced_claim_without_a_value_does_not_reopen_consent() {
         b"true",
         &[],
         None,
-        time::OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     )
     .expect("over_21 claim");
     let sr = signed_claims_request(
@@ -522,7 +522,7 @@ async fn seeded_idp() -> (
             value,
             &[],
             None,
-            time::OffsetDateTime::now_utc(),
+            liblinkkeys::timestamp::now_whole_milliseconds(),
         )
         .expect("claim");
     }

@@ -13,7 +13,7 @@ use linkkeys::db::local_rp as db;
 use linkkeys::services::local_rp::{
     self, PendingAttemptError, PendingAttemptOutcome, StatusTransitionError, TicketRedeemError,
 };
-use time::{Duration, OffsetDateTime};
+use time::Duration;
 
 fn setup() -> linkkeys::db::DbPool {
     std::env::set_var("DOMAIN_KEY_PASSPHRASE", "test-passphrase");
@@ -586,7 +586,7 @@ fn ticket_issue_and_redeem_succeeds_for_approved_rp() {
         &pool,
         &ticket.ticket_hash,
         &ticket.fingerprint,
-        OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     )
     .unwrap();
     assert_eq!(redeemed.ticket_hash, ticket.ticket_hash);
@@ -602,7 +602,7 @@ fn ticket_redemption_is_multi_use_within_window() {
         &pool,
         &ticket.ticket_hash,
         &ticket.fingerprint,
-        OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     )
     .unwrap();
     // Redeeming again later (still within the window) must still succeed —
@@ -611,7 +611,7 @@ fn ticket_redemption_is_multi_use_within_window() {
         &pool,
         &ticket.ticket_hash,
         &ticket.fingerprint,
-        OffsetDateTime::now_utc() + Duration::minutes(1),
+        liblinkkeys::timestamp::now_whole_milliseconds() + Duration::minutes(1),
     )
     .unwrap();
     assert_eq!(second.ticket_hash, ticket.ticket_hash);
@@ -637,7 +637,7 @@ fn ticket_redemption_rejects_wrong_authenticated_fingerprint() {
         &pool,
         &ticket.ticket_hash,
         &other_rp.fingerprint,
-        OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     )
     .unwrap_err();
     assert!(matches!(err, TicketRedeemError::FingerprintMismatch));
@@ -647,7 +647,7 @@ fn ticket_redemption_rejects_wrong_authenticated_fingerprint() {
         &pool,
         &ticket.ticket_hash,
         &ticket.fingerprint,
-        OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     )
     .unwrap();
 }
@@ -658,7 +658,9 @@ fn expired_ticket_redemption_fails() {
     let mut overrides = DataMap::new();
     overrides.insert(
         "expires_at".to_string(),
-        serde_json::json!((OffsetDateTime::now_utc() - Duration::minutes(5)).to_rfc3339()),
+        serde_json::json!((liblinkkeys::timestamp::now_whole_milliseconds()
+            - Duration::minutes(5))
+        .to_rfc3339()),
     );
     let ticket = data_factory::create_local_rp_claim_ticket(&pool, &overrides);
 
@@ -666,7 +668,7 @@ fn expired_ticket_redemption_fails() {
         &pool,
         &ticket.ticket_hash,
         &ticket.fingerprint,
-        OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     )
     .unwrap_err();
     assert!(matches!(err, TicketRedeemError::Expired));
@@ -698,7 +700,7 @@ fn revoked_rp_kills_outstanding_tickets() {
         &pool,
         &ticket.ticket_hash,
         &rp.fingerprint,
-        OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     )
     .unwrap();
 
@@ -715,7 +717,7 @@ fn revoked_rp_kills_outstanding_tickets() {
         &pool,
         &ticket.ticket_hash,
         &rp.fingerprint,
-        OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     )
     .unwrap_err();
     assert!(matches!(err, TicketRedeemError::NotFound));
@@ -730,7 +732,7 @@ fn wrong_ticket_hash_is_not_found() {
         &pool,
         &bogus_hash,
         &_ticket.fingerprint,
-        OffsetDateTime::now_utc(),
+        liblinkkeys::timestamp::now_whole_milliseconds(),
     )
     .unwrap_err();
     assert!(matches!(err, TicketRedeemError::NotFound));
@@ -743,13 +745,17 @@ fn purge_expired_tickets_removes_only_expired_rows() {
     let mut expired_overrides = DataMap::new();
     expired_overrides.insert(
         "expires_at".to_string(),
-        serde_json::json!((OffsetDateTime::now_utc() - Duration::minutes(5)).to_rfc3339()),
+        serde_json::json!((liblinkkeys::timestamp::now_whole_milliseconds()
+            - Duration::minutes(5))
+        .to_rfc3339()),
     );
     let expired = data_factory::create_local_rp_claim_ticket(&pool, &expired_overrides);
 
     let valid = data_factory::create_local_rp_claim_ticket(&pool, &DataMap::new());
 
-    let purged = local_rp::purge_expired_tickets(&pool, OffsetDateTime::now_utc()).unwrap();
+    let purged =
+        local_rp::purge_expired_tickets(&pool, liblinkkeys::timestamp::now_whole_milliseconds())
+            .unwrap();
     assert_eq!(purged, 1);
 
     assert!(pool

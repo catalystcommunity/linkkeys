@@ -55,7 +55,7 @@ fn new_session_hours(pool: &linkkeys::db::DbPool) -> i64 {
     let user = create_user(pool, &DataMap::new());
     let evidence = AuthenticationEvidence {
         method_types: ["password".to_string()].into_iter().collect(),
-        authenticated_at: time::OffsetDateTime::now_utc(),
+        authenticated_at: liblinkkeys::timestamp::now_whole_milliseconds(),
     };
     let (_, session) = browser_session::create(pool, &user.id, &evidence).expect("session");
     let issued = session.issued_at;
